@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.local
+.DS_Store
+coverage/
+.turbo/
+.cache/
+*.log
+apps/dllm-worker/.venv/
+apps/dllm-worker/__pycache__/
+data/
+reports/
+
