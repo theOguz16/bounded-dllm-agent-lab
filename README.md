@@ -240,6 +240,7 @@ These commands mirror the CI gate:
 ```bash
 npm run typecheck
 npm run build
+npm run test:smoke
 npm run eval:demo
 python3 -m py_compile apps/dllm-worker/worker.py
 ```
