@@ -77,9 +77,12 @@ A workspace is a structured representation of the task and the agent state. It c
 - patch intent,
 - conflict records,
 - verifier results,
+- trace events,
+- active agent roles,
 - final decision.
 
 The workspace is the shared object. Agents do not merely pass messages to each other. They write structured claims and refinements into the same state.
+Every claim, boundary decision, verifier result, mask action, and final result can be traced back to a role. This is the foundation for measuring whether multiple agents collaborate without overwriting each other.
 
 ## What "Agent" Means Here
 
@@ -231,4 +234,3 @@ The first demo uses a deterministic mock engine. Real dLLM inference will be add
 ## Status
 
 This repository is at research scaffold stage. The first work is to define the benchmark, workspace schema, masking policy, and model adapter interface before connecting a real dLLM.
-

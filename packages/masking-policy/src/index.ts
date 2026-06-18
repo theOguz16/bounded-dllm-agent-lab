@@ -1,4 +1,4 @@
-import type { SharedSemanticWorkspace, WorkspaceRegion } from "../../workspace-core/src/index.js";
+import { markRegionsMasked, type SharedSemanticWorkspace, type WorkspaceRegion } from "../../workspace-core/src/index.js";
 
 export type MaskView = "planner" | "implementer" | "reviewer" | "verifier" | "boundary";
 
@@ -25,16 +25,12 @@ export function defaultMaskingPolicy(view: MaskView): MaskingPolicy {
 }
 
 export function applyMaskingPolicy(workspace: SharedSemanticWorkspace, policy: MaskingPolicy): SharedSemanticWorkspace {
-  return {
-    ...workspace,
-    maskedRegions: Array.from(new Set([...workspace.maskedRegions, ...policy.regions]))
-  };
+  // Masking artık sessiz bir array güncellemesi değil. Ortak workspace'te hangi rolün
+  // hangi alanı yeniden üretime açtığını trace'e yazıyoruz. Bu bilgi olmadan çoklu
+  // agent akışında "kim neyi ezdi?" sorusunu sonradan ölçmek zorlaşır.
+  return markRegionsMasked(workspace, policy.regions, policy.view, policy.reason);
 }
 
 export function remaskAfterFailure(workspace: SharedSemanticWorkspace, failedRegions: WorkspaceRegion[]): SharedSemanticWorkspace {
-  return {
-    ...workspace,
-    maskedRegions: Array.from(new Set(failedRegions))
-  };
+  return markRegionsMasked(workspace, failedRegions, "verifier", "Verifier requested failed regions to be remasked.");
 }
-

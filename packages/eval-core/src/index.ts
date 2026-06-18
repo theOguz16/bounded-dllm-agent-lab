@@ -151,6 +151,7 @@ export function scoreCase(testCase: BenchmarkCase, workspace: SharedSemanticWork
   const output = JSON.stringify({
     claims: workspace.claims,
     conflicts: workspace.conflicts,
+    verifierResults: workspace.verifierResults,
     boundaryDecision: workspace.boundaryDecision,
     finalResult: workspace.finalResult
   }).toLowerCase();
@@ -162,10 +163,22 @@ export function scoreCase(testCase: BenchmarkCase, workspace: SharedSemanticWork
     ? workspace.boundaryDecision?.status === testCase.expectedBoundary
     : true;
   const expectedResultHit = output.includes(testCase.expectedResult.toLowerCase());
-  const usedEvidenceIds = new Set(workspace.claims.flatMap((claim) => claim.evidenceIds));
+  const usedEvidenceIds = new Set([
+    ...workspace.claims.flatMap((claim) => claim.evidenceIds),
+    ...workspace.verifierResults.flatMap((result) => result.evidenceIds)
+  ]);
   const evidenceHits = testCase.expectedEvidenceIds.filter((evidenceId) => usedEvidenceIds.has(evidenceId)).length;
   const evidenceCoverage = ratio(evidenceHits, testCase.expectedEvidenceIds.length);
-  const hasTrace = Boolean(workspace.finalResult && workspace.boundaryDecision && (testCase.expectedEvidenceIds.length === 0 || evidenceHits > 0));
+  // Issue #5 ile traceCompleteness artık sadece "cevap var mı?" sorusu değildir.
+  // Bir agentic workspace'in bilimsel olarak incelenebilmesi için sonuç, boundary kararı,
+  // evidence kullanımı, verifier izi ve transaction trace'i birlikte bulunmalıdır.
+  const hasTrace = Boolean(
+    workspace.finalResult &&
+      workspace.boundaryDecision &&
+      workspace.verifierResults.length > 0 &&
+      workspace.trace.length > 0 &&
+      (testCase.expectedEvidenceIds.length === 0 || evidenceHits > 0)
+  );
   const contextTokens = Math.ceil(JSON.stringify(workspace.packet).length / 4);
   const contextBudgetTokens = workspace.packet.contextBudgetTokens;
   const correctionOverride = testCase.family === "correction_override" ? Number(requiredTermCoverage === 1 && !forbiddenHit) : 1;

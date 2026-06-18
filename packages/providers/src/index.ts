@@ -1,4 +1,10 @@
-import type { SharedSemanticWorkspace } from "../../workspace-core/src/index.js";
+import {
+  addClaim,
+  addVerifierResult,
+  setBoundaryDecision,
+  setFinalResult,
+  type SharedSemanticWorkspace
+} from "../../workspace-core/src/index.js";
 
 export type ModelMode = "llm" | "dllm";
 
@@ -20,6 +26,7 @@ export class MockDllmEngine implements ModelEngine {
 
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
+    const createdAt = new Date(started).toISOString();
     const currentFact = workspace.packet.facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
     const sensitiveFact = workspace.packet.facts.find((fact) => fact.kind === "sensitive");
     const selectedFact = currentFact ?? sensitiveFact;
@@ -36,34 +43,51 @@ export class MockDllmEngine implements ModelEngine {
       ? {
           status: "insufficient_context" as const,
           reason: "Required information is missing from the bounded context packet.",
-          missingInformation: missing
+          missingInformation: missing,
+          decidedBy: "boundary" as const,
+          createdAt
         }
       : {
           status: "sufficient_context" as const,
           reason: "The bounded context packet contains enough task-relevant evidence.",
-          missingInformation: []
+          missingInformation: [],
+          decidedBy: "boundary" as const,
+          createdAt
         };
+    const finalResult =
+      currentFact?.content ??
+      (sensitiveFact ? safeSensitiveContent : "No current fact was available in the bounded context packet.");
+    let refined = setBoundaryDecision(workspace, boundaryDecision);
+
+    if (selectedFact) {
+      refined = addClaim(refined, {
+        id: `claim-${selectedFact.id}`,
+        region: "final_result",
+        actor: "implementer",
+        content: selectedFact.kind === "sensitive" ? safeSensitiveContent : selectedFact.content,
+        evidenceIds: [selectedFact.evidenceId],
+        confidence: selectedFact.confidence,
+        state: "accepted",
+        createdAt
+      });
+    }
+
+    // Verifier sonucu burada basit görünüyor ama mimari olarak çok önemli: agent'ın
+    // ürettiği claim ile boundary kararı aynı workspace'te doğrulanabilir bir kayıt
+    // bırakıyor. Gerçek model geldiğinde bu alan lint, test, policy ve conflict
+    // kontrollerinin çıktısını taşıyacak.
+    refined = addVerifierResult(refined, {
+      id: `verifier-${workspace.packet.id}`,
+      status: boundaryDecision.status === "sufficient_context" || boundaryDecision.status === "insufficient_context" ? "pass" : "warn",
+      checkName: "bounded-context-safety",
+      summary: "Mock verifier checked boundary status and evidence-backed claim production.",
+      evidenceIds: selectedFact ? [selectedFact.evidenceId] : [],
+      createdAt
+    });
+    refined = setFinalResult(refined, finalResult, "implementer", createdAt);
 
     return {
-      workspace: {
-        ...workspace,
-        claims: selectedFact
-          ? [
-              ...workspace.claims,
-              {
-                id: `claim-${selectedFact.id}`,
-                region: "final_result",
-                content: selectedFact.kind === "sensitive" ? safeSensitiveContent : selectedFact.content,
-                evidenceIds: [selectedFact.evidenceId],
-                confidence: selectedFact.confidence
-              }
-            ]
-          : workspace.claims,
-        boundaryDecision,
-        finalResult:
-          currentFact?.content ??
-          (sensitiveFact ? safeSensitiveContent : "No current fact was available in the bounded context packet.")
-      },
+      workspace: refined,
       latencyMs: Date.now() - started,
       engineName: this.name
     };

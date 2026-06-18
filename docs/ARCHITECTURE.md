@@ -70,14 +70,44 @@ It is not a chat transcript. It is closer to a task board, scratchpad, diff plan
 The workspace includes:
 
 - context packet,
+- active agent roles,
 - agent claims,
 - masked regions,
 - proposed refinements,
 - conflicts,
 - boundary decisions,
-- verifier results.
+- verifier results,
+- trace events.
 
 Every refinement should be traceable to a region of the workspace.
+
+Issue #5 turns this idea into a concrete workspace contract. The project does
+not model agents as separate chat windows that pass text to each other. It
+models them as roles writing into one shared semantic object:
+
+```text
+planner / implementer / reviewer / verifier / boundary
+  -> claims
+  -> conflicts
+  -> boundary decisions
+  -> verifier results
+  -> trace events
+  -> final result
+```
+
+This matters because a collaborative coding agent must answer questions that a
+chat transcript cannot answer reliably:
+
+- which role created this claim,
+- which evidence supports it,
+- which region was masked or regenerated,
+- whether a verifier accepted or warned about it,
+- whether two claims conflict,
+- which final result was produced from the shared state.
+
+In other words, the workspace is the coordination layer. The model can change
+later, but the research needs this state object first so every architecture can
+be compared under the same rules.
 
 ## Masking Policy
 
@@ -144,4 +174,3 @@ scope-safe agent runtime for software teams
 ```
 
 The product would not only write code. It would manage safe software changes under context, ownership, memory, and verification constraints.
-
