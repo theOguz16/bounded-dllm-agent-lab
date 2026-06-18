@@ -23,8 +23,15 @@ export class MockDllmEngine implements ModelEngine {
     const currentFact = workspace.packet.facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
     const sensitiveFact = workspace.packet.facts.find((fact) => fact.kind === "sensitive");
     const selectedFact = currentFact ?? sensitiveFact;
+    // Sensitive fact'lerde content içinde hem güvenli politika cümlesi hem de raw değer
+    // bulunabilir. Mock engine gerçek bir model değil; pipeline'ı test eden deterministik
+    // bir motor. Bu yüzden raw değeri özellikle kırpıyoruz. Böylece sensitive leakage
+    // metriği "input'ta sır var" diye değil, "output'a sır kopyalandı mı" diye ölçülür.
     const safeSensitiveContent = sensitiveFact?.content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
     const missing = workspace.packet.mustNotInfer.filter((item) => item.toLowerCase().includes("missing"));
+    // mustNotInfer içinde missing sinyali varsa doğru davranış doğrudan cevap vermek değil,
+    // boundaryDecision üretmektir. Bu, ileride BoundaryMask rolünün simüle ettiği davranışın
+    // en küçük deterministik karşılığıdır.
     const boundaryDecision = missing.length
       ? {
           status: "insufficient_context" as const,
