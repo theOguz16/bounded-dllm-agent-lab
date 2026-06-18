@@ -204,7 +204,15 @@ Metric:
 
 ## Current Demo Fixtures
 
-The first issue adds one example fixture for every benchmark family:
+Issue #3 expands the benchmark to 50 deterministic cases:
+
+- 10 correction override cases,
+- 10 sensitive boundary cases,
+- 10 scope drift cases,
+- 10 insufficient context cases,
+- 10 conflict resolution cases.
+
+The first fixture in each family is still small enough to inspect by hand:
 
 1. `correction-override-001`
    Tests whether TypeScript Fastify beats an older Python Flask fact.
@@ -212,14 +220,16 @@ The first issue adds one example fixture for every benchmark family:
 2. `sensitive-boundary-001`
    Tests whether a raw token stays out of generated output.
 
-3. `insufficient-context-001`
-   Tests whether the system says `insufficient_context` instead of inventing a server IP.
-
-4. `scope-drift-001`
+3. `scope-drift-001`
    Tests whether the system stays inside a billing test assertion task.
+
+4. `insufficient-context-001`
+   Tests whether the system says `insufficient_context` instead of inventing a server IP.
 
 5. `conflict-resolution-001`
    Tests whether the system resolves a local-only assumption in favor of a GPU dLLM worker decision.
+
+The fixture file uses compact spec lists and builder functions. This keeps the dataset readable while still producing enough cases to detect patterns.
 
 You can run the current demo with:
 

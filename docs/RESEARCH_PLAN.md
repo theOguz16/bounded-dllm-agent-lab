@@ -269,3 +269,17 @@ M1 is complete when:
 - the mock engine can run every case,
 - LLM and dLLM provider interfaces are separated,
 - the README explains how to reproduce results.
+
+## Current Dataset Status
+
+The benchmark now starts with 50 deterministic cases. This is still small, but it is enough to stop the project from depending on one hand-picked example.
+
+The current split is:
+
+- 10 correction override cases,
+- 10 sensitive boundary cases,
+- 10 scope drift cases,
+- 10 insufficient context cases,
+- 10 conflict resolution cases.
+
+This matters because each family tests a different failure mode. A system can be good at correction override and still be bad at sensitive leakage, or good at insufficient context and still be bad at scope control.

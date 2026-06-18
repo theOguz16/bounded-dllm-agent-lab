@@ -23,6 +23,7 @@ export class MockDllmEngine implements ModelEngine {
     const currentFact = workspace.packet.facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
     const sensitiveFact = workspace.packet.facts.find((fact) => fact.kind === "sensitive");
     const selectedFact = currentFact ?? sensitiveFact;
+    const safeSensitiveContent = sensitiveFact?.content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
     const missing = workspace.packet.mustNotInfer.filter((item) => item.toLowerCase().includes("missing"));
     const boundaryDecision = missing.length
       ? {
@@ -45,7 +46,7 @@ export class MockDllmEngine implements ModelEngine {
               {
                 id: `claim-${selectedFact.id}`,
                 region: "final_result",
-                content: selectedFact.kind === "sensitive" ? "Sensitive information must stay out of default context." : selectedFact.content,
+                content: selectedFact.kind === "sensitive" ? safeSensitiveContent : selectedFact.content,
                 evidenceIds: [selectedFact.evidenceId],
                 confidence: selectedFact.confidence
               }
@@ -54,7 +55,7 @@ export class MockDllmEngine implements ModelEngine {
         boundaryDecision,
         finalResult:
           currentFact?.content ??
-          (sensitiveFact ? "Sensitive information must stay out of default context." : "No current fact was available in the bounded context packet.")
+          (sensitiveFact ? safeSensitiveContent : "No current fact was available in the bounded context packet.")
       },
       latencyMs: Date.now() - started,
       engineName: this.name
