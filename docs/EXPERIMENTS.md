@@ -258,6 +258,11 @@ The command writes two report files under `reports/`:
 
 The JSON and Markdown files come from the same `BenchmarkArtifact`, so they should always describe the same run.
 
+Issue #17 adds a family breakdown table to each report. This matters because a
+single global average can hide architecture weaknesses. A system can be strong
+on correction override but weak on sensitive boundary, or strong on insufficient
+context but weak on scope drift.
+
 Issue #11 adds a third file beside those reports:
 
 - a `.manifest.json` file for experiment conditions.

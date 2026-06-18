@@ -34,6 +34,7 @@ export type MetricDefinition = {
 // sorusuna da cevap verebilir.
 export type CaseScore = {
   caseId: string;
+  family: BenchmarkFamily;
   taskSuccess: 0 | 1;
   requiredTermCoverage: number;
   forbiddenTermHitCount: number;
@@ -49,11 +50,24 @@ export type CaseScore = {
   contextBudgetUtilization: number;
 };
 
+export type FamilyScore = {
+  family: BenchmarkFamily;
+  caseCount: number;
+  taskSuccessRate: number;
+  scopeDriftRate: number;
+  sensitiveLeakageRate: number;
+  boundaryAccuracy: number;
+  evidenceCoverage: number;
+  traceCompletenessRate: number;
+  averageContextBudgetUtilization: number;
+};
+
 // Report, case bazlı skorları mimari seviyesindeki metriklere toplar. İleride
 // Long Context LLM, RAG LLM, Synthetic Context LLM ve Bounded dLLM sistemlerini
 // bu nesne üzerinden karşılaştıracağız.
 export type BenchmarkReport = {
   cases: CaseScore[];
+  familyBreakdown: FamilyScore[];
   taskSuccessRate: number;
   requiredTermCoverage: number;
   forbiddenTermHitRate: number;
@@ -250,6 +264,7 @@ export function scoreCase(testCase: BenchmarkCase, workspace: SharedSemanticWork
 
   return {
     caseId: testCase.id,
+    family: testCase.family,
     taskSuccess: binary(requiredTermCoverage === 1 && expectedResultHit && !forbiddenHit && boundaryMatches),
     requiredTermCoverage,
     forbiddenTermHitCount,
@@ -269,6 +284,10 @@ export function scoreCase(testCase: BenchmarkCase, workspace: SharedSemanticWork
 export function aggregateScores(cases: CaseScore[]): BenchmarkReport {
   return {
     cases,
+    // Genel ortalama tek başına yanıltıcı olabilir. Bir mimari correction_override'da
+    // iyi olup sensitive_boundary'de zayıf kalabilir. Family breakdown bu farklı
+    // hata modlarını ayrı ayrı görünür yapar.
+    familyBreakdown: aggregateFamilyScores(cases),
     taskSuccessRate: average(cases.map((item) => item.taskSuccess)),
     requiredTermCoverage: average(cases.map((item) => item.requiredTermCoverage)),
     forbiddenTermHitRate: ratio(cases.filter((item) => item.forbiddenTermHitCount > 0).length, cases.length),
@@ -282,6 +301,26 @@ export function aggregateScores(cases: CaseScore[]): BenchmarkReport {
     averageContextTokens: average(cases.map((item) => item.contextTokens)),
     averageContextBudgetUtilization: average(cases.map((item) => item.contextBudgetUtilization))
   };
+}
+
+function aggregateFamilyScores(cases: CaseScore[]): FamilyScore[] {
+  const families = Array.from(new Set(cases.map((item) => item.family))).sort();
+
+  return families.map((family) => {
+    const familyCases = cases.filter((item) => item.family === family);
+
+    return {
+      family,
+      caseCount: familyCases.length,
+      taskSuccessRate: average(familyCases.map((item) => item.taskSuccess)),
+      scopeDriftRate: average(familyCases.map((item) => item.scopeDrift)),
+      sensitiveLeakageRate: average(familyCases.map((item) => item.sensitiveLeakage)),
+      boundaryAccuracy: average(familyCases.map((item) => item.boundaryAccuracy)),
+      evidenceCoverage: average(familyCases.map((item) => item.evidenceCoverage)),
+      traceCompletenessRate: average(familyCases.map((item) => item.traceCompleteness)),
+      averageContextBudgetUtilization: average(familyCases.map((item) => item.contextBudgetUtilization))
+    };
+  });
 }
 
 export function createBenchmarkArtifact(input: {
@@ -356,6 +395,23 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
     "## Summary Metrics",
     "",
     table(["Metric", "Value"], summaryRows),
+    "",
+    "## Family Breakdown",
+    "",
+    table(
+      ["Family", "Cases", "Task", "Drift", "Leakage", "Boundary", "Evidence", "Trace", "Budget Used"],
+      artifact.report.familyBreakdown.map((score) => [
+        score.family,
+        score.caseCount.toString(),
+        percent(score.taskSuccessRate),
+        percent(score.scopeDriftRate),
+        percent(score.sensitiveLeakageRate),
+        percent(score.boundaryAccuracy),
+        percent(score.evidenceCoverage),
+        percent(score.traceCompletenessRate),
+        percent(score.averageContextBudgetUtilization)
+      ])
+    ),
     "",
     "## Case Results",
     "",
