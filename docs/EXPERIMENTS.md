@@ -299,3 +299,11 @@ The command scans `reports/*.manifest.json` and writes:
 
 This comparison artifact lets us read architecture-level results side by side
 instead of opening each run report manually.
+
+## Failure Review
+
+Issue #16 adds a human review rubric in `docs/FAILURE_REVIEW.md`.
+
+Human review is used only when deterministic metrics are not expressive enough
+to explain a semantic failure. It complements benchmark metrics; it does not
+replace them.
