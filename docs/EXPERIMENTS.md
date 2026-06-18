@@ -79,10 +79,24 @@ Fields:
 - `description`: what the case is testing.
 - `requiredTerms`: terms that must appear in generated output.
 - `forbiddenTerms`: terms that must not appear in generated output.
+- `expectedEvidenceIds`: evidence ids that should appear in the generated trace.
 - `expectedBoundary`: optional boundary decision such as `insufficient_context`.
 - `expectedResult`: exact expected result signal.
 
 This is intentionally simple for the first milestone. We want deterministic scoring before using more subjective judge models.
+
+### Why Evidence IDs Matter
+
+The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.
+
+Example:
+
+```text
+Answer: The backend will be TypeScript Fastify.
+Evidence id: memory-correction.
+```
+
+If the answer is right but the evidence is missing, the system may still be hard to audit. This is why issue #2 adds `expectedEvidenceIds`.
 
 ## Experiment 1: Correction Override
 

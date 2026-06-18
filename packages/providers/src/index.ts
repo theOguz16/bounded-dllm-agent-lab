@@ -22,6 +22,7 @@ export class MockDllmEngine implements ModelEngine {
     const started = Date.now();
     const currentFact = workspace.packet.facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
     const sensitiveFact = workspace.packet.facts.find((fact) => fact.kind === "sensitive");
+    const selectedFact = currentFact ?? sensitiveFact;
     const missing = workspace.packet.mustNotInfer.filter((item) => item.toLowerCase().includes("missing"));
     const boundaryDecision = missing.length
       ? {
@@ -38,6 +39,18 @@ export class MockDllmEngine implements ModelEngine {
     return {
       workspace: {
         ...workspace,
+        claims: selectedFact
+          ? [
+              ...workspace.claims,
+              {
+                id: `claim-${selectedFact.id}`,
+                region: "final_result",
+                content: selectedFact.kind === "sensitive" ? "Sensitive information must stay out of default context." : selectedFact.content,
+                evidenceIds: [selectedFact.evidenceId],
+                confidence: selectedFact.confidence
+              }
+            ]
+          : workspace.claims,
         boundaryDecision,
         finalResult:
           currentFact?.content ??
