@@ -226,6 +226,10 @@ export function createBenchmarkArtifact(input: {
   createdAt: string;
   report: BenchmarkReport;
 }): BenchmarkArtifact {
+  // BenchmarkArtifact, deney sonucunun paketlenmiş halidir. Bunu ayrı bir tipe
+  // almamızın nedeni raporun sadece terminal çıktısı olmaması: aynı veri hem JSON'a
+  // yazılır, hem Markdown'a çevrilir, hem de ileride dashboard veya web arayüzü
+  // tarafından okunabilir.
   return {
     suiteName: input.suiteName,
     engineName: input.engineName,
@@ -238,6 +242,14 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
   // Markdown raporu insan için üretilir. JSON tüm ayrıntıları taşır; Markdown ise
   // araştırmacının hızlıca "hangi metrik iyi, hangi metrik kötü?" sorusunu görmesini sağlar.
   // Bu yüzden önce özet metrik tablosu, sonra case bazlı tablo yazıyoruz.
+  // Bu ayrım araştırmada çok önemlidir: JSON makinenin dili, Markdown insanın dilidir.
+  // Aynı sonucu iki biçimde üretmek, hem otomasyonun hem de öğrencinin/araştırmacının
+  // aynı deney verisini anlayabilmesini sağlar.
+  //
+  // Claim bir "iddia"dır: agent'ın workspace'e yazdığı ara savdır. Final result ise
+  // deney sonunda üretilen son karar/son cevaptır. Rapor burada claim'leri tek tek
+  // göstermese bile metrikler claim, boundary, verifier ve final result zincirinden
+  // geldiği için sürecin izlenebilir kalmasını sağlar.
   const summaryRows = [
     ["Task Success Rate", percent(artifact.report.taskSuccessRate)],
     ["Required Term Coverage", percent(artifact.report.requiredTermCoverage)],
@@ -252,6 +264,10 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
     ["Average Context Tokens", artifact.report.averageContextTokens.toString()],
     ["Average Context Budget Utilization", percent(artifact.report.averageContextBudgetUtilization)]
   ];
+  // Summary tablosu "sistem genel olarak nasıl davrandı?" sorusunu cevaplar.
+  // Bu tek bir başarı skoru değildir; çünkü bu araştırmada asıl mesele sadece doğru
+  // cevabı üretmek değil, dar context içinde karar sürecinin ne kadar güvenilir,
+  // izlenebilir ve scope-safe kaldığını ölçmektir.
   const caseRows = artifact.report.cases.map((score) => [
     score.caseId,
     passFail(score.taskSuccess),
@@ -262,6 +278,9 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
     percent(score.evidenceCoverage),
     percent(score.contextBudgetUtilization)
   ]);
+  // Case tablosu "hangi senaryoda ne oldu?" sorusunu cevaplar. Böylece bir modelin
+  // ortalama skoru yüksek olsa bile örneğin sensitive_boundary veya insufficient_context
+  // ailesinde sistematik hata yapıp yapmadığını görebiliriz.
 
   return [
     `# Benchmark Report: ${artifact.suiteName}`,
@@ -289,11 +308,16 @@ function binary(value: boolean): 0 | 1 {
 }
 
 function ratio(numerator: number, denominator: number): number {
+  // Boş beklenti listelerinde oranı 1 kabul ediyoruz. Örneğin bir case'in beklenen
+  // evidence id'si yoksa evidenceCoverage'ı cezalandırmak doğru olmaz; çünkü ölçülecek
+  // bir eksik yoktur.
   if (!denominator) return 1;
   return round(numerator / denominator);
 }
 
 function average(values: number[]): number {
+  // Ortalama metrikler benchmark ailesinin genel davranışını gösterir. Tek tek case
+  // sonuçları gürültülü olabilir; ortalama bize mimarinin eğilimini verir.
   if (!values.length) return 0;
   return round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
@@ -303,14 +327,20 @@ function round(value: number): number {
 }
 
 function percent(value: number): string {
+  // Raporu okuyan insan için 0.873 yerine 87.3% görmek daha hızlı anlaşılır.
+  // JSON tarafında ham sayı korunur; Markdown tarafında okunabilir biçime çevrilir.
   return `${Math.round(value * 1000) / 10}%`;
 }
 
 function passFail(value: 0 | 1): string {
+  // Case tablosunda 1/0 yerine pass/fail yazıyoruz. Böylece Markdown raporu daha
+  // hızlı taranır; ayrıntılı sayısal analiz gerekiyorsa JSON artifact kullanılabilir.
   return value ? "pass" : "fail";
 }
 
 function invert(value: 0 | 1): 0 | 1 {
+  // Bazı metriklerde 1 kötü durumu temsil eder: scopeDrift veya sensitiveLeakage gibi.
+  // Markdown'da kullanıcıya "Scope Safe" göstermek için bu değeri ters çeviriyoruz.
   return value ? 0 : 1;
 }
 
@@ -318,6 +348,9 @@ function table(headers: string[], rows: string[][]): string {
   // Markdown table formatı sade ama güçlüdür: GitHub üzerinde doğrudan okunur,
   // teknik rapora kopyalanabilir ve öğrencinin JSON içinde kaybolmadan metrikleri
   // karşılaştırmasını sağlar.
+  // Bu fonksiyonu küçük tutuyoruz çünkü raporlama formatı araştırma aracıdır, ana
+  // ürün mantığı değildir. İleride UI gelirse aynı BenchmarkArtifact verisi daha
+  // zengin grafiklere dönüştürülebilir.
   return [
     `| ${headers.join(" | ")} |`,
     `| ${headers.map(() => "---").join(" | ")} |`,

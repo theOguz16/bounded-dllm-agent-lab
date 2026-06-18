@@ -22,12 +22,20 @@ if (fixtureFailures.length) {
   throw new Error(JSON.stringify({ ok: false, fixtureFailures }, null, 2));
 } else {
   for (const fixture of demoFixtures) {
+    // Her fixture aynı pipeline'dan geçer: workspace oluştur, gerekli alanı maskele,
+    // mock dLLM engine ile refine et, sonra evaluator'a ver. Bu sıralama önemli,
+    // çünkü benchmark'ta "hangi model daha iyi?" demeden önce bütün adaylara aynı
+    // deney koşulunu vermemiz gerekir.
     const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
     const masked = applyMaskingPolicy(workspace, defaultMaskingPolicy("boundary"));
     const result = await engine.refineWorkspace(masked);
     scores.push(scoreCase(fixture.case, result.workspace));
   }
 
+  // Aggregate aşaması tek tek case sonuçlarını araştırma raporuna çevirir.
+  // Bir case'in geçmesi tek başına bilimsel sonuç değildir; önemli olan 50 case
+  // boyunca drift, leakage, evidence ve trace gibi süreç metriklerinin toplamda
+  // nasıl davrandığını görebilmektir.
   const report = aggregateScores(scores);
   const createdAt = new Date().toISOString();
   const safeTimestamp = createdAt.replace(/[:.]/g, "-");
@@ -43,10 +51,17 @@ if (fixtureFailures.length) {
   // Issue #4'te stdout çıktısını kalıcı araştırma artifact'ine çeviriyoruz. JSON
   // otomasyon için, Markdown ise insanın hızlı okuması için yazılır. İkisi aynı
   // artifact'ten üretildiği için birbirinden kopuk sonuçlar oluşmaz.
+  // Buradaki "artifact" deneyin delil dosyasıdır: ileride aynı benchmark'ı LLM,
+  // long-context LLM, RAG tabanlı agent ve bounded dLLM agent üzerinde çalıştırınca
+  // hepsi aynı formatta rapor üretecek. Böylece "bence iyi" yerine ölçülebilir
+  // karşılaştırma yapabileceğiz.
   await mkdir(reportDir, { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`);
   await writeFile(markdownPath, benchmarkArtifactToMarkdown(artifact));
 
+  // Console çıktısı kısa tutulur; detaylı sonuç dosyalara yazılır. CLI kullanan kişi
+  // terminalde rapor yollarını görür, araştırmacı ise JSON/Markdown dosyalarından
+  // gerçek analizi yapar.
   console.log(
     JSON.stringify(
       {
