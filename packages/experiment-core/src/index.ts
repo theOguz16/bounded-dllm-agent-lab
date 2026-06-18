@@ -113,7 +113,11 @@ export function validateRunManifest(manifest: ExperimentRunManifest): string[] {
   if (!manifest.modelVersion.trim()) failures.push("modelVersion is required");
   if (!Number.isInteger(manifest.seed)) failures.push("seed must be an integer");
   if (manifest.maxAttempts <= 0) failures.push("maxAttempts must be positive");
-  if (manifest.ablation.refinementMaxAttempts <= 0) failures.push("ablation.refinementMaxAttempts must be positive");
+  if (!manifest.ablation) {
+    failures.push("ablation is required");
+  } else if (manifest.ablation.refinementMaxAttempts <= 0) {
+    failures.push("ablation.refinementMaxAttempts must be positive");
+  }
   if (!manifest.maskPolicyVersion.trim()) failures.push("maskPolicyVersion is required");
   if (!manifest.gitCommit.trim()) failures.push("gitCommit is required");
   if (manifest.caseCount <= 0) failures.push("caseCount must be positive");

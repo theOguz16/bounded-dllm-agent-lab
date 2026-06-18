@@ -11,19 +11,26 @@ const reportDir = "reports";
 const files = await readdir(reportDir);
 const manifestFiles = files.filter((file) => file.endsWith(".manifest.json")).sort();
 const manifests: ExperimentRunManifest[] = [];
+const skippedManifests: Array<{ path: string; failures: string[] }> = [];
 
 for (const file of manifestFiles) {
   const path = join(reportDir, file);
   const manifest = JSON.parse(await readFile(path, "utf8")) as ExperimentRunManifest;
   const failures = validateRunManifest(manifest);
 
-  // Comparison komutu kötü manifest'i görmezden gelmez. Çünkü karşılaştırma tablosu
-  // bozuk bir run'ı içeri alırsa araştırmacı mimarileri yanlış yorumlayabilir.
+  // Comparison komutu bozuk manifest'i tabloya almaz. Eski veya eksik manifest'leri
+  // ayrıca raporlar; böylece araştırmacı hem karşılaştırmayı çalıştırabilir hem de
+  // hangi run kayıtlarının yeni lab sözleşmesine uymadığını görür.
   if (failures.length) {
-    throw new Error(JSON.stringify({ ok: false, path, failures }, null, 2));
+    skippedManifests.push({ path, failures });
+    continue;
   }
 
   manifests.push(manifest);
+}
+
+if (!manifests.length) {
+  throw new Error(JSON.stringify({ ok: false, skippedManifests }, null, 2));
 }
 
 const createdAt = new Date().toISOString();
@@ -39,6 +46,8 @@ console.log(
     {
       ok: true,
       runCount: artifact.runCount,
+      skippedCount: skippedManifests.length,
+      skippedManifests,
       jsonPath,
       markdownPath
     },
