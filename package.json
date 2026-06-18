@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "eval:demo": "node dist/apps/cli/src/index.js",
+    "reports:compare": "node dist/apps/cli/src/compare-reports.js",
     "worker:smoke": "node dist/apps/cli/src/worker-smoke.js",
     "clean": "rm -rf dist"
   },

@@ -41,6 +41,27 @@ export type ExperimentRunManifest = ExperimentConfig & {
   };
 };
 
+export type ExperimentComparisonRow = {
+  runId: string;
+  architectureName: string;
+  modelName: string;
+  modelVersion: string;
+  suiteName: string;
+  caseCount: number;
+  taskSuccessRate: number;
+  scopeDriftRate: number;
+  sensitiveLeakageRate: number;
+  evidenceCoverage: number;
+  traceCompletenessRate: number;
+  reportPath: string;
+};
+
+export type ExperimentComparisonArtifact = {
+  createdAt: string;
+  runCount: number;
+  rows: ExperimentComparisonRow[];
+};
+
 export function createExperimentConfig(input: ExperimentConfig): ExperimentConfig {
   // ExperimentConfig deneyin kimlik kartıdır. Model çıktısını tek başına saklamak
   // yetmez; hangi commit, hangi mimari, hangi worker, hangi seed ve hangi donanım
@@ -94,4 +115,73 @@ export function validateRunManifest(manifest: ExperimentRunManifest): string[] {
   if (manifest.hardware.totalMemoryMb <= 0) failures.push("hardware.totalMemoryMb must be positive");
 
   return failures;
+}
+
+export function createComparisonArtifact(input: {
+  createdAt: string;
+  manifests: ExperimentRunManifest[];
+}): ExperimentComparisonArtifact {
+  // Comparison artifact, tek tek raporlardan araştırma tablosuna geçiştir. Bir
+  // mimarinin iyi görünüp görünmediğini anlamak için raporları tek tek açmak yerine
+  // aynı metrikleri yan yana görmek gerekir.
+  const rows = input.manifests.map((manifest) => ({
+    runId: manifest.runId,
+    architectureName: manifest.architectureName,
+    modelName: manifest.modelName,
+    modelVersion: manifest.modelVersion,
+    suiteName: manifest.suiteName,
+    caseCount: manifest.caseCount,
+    taskSuccessRate: manifest.summary.taskSuccessRate,
+    scopeDriftRate: manifest.summary.scopeDriftRate,
+    sensitiveLeakageRate: manifest.summary.sensitiveLeakageRate,
+    evidenceCoverage: manifest.summary.evidenceCoverage,
+    traceCompletenessRate: manifest.summary.traceCompletenessRate,
+    reportPath: manifest.reportPaths.markdownPath
+  }));
+
+  return {
+    createdAt: input.createdAt,
+    runCount: rows.length,
+    rows: rows.sort((left, right) => left.architectureName.localeCompare(right.architectureName))
+  };
+}
+
+export function comparisonArtifactToMarkdown(artifact: ExperimentComparisonArtifact): string {
+  const rows = artifact.rows.map((row) => [
+    row.architectureName,
+    row.modelName,
+    row.suiteName,
+    row.caseCount.toString(),
+    percent(row.taskSuccessRate),
+    percent(row.scopeDriftRate),
+    percent(row.sensitiveLeakageRate),
+    percent(row.evidenceCoverage),
+    percent(row.traceCompletenessRate),
+    row.reportPath
+  ]);
+
+  return [
+    "# Experiment Comparison",
+    "",
+    `- Created at: ${artifact.createdAt}`,
+    `- Run count: ${artifact.runCount}`,
+    "",
+    table(
+      ["Architecture", "Model", "Suite", "Cases", "Task", "Drift", "Leakage", "Evidence", "Trace", "Report"],
+      rows
+    ),
+    ""
+  ].join("\n");
+}
+
+function percent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function table(headers: string[], rows: string[][]): string {
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`)
+  ].join("\n");
 }

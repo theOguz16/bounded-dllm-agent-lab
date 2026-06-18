@@ -282,3 +282,20 @@ The manifest is not another score report. It records how the score was produced:
 
 This distinction matters for research reliability. The JSON/Markdown report says
 what happened. The manifest says under which conditions it happened.
+
+## Comparing Runs
+
+Issue #15 adds a comparison command:
+
+```bash
+npm run build
+npm run reports:compare
+```
+
+The command scans `reports/*.manifest.json` and writes:
+
+- `reports/comparison-index.json`,
+- `reports/comparison-index.md`.
+
+This comparison artifact lets us read architecture-level results side by side
+instead of opening each run report manually.
