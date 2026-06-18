@@ -193,6 +193,7 @@ packages/
 docs/
   architecture, research plan, experiments, glossary
   technical report outline
+  CI verification checklist
 ```
 
 ## Development Philosophy
