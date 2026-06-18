@@ -192,6 +192,7 @@ packages/
 
 docs/
   architecture, research plan, experiments, glossary
+  technical report outline
 ```
 
 ## Development Philosophy
