@@ -56,6 +56,23 @@ npm run build
 npm run worker:smoke
 ```
 
+Before a full benchmark, run a tiny dry-run:
+
+```bash
+npm run build
+npm run worker:dry-run
+```
+
+For a remote worker:
+
+```bash
+DLLM_WORKER_URL=https://your-worker.example.com npm run worker:dry-run
+```
+
+The dry-run uses only a small fixture subset. It proves worker health, refine
+response shape, report writing, and manifest writing before spending time on a
+full benchmark.
+
 The separation is intentional:
 
 - TypeScript owns benchmark rules.
