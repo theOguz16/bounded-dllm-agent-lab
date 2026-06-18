@@ -143,6 +143,24 @@ set of regions, and leave locked regions untouched. This is how the project
 tests whether bounded agents can work in the same workspace without stepping on
 each other.
 
+## Refinement Loop
+
+Issue #7 adds the first verifier-guided refinement loop:
+
+```text
+workspace
+  -> mask view
+  -> model refinement
+  -> verifier result
+  -> remask failed regions
+  -> retry bounded refinement
+```
+
+The key idea is that verifier failure is not treated as "start over". The
+verifier reports `failedRegions`, and the loop remasks only those regions. This
+keeps stable workspace regions fixed while reopening only the uncertain parts of
+the state.
+
 ## dLLM Engine
 
 The dLLM engine is treated as a refinement engine.

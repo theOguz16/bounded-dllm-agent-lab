@@ -59,6 +59,10 @@ export type VerifierResult = {
   checkName: string;
   summary: string;
   evidenceIds: string[];
+  // Verifier sadece "fail" dememeli; hangi workspace bölgesinin sorunlu olduğunu
+  // da söylemelidir. Refinement loop bu alanı okuyup bütün cevabı değil, sadece
+  // başarısız region'ı yeniden maskeler.
+  failedRegions: WorkspaceRegion[];
   createdAt: string;
 };
 

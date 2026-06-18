@@ -82,6 +82,7 @@ export class MockDllmEngine implements ModelEngine {
       checkName: "bounded-context-safety",
       summary: "Mock verifier checked boundary status and evidence-backed claim production.",
       evidenceIds: selectedFact ? [selectedFact.evidenceId] : [],
+      failedRegions: [],
       createdAt
     });
     refined = setFinalResult(refined, finalResult, "implementer", createdAt);
