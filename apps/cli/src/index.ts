@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
-import { defaultMaskingPolicy, applyMaskingPolicy } from "../../../packages/masking-policy/src/index.js";
+import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import {
   aggregateScores,
   benchmarkArtifactToMarkdown,
@@ -27,8 +27,11 @@ if (fixtureFailures.length) {
     // çünkü benchmark'ta "hangi model daha iyi?" demeden önce bütün adaylara aynı
     // deney koşulunu vermemiz gerekir.
     const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
-    const masked = applyMaskingPolicy(workspace, defaultMaskingPolicy("boundary"));
-    const result = await engine.refineWorkspace(masked);
+    // Issue #6 ile artık doğrudan "şu region'ı maskele" demiyoruz; boundary rolü
+    // için tanımlanmış mask view'i oluşturuyoruz. Bu küçük fark ileride aynı fixture'ı
+    // planner, implementer, reviewer ve verifier rolleriyle de adil şekilde çalıştırmamızı sağlar.
+    const masked = createMaskedWorkspaceView(workspace, "boundary");
+    const result = await engine.refineWorkspace(masked.workspace);
     scores.push(scoreCase(fixture.case, result.workspace));
   }
 

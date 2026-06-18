@@ -24,6 +24,14 @@ A structured state object shared by all agent roles. It contains task context, c
 
 Rules that decide which parts of the workspace should be generated or regenerated.
 
+## Mask View
+
+A role-specific view of the shared workspace. A mask view defines which regions a role can read, which regions it can refine, and which regions must stay locked.
+
+## Locked Region
+
+A workspace region that a role must not edit. Locked regions protect the experiment from scope drift and accidental overwrite between agents.
+
 ## BoundaryMask
 
 A mask view that asks whether the system has enough context to proceed safely.
@@ -35,4 +43,3 @@ When an agent does more than requested, touches forbidden areas, or invents extr
 ## Verifier
 
 A deterministic checker that scores whether an output followed the task, respected boundaries, and avoided leakage.
-

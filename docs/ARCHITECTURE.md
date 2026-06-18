@@ -127,6 +127,22 @@ After a verifier fails, the policy can remask only the uncertain region instead 
 
 This is why dLLM-style refinement is interesting here.
 
+Issue #6 defines mask views as role-specific workspace contracts:
+
+| Mask View | Can Refine | Main Responsibility |
+| --- | --- | --- |
+| PlannerMask | `plan`, `risk_analysis` | Decide the bounded task shape and likely risks. |
+| ImplementerMask | `patch_intent`, `final_result` | Produce the proposed implementation or answer without changing the plan. |
+| ReviewerMask | `review`, `risk_analysis` | Look for conflicts, contradictions, and scope drift. |
+| VerifierMask | `verifier_feedback` | Judge whether claims and final result are supported by evidence and checks. |
+| BoundaryMask | `boundary_decision` | Decide whether context is sufficient, unsafe, or outside scope. |
+
+The key design point is that a mask is not just a prompt instruction. It is a
+structured permission boundary. A role may read some regions, refine a smaller
+set of regions, and leave locked regions untouched. This is how the project
+tests whether bounded agents can work in the same workspace without stepping on
+each other.
+
 ## dLLM Engine
 
 The dLLM engine is treated as a refinement engine.

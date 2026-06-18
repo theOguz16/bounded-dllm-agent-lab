@@ -97,6 +97,7 @@ An agent can be a mask view over the same workspace:
 - **BoundaryMask** decides whether the context is sufficient or insufficient.
 
 This is different from classical multi-agent orchestration. The roles are not isolated workers in separate context windows. They are structured refinement passes over one shared workspace.
+Each mask view has readable, writable, locked, and masked regions. That makes the agent role measurable: we can check whether a role stayed inside its own workspace boundary instead of drifting into unrelated work.
 
 ## What We Will Compare
 
