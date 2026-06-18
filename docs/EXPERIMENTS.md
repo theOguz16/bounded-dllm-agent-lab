@@ -237,3 +237,10 @@ You can run the current demo with:
 npm run build
 npm run eval:demo
 ```
+
+The command writes two report files under `reports/`:
+
+- a JSON artifact for scripts and future automation,
+- a Markdown table for humans, GitHub comments, and research notes.
+
+The JSON and Markdown files come from the same `BenchmarkArtifact`, so they should always describe the same run.

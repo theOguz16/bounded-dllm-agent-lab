@@ -68,6 +68,13 @@ export type BenchmarkReport = {
   averageContextBudgetUtilization: number;
 };
 
+export type BenchmarkArtifact = {
+  suiteName: string;
+  engineName: string;
+  createdAt: string;
+  report: BenchmarkReport;
+};
+
 export const metricDefinitions: MetricDefinition[] = [
   {
     id: "taskSuccessRate",
@@ -200,6 +207,70 @@ export function aggregateScores(cases: CaseScore[]): BenchmarkReport {
   };
 }
 
+export function createBenchmarkArtifact(input: {
+  suiteName: string;
+  engineName: string;
+  createdAt: string;
+  report: BenchmarkReport;
+}): BenchmarkArtifact {
+  return {
+    suiteName: input.suiteName,
+    engineName: input.engineName,
+    createdAt: input.createdAt,
+    report: input.report
+  };
+}
+
+export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string {
+  // Markdown raporu insan için üretilir. JSON tüm ayrıntıları taşır; Markdown ise
+  // araştırmacının hızlıca "hangi metrik iyi, hangi metrik kötü?" sorusunu görmesini sağlar.
+  // Bu yüzden önce özet metrik tablosu, sonra case bazlı tablo yazıyoruz.
+  const summaryRows = [
+    ["Task Success Rate", percent(artifact.report.taskSuccessRate)],
+    ["Required Term Coverage", percent(artifact.report.requiredTermCoverage)],
+    ["Forbidden Term Hit Rate", percent(artifact.report.forbiddenTermHitRate)],
+    ["Scope Drift Rate", percent(artifact.report.scopeDriftRate)],
+    ["Sensitive Leakage Rate", percent(artifact.report.sensitiveLeakageRate)],
+    ["Correction Override Accuracy", percent(artifact.report.correctionOverrideAccuracy)],
+    ["Insufficient Context Accuracy", percent(artifact.report.insufficientContextAccuracy)],
+    ["Boundary Accuracy", percent(artifact.report.boundaryAccuracy)],
+    ["Evidence Coverage", percent(artifact.report.evidenceCoverage)],
+    ["Trace Completeness Rate", percent(artifact.report.traceCompletenessRate)],
+    ["Average Context Tokens", artifact.report.averageContextTokens.toString()],
+    ["Average Context Budget Utilization", percent(artifact.report.averageContextBudgetUtilization)]
+  ];
+  const caseRows = artifact.report.cases.map((score) => [
+    score.caseId,
+    passFail(score.taskSuccess),
+    percent(score.requiredTermCoverage),
+    score.forbiddenTermHitCount.toString(),
+    passFail(invert(score.scopeDrift)),
+    passFail(invert(score.sensitiveLeakage)),
+    percent(score.evidenceCoverage),
+    percent(score.contextBudgetUtilization)
+  ]);
+
+  return [
+    `# Benchmark Report: ${artifact.suiteName}`,
+    "",
+    `- Engine: ${artifact.engineName}`,
+    `- Created at: ${artifact.createdAt}`,
+    `- Case count: ${artifact.report.cases.length}`,
+    "",
+    "## Summary Metrics",
+    "",
+    table(["Metric", "Value"], summaryRows),
+    "",
+    "## Case Results",
+    "",
+    table(
+      ["Case", "Task", "Required", "Forbidden Hits", "Scope Safe", "Leak Safe", "Evidence", "Budget Used"],
+      caseRows
+    ),
+    ""
+  ].join("\n");
+}
+
 function binary(value: boolean): 0 | 1 {
   return value ? 1 : 0;
 }
@@ -216,4 +287,27 @@ function average(values: number[]): number {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000;
+}
+
+function percent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function passFail(value: 0 | 1): string {
+  return value ? "pass" : "fail";
+}
+
+function invert(value: 0 | 1): 0 | 1 {
+  return value ? 0 : 1;
+}
+
+function table(headers: string[], rows: string[][]): string {
+  // Markdown table formatı sade ama güçlüdür: GitHub üzerinde doğrudan okunur,
+  // teknik rapora kopyalanabilir ve öğrencinin JSON içinde kaybolmadan metrikleri
+  // karşılaştırmasını sağlar.
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.join(" | ")} |`)
+  ].join("\n");
 }

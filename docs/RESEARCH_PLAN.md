@@ -283,3 +283,14 @@ The current split is:
 - 10 conflict resolution cases.
 
 This matters because each family tests a different failure mode. A system can be good at correction override and still be bad at sensitive leakage, or good at insufficient context and still be bad at scope control.
+
+## Reporting Artifacts
+
+Each benchmark run should produce two artifacts:
+
+- JSON for reproducibility and automation.
+- Markdown for human review.
+
+JSON is useful when another script needs exact numbers. Markdown is useful when a student, researcher, or teammate wants to understand the run quickly.
+
+This matters because a scientific project needs both machine-readable data and human-readable explanation.
