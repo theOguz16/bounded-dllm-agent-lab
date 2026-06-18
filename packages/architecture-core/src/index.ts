@@ -23,8 +23,12 @@ export type ArchitectureRunResult = {
   engineName: string;
 };
 
+export type ArchitectureRunOptions = {
+  maxAttempts: number;
+};
+
 export type ArchitectureRunner = ArchitectureMetadata & {
-  runFixture(fixture: BenchmarkFixture): Promise<ArchitectureRunResult>;
+  runFixture(fixture: BenchmarkFixture, options: ArchitectureRunOptions): Promise<ArchitectureRunResult>;
 };
 
 export const architectureRegistry: Record<ArchitectureId, ArchitectureRunner> = {
@@ -71,13 +75,13 @@ function createBoundedDllmRunner(): ArchitectureRunner {
     family: "bounded_dllm",
     isMock: true,
     description: "Current bounded-context architecture with mask views and verifier-guided refinement.",
-    async runFixture(fixture) {
+    async runFixture(fixture, options) {
       const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
       const result = await runRefinementLoop({
         workspace,
         engine,
         view: "boundary",
-        maxAttempts: 2
+        maxAttempts: options.maxAttempts
       });
 
       return {

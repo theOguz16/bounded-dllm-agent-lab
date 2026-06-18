@@ -14,6 +14,13 @@ import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/i
 
 const architectureId = parseArchitectureId(readFlag("--architecture") ?? process.env.BOUNDED_DLLM_ARCHITECTURE);
 const architecture = getArchitectureRunner(architectureId);
+const maxAttempts = readNumberFlag("--max-attempts") ?? 2;
+const ablation = {
+  maskPolicyEnabled: !hasFlag("--disable-mask-policy"),
+  verifierEnabled: !hasFlag("--disable-verifier"),
+  syntheticContextEnabled: hasFlag("--enable-synthetic-context"),
+  refinementMaxAttempts: maxAttempts
+};
 const scores = [];
 const reportDir = "reports";
 const suiteName = "demo-bounded-context-v1";
@@ -29,7 +36,7 @@ if (fixtureFailures.length) {
     // Evaluator aynı kalır; sadece "hangi mimari workspace üretti?" değişir. Bu,
     // gerçek deneylerde long-context, RAG, synthetic-context ve bounded dLLM akışlarını
     // aynı case ve aynı metriklerle karşılaştırmanın temelidir.
-    const result = await architecture.runFixture(fixture);
+    const result = await architecture.runFixture(fixture, { maxAttempts });
     scores.push(scoreCase(fixture.case, result.workspace));
   }
 
@@ -58,7 +65,8 @@ if (fixtureFailures.length) {
     modelName: "mock-dllm",
     modelVersion: "0.1.0",
     seed: 0,
-    maxAttempts: 2,
+    maxAttempts,
+    ablation,
     maskPolicyVersion: "role-mask-v1",
     gitCommit: readGitCommit(),
     hardware: {
@@ -138,4 +146,15 @@ function readFlag(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   if (index === -1) return undefined;
   return process.argv[index + 1];
+}
+
+function hasFlag(name: string): boolean {
+  return process.argv.includes(name);
+}
+
+function readNumberFlag(name: string): number | undefined {
+  const value = readFlag(name);
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

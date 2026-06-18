@@ -251,6 +251,19 @@ The placeholder baselines are deterministic mocks. They do not claim real model
 quality. Their purpose is to make every future architecture use the same
 fixture, workspace, scoring, report, and manifest path.
 
+Issue #18 adds ablation settings. The first practical ablation is refinement
+attempt count:
+
+```bash
+npm run eval:demo -- --max-attempts 1
+npm run eval:demo -- --max-attempts 2
+```
+
+The manifest also records whether mask policy, verifier, and synthetic context
+are enabled. In the current mock lab these flags mostly document the condition;
+future real runners can attach behavior to the same config without changing the
+report format.
+
 The command writes two report files under `reports/`:
 
 - a JSON artifact for scripts and future automation,
