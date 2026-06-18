@@ -244,3 +244,28 @@ The command writes two report files under `reports/`:
 - a Markdown table for humans, GitHub comments, and research notes.
 
 The JSON and Markdown files come from the same `BenchmarkArtifact`, so they should always describe the same run.
+
+Issue #11 adds a third file beside those reports:
+
+- a `.manifest.json` file for experiment conditions.
+
+The manifest is not another score report. It records how the score was produced:
+
+- `runId`,
+- `suiteName`,
+- `architectureName`,
+- `engineName`,
+- `modelName`,
+- `modelVersion`,
+- `workerUrl`,
+- `seed`,
+- `maxAttempts`,
+- `maskPolicyVersion`,
+- `gitCommit`,
+- `hardware`,
+- `createdAt`,
+- `reportPaths`,
+- summary metrics.
+
+This distinction matters for research reliability. The JSON/Markdown report says
+what happened. The manifest says under which conditions it happened.

@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { arch, cpus, platform, totalmem } from "node:os";
 import { join } from "node:path";
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
 import {
@@ -7,6 +9,7 @@ import {
   createBenchmarkArtifact,
   scoreCase
 } from "../../../packages/eval-core/src/index.js";
+import { createExperimentConfig, createRunManifest } from "../../../packages/experiment-core/src/index.js";
 import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
 import { MockDllmEngine } from "../../../packages/providers/src/index.js";
 import { runRefinementLoop } from "../../../packages/refinement-loop/src/index.js";
@@ -14,6 +17,7 @@ import { runRefinementLoop } from "../../../packages/refinement-loop/src/index.j
 const engine = new MockDllmEngine();
 const scores = [];
 const reportDir = "reports";
+const suiteName = "demo-bounded-context-v1";
 const fixtureFailures = validateFixtures(demoFixtures);
 
 // Fixture'lar geçersizse CLI hızlıca hata verir. Bu önemli, çünkü bozuk input'a
@@ -47,14 +51,44 @@ if (fixtureFailures.length) {
   const report = aggregateScores(scores);
   const createdAt = new Date().toISOString();
   const safeTimestamp = createdAt.replace(/[:.]/g, "-");
+  const runId = `${safeTimestamp}-bounded-dllm-mock`;
   const artifact = createBenchmarkArtifact({
-    suiteName: "demo-bounded-context-v1",
+    suiteName,
     engineName: engine.name,
     createdAt,
     report
   });
-  const jsonPath = join(reportDir, `${safeTimestamp}-demo-bounded-context-v1.json`);
-  const markdownPath = join(reportDir, `${safeTimestamp}-demo-bounded-context-v1.md`);
+  const jsonPath = join(reportDir, `${runId}.json`);
+  const markdownPath = join(reportDir, `${runId}.md`);
+  const manifestPath = join(reportDir, `${runId}.manifest.json`);
+  const experimentConfig = createExperimentConfig({
+    runId,
+    suiteName,
+    architectureName: "bounded-dllm-refinement-loop",
+    engineName: engine.name,
+    modelName: "mock-dllm",
+    modelVersion: "0.1.0",
+    seed: 0,
+    maxAttempts: 2,
+    maskPolicyVersion: "role-mask-v1",
+    gitCommit: readGitCommit(),
+    hardware: {
+      platform: platform(),
+      arch: arch(),
+      cpuCount: cpus().length,
+      totalMemoryMb: Math.round(totalmem() / 1024 / 1024)
+    },
+    createdAt
+  });
+  const manifest = createRunManifest({
+    config: experimentConfig,
+    report,
+    reportPaths: {
+      jsonPath,
+      markdownPath,
+      manifestPath
+    }
+  });
 
   // Issue #4'te stdout çıktısını kalıcı araştırma artifact'ine çeviriyoruz. JSON
   // otomasyon için, Markdown ise insanın hızlı okuması için yazılır. İkisi aynı
@@ -66,6 +100,10 @@ if (fixtureFailures.length) {
   await mkdir(reportDir, { recursive: true });
   await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`);
   await writeFile(markdownPath, benchmarkArtifactToMarkdown(artifact));
+  // Issue #11 ile raporun yanına manifest de yazıyoruz. Manifest sonuç metriği değil,
+  // deney koşulu kaydıdır. "Bu sonuç hangi commit ve hangi ayarlarla üretildi?"
+  // sorusunu cevaplamadığı sürece gerçek model karşılaştırması güvenilir olmaz.
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   // Console çıktısı kısa tutulur; detaylı sonuç dosyalara yazılır. CLI kullanan kişi
   // terminalde rapor yollarını görür, araştırmacı ise JSON/Markdown dosyalarından
@@ -79,6 +117,7 @@ if (fixtureFailures.length) {
         caseCount: artifact.report.cases.length,
         jsonPath,
         markdownPath,
+        manifestPath,
         summary: {
           taskSuccessRate: artifact.report.taskSuccessRate,
           scopeDriftRate: artifact.report.scopeDriftRate,
@@ -90,4 +129,12 @@ if (fixtureFailures.length) {
       2
     )
   );
+}
+
+function readGitCommit(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
 }
