@@ -24,6 +24,36 @@ export type DllmWorkerRefineResponse = {
   latencyMs: number;
 };
 
+export type DllmWorkerInfillRequest = {
+  requestId: string;
+  view: MaskView;
+  workspace: SharedSemanticWorkspace;
+  region: WorkspaceRegion;
+  prompt: string;
+};
+
+export type DllmWorkerInfillResponse = {
+  requestId: string;
+  region: WorkspaceRegion;
+  content: string;
+  engineName: string;
+  latencyMs: number;
+};
+
+export type DllmWorkerResolveConflictRequest = {
+  requestId: string;
+  workspace: SharedSemanticWorkspace;
+  conflictId: string;
+};
+
+export type DllmWorkerResolveConflictResponse = {
+  requestId: string;
+  conflictId: string;
+  resolution: string;
+  engineName: string;
+  latencyMs: number;
+};
+
 export type DllmWorkerErrorResponse = {
   ok: false;
   error: string;
@@ -61,6 +91,33 @@ export function isRefineResponse(value: unknown): value is DllmWorkerRefineRespo
     typeof value.engineName === "string" &&
     typeof value.latencyMs === "number" &&
     isRecord(value.workspace)
+  );
+}
+
+export function isInfillResponse(value: unknown): value is DllmWorkerInfillResponse {
+  if (!isRecord(value)) return false;
+  // Infill endpoint'i tek bir region için küçük bir üretim yapar. Bu, dLLM'in
+  // "tüm cevabı üret" yerine "maskeli boşluğu doldur" davranışını test etmek için
+  // ayrı tutulur.
+  return (
+    typeof value.requestId === "string" &&
+    typeof value.region === "string" &&
+    typeof value.content === "string" &&
+    typeof value.engineName === "string" &&
+    typeof value.latencyMs === "number"
+  );
+}
+
+export function isResolveConflictResponse(value: unknown): value is DllmWorkerResolveConflictResponse {
+  if (!isRecord(value)) return false;
+  // Conflict çözümü ayrı endpoint'tir çünkü conflict resolution ileride modelin
+  // iki iddia arasından hangisinin evidence'a daha uygun olduğunu tartmasını sağlar.
+  return (
+    typeof value.requestId === "string" &&
+    typeof value.conflictId === "string" &&
+    typeof value.resolution === "string" &&
+    typeof value.engineName === "string" &&
+    typeof value.latencyMs === "number"
   );
 }
 

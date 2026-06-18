@@ -191,6 +191,18 @@ The worker must not know benchmark answers or product policy. It receives a
 masked workspace and returns a refined workspace. This keeps the experiment fair
 and makes the model layer replaceable.
 
+Issue #9 turns the worker boundary into smoke-testable mock endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Proves the worker process is reachable and reports its mode/version. |
+| `POST /refine` | Accepts a masked workspace and returns a refined workspace shape. |
+| `POST /infill` | Produces content for one masked region. |
+| `POST /resolve-conflict` | Produces a placeholder conflict resolution. |
+
+The mock endpoints are intentionally deterministic. They test integration, not
+model quality.
+
 ## BoundaryMask
 
 BoundaryMask is a key part of the research.

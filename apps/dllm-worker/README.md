@@ -32,9 +32,29 @@ Then check:
 curl -sS http://127.0.0.1:8765/health
 ```
 
-The mock `/refine` endpoint echoes the workspace back. A real dLLM worker will
-later replace that echo behavior with masked refinement, but the request and
-response shape should stay stable.
+The mock worker currently supports:
+
+```text
+GET /health
+POST /refine
+POST /infill
+POST /resolve-conflict
+```
+
+The mock `/refine` endpoint echoes the workspace back. The mock `/infill`
+endpoint returns deterministic placeholder text for one region. The mock
+`/resolve-conflict` endpoint returns a deterministic placeholder resolution.
+
+A real dLLM worker will later replace those mock behaviors with masked
+refinement, infill, and conflict-resolution inference, but the request and
+response shapes should stay stable.
+
+After building TypeScript, run the worker smoke check:
+
+```bash
+npm run build
+npm run worker:smoke
+```
 
 The separation is intentional:
 
