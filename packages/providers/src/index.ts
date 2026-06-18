@@ -5,6 +5,12 @@ import {
   setFinalResult,
   type SharedSemanticWorkspace
 } from "../../workspace-core/src/index.js";
+import {
+  createRefineRequest,
+  isHealthResponse,
+  isRefineResponse
+} from "../../worker-contract/src/index.js";
+import type { MaskView } from "../../masking-policy/src/index.js";
 
 export type ModelMode = "llm" | "dllm";
 
@@ -18,6 +24,55 @@ export interface ModelEngine {
   name: string;
   mode: ModelMode;
   refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult>;
+}
+
+export class HttpDllmWorkerEngine implements ModelEngine {
+  readonly name = "http-dllm-worker";
+  readonly mode = "dllm";
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly view: MaskView
+  ) {}
+
+  async health(): Promise<boolean> {
+    const response = await fetch(`${this.baseUrl}/health`);
+    const body: unknown = await response.json();
+
+    // Python worker ayrı bir runtime olduğu için sadece HTTP 200'e güvenmiyoruz.
+    // Dönen JSON'un beklenen health sözleşmesine uyduğunu da kontrol ediyoruz.
+    return response.ok && isHealthResponse(body);
+  }
+
+  async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
+    const started = Date.now();
+    const request = createRefineRequest({
+      requestId: `${workspace.id}-${workspace.version}`,
+      view: this.view,
+      workspace
+    });
+    const response = await fetch(`${this.baseUrl}/refine`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request)
+    });
+    const body: unknown = await response.json();
+
+    // Dil sınırı burada başlıyor: TypeScript tarafında tipler var, Python tarafında
+    // JSON var. Bu nedenle refine cevabını kullanmadan önce contract guard ile
+    // doğruluyoruz; aksi halde bozuk worker cevabı benchmark sonucunu kirletebilir.
+    if (!response.ok || !isRefineResponse(body)) {
+      throw new Error(`Invalid dLLM worker response from ${this.baseUrl}/refine`);
+    }
+
+    return {
+      workspace: body.workspace,
+      latencyMs: Date.now() - started,
+      engineName: body.engineName
+    };
+  }
 }
 
 export class MockDllmEngine implements ModelEngine {

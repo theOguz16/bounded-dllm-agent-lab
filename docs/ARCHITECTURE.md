@@ -171,6 +171,26 @@ The project should not depend on a single model. The TypeScript side uses a prov
 
 The first implementation uses a mock engine so the benchmark and schemas can be developed without waiting for model infrastructure.
 
+## TypeScript And Python Boundary
+
+Issue #8 defines the language boundary. TypeScript remains the research runtime:
+it owns fixtures, masking policy, workspace state, verifier logic, reports, and
+agent orchestration.
+
+Python is isolated as an inference worker because many open-source dLLM
+implementations live in PyTorch or Hugging Face ecosystems.
+
+```text
+TypeScript orchestrator
+  -> HTTP JSON worker contract
+  -> Python dLLM worker
+  -> refined workspace response
+```
+
+The worker must not know benchmark answers or product policy. It receives a
+masked workspace and returns a refined workspace. This keeps the experiment fair
+and makes the model layer replaceable.
+
 ## BoundaryMask
 
 BoundaryMask is a key part of the research.
