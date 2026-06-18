@@ -7,9 +7,9 @@ export type BenchmarkFamily =
   | "insufficient_context"
   | "conflict_resolution";
 
-// BenchmarkCase is the evaluator side of a fixture. It does not contain the full
-// context packet. Instead, it contains the oracle: which terms must appear,
-// which terms must not appear, and which boundary decision is expected.
+// BenchmarkCase, fixture'ın evaluator tarafıdır. Tam context packet'i içermez.
+// Bunun yerine grading key gibi çalışır: hangi terimler görünmeli, hangi terimler
+// görünmemeli ve hangi boundary decision bekleniyor burada tanımlanır.
 export type BenchmarkCase = {
   id: string;
   family: BenchmarkFamily;
@@ -21,9 +21,9 @@ export type BenchmarkCase = {
   expectedResult: string;
 };
 
-// CaseScore is intentionally binary for the first milestone. Binary scoring is
-// easier to audit when we are still designing the benchmark. Later we can add
-// partial credit, severity, and confidence-weighted scoring.
+// CaseScore ilk milestone için bilinçli olarak ikili tutuldu. Benchmark tasarımı
+// hâlâ şekillenirken 0/1 skorları denetlemek daha kolaydır. İleride partial credit,
+// severity ve confidence ağırlıklı skorlar ekleyebiliriz.
 export type CaseScore = {
   caseId: string;
   taskSuccess: 0 | 1;
@@ -34,9 +34,9 @@ export type CaseScore = {
   contextTokens: number;
 };
 
-// The report aggregates case-level scores into architecture-level metrics. This
-// is the object we will eventually compare across Long Context LLM, RAG LLM,
-// Synthetic Context LLM, and Bounded dLLM systems.
+// Report, case bazlı skorları mimari seviyesindeki metriklere toplar. İleride
+// Long Context LLM, RAG LLM, Synthetic Context LLM ve Bounded dLLM sistemlerini
+// bu nesne üzerinden karşılaştıracağız.
 export type BenchmarkReport = {
   cases: CaseScore[];
   taskSuccessRate: number;
@@ -48,9 +48,9 @@ export type BenchmarkReport = {
 };
 
 export function scoreCase(testCase: BenchmarkCase, workspace: SharedSemanticWorkspace): CaseScore {
-  // The evaluator must not inspect the raw packet for leakage scoring. Sensitive
-  // data may exist in the packet as hidden input. Leakage means the system copied
-  // it into generated output, claims, conflicts, boundary decisions, or results.
+  // Evaluator, leakage skorlaması için raw packet'i incelememelidir. Sensitive veri
+  // packet içinde gizli input olarak bulunabilir. Leakage, sistemin bu veriyi üretilen
+  // output, claim, conflict, boundary decision veya result alanına kopyalaması demektir.
   const output = JSON.stringify({
     claims: workspace.claims,
     conflicts: workspace.conflicts,

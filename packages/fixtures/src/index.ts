@@ -1,9 +1,9 @@
 import type { BoundedContextPacket } from "../../context-core/src/index.js";
 import type { BenchmarkCase, BenchmarkFamily } from "../../eval-core/src/index.js";
 
-// BenchmarkFixture is the canonical object for issue #1. One fixture combines
-// the input packet and the evaluator oracle. This guarantees that every model
-// architecture receives comparable information and is judged by the same rules.
+// BenchmarkFixture, issue #1 için canonical nesnedir. Tek fixture hem input packet'i
+// hem de evaluator oracle'ını bir arada taşır. Böylece her model mimarisi
+// karşılaştırılabilir bilgi alır ve aynı kurallarla değerlendirilir.
 export type BenchmarkFixture = {
   id: string;
   family: BenchmarkFamily;
@@ -12,8 +12,8 @@ export type BenchmarkFixture = {
   packet: BoundedContextPacket;
 };
 
-// These first five fixtures are deliberately tiny. A student should be able to
-// read each one by hand and predict the correct result before running the CLI.
+// İlk beş fixture bilinçli olarak küçük tutuldu. Bir öğrenci her birini elle okuyup
+// CLI'ı çalıştırmadan önce doğru sonucu tahmin edebilmelidir.
 export const demoFixtures: BenchmarkFixture[] = [
   {
     id: "fixture-correction-override-001",
@@ -217,8 +217,8 @@ export const demoFixtures: BenchmarkFixture[] = [
   }
 ];
 
-// Validation is intentionally lightweight for the first issue. The goal is to
-// catch broken or confusing fixtures early while keeping the schema easy to read.
+// Validation ilk issue için bilinçli olarak hafif tutuldu. Amaç, schema'yı okunur
+// tutarken kırık veya kafa karıştırıcı fixture'ları erken yakalamaktır.
 export function validateFixture(fixture: BenchmarkFixture): string[] {
   const failures: string[] = [];
 

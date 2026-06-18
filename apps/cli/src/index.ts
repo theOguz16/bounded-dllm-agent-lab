@@ -8,8 +8,8 @@ const engine = new MockDllmEngine();
 const scores = [];
 const fixtureFailures = validateFixtures(demoFixtures);
 
-// The CLI fails fast when fixtures are invalid. That matters because a benchmark
-// with broken input can make a model look better or worse for the wrong reason.
+// Fixture'lar geçersizse CLI hızlıca hata verir. Bu önemli, çünkü bozuk input'a
+// sahip bir benchmark modeli yanlış nedenle daha iyi veya daha kötü gösterebilir.
 if (fixtureFailures.length) {
   throw new Error(JSON.stringify({ ok: false, fixtureFailures }, null, 2));
 } else {
