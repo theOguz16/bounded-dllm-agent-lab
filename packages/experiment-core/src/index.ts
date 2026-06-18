@@ -69,3 +69,29 @@ export function createRunManifest(input: {
     }
   };
 }
+
+export function validateRunManifest(manifest: ExperimentRunManifest): string[] {
+  const failures: string[] = [];
+
+  // Manifest validation model kalitesini ölçmez; deney kaydının güvenilir olup
+  // olmadığını ölçer. Eğer runId, git commit veya report path eksikse üretilen skor
+  // sonradan hangi koşula ait bilinemez.
+  if (!manifest.runId.trim()) failures.push("runId is required");
+  if (!manifest.suiteName.trim()) failures.push("suiteName is required");
+  if (!manifest.architectureName.trim()) failures.push("architectureName is required");
+  if (!manifest.engineName.trim()) failures.push("engineName is required");
+  if (!manifest.modelName.trim()) failures.push("modelName is required");
+  if (!manifest.modelVersion.trim()) failures.push("modelVersion is required");
+  if (!Number.isInteger(manifest.seed)) failures.push("seed must be an integer");
+  if (manifest.maxAttempts <= 0) failures.push("maxAttempts must be positive");
+  if (!manifest.maskPolicyVersion.trim()) failures.push("maskPolicyVersion is required");
+  if (!manifest.gitCommit.trim()) failures.push("gitCommit is required");
+  if (manifest.caseCount <= 0) failures.push("caseCount must be positive");
+  if (!manifest.reportPaths.jsonPath.trim()) failures.push("jsonPath is required");
+  if (!manifest.reportPaths.markdownPath.trim()) failures.push("markdownPath is required");
+  if (!manifest.reportPaths.manifestPath.trim()) failures.push("manifestPath is required");
+  if (manifest.hardware.cpuCount <= 0) failures.push("hardware.cpuCount must be positive");
+  if (manifest.hardware.totalMemoryMb <= 0) failures.push("hardware.totalMemoryMb must be positive");
+
+  return failures;
+}

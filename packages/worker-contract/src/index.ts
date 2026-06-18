@@ -3,6 +3,16 @@ import type { SharedSemanticWorkspace, WorkspaceRegion } from "../../workspace-c
 
 export type DllmWorkerRoute = "/health" | "/refine" | "/infill" | "/resolve-conflict";
 
+const workspaceRegions = new Set<WorkspaceRegion>([
+  "plan",
+  "patch_intent",
+  "risk_analysis",
+  "review",
+  "boundary_decision",
+  "verifier_feedback",
+  "final_result"
+]);
+
 export type DllmWorkerHealthResponse = {
   ok: boolean;
   workerName: string;
@@ -78,7 +88,12 @@ export function createRefineRequest(input: {
 
 export function isHealthResponse(value: unknown): value is DllmWorkerHealthResponse {
   if (!isRecord(value)) return false;
-  return value.ok === true && typeof value.workerName === "string" && typeof value.version === "string";
+  return (
+    value.ok === true &&
+    typeof value.workerName === "string" &&
+    (value.mode === "mock" || value.mode === "dllm") &&
+    typeof value.version === "string"
+  );
 }
 
 export function isRefineResponse(value: unknown): value is DllmWorkerRefineResponse {
@@ -90,7 +105,7 @@ export function isRefineResponse(value: unknown): value is DllmWorkerRefineRespo
     typeof value.requestId === "string" &&
     typeof value.engineName === "string" &&
     typeof value.latencyMs === "number" &&
-    isRecord(value.workspace)
+    isWorkspaceLike(value.workspace)
   );
 }
 
@@ -101,7 +116,7 @@ export function isInfillResponse(value: unknown): value is DllmWorkerInfillRespo
   // ayrı tutulur.
   return (
     typeof value.requestId === "string" &&
-    typeof value.region === "string" &&
+    isWorkspaceRegion(value.region) &&
     typeof value.content === "string" &&
     typeof value.engineName === "string" &&
     typeof value.latencyMs === "number"
@@ -123,4 +138,25 @@ export function isResolveConflictResponse(value: unknown): value is DllmWorkerRe
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isWorkspaceLike(value: unknown): value is SharedSemanticWorkspace {
+  if (!isRecord(value)) return false;
+  // Worker response içinde tüm workspace'i derinlemesine validate etmek pahalı ve
+  // tekrarlı olur; ama ana iskeleti kontrol etmek gerekir. Çünkü Python tarafı bozuk
+  // JSON döndürürse TypeScript tipi bunu otomatik yakalayamaz.
+  return (
+    typeof value.id === "string" &&
+    typeof value.version === "number" &&
+    isRecord(value.packet) &&
+    Array.isArray(value.claims) &&
+    Array.isArray(value.conflicts) &&
+    Array.isArray(value.maskedRegions) &&
+    Array.isArray(value.verifierResults) &&
+    Array.isArray(value.trace)
+  );
+}
+
+function isWorkspaceRegion(value: unknown): value is WorkspaceRegion {
+  return typeof value === "string" && workspaceRegions.has(value as WorkspaceRegion);
 }

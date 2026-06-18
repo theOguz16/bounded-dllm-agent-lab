@@ -9,7 +9,7 @@ import {
   createBenchmarkArtifact,
   scoreCase
 } from "../../../packages/eval-core/src/index.js";
-import { createExperimentConfig, createRunManifest } from "../../../packages/experiment-core/src/index.js";
+import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
 import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
 
 const architectureId = parseArchitectureId(readFlag("--architecture") ?? process.env.BOUNDED_DLLM_ARCHITECTURE);
@@ -78,6 +78,11 @@ if (fixtureFailures.length) {
       manifestPath
     }
   });
+  const manifestFailures = validateRunManifest(manifest);
+
+  if (manifestFailures.length) {
+    throw new Error(JSON.stringify({ ok: false, manifestFailures }, null, 2));
+  }
 
   // Issue #4'te stdout çıktısını kalıcı araştırma artifact'ine çeviriyoruz. JSON
   // otomasyon için, Markdown ise insanın hızlı okuması için yazılır. İkisi aynı

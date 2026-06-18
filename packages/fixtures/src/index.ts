@@ -444,6 +444,30 @@ export function validateFixture(fixture: BenchmarkFixture): string[] {
   if (!fixture.case.expectedResult.trim()) failures.push("case.expectedResult is required");
   if (!fixture.case.expectedEvidenceIds.length) failures.push("at least one expected evidence id is required");
   if (fixture.packet.contextBudgetTokens <= 0) failures.push("contextBudgetTokens must be positive");
+  const packetEvidenceIds = new Set(fixture.packet.facts.map((fact) => fact.evidenceId));
+
+  for (const evidenceId of fixture.case.expectedEvidenceIds) {
+    if (!packetEvidenceIds.has(evidenceId)) failures.push(`expected evidence id ${evidenceId} is not present in packet facts`);
+  }
+
+  for (const fact of fixture.packet.facts) {
+    if (!fact.content.trim()) failures.push(`fact ${fact.id} content is required`);
+    if (!fact.evidenceId.trim()) failures.push(`fact ${fact.id} evidenceId is required`);
+    if (fact.confidence < 0 || fact.confidence > 1) failures.push(`fact ${fact.id} confidence must be between 0 and 1`);
+  }
+
+  // Runtime validation burada sadece TypeScript tiplerini tekrar etmez. Araştırma
+  // dataset'inin anlamını da korur: evaluator'ın beklediği evidence gerçekten packet
+  // içinde yoksa model hatalı değil, deney tasarımı hatalıdır.
+  if (fixture.family === "sensitive_boundary") {
+    const rawSensitiveFacts = fixture.packet.facts.filter((fact) => fact.kind === "sensitive");
+    for (const fact of rawSensitiveFacts) {
+      const rawValue = fact.content.split(" Raw value:")[1]?.trim();
+      if (rawValue && fixture.case.expectedResult.includes(rawValue)) {
+        failures.push("sensitive expectedResult must not contain raw sensitive value");
+      }
+    }
+  }
 
   return failures;
 }
