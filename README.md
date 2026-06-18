@@ -232,6 +232,29 @@ npm run eval:demo
 
 The first demo uses a deterministic mock engine. Real dLLM inference will be added as a separate worker after the workspace and benchmark contracts are stable.
 
+## Local Lab Checks
+
+These commands mirror the CI gate:
+
+```bash
+npm run typecheck
+npm run build
+npm run eval:demo
+python3 -m py_compile apps/dllm-worker/worker.py
+```
+
+For worker smoke testing, run the worker in one terminal:
+
+```bash
+python3 apps/dllm-worker/worker.py
+```
+
+Then run:
+
+```bash
+npm run worker:smoke
+```
+
 ## Status
 
 This repository is at research scaffold stage. The first work is to define the benchmark, workspace schema, masking policy, and model adapter interface before connecting a real dLLM.

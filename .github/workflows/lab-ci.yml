@@ -1,0 +1,51 @@
+name: Lab CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Demo eval
+        # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
+        # report ve manifest üretimini kırmadan çalıştığını doğrular.
+        run: npm run eval:demo
+
+      - name: Python worker syntax
+        run: python -m py_compile apps/dllm-worker/worker.py
+
+      - name: Worker smoke
+        # Worker smoke gerçek dLLM gerektirmez. Ama TS orchestrator ile Python worker
+        # arasındaki health/infill/conflict endpoint sözleşmesinin çalıştığını gösterir.
+        run: |
+          python apps/dllm-worker/worker.py &
+          WORKER_PID=$!
+          sleep 2
+          npm run worker:smoke
+          kill "$WORKER_PID"
