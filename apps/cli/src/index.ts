@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { join } from "node:path";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
+import { getArchitectureRunner, parseArchitectureId } from "../../../packages/architecture-core/src/index.js";
 import {
   aggregateScores,
   benchmarkArtifactToMarkdown,
@@ -11,10 +11,9 @@ import {
 } from "../../../packages/eval-core/src/index.js";
 import { createExperimentConfig, createRunManifest } from "../../../packages/experiment-core/src/index.js";
 import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
-import { MockDllmEngine } from "../../../packages/providers/src/index.js";
-import { runRefinementLoop } from "../../../packages/refinement-loop/src/index.js";
 
-const engine = new MockDllmEngine();
+const architectureId = parseArchitectureId(readFlag("--architecture") ?? process.env.BOUNDED_DLLM_ARCHITECTURE);
+const architecture = getArchitectureRunner(architectureId);
 const scores = [];
 const reportDir = "reports";
 const suiteName = "demo-bounded-context-v1";
@@ -26,21 +25,11 @@ if (fixtureFailures.length) {
   throw new Error(JSON.stringify({ ok: false, fixtureFailures }, null, 2));
 } else {
   for (const fixture of demoFixtures) {
-    // Her fixture aynı pipeline'dan geçer: workspace oluştur, gerekli alanı maskele,
-    // mock dLLM engine ile refine et, sonra evaluator'a ver. Bu sıralama önemli,
-    // çünkü benchmark'ta "hangi model daha iyi?" demeden önce bütün adaylara aynı
-    // deney koşulunu vermemiz gerekir.
-    const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
-    // Issue #7 ile benchmark artık tek seferlik model çağrısı yapmıyor. Workspace,
-    // boundary mask view ile refine edilir; verifier fail/warn üretirse loop sadece
-    // sorunlu region'ı remask eder. Mock engine bugün pass üretse de deney hattı
-    // gerçek dLLM ve gerçek verifier geldiğinde aynı sözleşmeyle çalışacak.
-    const result = await runRefinementLoop({
-      workspace,
-      engine,
-      view: "boundary",
-      maxAttempts: 2
-    });
+    // Issue #12 ile fixture çalıştırma sorumluluğu architecture runner'a taşındı.
+    // Evaluator aynı kalır; sadece "hangi mimari workspace üretti?" değişir. Bu,
+    // gerçek deneylerde long-context, RAG, synthetic-context ve bounded dLLM akışlarını
+    // aynı case ve aynı metriklerle karşılaştırmanın temelidir.
+    const result = await architecture.runFixture(fixture);
     scores.push(scoreCase(fixture.case, result.workspace));
   }
 
@@ -51,10 +40,10 @@ if (fixtureFailures.length) {
   const report = aggregateScores(scores);
   const createdAt = new Date().toISOString();
   const safeTimestamp = createdAt.replace(/[:.]/g, "-");
-  const runId = `${safeTimestamp}-bounded-dllm-mock`;
+  const runId = `${safeTimestamp}-${architecture.id}`;
   const artifact = createBenchmarkArtifact({
     suiteName,
-    engineName: engine.name,
+    engineName: architecture.id,
     createdAt,
     report
   });
@@ -64,8 +53,8 @@ if (fixtureFailures.length) {
   const experimentConfig = createExperimentConfig({
     runId,
     suiteName,
-    architectureName: "bounded-dllm-refinement-loop",
-    engineName: engine.name,
+    architectureName: architecture.id,
+    engineName: architecture.id,
     modelName: "mock-dllm",
     modelVersion: "0.1.0",
     seed: 0,
@@ -113,6 +102,7 @@ if (fixtureFailures.length) {
       {
         ok: true,
         suiteName: artifact.suiteName,
+        architectureName: architecture.id,
         engineName: artifact.engineName,
         caseCount: artifact.report.cases.length,
         jsonPath,
@@ -137,4 +127,10 @@ function readGitCommit(): string {
   } catch {
     return "unknown";
   }
+}
+
+function readFlag(name: string): string | undefined {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return undefined;
+  return process.argv[index + 1];
 }

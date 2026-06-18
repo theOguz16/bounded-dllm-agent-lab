@@ -238,6 +238,19 @@ npm run build
 npm run eval:demo
 ```
 
+Issue #12 adds architecture selection:
+
+```bash
+npm run eval:demo -- --architecture bounded-dllm-refinement-loop
+npm run eval:demo -- --architecture long-context-llm-mock
+npm run eval:demo -- --architecture rag-llm-mock
+npm run eval:demo -- --architecture synthetic-context-llm-mock
+```
+
+The placeholder baselines are deterministic mocks. They do not claim real model
+quality. Their purpose is to make every future architecture use the same
+fixture, workspace, scoring, report, and manifest path.
+
 The command writes two report files under `reports/`:
 
 - a JSON artifact for scripts and future automation,
