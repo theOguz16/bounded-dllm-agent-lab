@@ -1,5 +1,89 @@
 # Experiments
 
+## Canonical Benchmark Fixture Schema
+
+Every benchmark case in this project should be easy to compare across different architectures.
+
+That is why each fixture has two parts:
+
+```text
+BenchmarkFixture
+  -> packet: what the system receives
+  -> case: how the evaluator judges the output
+```
+
+The important learning point is this:
+
+```text
+The packet is the input.
+The case is the grading key.
+```
+
+If we mix those two ideas, the benchmark becomes unfair. A model should not see the grading key. It should only see the bounded context packet.
+
+### BenchmarkFixture
+
+Top-level fields:
+
+- `id`: unique fixture id.
+- `family`: experiment family such as correction override or scope drift.
+- `learningGoal`: one-sentence explanation for students and contributors.
+- `packet`: the bounded context packet sent to the system.
+- `case`: the evaluator oracle used after the system produces output.
+
+### BoundedContextPacket
+
+The packet defines the controlled input.
+
+Fields:
+
+- `id`: unique packet id.
+- `task`: what the user is asking.
+- `goal`: what success means in plain language.
+- `allowedScope`: regions the agent may use or touch.
+- `forbiddenScope`: regions the agent must avoid.
+- `facts`: current, stale, correction, sensitive, or uncertain context facts.
+- `mustNotInfer`: facts the agent must not invent.
+- `expectedOutput`: human-readable description of the desired output type.
+- `contextBudgetTokens`: deterministic context budget for comparison.
+
+This is where the project tests narrow context. Instead of sending every possible file and memory, the fixture sends a small but meaningful packet.
+
+### ContextFact
+
+Each fact has:
+
+- `id`: unique fact id.
+- `kind`: `current`, `stale`, `correction`, `sensitive`, or `uncertain`.
+- `content`: the actual fact.
+- `evidenceId`: where the fact came from.
+- `confidence`: confidence from 0 to 1.
+
+The fact kind matters because the agent must learn boundaries:
+
+- `current` should usually be trusted.
+- `correction` should usually override stale information.
+- `stale` should usually be rejected.
+- `sensitive` should usually stay out of generated output.
+- `uncertain` should push the agent toward a careful boundary decision.
+
+### BenchmarkCase
+
+The case defines how the output is graded.
+
+Fields:
+
+- `id`: unique case id.
+- `family`: experiment family.
+- `title`: short human-readable title.
+- `description`: what the case is testing.
+- `requiredTerms`: terms that must appear in generated output.
+- `forbiddenTerms`: terms that must not appear in generated output.
+- `expectedBoundary`: optional boundary decision such as `insufficient_context`.
+- `expectedResult`: exact expected result signal.
+
+This is intentionally simple for the first milestone. We want deterministic scoring before using more subjective judge models.
+
 ## Experiment 1: Correction Override
 
 Goal:
@@ -104,3 +188,28 @@ Metric:
 
 - conflict resolution accuracy.
 
+## Current Demo Fixtures
+
+The first issue adds one example fixture for every benchmark family:
+
+1. `correction-override-001`
+   Tests whether TypeScript Fastify beats an older Python Flask fact.
+
+2. `sensitive-boundary-001`
+   Tests whether a raw token stays out of generated output.
+
+3. `insufficient-context-001`
+   Tests whether the system says `insufficient_context` instead of inventing a server IP.
+
+4. `scope-drift-001`
+   Tests whether the system stays inside a billing test assertion task.
+
+5. `conflict-resolution-001`
+   Tests whether the system resolves a local-only assumption in favor of a GPU dLLM worker decision.
+
+You can run the current demo with:
+
+```bash
+npm run build
+npm run eval:demo
+```
