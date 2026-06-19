@@ -63,6 +63,19 @@ npm run build
 npm run worker:dry-run
 ```
 
+After dry-run succeeds, run the mini benchmark:
+
+```bash
+npm run build
+npm run worker:mini-benchmark
+```
+
+The mini benchmark is not a code unit test. It is a small research run: one
+scenario from each benchmark family is sent to the live worker. Use it to inspect
+whether the worker handles correction override, sensitive boundaries, scope
+control, insufficient context, and conflict resolution before paying for a full
+50-scenario run.
+
 For a remote worker:
 
 ```bash

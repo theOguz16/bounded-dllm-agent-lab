@@ -12,6 +12,7 @@
     "eval:demo": "node dist/apps/cli/src/index.js",
     "reports:compare": "node dist/apps/cli/src/compare-reports.js",
     "worker:dry-run": "node dist/apps/cli/src/worker-dry-run.js",
+    "worker:mini-benchmark": "node dist/apps/cli/src/worker-mini-benchmark.js",
     "worker:smoke": "node dist/apps/cli/src/worker-smoke.js",
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
     "clean": "rm -rf dist"
