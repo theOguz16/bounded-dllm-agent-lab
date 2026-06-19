@@ -48,6 +48,7 @@ export type CodePatchBenchmarkCase = {
   expectedOutcome: CodePatchExpectedOutcome;
   expectedFailureSignals: CodePatchFailureSignal[];
   patch: MockPatchPlan;
+  modelTrace?: CodePatchModelTrace;
 };
 
 export type MockPatchPlan =
@@ -63,6 +64,13 @@ export type MockPatchPlan =
       kind: "refusal";
       reason: string;
     };
+
+export type CodePatchModelTrace = {
+  patchKind: MockPatchPlan["kind"];
+  patchPlanPreview: string;
+  rawOutputPreview: string;
+  modelError: string | null;
+};
 
 export type CodePatchCaseScore = {
   caseId: string;
@@ -82,6 +90,7 @@ export type CodePatchCaseScore = {
   refusalCorrect: 0 | 1;
   expectedFailureSignals: CodePatchFailureSignal[];
   observedFailureSignals: CodePatchFailureSignal[];
+  modelTrace: CodePatchModelTrace | null;
   changedFiles: string[];
   testCommand: string;
 };
@@ -441,6 +450,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     refusalCorrect: binary(refusalCorrect),
     expectedFailureSignals: testCase.expectedFailureSignals,
     observedFailureSignals,
+    modelTrace: testCase.modelTrace ?? null,
     changedFiles,
     testCommand: testCase.testCommand
   };
@@ -473,6 +483,10 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     passFail(score.refusalCorrect),
     score.expectedFailureSignals.join(", ") || "(none)",
     score.observedFailureSignals.join(", ") || "(none)",
+    score.modelTrace?.patchKind ?? "(none)",
+    score.modelTrace?.patchPlanPreview ?? "(none)",
+    score.modelTrace?.rawOutputPreview ?? "(none)",
+    score.modelTrace?.modelError ?? "(none)",
     score.patchApplicationError ?? "(none)",
     score.changedFiles.join(", ") || "(none)"
   ]);
@@ -506,6 +520,10 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
         "Refusal",
         "Expected Failure Signals",
         "Observed Failure Signals",
+        "Model Patch Kind",
+        "Model Patch Plan",
+        "Raw Model Output",
+        "Model Error",
         "Patch Error",
         "Changed Files"
       ],

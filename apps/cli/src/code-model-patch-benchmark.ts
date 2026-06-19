@@ -6,6 +6,7 @@ import {
   runCodePatchBenchmark,
   validateCodePatchCases,
   type CodePatchBenchmarkCase,
+  type CodePatchModelTrace,
   type MockPatchPlan
 } from "../../../packages/code-benchmark/src/index.js";
 
@@ -15,6 +16,11 @@ type ChatCompletionPayload = {
       content?: string;
     };
   }>;
+};
+
+type GeneratedPatchPlan = {
+  patch: MockPatchPlan;
+  trace: CodePatchModelTrace;
 };
 
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
@@ -37,9 +43,11 @@ const generatedCases: CodePatchBenchmarkCase[] = [];
 
 for (const testCase of modelCases) {
   console.log(`[code-model-patch] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+  const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
-    patch: await requestPatchPlan(testCase)
+    patch: generated.patch,
+    modelTrace: generated.trace
   });
 }
 
@@ -83,7 +91,9 @@ console.log(
   )
 );
 
-async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<MockPatchPlan> {
+async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<GeneratedPatchPlan> {
+  let rawOutput = "";
+
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
@@ -120,14 +130,35 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<MockP
       throw new Error(`patch completion failed with status ${response.status}`);
     }
 
-    return parsePatchPlan(content, testCase);
+    rawOutput = content;
+    const patch = parsePatchPlan(content, testCase);
+
+    return {
+      patch,
+      trace: {
+        patchKind: patch.kind,
+        patchPlanPreview: compactText(JSON.stringify(patch)),
+        rawOutputPreview: compactText(content),
+        modelError: null
+      }
+    };
   } catch (error) {
     // Model JSON sözleşmesini bozarsa benchmark çökmez; bu case ölçülebilir
     // bir patch başarısızlığına dönüşür. Böylece altyapı yerine model davranışını
     // raporda görürüz.
-    return {
+    const patch: MockPatchPlan = {
       kind: "refusal",
       reason: `invalid_model_patch_plan: ${formatError(error)}`
+    };
+
+    return {
+      patch,
+      trace: {
+        patchKind: patch.kind,
+        patchPlanPreview: compactText(JSON.stringify(patch)),
+        rawOutputPreview: rawOutput ? compactText(rawOutput) : "(empty)",
+        modelError: formatError(error)
+      }
     };
   }
 }
@@ -215,4 +246,9 @@ function normalizeBaseUrl(value: string): string {
 
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compactText(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 }
