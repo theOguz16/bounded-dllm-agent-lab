@@ -394,8 +394,6 @@ This distinction matters because a production agent architecture needs both:
 
 ## Result 7: Qwen2.5-Coder 7B GGUF RAG-Style Hard Baseline
 
-Status: pending RunPod execution.
-
 Command:
 
 ```bash
@@ -415,12 +413,64 @@ Does adding retrieved context improve the same autoregressive LLM, or does it
 introduce distractors that reduce bounded reasoning quality?
 ```
 
-This result is intentionally pending. It should be filled only after the RunPod
-benchmark produces JSON, Markdown, and manifest artifacts.
+Reported artifact paths:
+
+```text
+reports/2026-06-19T16-33-57-564Z-llm-rag-hard-baseline.json
+reports/2026-06-19T16-33-57-564Z-llm-rag-hard-baseline.md
+reports/2026-06-19T16-33-57-564Z-llm-rag-hard-baseline.manifest.json
+```
+
+Observed summary:
+
+| Metric | Plain Qwen2.5 | RAG-style Qwen2.5 |
+| --- | ---: | ---: |
+| Task success rate | 64% | 68% |
+| Scope drift rate | 0% | 0% |
+| Sensitive leakage rate | 0% | 0% |
+| Evidence coverage | 96% | 84% |
+| Trace completeness rate | 96% | 84% |
+
+Interpretation:
+
+The RAG-style baseline slightly improved strict task success, but reduced
+evidence coverage and trace completeness. This is a useful trade-off rather than
+a simple win or loss.
+
+The short reading is:
+
+```text
+RAG-style context helped some final decisions but made the process less cleanly
+auditable.
+```
+
+Failure taxonomy shows the shape of that trade-off:
+
+| Failure type | Plain Qwen2.5 | RAG-style Qwen2.5 | Interpretation |
+| --- | ---: | ---: | --- |
+| `semantic_match_but_keyword_fail` | 3 | 2 | RAG reduced some exact wording misses. |
+| `true_task_failure` | 5 | 2 | RAG reduced clear task failures. |
+| `missing_evidence_or_trace` | 1 | 4 | RAG increased auditability gaps. |
+| `leakage_or_scope_violation` | 0 | 0 | RAG did not cause raw leakage or forbidden scope hits in this run. |
+| `boundary_failure` | 0 | 0 | RAG did not break boundary decisions in this run. |
+
+Several RAG sensitive-boundary failures mixed multiple retrieved summaries into
+one final answer. For example, credential policy, repository access, and
+deployment access appeared together in a single answer. This was not raw secret
+leakage, but it suggests retrieval context mixing:
+
+```text
+More retrieved context can reduce task failures while making answers less
+focused and less trace-clean.
+```
+
+This supports the project's broader motivation: context quantity is not enough.
+The architecture must also control what context is allowed to influence a
+specific region of the workspace.
 
 ## What These Results Show
 
-These initial results support seven early findings:
+These initial results support nine early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -438,9 +488,8 @@ These initial results support seven early findings:
 8. Failure taxonomy can separate strict benchmark failures into likely semantic
    wording misses, true task failures, trace gaps, boundary failures, and safety
    violations.
-
-The RAG-style baseline has been implemented but is not counted as a finding until
-its RunPod result is produced.
+9. RAG-style context can improve task success while reducing evidence and trace
+   quality, showing that extra context introduces an auditability trade-off.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -476,6 +525,10 @@ The main risks are:
   should not be treated as a full precision upper bound for that model family.
 - The LLM baseline prompt and JSON contract can affect success rate; future runs
   should compare prompt variants while keeping oracle fields hidden.
+- The RAG-style baseline uses a small deterministic retrieval heuristic, not a
+  production-grade vector database or learned retriever.
+- The RAG result may depend on the number and kind of retrieved facts; future
+  runs should vary retrieval breadth.
 - The taxonomy-adjusted interpretation is a diagnostic aid, not an official
   replacement for strict task success.
 - The ablation modes are controlled architecture simulations, while the
@@ -495,14 +548,16 @@ toward repository-level patch benchmarks.
 Planned steps:
 
 1. Inspect the failed Qwen2.5-Coder hard-suite cases by family.
-2. Run the Qwen2.5-Coder RAG-style hard baseline and compare it to the plain LLM
-   baseline.
-3. Repeat key LLM baselines with recorded decoding settings and model metadata.
-4. Add a real repository patch benchmark with allowed files, forbidden files,
+2. Add an expanded-context LLM baseline to test whether even more context helps
+   or increases distractor pressure.
+3. Add a synthetic-context enriched LLM baseline to test whether structured
+   summaries and evidence hints beat plain retrieval.
+4. Repeat key LLM baselines with recorded decoding settings and model metadata.
+5. Add a real repository patch benchmark with allowed files, forbidden files,
    expected diffs, and test outcomes.
-5. Add latency and cost measurement for each architecture.
-6. Add stronger or larger LLM baselines when hardware budget allows.
-7. Add human failure-review notes for cases where deterministic metrics are too
+6. Add latency and cost measurement for each architecture.
+7. Add stronger or larger LLM baselines when hardware budget allows.
+8. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
 
 The current milestone is therefore not the end of the research. It is the point
