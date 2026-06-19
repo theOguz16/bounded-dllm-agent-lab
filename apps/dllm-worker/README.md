@@ -76,6 +76,17 @@ whether the worker handles correction override, sensitive boundaries, scope
 control, insufficient context, and conflict resolution before paying for a full
 50-scenario run.
 
+After the mini benchmark is healthy, run the full benchmark:
+
+```bash
+npm run build
+npm run worker:full-benchmark
+```
+
+The full benchmark sends all 50 scenarios to the live worker. It prints progress
+for each scenario and writes JSON, Markdown, and manifest artifacts under
+`reports/`.
+
 For a remote worker:
 
 ```bash
