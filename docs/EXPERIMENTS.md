@@ -44,7 +44,7 @@ Fields:
 - `forbiddenScope`: regions the agent must avoid.
 - `facts`: current, stale, correction, sensitive, or uncertain context facts.
 - `mustNotInfer`: facts the agent must not invent.
-- `expectedOutput`: human-readable description of the desired output type.
+- `responseContract`: human-readable description of the allowed response shape.
 - `contextBudgetTokens`: deterministic context budget for comparison.
 
 This is where the project tests narrow context. Instead of sending every possible file and memory, the fixture sends a small but meaningful packet.
@@ -84,6 +84,31 @@ Fields:
 - `expectedResult`: exact expected result signal.
 
 This is intentionally simple for the first milestone. We want deterministic scoring before using more subjective judge models.
+
+### Oracle Leakage Audit
+
+The evaluator is allowed to know `expectedResult`, `requiredTerms`, `forbiddenTerms`, and scoring metrics.
+The worker is not.
+
+This distinction is important because a high benchmark score is meaningful only
+when the model did not receive the grading key. The project therefore includes an
+oracle leakage audit:
+
+```bash
+npm run build
+npm run oracle:audit
+```
+
+The audit constructs the same worker refine requests used by the benchmark and
+checks whether evaluator-only keys or answer-key text appear outside legitimate
+evidence fields. Fact content, task text, scope rules, and `mustNotInfer` are
+allowed because they are part of the bounded context packet. Fields such as
+`expectedResult`, `requiredTerms`, `forbiddenTerms`, and metric names are not
+allowed because they belong to the grader.
+
+This does not prove that a model is generally intelligent. It proves a narrower,
+but necessary, condition: the benchmark input was not contaminated by its own
+answer key.
 
 ### Why Evidence IDs Matter
 

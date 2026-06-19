@@ -33,7 +33,7 @@ export type BoundedContextPacket = {
   forbiddenScope: ContextScopeRegion[];
   facts: ContextFact[];
   mustNotInfer: string[];
-  expectedOutput: string;
+  responseContract: string;
   contextBudgetTokens: number;
 };
 

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
+import { demoFixtures } from "../../packages/fixtures/src/index.js";
+import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 
 const cases = [
@@ -85,4 +87,11 @@ assert.equal(isInfillResponse({ requestId: "1", region: "patch_intent", content:
 assert.equal(isResolveConflictResponse({ requestId: "1", conflictId: "c1", resolution: "x", engineName: "mock", latencyMs: 1 }), true);
 assert.equal(isHealthResponse({ ok: true, workerName: "mock", mode: "unknown", version: "0.1.0" }), false);
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract"] }, null, 2));
+const oracleAudit = auditFixturesForOracleLeakage(demoFixtures);
+
+// Oracle leakage smoke testi araştırmanın sigortasıdır. Worker'a cevap anahtarı
+// sızarsa modelin doğru cevap vermesi başarı değil, deney tasarımı hatası olur.
+assert.equal(oracleAudit.ok, true, JSON.stringify(oracleAudit.findings, null, 2));
+assert.equal(oracleAudit.fixtureCount, 50);
+
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage"] }, null, 2));

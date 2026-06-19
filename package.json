@@ -16,6 +16,7 @@
     "worker:full-benchmark": "node dist/apps/cli/src/worker-full-benchmark.js",
     "worker:smoke": "node dist/apps/cli/src/worker-smoke.js",
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
+    "oracle:audit": "node dist/apps/cli/src/oracle-audit.js",
     "clean": "rm -rf dist"
   },
   "workspaces": [
