@@ -18,7 +18,7 @@ import { isHealthResponse } from "../../../packages/worker-contract/src/index.js
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
 import type { BoundedContextPacket, ContextFact } from "../../../packages/context-core/src/index.js";
 
-type LlmContextStrategy = "plain" | "rag" | "expanded";
+type LlmContextStrategy = "plain" | "rag" | "expanded" | "synthetic";
 
 const workerUrl = process.env.LLM_WORKER_URL ?? "http://127.0.0.1:8775";
 const engine = new HttpLlmWorkerEngine(workerUrl, "boundary");
@@ -185,6 +185,7 @@ type LlmHardBenchmarkCheckpoint = {
 function createStrategyPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
   if (contextStrategy === "plain") return packet;
   if (contextStrategy === "expanded") return createExpandedPacket(packet, caseId);
+  if (contextStrategy === "synthetic") return createSyntheticPacket(packet, caseId);
   return createRagPacket(packet, caseId);
 }
 
@@ -230,6 +231,53 @@ function createExpandedPacket(packet: BoundedContextPacket, caseId: string): Bou
     facts: [...packet.facts, ...newFacts],
     responseContract: `${packet.responseContract} Do not merge adjacent tasks into the final result.`,
     contextBudgetTokens: packet.contextBudgetTokens + 1200
+  };
+}
+
+function createSyntheticPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+  const syntheticFact = createSyntheticContextFact(packet, caseId);
+
+  // Synthetic-context baseline geniş context eklemez; mevcut bounded packet'i küçük
+  // bir karar özetiyle zenginleştirir. Bu, araştırmanın ana sorusuna denk gelir:
+  // "Dar context, iyi yapılandırılmış sentetik bağlamla güçlenebilir mi?"
+  // Oracle alanlarını kullanmıyoruz; summary sadece packet içindeki fact kind,
+  // evidence id ve scope kurallarından türetilir.
+  return {
+    ...packet,
+    id: `${packet.id}-synthetic`,
+    task: `${packet.task}\n\nSynthetic context strategy: use the synthetic evidence plan to choose the smallest safe final result.`,
+    facts: [...packet.facts, syntheticFact],
+    responseContract: `${packet.responseContract} Prefer the evidence id listed in the synthetic plan when it matches the task.`,
+    contextBudgetTokens: packet.contextBudgetTokens + 180
+  };
+}
+
+function createSyntheticContextFact(packet: BoundedContextPacket, caseId: string): ContextFact {
+  const correctionOrCurrent = packet.facts.find((fact) => fact.kind === "correction") ?? packet.facts.find((fact) => fact.kind === "current");
+  const sensitive = packet.facts.find((fact) => fact.kind === "sensitive");
+  const uncertain = packet.facts.find((fact) => fact.kind === "uncertain");
+  const stale = packet.facts.find((fact) => fact.kind === "stale");
+  const preferred = correctionOrCurrent ?? sensitive ?? uncertain ?? stale ?? packet.facts[0];
+  const boundaryHint = packet.mustNotInfer.length
+    ? `If required information is missing, return insufficient_context instead of guessing. Missing signals: ${packet.mustNotInfer.join("; ")}.`
+    : "The packet appears answerable if the preferred evidence directly supports the task.";
+  const scopeHint = [
+    ...packet.allowedScope.map((scope) => `Allowed: ${scope.label}${scope.path ? ` (${scope.path})` : ""}`),
+    ...packet.forbiddenScope.map((scope) => `Forbidden: ${scope.label}${scope.path ? ` (${scope.path})` : ""}`)
+  ].join(" ");
+
+  return {
+    id: `synthetic-plan-${caseId}`,
+    kind: "current",
+    content: [
+      `Synthetic evidence plan for ${caseId}.`,
+      preferred ? `Preferred evidence id: ${preferred.evidenceId}. Preferred fact kind: ${preferred.kind}.` : "No preferred evidence is available.",
+      sensitive ? "Sensitive facts may be summarized but raw sensitive values must not be copied." : "No sensitive fact is marked in the packet.",
+      boundaryHint,
+      scopeHint
+    ].join(" "),
+    evidenceId: `synthetic-plan-${caseId}`,
+    confidence: 0.62
   };
 }
 
@@ -362,31 +410,35 @@ async function readWorkerHealth(baseUrl: string) {
 }
 
 function parseContextStrategy(value: string): LlmContextStrategy {
-  if (value === "plain" || value === "rag" || value === "expanded") return value;
+  if (value === "plain" || value === "rag" || value === "expanded" || value === "synthetic") return value;
   throw new Error(`Unknown LLM_CONTEXT_STRATEGY: ${value}`);
 }
 
 function createSuiteName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "llm-rag-hard-baseline-v1";
   if (strategy === "expanded") return "llm-expanded-hard-baseline-v1";
+  if (strategy === "synthetic") return "llm-synthetic-hard-baseline-v1";
   return "llm-hard-baseline-v1";
 }
 
 function createRunSuffix(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "llm-rag-hard-baseline";
   if (strategy === "expanded") return "llm-expanded-hard-baseline";
+  if (strategy === "synthetic") return "llm-synthetic-hard-baseline";
   return "llm-hard-baseline";
 }
 
 function createEngineName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "external-llm-worker-rag-hard-baseline";
   if (strategy === "expanded") return "external-llm-worker-expanded-hard-baseline";
+  if (strategy === "synthetic") return "external-llm-worker-synthetic-hard-baseline";
   return "external-llm-worker-hard-baseline";
 }
 
 function createArchitectureName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "external-ar-llm-rag-hard-baseline";
   if (strategy === "expanded") return "external-ar-llm-expanded-hard-baseline";
+  if (strategy === "synthetic") return "external-ar-llm-synthetic-hard-baseline";
   return "external-ar-llm-hard-baseline";
 }
 

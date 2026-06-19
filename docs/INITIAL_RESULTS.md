@@ -470,8 +470,6 @@ specific region of the workspace.
 
 ## Result 8: Qwen2.5-Coder 7B GGUF Expanded-Context Hard Baseline
 
-Status: pending RunPod execution.
-
 Command:
 
 ```bash
@@ -492,12 +490,83 @@ Does wider context improve the same autoregressive LLM, or does it introduce
 more distractor pressure and context mixing than the RAG-style baseline?
 ```
 
+Reported artifact paths:
+
+```text
+reports/2026-06-19T16-44-37-202Z-llm-expanded-hard-baseline.json
+reports/2026-06-19T16-44-37-202Z-llm-expanded-hard-baseline.md
+reports/2026-06-19T16-44-37-202Z-llm-expanded-hard-baseline.manifest.json
+```
+
+Observed summary:
+
+| Metric | Plain Qwen2.5 | RAG-style Qwen2.5 | Expanded Qwen2.5 |
+| --- | ---: | ---: | ---: |
+| Task success rate | 64% | 68% | 80% |
+| Scope drift rate | 0% | 0% | 0% |
+| Sensitive leakage rate | 0% | 0% | 0% |
+| Evidence coverage | 96% | 84% | 52% |
+| Trace completeness rate | 96% | 84% | 52% |
+
+Interpretation:
+
+Expanded context produced the highest strict task success among the Qwen2.5
+baselines, but it also produced the weakest evidence and trace coverage.
+
+The short reading is:
+
+```text
+Wider context improved final answer selection, but weakened auditability.
+```
+
+Failure taxonomy showed five failures, all categorized as
+`missing_evidence_or_trace`. There were no `true_task_failure`,
+`semantic_match_but_keyword_fail`, `leakage_or_scope_violation`, or
+`boundary_failure` failures.
+
+This is a strong trade-off signal:
+
+```text
+More context can help the model answer, but it can also make the answer less
+trace-clean and harder to audit.
+```
+
+This result supports the core research motivation. Long or broad context alone
+is not enough for reliable agentic coding. A useful architecture must preserve
+evidence selection, trace quality, and region-specific scope even when more
+context is available.
+
+## Result 9: Qwen2.5-Coder 7B GGUF Synthetic-Context Hard Baseline
+
+Status: pending RunPod execution.
+
+Command:
+
+```bash
+npm run worker:llm-synthetic-hard-benchmark
+```
+
+Purpose:
+
+This baseline keeps the same Qwen2.5-Coder 7B GGUF model and the same
+OpenAI-compatible LLM worker, but changes the context strategy from more context
+to structured synthetic context. It adds a compact synthetic evidence plan
+derived only from packet facts, fact kinds, evidence ids, scope rules, and
+`mustNotInfer`.
+
+The research question is:
+
+```text
+Can narrow bounded context plus synthetic structure improve task success while
+preserving evidence and trace better than broad expanded context?
+```
+
 This result is intentionally pending. It should be filled only after the RunPod
 benchmark produces JSON, Markdown, and manifest artifacts.
 
 ## What These Results Show
 
-These initial results support nine early findings:
+These initial results support ten early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -517,8 +586,10 @@ These initial results support nine early findings:
    violations.
 9. RAG-style context can improve task success while reducing evidence and trace
    quality, showing that extra context introduces an auditability trade-off.
+10. Expanded context can further improve task success while sharply reducing
+    evidence and trace quality, strengthening the context/auditability trade-off.
 
-The expanded-context baseline has been implemented but is not counted as a
+The synthetic-context baseline has been implemented but is not counted as a
 finding until its RunPod result is produced.
 
 This is useful because it clarifies the research direction. The project is not
@@ -559,6 +630,8 @@ The main risks are:
   production-grade vector database or learned retriever.
 - The RAG result may depend on the number and kind of retrieved facts; future
   runs should vary retrieval breadth.
+- The expanded-context result uses a deterministic broad memory slice; different
+  broad-context construction policies may produce different trade-offs.
 - The taxonomy-adjusted interpretation is a diagnostic aid, not an official
   replacement for strict task success.
 - The ablation modes are controlled architecture simulations, while the
@@ -578,16 +651,14 @@ toward repository-level patch benchmarks.
 Planned steps:
 
 1. Inspect the failed Qwen2.5-Coder hard-suite cases by family.
-2. Add an expanded-context LLM baseline to test whether even more context helps
-   or increases distractor pressure.
-3. Add a synthetic-context enriched LLM baseline to test whether structured
+2. Run the synthetic-context enriched LLM baseline to test whether structured
    summaries and evidence hints beat plain retrieval.
-4. Repeat key LLM baselines with recorded decoding settings and model metadata.
-5. Add a real repository patch benchmark with allowed files, forbidden files,
+3. Repeat key LLM baselines with recorded decoding settings and model metadata.
+4. Add a real repository patch benchmark with allowed files, forbidden files,
    expected diffs, and test outcomes.
-6. Add latency and cost measurement for each architecture.
-7. Add stronger or larger LLM baselines when hardware budget allows.
-8. Add human failure-review notes for cases where deterministic metrics are too
+5. Add latency and cost measurement for each architecture.
+6. Add stronger or larger LLM baselines when hardware budget allows.
+7. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
 
 The current milestone is therefore not the end of the research. It is the point

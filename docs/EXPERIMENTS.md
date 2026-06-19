@@ -246,6 +246,12 @@ Run the expanded-context hard baseline with the same worker:
 npm run worker:llm-expanded-hard-benchmark
 ```
 
+Run the synthetic-context hard baseline with the same worker:
+
+```bash
+npm run worker:llm-synthetic-hard-benchmark
+```
+
 The worker expects an endpoint compatible with:
 
 ```text
@@ -330,6 +336,38 @@ RAG tests selected extra context. Expanded-context tests broad extra context.
 That distinction matters because production agent systems often have access to
 large memory stores, but not every accessible memory should influence the current
 workspace region.
+
+### Synthetic-Context LLM Hard Baseline
+
+The synthetic-context baseline keeps the context narrow but adds one structured
+synthetic evidence plan to the packet. The plan is derived only from fields the
+worker is already allowed to see:
+
+- fact kinds,
+- evidence ids,
+- allowed and forbidden scope,
+- `mustNotInfer`,
+- sensitive markers.
+
+It does not use evaluator oracle fields such as `expectedResult`,
+`requiredTerms`, or `forbiddenTerms`.
+
+This baseline tests the project's most central context hypothesis:
+
+```text
+Can narrow bounded context plus synthetic structure improve reasoning without
+the auditability loss caused by broad context?
+```
+
+The important comparison is:
+
+```text
+Plain Qwen2.5 vs RAG-style Qwen2.5 vs expanded-context Qwen2.5 vs synthetic-context Qwen2.5
+```
+
+If synthetic context improves task success while keeping evidence and trace high,
+it supports the idea that context organization can matter more than context
+quantity.
 
 ### Failure Taxonomy
 
