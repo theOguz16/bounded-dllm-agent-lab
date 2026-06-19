@@ -192,9 +192,17 @@ packages/
 
 docs/
   architecture, research plan, experiments, glossary
+  initial results
   technical report outline
   CI verification checklist
 ```
+
+## Current Research Status
+
+The first base-suite validation is documented in
+[`docs/INITIAL_RESULTS.md`](docs/INITIAL_RESULTS.md). It includes the oracle
+leakage audit, controlled ablation benchmark, and first Dream-Coder dLLM worker
+full benchmark result.
 
 ## Development Philosophy
 
