@@ -87,6 +87,28 @@ The full benchmark sends all 50 scenarios to the live worker. It prints progress
 for each scenario and writes JSON, Markdown, and manifest artifacts under
 `reports/`.
 
+Long GPU runs can fail for boring infrastructure reasons: a web terminal can
+disconnect, a worker process can restart, or a socket can close while the model
+is generating. The full benchmark writes a checkpoint after every scenario so a
+research run does not need to start from zero after one transient failure.
+
+Resume the latest full benchmark checkpoint with:
+
+```bash
+BENCHMARK_RESUME=1 npm run worker:full-benchmark
+```
+
+Resume a specific run with:
+
+```bash
+BENCHMARK_RUN_ID=2026-06-19T13-50-39-964Z-worker-full-benchmark BENCHMARK_RESUME=1 npm run worker:full-benchmark
+```
+
+The checkpoint is intentionally an experiment artifact, not just a convenience
+file. It records which scenarios finished, their scores, and their output
+snapshots. That makes long benchmark execution cheaper, repeatable, and easier
+to audit when we compare dLLM, LLM, and retrieval-augmented baselines.
+
 For a remote worker:
 
 ```bash
