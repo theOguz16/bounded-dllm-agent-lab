@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { getAblationMode, listAblationModes } from "../../packages/ablation-core/src/index.js";
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures } from "../../packages/fixtures/src/index.js";
@@ -94,4 +95,13 @@ const oracleAudit = auditFixturesForOracleLeakage(demoFixtures);
 assert.equal(oracleAudit.ok, true, JSON.stringify(oracleAudit.findings, null, 2));
 assert.equal(oracleAudit.fixtureCount, 50);
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage"] }, null, 2));
+const ablationModeIds = listAblationModes().map((mode) => mode.id);
+
+// Ablation smoke testi gerçek model kalitesini ölçmez. Sadece bilimsel koşu için
+// gerekli mimari varyantların kayıtlı olduğunu ve en zayıf/güçlü kontrollü modların
+// aynı fixture sözleşmesiyle workspace üretebildiğini doğrular.
+assert.deepEqual(ablationModeIds, ["raw_fact_only", "bounded_context", "bounded_grounded", "bounded_refinement"]);
+assert.equal((await getAblationMode("raw_fact_only").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be Python Flask.");
+assert.equal((await getAblationMode("bounded_grounded").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be TypeScript Fastify.");
+
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation"] }, null, 2));

@@ -110,6 +110,39 @@ This does not prove that a model is generally intelligent. It proves a narrower,
 but necessary, condition: the benchmark input was not contaminated by its own
 answer key.
 
+### Ablation Benchmark
+
+After oracle leakage is clean, the next question is not only whether the system
+passes. The more important research question is which architecture layer caused
+the improvement.
+
+Run the controlled ablation benchmark with:
+
+```bash
+npm run build
+npm run ablation:run
+```
+
+The ablation runner executes the same 50 fixtures under several controlled modes:
+
+- `raw_fact_only`: weak baseline that writes the first visible fact.
+- `bounded_context`: uses bounded packet selection and boundary decisions.
+- `bounded_grounded`: adds evidence claims and verifier trace.
+- `bounded_refinement`: runs the bounded grounded behavior through the refinement loop.
+
+This benchmark is not a real model leaderboard. It is an architecture isolation
+tool. It helps answer questions such as:
+
+- Did narrow context alone improve task success?
+- Did grounding improve evidence coverage and trace completeness?
+- Did boundary logic reduce sensitive leakage and insufficient-context guessing?
+- Did refinement add value beyond single-pass grounded output?
+
+The output includes one benchmark report per mode and one comparison table. If a
+mode improves task success but has weak evidence or trace metrics, that is useful
+information: it means the architecture may answer correctly but still be hard to
+audit.
+
 ### Why Evidence IDs Matter
 
 The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.
