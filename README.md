@@ -206,6 +206,12 @@ benchmarks, hard-suite baselines, Qwen2.5-Coder code patch benchmarks,
 Dream-Coder dLLM direct patch benchmarks, context strategy comparisons, and code
 failure taxonomy.
 
+Generate visual benchmark figures with:
+
+```bash
+npm run reports:research-figures
+```
+
 ## Development Philosophy
 
 The first goal is not a polished product. The first goal is a reproducible research artifact.

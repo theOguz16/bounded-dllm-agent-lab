@@ -279,6 +279,32 @@ Bu cok onemlidir cunku iki modelin failure mode'u farklidir. Dolayisiyla tek
 modelin her isi yapmasini beklemek yerine role-specialized hybrid architecture
 daha rasyonel gorunmektedir.
 
+## Grafiklerle Okuma
+
+Benchmark sonuclarini daha kolay anlatmak icin otomatik research figures raporu
+uretilebilir:
+
+```bash
+npm run reports:research-figures
+```
+
+Bu komut son benchmark artifact'lerini okuyarak Markdown icinde Mermaid bar chart
+grafikleri uretir:
+
+- code patch pass rate,
+- enterprise boundary guess count,
+- invalid machine-readable contract count,
+- behavior benchmark task/evidence/trace karsilastirmasi,
+- hybrid mimari yonu.
+
+Bu grafikler sayilarin yerini almaz. Sayilari daha hizli okunabilir hale getirir.
+Ozellikle iki ayrimi gorsel olarak anlatmak icin faydalidir:
+
+```text
+Qwen2.5-Coder: yuksek patch basarisi, yuksek enterprise-boundary guess.
+Dream-Coder dLLM: dusuk direct patch basarisi, yuksek invalid contract.
+```
+
 ## Ilk Faz Sonucu
 
 Bu calismanin ilk fazi su sonucu desteklemektedir:

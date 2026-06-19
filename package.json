@@ -12,6 +12,7 @@
     "eval:demo": "node dist/apps/cli/src/index.js",
     "reports:compare": "node dist/apps/cli/src/compare-reports.js",
     "reports:llm-context": "node dist/apps/cli/src/llm-context-comparison.js",
+    "reports:research-figures": "node dist/apps/cli/src/research-figures.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",
