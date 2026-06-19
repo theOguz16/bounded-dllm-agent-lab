@@ -54,9 +54,11 @@ def extract_code(text):
 
 def build_prompt(workspace):
     packet = workspace.get("packet", {})
-    task = packet.get("task", {})
+    task = packet.get("task", "")
+    goal = packet.get("goal", "")
     facts = packet.get("facts", [])
-    boundaries = packet.get("boundaries", {})
+    allowed_scope = packet.get("allowedScope", [])
+    forbidden_scope = packet.get("forbiddenScope", [])
 
     fact_text = "\n".join(
         f"- {fact.get('id')}: {fact.get('content')}"
@@ -64,20 +66,42 @@ def build_prompt(workspace):
         if isinstance(fact, dict)
     )
 
-    # Bu prompt kısa tutulur çünkü araştırmanın odağı uzun context'e yaslanmak değil,
-    # dar ama kontrollü context paketleriyle modelin ne kadar tutarlı kaldığını ölçmek.
+    allowed_scope_text = format_scope(allowed_scope)
+    forbidden_scope_text = format_scope(forbidden_scope)
+
+    # Canonical packet schema'da task düz string olarak tutulur. Worker burada schema
+    # varsayımı yaparken dar kalmalıdır: fazladan ürün kuralı bilmez, sadece packet'teki
+    # görev, hedef, scope ve fact bilgilerini prompt'a taşır.
     return (
         "You are a bounded coding agent.\n"
         "Use only the provided task, facts, and boundaries.\n"
         "Return the smallest safe final answer.\n"
         "Do not add unrelated features.\n"
         "Do not reveal sensitive values.\n\n"
-        f"Task title: {task.get('title', '')}\n"
-        f"Task prompt: {task.get('prompt', '')}\n"
-        f"Allowed scope: {boundaries.get('allowedScope', [])}\n"
-        f"Forbidden scope: {boundaries.get('forbiddenScope', [])}\n"
+        f"Task: {task}\n"
+        f"Goal: {goal}\n"
+        f"Allowed scope:\n{allowed_scope_text}\n"
+        f"Forbidden scope:\n{forbidden_scope_text}\n"
         f"Facts:\n{fact_text}\n"
     )
+
+
+def format_scope(scope_regions):
+    if not isinstance(scope_regions, list) or not scope_regions:
+        return "- none"
+
+    lines = []
+    for region in scope_regions:
+        if not isinstance(region, dict):
+            lines.append(f"- {region}")
+            continue
+
+        label = region.get("label", "")
+        path = region.get("path", "")
+        reason = region.get("reason", "")
+        lines.append(f"- {label} {path} {reason}".strip())
+
+    return "\n".join(lines)
 
 
 class DreamCoderRuntime:
