@@ -668,9 +668,145 @@ not prove that all forms of scope control are solved. Deeper scope behavior stil
 requires a real code patch benchmark with file-level allowed and forbidden
 changes.
 
+## Result 11: Qwen2.5-Coder 7B GGUF Code Patch Benchmark
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- llama.cpp OpenAI-compatible server.
+- Model: `qwen2.5-coder-7b-instruct-q4_k_m`.
+- Benchmark target: `ai/nanoid`.
+- Repository commit: `e4b7a9a7323006474ec939112aec68944b0da097`.
+- Case count: 50 positive model-facing code patch cases.
+
+Command:
+
+```bash
+LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
+LLM_MODEL=qwen2.5-coder-7b-instruct-q4_k_m \
+LLM_TEMPERATURE=0 \
+LLM_MAX_TOKENS=900 \
+npm run code:model-benchmark
+```
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T18-35-50-546Z-code-model-patch-benchmark.json
+reports/2026-06-19T18-35-50-546Z-code-model-patch-benchmark.md
+```
+
+Observed summary after bounded excerpt packaging for long files:
+
+| Metric | Value |
+| --- | ---: |
+| Case count | 50 |
+| Positive control pass rate | 80% |
+| Expected outcome accuracy | 80% |
+| Test pass rate | 100% |
+| Allowed file accuracy | 100% |
+| Expected file coverage | 98% |
+| Forbidden file touch rate | 0% |
+| Forbidden pattern hit rate | 12% |
+| Refusal accuracy | 82% |
+
+Reality breakdown:
+
+| Reality | Cases | Patch pass | Allowed files | Expected files | Refusal | No effect |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `micro_patch` | 30 | 96.7% | 100% | 96.7% | 100% | 3.3% |
+| `module_patch` | 10 | 100% | 100% | 100% | 100% | 0% |
+| `enterprise_boundary` | 10 | 10% | 100% | 100% | 10% | 0% |
+
+Interpretation:
+
+This is the first real repository patch benchmark result in the lab. It uses a
+real open-source repository, applies model-generated patch plans to a fresh repo
+copy per case, checks changed files with git, and runs the repository's fast
+version check.
+
+The most important finding is not simply the 80% overall pass rate. The value is
+in the split by reality level:
+
+```text
+Qwen2.5-Coder 7B is strong on micro and module patch work, but weak on
+enterprise-boundary refusal.
+```
+
+The model preserved file ownership very well:
+
+```text
+Allowed file accuracy: 100%
+Forbidden file touch rate: 0%
+```
+
+This means the model did not drift into forbidden files in this run. It was also
+very strong on module patch work:
+
+```text
+module_patch: 10 / 10 = 100%
+```
+
+The module patch cases were release metadata consistency tasks such as updating
+`package.json` and `jsr.json` together while leaving runtime files untouched.
+This suggests that the model can handle narrow multi-file consistency work when
+the required decision is present.
+
+The micro patch result improved from the earlier run after long README files
+were replaced with bounded excerpts:
+
+```text
+micro_patch before excerpting: 63.3%
+micro_patch after excerpting: 96.7%
+```
+
+This is not an oracle shortcut. The model still does not see expected changed
+files, scoring criteria, or answer keys. The excerpt only prevents long,
+irrelevant file context from causing endpoint/request failures. This supports
+the project's context hypothesis:
+
+```text
+Better bounded context packaging can improve measured patch behavior without
+leaking the answer key.
+```
+
+The weakest result is enterprise-boundary behavior:
+
+```text
+enterprise_boundary: 1 / 10 = 10%
+```
+
+In most enterprise-boundary cases, the model should refuse because the required
+product or compliance decision is missing. Instead, it often guessed a new
+default ID length such as `20`, `22`, or `24`. This is the strongest code-level
+signal so far for the project's core concern:
+
+```text
+The model can write scoped code patches, but it often fails to know when it
+lacks enough authority or context to make the decision.
+```
+
+This result should be reported carefully:
+
+```text
+Qwen2.5-Coder 7B performs well on scoped micro/module code edits, but the first
+code benchmark shows a clear weakness in insufficient-context refusal and
+enterprise boundary reasoning.
+```
+
+It should not be reported as:
+
+```text
+Qwen2.5-Coder is bad at coding.
+```
+
+The model is not bad at coding in this benchmark. The measured weakness is more
+specific and more relevant to agentic coding in companies: boundary awareness.
+
 ## What These Results Show
 
-These initial results support twelve early findings:
+These initial results support fifteen early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -697,6 +833,13 @@ These initial results support twelve early findings:
 12. A single comparison report makes the main trade-off visible: task success,
     context budget, evidence, trace, leakage, and failure taxonomy must be read
     together.
+13. Real repository code patch scoring is now measurable with allowed files,
+    forbidden files, expected file coverage, patch application errors, no-effect
+    patches, and refusal behavior.
+14. Bounded excerpts for long files can improve micro-patch performance without
+    leaking evaluator-only fields.
+15. Qwen2.5-Coder 7B shows a clear split: strong scoped patch ability, strong
+    module metadata consistency, and weak enterprise-boundary refusal.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -708,7 +851,7 @@ and leaving a trace that a human or evaluator can inspect.
 These results do not yet prove:
 
 - that dLLMs outperform autoregressive LLMs,
-- that the architecture works on real code patches,
+- that dLLMs outperform autoregressive LLMs on real code patches,
 - that the current benchmark is difficult enough,
 - that keyword-based scoring catches every semantic failure,
 - that one quantized Qwen2.5-Coder GGUF run represents all autoregressive LLM
@@ -717,7 +860,8 @@ These results do not yet prove:
   conditions,
 - that the system is ready for production use.
 
-The current result is best described as base-suite validation.
+The current result is best described as the first behavior-and-code benchmark
+milestone, not a final superiority claim.
 
 ## Threats To Validity
 
@@ -743,7 +887,8 @@ The main risks are:
 - The ablation modes are controlled architecture simulations, while the
   Dream-Coder and Qwen2.5-Coder runs are real worker baselines.
 - There is no latency, cost, or throughput analysis yet.
-- There is no real repository patch benchmark yet.
+- The first real repository patch benchmark uses one small OSS repository; it
+  does not yet prove generality across larger repos or multiple languages.
 - The current hard suite still does not isolate verifier-guided remasking value;
   that is why the separate remask-required mechanism suite exists.
 
@@ -751,17 +896,19 @@ These limitations are expected at this stage. They define the next experiments.
 
 ## Next Research Phase
 
-The next phase should inspect the first real baseline failures and then move
-toward repository-level patch benchmarks.
+The next phase should compare real code patch behavior across architectures and
+then increase repository realism.
 
 Planned steps:
 
-1. Inspect the failed Qwen2.5-Coder hard-suite cases by family.
-2. Run the synthetic-context enriched LLM baseline to test whether structured
-   summaries and evidence hints beat plain retrieval.
-3. Repeat key LLM baselines with recorded decoding settings and model metadata.
-4. Add a real repository patch benchmark with allowed files, forbidden files,
-   expected diffs, and test outcomes.
+1. Run the same 50-case code patch benchmark with Dream-Coder/dLLM-style patch
+   generation.
+2. Compare Qwen2.5-Coder autoregressive LLM and Dream-Coder dLLM code-patch
+   behavior under the same fixture set.
+3. Add a second OSS repository with more realistic implementation + test patch
+   tasks.
+4. Expand enterprise-boundary code cases with missing decision, missing
+   authority, sensitive logging, and cross-module ownership constraints.
 5. Add latency and cost measurement for each architecture.
 6. Add stronger or larger LLM baselines when hardware budget allows.
 7. Add human failure-review notes for cases where deterministic metrics are too
