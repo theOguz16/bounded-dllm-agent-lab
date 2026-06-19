@@ -104,6 +104,22 @@ Resume a specific run with:
 BENCHMARK_RUN_ID=2026-06-19T13-50-39-964Z-worker-full-benchmark BENCHMARK_RESUME=1 npm run worker:full-benchmark
 ```
 
+After the base full benchmark is healthy, run the hard worker benchmark:
+
+```bash
+npm run worker:hard-benchmark
+```
+
+The hard worker benchmark sends the 25 hard fixtures to the same live worker.
+It keeps the same JSON, Markdown, manifest, output snapshot, retry, and
+checkpoint behavior as the full benchmark.
+
+Resume the latest hard worker benchmark checkpoint with:
+
+```bash
+BENCHMARK_RESUME=1 npm run worker:hard-benchmark
+```
+
 The checkpoint is intentionally an experiment artifact, not just a convenience
 file. It records which scenarios finished, their scores, and their output
 snapshots. That makes long benchmark execution cheaper, repeatable, and easier
