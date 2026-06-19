@@ -369,6 +369,26 @@ If synthetic context improves task success while keeping evidence and trace high
 it supports the idea that context organization can matter more than context
 quantity.
 
+### LLM Context Comparison Report
+
+After the dLLM, plain LLM, RAG-style, expanded-context, and synthetic-context
+runs have produced artifacts, generate a single comparison report with:
+
+```bash
+npm run reports:llm-context
+```
+
+The report reads the latest matching JSON artifacts from `reports/` and writes:
+
+```text
+reports/<timestamp>-llm-context-comparison.json
+reports/<timestamp>-llm-context-comparison.md
+```
+
+This report is meant for research communication. It keeps task success,
+scope drift, leakage, evidence, trace, and failure taxonomy in one table so the
+comparison does not collapse into a single leaderboard number.
+
 ### Failure Taxonomy
 
 Benchmark reports include a deterministic failure taxonomy for failed cases.

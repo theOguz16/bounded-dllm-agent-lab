@@ -11,6 +11,7 @@
     "test:smoke": "node dist/tests/smoke/contracts.js",
     "eval:demo": "node dist/apps/cli/src/index.js",
     "reports:compare": "node dist/apps/cli/src/compare-reports.js",
+    "reports:llm-context": "node dist/apps/cli/src/llm-context-comparison.js",
     "ablation:run": "node dist/apps/cli/src/ablation-run.js",
     "hard:benchmark": "node dist/apps/cli/src/ablation-run.js --suite hard --modes bounded_refinement",
     "hard:ablation": "node dist/apps/cli/src/ablation-run.js --suite hard",
