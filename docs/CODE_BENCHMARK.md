@@ -258,3 +258,45 @@ Invalid model output is also separated from refusal. If a model writes an
 explanation, malformed JSON, or a schema wrapper the parser cannot understand,
 the scorer records `invalid_model_output`. This matters for boundary research:
 a malformed answer must not be counted as a correct insufficient-context refusal.
+
+## Code Failure Taxonomy
+
+After model-facing code benchmark runs, create a failure taxonomy report:
+
+```bash
+npm run code:failure-taxonomy
+```
+
+By default, this command finds the latest available code patch reports for:
+
+- Qwen2.5 plain bounded context,
+- Qwen2.5 synthetic context,
+- Qwen2.5 expanded context,
+- Qwen2.5 RAG-style context,
+- Dream-Coder dLLM direct patching.
+
+It writes both JSON and Markdown under `reports/`.
+
+You can also pass exact report paths:
+
+```bash
+npm run code:failure-taxonomy -- \
+  reports/example-code-model-patch-benchmark.json \
+  reports/example-code-model-expanded-patch-benchmark.json
+```
+
+The taxonomy explains failed cases with deterministic categories:
+
+- `enterprise_missing_authority_guess`: the model should refuse, but guessed or
+  edited anyway.
+- `contract_invalid_output`: the model failed the machine-readable patch/refusal
+  contract.
+- `patch_application_failure`: exact search/replace could not be applied.
+- `scope_violation`: a forbidden file was touched.
+- `forbidden_pattern_violation`: a forbidden change appeared in the diff.
+- `missing_expected_file`: required files were not all changed.
+- `no_effect_patch`: the patch applied but produced no repository diff.
+- `test_failure`: repository checks failed.
+
+This report is especially useful for enterprise-boundary analysis. Raw patch
+pass rate tells whether a run succeeded. Failure taxonomy tells why it failed.

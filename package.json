@@ -19,6 +19,7 @@
     "code:model-expanded-benchmark": "CODE_CONTEXT_STRATEGY=expanded node dist/apps/cli/src/code-model-patch-benchmark.js",
     "code:model-synthetic-benchmark": "CODE_CONTEXT_STRATEGY=synthetic node dist/apps/cli/src/code-model-patch-benchmark.js",
     "code:dllm-benchmark": "node dist/apps/cli/src/code-dllm-patch-benchmark.js",
+    "code:failure-taxonomy": "node dist/apps/cli/src/code-failure-taxonomy.js",
     "ablation:run": "node dist/apps/cli/src/ablation-run.js",
     "hard:benchmark": "node dist/apps/cli/src/ablation-run.js --suite hard --modes bounded_refinement",
     "hard:ablation": "node dist/apps/cli/src/ablation-run.js --suite hard",
