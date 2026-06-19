@@ -1034,9 +1034,128 @@ This supports the next research direction: use the autoregressive coder model
 for implementation, then add a specialized verifier, boundary checker, remask
 planner, or dLLM-style reviewer around it.
 
+## Result 14: Code Patch Failure Taxonomy
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- Taxonomy command: `npm run code:failure-taxonomy`.
+- Input reports: latest available Qwen2.5 code context reports and the
+  Dream-Coder dLLM direct patch report.
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T22-16-54-830Z-code-failure-taxonomy.json
+reports/2026-06-19T22-16-54-830Z-code-failure-taxonomy.md
+```
+
+Summary:
+
+| Run | Patch pass | Refusal | Boundary guess | Invalid contract |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen2.5 plain | 78% | 80% | 10 | 0 |
+| Qwen2.5 synthetic | 78% | 80% | 10 | 0 |
+| Qwen2.5 expanded | 84% | 86% | 7 | 0 |
+| Qwen2.5 RAG | 80% | 82% | 9 | 0 |
+| Dream-Coder dLLM | 12% | 80% | 0 | 42 |
+
+Interpretation:
+
+This taxonomy run explains the failed code-patch cases instead of only reporting
+whether they passed. The most important split is that Qwen2.5-Coder and
+Dream-Coder failed for different reasons.
+
+Qwen2.5-Coder did not usually fail because it broke the machine-readable patch
+contract:
+
+```text
+Qwen invalid contract count: 0
+```
+
+It produced parseable `file_edit` plans. The main failure was enterprise-boundary
+reasoning. In missing-authority cases, the correct behavior was to refuse. Qwen
+often guessed values such as `20`, `22`, or `24` and attempted to edit runtime or
+type files anyway:
+
+```text
+plain boundary guess: 10 / 10
+synthetic boundary guess: 10 / 10
+expanded boundary guess: 7 / 10
+rag boundary guess: 9 / 10
+```
+
+This makes the Qwen result more precise:
+
+```text
+Qwen2.5-Coder is a capable scoped implementation model, but it is weak at
+knowing when a missing product, compliance, or governance decision should stop
+the edit.
+```
+
+The expanded-context result is meaningful but not decisive. Expanded context
+reduced boundary guesses from 10 to 7 and improved patch pass rate from 78% to
+84%. That shows extra operational context can help, but it did not solve the
+enterprise-boundary problem:
+
+```text
+expanded still guessed in 7 / 10 enterprise-boundary cases.
+```
+
+The synthetic-context result is an important negative result:
+
+```text
+synthetic boundary guess: 10 / 10
+```
+
+The current synthetic packet did not improve refusal behavior. This suggests
+that the next synthetic packet should be stronger and more policy-like. It
+should not merely summarize allowed files and task discipline. It should encode
+explicit decision rules for missing authority, product approval, compliance
+approval, and unsafe inference.
+
+Dream-Coder dLLM failed in a different way:
+
+```text
+Dream-Coder invalid contract count: 42 / 50
+```
+
+Most Dream-Coder failures were not ordinary patch mistakes. The worker often
+returned explanation text, malformed JSON, or an invalid patch/refusal envelope
+instead of a machine-applicable patch plan. This is a contract-following failure:
+
+```text
+The dLLM direct patch worker often reasoned about the task but did not emit the
+required machine-readable artifact.
+```
+
+This taxonomy therefore supports a role-specialized architecture rather than a
+single-model replacement story:
+
+```text
+Qwen2.5-Coder: strong candidate implementation agent.
+Dream-Coder dLLM: not ready as a direct patch writer in this setup.
+Next dLLM role to test: verifier, boundary checker, critique agent, or remask
+planner around a stronger implementation model.
+```
+
+The key research value is not that one model "wins." The value is that the
+failure taxonomy separates model capability from orchestration capability:
+
+- implementation strength,
+- machine-readable contract following,
+- missing-authority refusal,
+- enterprise boundary reasoning,
+- scope safety.
+
+This is exactly the level of detail needed for agentic coding research. A single
+task-success metric would hide the important difference between "can write code"
+and "knows when not to write code."
+
 ## What These Results Show
 
-These initial results support twenty-one early findings:
+These initial results support twenty-five early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -1087,6 +1206,15 @@ These initial results support twenty-one early findings:
 21. Code benchmark and behavior benchmark results can diverge: expanded context
     weakened auditability in the behavior suite but improved refusal/boundary
     outcomes in the code patch suite.
+22. Code failure taxonomy shows that Qwen2.5-Coder failures are mostly
+    enterprise-boundary guesses, not invalid patch contracts.
+23. Code failure taxonomy shows that Dream-Coder direct patch failures are mostly
+    invalid machine-readable contracts, not forbidden-file edits.
+24. Expanded context reduced Qwen2.5 enterprise-boundary guesses from 10 to 7 in
+    this run, but did not solve missing-authority refusal.
+25. The next architecture should test role specialization: autoregressive coder
+    for implementation, plus a verifier/boundary/remask role that targets the
+    failure modes exposed by taxonomy.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
