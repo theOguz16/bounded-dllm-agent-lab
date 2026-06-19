@@ -265,6 +265,27 @@ workspace. This makes the baseline more honest: if the autoregressive model
 chooses stale evidence, leaks sensitive content, or omits evidence ids, the
 normal benchmark metrics should show it.
 
+### Failure Taxonomy
+
+Benchmark reports include a deterministic failure taxonomy for failed cases.
+This taxonomy is not a judge model and it does not replace the main metrics.
+It is a research aid that separates different meanings of "fail":
+
+- `semantic_match_but_keyword_fail`: the final answer is close to the expected
+  result, but missed exact required terms.
+- `true_task_failure`: the final answer is not close enough to the expected
+  result under the deterministic heuristic.
+- `missing_evidence_or_trace`: the answer failed with incomplete evidence or
+  trace records.
+- `boundary_failure`: the boundary decision was wrong.
+- `leakage_or_scope_violation`: the output hit forbidden, sensitive, or
+  out-of-scope signals.
+
+This matters because a benchmark can otherwise punish two very different events
+with the same word: `fail`. A semantically close answer that missed exact wording
+is not the same scientific signal as a sensitive leakage event or a boundary
+failure.
+
 ### Why Evidence IDs Matter
 
 The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.

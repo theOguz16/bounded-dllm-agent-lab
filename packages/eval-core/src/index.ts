@@ -88,6 +88,7 @@ export type BenchmarkArtifact = {
   createdAt: string;
   report: BenchmarkReport;
   outputSnapshots?: CaseOutputSnapshot[];
+  failureTaxonomy?: FailureTaxonomyItem[];
 };
 
 export type CaseOutputSnapshot = {
@@ -98,6 +99,23 @@ export type CaseOutputSnapshot = {
   requiredTerms: string[];
   forbiddenTerms: string[];
   finalResult: string;
+};
+
+export type FailureTaxonomyCategory =
+  | "semantic_match_but_keyword_fail"
+  | "true_task_failure"
+  | "missing_evidence_or_trace"
+  | "boundary_failure"
+  | "leakage_or_scope_violation";
+
+export type FailureTaxonomyItem = {
+  caseId: string;
+  family: BenchmarkFamily;
+  category: FailureTaxonomyCategory;
+  reason: string;
+  expectedResult: string;
+  finalResult: string;
+  semanticSimilarity: number;
 };
 
 export type FailureCategory =
@@ -340,6 +358,7 @@ export function createBenchmarkArtifact(input: {
   createdAt: string;
   report: BenchmarkReport;
   outputSnapshots?: CaseOutputSnapshot[];
+  failureTaxonomy?: FailureTaxonomyItem[];
 }): BenchmarkArtifact {
   // BenchmarkArtifact, deney sonucunun paketlenmiş halidir. Bunu ayrı bir tipe
   // almamızın nedeni raporun sadece terminal çıktısı olmaması: aynı veri hem JSON'a
@@ -350,7 +369,70 @@ export function createBenchmarkArtifact(input: {
     engineName: input.engineName,
     createdAt: input.createdAt,
     report: input.report,
-    outputSnapshots: input.outputSnapshots
+    outputSnapshots: input.outputSnapshots,
+    failureTaxonomy: input.failureTaxonomy ?? createFailureTaxonomy(input.report, input.outputSnapshots ?? [])
+  };
+}
+
+export function createFailureTaxonomy(report: BenchmarkReport, outputSnapshots: CaseOutputSnapshot[]): FailureTaxonomyItem[] {
+  const snapshotsById = new Map(outputSnapshots.map((snapshot) => [snapshot.caseId, snapshot]));
+
+  return report.cases
+    .filter((score) => score.taskSuccess !== 1)
+    .map((score) => {
+      const snapshot = snapshotsById.get(score.caseId);
+      const expectedResult = snapshot?.expectedResult ?? "";
+      const finalResult = snapshot?.finalResult ?? "";
+      const semanticSimilarity = lexicalSimilarity(expectedResult, finalResult);
+      const { category, reason } = classifyFailure(score, semanticSimilarity);
+
+      return {
+        caseId: score.caseId,
+        family: score.family,
+        category,
+        reason,
+        expectedResult,
+        finalResult,
+        semanticSimilarity
+      };
+    });
+}
+
+function classifyFailure(score: CaseScore, semanticSimilarity: number): Pick<FailureTaxonomyItem, "category" | "reason"> {
+  // Failure taxonomy skorun yerine geçmez; skorun ne tür bir başarısızlık olduğunu
+  // ayrıştırır. Bu özellikle araştırmada önemlidir: keyword fail ile gerçek model
+  // hatasını aynı sepete atarsak mimari sonucunu olduğundan zayıf okuyabiliriz.
+  if (score.sensitiveLeakage || score.scopeDrift || score.forbiddenTermHitCount > 0) {
+    return {
+      category: "leakage_or_scope_violation",
+      reason: "Output hit a forbidden term, sensitive leakage signal, or scope drift signal."
+    };
+  }
+
+  if (!score.boundaryAccuracy) {
+    return {
+      category: "boundary_failure",
+      reason: "Boundary decision did not match the expected bounded-context decision."
+    };
+  }
+
+  if (score.evidenceCoverage < 1 || !score.traceCompleteness) {
+    return {
+      category: "missing_evidence_or_trace",
+      reason: "Final answer failed with incomplete expected evidence coverage or trace completeness."
+    };
+  }
+
+  if (semanticSimilarity >= 0.45) {
+    return {
+      category: "semantic_match_but_keyword_fail",
+      reason: "Final answer is lexically close to the expected result but missed exact required terms."
+    };
+  }
+
+  return {
+    category: "true_task_failure",
+    reason: "Final answer is not close enough to the expected result under deterministic review heuristics."
   };
 }
 
@@ -409,6 +491,17 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
   // Sadece metrikleri görmek "başarısız" der ama neden başarısız olduğunu öğretmez.
   // Burada beklenen sonuç ile modelin finalResult'ını yan yana koyuyoruz; böylece
   // prompt, mask policy veya evaluator tarafındaki eksikliği ayırabiliriz.
+  const taxonomyRows = (artifact.failureTaxonomy ?? []).map((item) => [
+    item.caseId,
+    item.family,
+    item.category,
+    percent(item.semanticSimilarity),
+    compact(item.reason),
+    compact(item.finalResult)
+  ]);
+  // Failure taxonomy bölümü "fail sayısı"nı açıklanabilir hata tiplerine ayırır.
+  // Bu sayede gerçek model hatası, kanıt/trace boşluğu ve keyword scorer katılığı
+  // birbirine karışmaz. Bu, araştırmanın rasyonel kalması için özellikle gereklidir.
   const sections = [
     [
       `# Benchmark Run Report: ${artifact.suiteName}`,
@@ -456,7 +549,58 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
     );
   }
 
+  if (taxonomyRows.length) {
+    sections.push(
+      [
+        "## Failure Taxonomy",
+        "",
+        table(["Case", "Family", "Category", "Similarity", "Reason", "Final Result"], taxonomyRows)
+      ].join("\n")
+    );
+  }
+
   return `${sections.join("\n\n")}\n`;
+}
+
+function lexicalSimilarity(left: string, right: string): number {
+  const leftTerms = normalizedTermSet(left);
+  const rightTerms = normalizedTermSet(right);
+  const union = new Set([...leftTerms, ...rightTerms]);
+  const intersection = [...leftTerms].filter((term) => rightTerms.has(term));
+
+  return ratio(intersection.length, union.size);
+}
+
+function normalizedTermSet(value: string): Set<string> {
+  const stopWords = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "be",
+    "can",
+    "for",
+    "in",
+    "is",
+    "must",
+    "only",
+    "or",
+    "out",
+    "should",
+    "the",
+    "to",
+    "will",
+    "with",
+    "without"
+  ]);
+  const terms = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, " ")
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2 && !stopWords.has(term));
+
+  return new Set(terms);
 }
 
 function binary(value: boolean): 0 | 1 {
