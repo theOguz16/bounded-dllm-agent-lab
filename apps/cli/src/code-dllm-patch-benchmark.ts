@@ -26,6 +26,8 @@ type GeneratedPatchPlan = {
   modelError: string | null;
 };
 
+class TransportError extends Error {}
+
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
 const workRoot = process.env.CODE_BENCH_WORK_ROOT ?? "reports/code-dllm-patch-workspaces";
 const reportDir = process.env.CODE_BENCH_REPORT_DIR ?? "reports";
@@ -257,8 +259,6 @@ async function latestCheckpointRunId(): Promise<string | undefined> {
     return undefined;
   }
 }
-
-class TransportError extends Error {}
 
 function isTransportError(error: unknown): boolean {
   return error instanceof TransportError;
