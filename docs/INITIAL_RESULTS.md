@@ -616,9 +616,61 @@ Structured synthetic context can improve bounded LLM behavior without simply
 increasing context size.
 ```
 
+## Result 10: LLM Context Strategy Comparison Report
+
+Command:
+
+```bash
+npm run reports:llm-context
+```
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T17-13-22-998Z-llm-context-comparison.json
+reports/2026-06-19T17-13-22-998Z-llm-context-comparison.md
+```
+
+Observed summary:
+
+| Run | Task | Drift | Leakage | Evidence | Trace | Budget Used |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dream-Coder dLLM bounded | 100% | 0% | 0% | 100% | 100% | 28.1% |
+| Qwen2.5 plain bounded | 64% | 0% | 0% | 96% | 96% | 28.1% |
+| Qwen2.5 RAG-style | 68% | 0% | 0% | 84% | 84% | 40.6% |
+| Qwen2.5 expanded-context | 80% | 0% | 0% | 52% | 52% | 50.3% |
+| Qwen2.5 synthetic-context | 68% | 0% | 0% | 96% | 96% | 39.6% |
+
+Failure taxonomy summary:
+
+| Run | Semantic Keyword | True Task | Evidence/Trace Gap | Boundary | Leakage/Scope |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dream-Coder dLLM bounded | 0 | 0 | 0 | 0 | 0 |
+| Qwen2.5 plain bounded | 3 | 5 | 1 | 0 | 0 |
+| Qwen2.5 RAG-style | 2 | 2 | 4 | 0 | 0 |
+| Qwen2.5 expanded-context | 0 | 0 | 5 | 0 | 0 |
+| Qwen2.5 synthetic-context | 4 | 4 | 0 | 0 | 0 |
+
+Interpretation:
+
+This comparison closes the current hard behavior benchmark phase. It shows three
+important patterns:
+
+- Dream-Coder dLLM bounded orchestration is the strongest result on this suite.
+- Expanded context gives Qwen2.5 the highest LLM task success, but sharply
+  weakens evidence and trace.
+- Synthetic context gives Qwen2.5 the best balance among LLM context strategies:
+  it matches RAG task success while preserving plain bounded auditability.
+
+The 0% scope drift and 0% leakage rows should be read carefully. They mean this
+suite did not observe forbidden-term or raw-sensitive-output violations. They do
+not prove that all forms of scope control are solved. Deeper scope behavior still
+requires a real code patch benchmark with file-level allowed and forbidden
+changes.
+
 ## What These Results Show
 
-These initial results support eleven early findings:
+These initial results support twelve early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -642,9 +694,9 @@ These initial results support eleven early findings:
     evidence and trace quality, strengthening the context/auditability trade-off.
 11. Synthetic context can match the RAG task-success improvement while preserving
     plain bounded evidence and trace quality in this run.
-
-The synthetic-context baseline has been implemented but is not counted as a
-finding until its RunPod result is produced.
+12. A single comparison report makes the main trade-off visible: task success,
+    context budget, evidence, trace, leakage, and failure taxonomy must be read
+    together.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
