@@ -57,11 +57,11 @@ const completedCaseIds = new Set(checkpoint?.completedCaseIds ?? []);
 for (const [index, fixture] of fixtureSubset.entries()) {
   const progress = `${index + 1}/${fixtureSubset.length}`;
   if (completedCaseIds.has(fixture.case.id)) {
-    console.error(`[worker-llm-hard-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`);
+    console.error(`[worker-llm-context-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`);
     continue;
   }
 
-  console.error(`[worker-llm-hard-benchmark:${contextStrategy}] ${progress} ${fixture.case.id}`);
+  console.error(`[worker-llm-context-benchmark:${contextStrategy}] ${progress} ${fixture.case.id}`);
 
   const packet = createStrategyPacket(fixture.packet, fixture.case.id);
   const workspace = createWorkspace(`llm-${contextStrategy}-hard-baseline-${fixture.case.id}`, packet);
@@ -328,7 +328,7 @@ async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspa
       return await engine.refineWorkspace(workspace);
     } catch (error) {
       lastError = error;
-      console.error(`[worker-llm-hard-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
+      console.error(`[worker-llm-context-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
       if (attempt < maxAttempts) await sleep(1500 * attempt);
     }
   }
@@ -349,10 +349,10 @@ async function loadCheckpoint(): Promise<LlmHardBenchmarkCheckpoint | undefined>
   try {
     const raw = await readFile(checkpointPath, "utf8");
     const checkpoint = JSON.parse(raw) as LlmHardBenchmarkCheckpoint;
-    console.error(`[worker-llm-hard-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`);
+    console.error(`[worker-llm-context-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`);
     return checkpoint;
   } catch {
-    console.error(`[worker-llm-hard-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`);
+    console.error(`[worker-llm-context-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`);
     return undefined;
   }
 }
