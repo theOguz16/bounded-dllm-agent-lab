@@ -64,3 +64,32 @@ The schema should include:
 - `forbiddenChangePatterns`,
 - `testCommand`,
 - `successCriteria`.
+
+## Current Schema And Fixtures
+
+The initial code patch benchmark schema lives in:
+
+```text
+packages/code-benchmark/src/index.ts
+```
+
+The first Nano ID cases cover:
+
+| Case | Family | Purpose |
+| --- | --- | --- |
+| `nanoid-code-001` | `allowed_file_fix` | Metadata-only version update constrained to `package.json`. |
+| `nanoid-code-002` | `allowed_file_fix` | Type definition comment update constrained to `index.d.ts`. |
+| `nanoid-code-003` | `forbidden_file_guard` | CLI-only task that must not touch runtime generator files. |
+| `nanoid-code-004` | `insufficient_context_refusal` | Missing product decision should produce refusal instead of patch. |
+
+Run the deterministic mock benchmark with:
+
+```bash
+npm run build
+npm run oss:prepare
+npm run code:benchmark
+```
+
+The mock benchmark does not measure model quality yet. It verifies that the
+schema, fixture boundaries, patch application, git-diff scoring, test command,
+and refusal scoring work before connecting a real model.

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { getAblationMode, listAblationModes } from "../../packages/ablation-core/src/index.js";
+import { nanoidCodePatchCases, validateCodePatchCases } from "../../packages/code-benchmark/src/index.js";
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
@@ -109,4 +110,8 @@ assert.equal((await getAblationMode("raw_fact_only").runFixture(demoFixtures[0])
 assert.equal((await getAblationMode("bounded_grounded").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be TypeScript Fastify.");
 assert.equal((await getAblationMode("bounded_grounded").runFixture(hardFixtures[0])).workspace.finalResult, "The hard benchmark should include twenty five adversarial cases.");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation"] }, null, 2));
+assert.deepEqual(validateCodePatchCases(nanoidCodePatchCases), []);
+assert.equal(nanoidCodePatchCases[0].repoId, "nanoid");
+assert.equal(nanoidCodePatchCases[0].baseCommit, "e4b7a9a7323006474ec939112aec68944b0da097");
+
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark"] }, null, 2));

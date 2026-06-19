@@ -1,0 +1,7 @@
+{
+  "name": "@bounded-dllm-agent-lab/code-benchmark",
+  "version": "0.1.0",
+  "type": "module",
+  "private": false,
+  "main": "src/index.ts"
+}
