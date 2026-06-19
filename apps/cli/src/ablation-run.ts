@@ -18,15 +18,17 @@ import {
   validateRunManifest,
   type ExperimentRunManifest
 } from "../../../packages/experiment-core/src/index.js";
-import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
+import { demoFixtures, hardFixtures, validateFixtures, type BenchmarkFixture } from "../../../packages/fixtures/src/index.js";
 
 const reportDir = "reports";
-const suiteName = "ablation-benchmark-v1";
+const suite = readSuite();
+const fixtureSubset = selectFixtures(suite);
+const suiteName = `${suite}-ablation-benchmark-v1`;
 const selectedModeIds = readModeIds();
 const createdAt = new Date().toISOString();
 const safeTimestamp = createdAt.replace(/[:.]/g, "-");
 const manifests: ExperimentRunManifest[] = [];
-const fixtureFailures = validateFixtures(demoFixtures);
+const fixtureFailures = validateFixtures(fixtureSubset, { expectedFamilyCount: suite === "base" ? 10 : 5 });
 
 if (fixtureFailures.length) {
   throw new Error(JSON.stringify({ ok: false, fixtureFailures }, null, 2));
@@ -41,7 +43,7 @@ for (const modeId of selectedModeIds) {
 
   console.error(`[ablation-run] ${mode.id}: ${mode.label}`);
 
-  for (const fixture of demoFixtures) {
+  for (const fixture of fixtureSubset) {
     const result = await mode.runFixture(fixture);
 
     // Ablation koşusunda evaluator hiç değişmez. Sadece aynı fixture'a karşı hangi
@@ -129,6 +131,8 @@ console.log(
     {
       ok: true,
       suiteName,
+      suite,
+      scenarioCount: fixtureSubset.length,
       modeCount: selectedModeIds.length,
       modes: selectedModeIds,
       comparisonJsonPath,
@@ -146,6 +150,16 @@ console.log(
     2
   )
 );
+
+function readSuite(): "base" | "hard" {
+  const value = readFlag("--suite") ?? "base";
+  if (value === "base" || value === "hard") return value;
+  throw new Error(`Unknown suite: ${value}`);
+}
+
+function selectFixtures(selectedSuite: "base" | "hard"): BenchmarkFixture[] {
+  return selectedSuite === "hard" ? hardFixtures : demoFixtures;
+}
 
 function readModeIds(): AblationModeId[] {
   const raw = readFlag("--modes");

@@ -226,3 +226,37 @@ Planned steps:
 
 The current milestone is therefore not the end of the research. It is the point
 where the lab becomes credible enough to run harder experiments.
+
+## Update: Hard Suite Added
+
+The first hard behavior suite has been added after the base-suite validation.
+
+Current hard suite:
+
+- 25 deterministic cases.
+- 5 hard cases per benchmark family.
+- Distractor facts, partial evidence, tempting adjacent scope, sensitive-summary
+  tension, and three-way conflicts.
+
+Initial controlled hard ablation:
+
+| Mode | Task | Drift | Leakage | Evidence | Trace |
+| --- | --- | --- | --- | --- | --- |
+| `raw_fact_only` | 20% | 0% | 20% | 0% | 0% |
+| `bounded_context` | 100% | 0% | 0% | 0% | 0% |
+| `bounded_grounded` | 100% | 0% | 0% | 100% | 100% |
+| `bounded_refinement` | 100% | 0% | 0% | 100% | 100% |
+
+Interpretation:
+
+The hard suite is now available, deterministic, and covered by oracle leakage
+audit. In the controlled ablation runner, the same architectural pattern remains:
+raw fact selection is weak, bounded context improves task success, and grounding
+adds auditability.
+
+However, the current hard suite still does not expose a measurable advantage for
+the refinement loop over single-pass grounding. This is an important limitation,
+not a result to hide. The next hard-suite iteration should include cases where a
+first pass can fail, verifier feedback marks a specific region, and remasking
+that region changes the final score. That is the condition needed to test the
+specific value of dLLM-style refinement rather than only bounded selection.

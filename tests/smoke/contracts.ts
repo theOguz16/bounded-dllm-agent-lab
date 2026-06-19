@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { getAblationMode, listAblationModes } from "../../packages/ablation-core/src/index.js";
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
-import { demoFixtures } from "../../packages/fixtures/src/index.js";
+import { demoFixtures, hardFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 
@@ -88,12 +88,15 @@ assert.equal(isInfillResponse({ requestId: "1", region: "patch_intent", content:
 assert.equal(isResolveConflictResponse({ requestId: "1", conflictId: "c1", resolution: "x", engineName: "mock", latencyMs: 1 }), true);
 assert.equal(isHealthResponse({ ok: true, workerName: "mock", mode: "unknown", version: "0.1.0" }), false);
 
-const oracleAudit = auditFixturesForOracleLeakage(demoFixtures);
+assert.deepEqual(validateFixtures(demoFixtures), []);
+assert.deepEqual(validateFixtures(hardFixtures, { expectedFamilyCount: 5 }), []);
+
+const oracleAudit = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtures]);
 
 // Oracle leakage smoke testi araştırmanın sigortasıdır. Worker'a cevap anahtarı
 // sızarsa modelin doğru cevap vermesi başarı değil, deney tasarımı hatası olur.
 assert.equal(oracleAudit.ok, true, JSON.stringify(oracleAudit.findings, null, 2));
-assert.equal(oracleAudit.fixtureCount, 50);
+assert.equal(oracleAudit.fixtureCount, 75);
 
 const ablationModeIds = listAblationModes().map((mode) => mode.id);
 
@@ -103,5 +106,6 @@ const ablationModeIds = listAblationModes().map((mode) => mode.id);
 assert.deepEqual(ablationModeIds, ["raw_fact_only", "bounded_context", "bounded_grounded", "bounded_refinement"]);
 assert.equal((await getAblationMode("raw_fact_only").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be Python Flask.");
 assert.equal((await getAblationMode("bounded_grounded").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be TypeScript Fastify.");
+assert.equal((await getAblationMode("bounded_grounded").runFixture(hardFixtures[0])).workspace.finalResult, "The hard benchmark should include twenty five adversarial cases.");
 
 console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation"] }, null, 2));

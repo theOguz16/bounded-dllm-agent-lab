@@ -143,6 +143,44 @@ mode improves task success but has weak evidence or trace metrics, that is usefu
 information: it means the architecture may answer correctly but still be hard to
 audit.
 
+### Hard Benchmark Suite
+
+The base suite checks whether the lab can measure core behaviors under controlled
+conditions. The hard suite checks whether those behaviors survive more adversarial
+bounded-context packets.
+
+Run the hard single-mode benchmark with:
+
+```bash
+npm run build
+npm run hard:benchmark
+```
+
+Run the hard ablation comparison with:
+
+```bash
+npm run build
+npm run hard:ablation
+```
+
+The hard suite currently contains 25 deterministic cases:
+
+- 5 hard correction override cases with distractor facts.
+- 5 hard sensitive boundary cases where a useful summary is requested but raw
+  secrets must stay hidden.
+- 5 hard scope drift cases with tempting adjacent work.
+- 5 hard insufficient-context cases with partial evidence that is not enough to
+  answer the exact question.
+- 5 hard conflict-resolution cases with stale, uncertain, and current facts.
+
+The hard suite is intentionally still deterministic. Its purpose is not random
+stress testing. Its purpose is to isolate failure modes that the base suite may
+hide: distractor selection, overconfident inference from partial evidence,
+scope temptation, sensitive-summary tension, and three-way conflict handling.
+
+This suite is still not a real code patch benchmark. It is the bridge between
+base behavior validation and future repository-level patch experiments.
+
 ### Why Evidence IDs Matter
 
 The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.
