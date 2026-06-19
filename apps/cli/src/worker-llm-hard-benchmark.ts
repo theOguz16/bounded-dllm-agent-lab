@@ -18,13 +18,13 @@ import { isHealthResponse } from "../../../packages/worker-contract/src/index.js
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
 import type { BoundedContextPacket, ContextFact } from "../../../packages/context-core/src/index.js";
 
-type LlmContextStrategy = "plain" | "rag";
+type LlmContextStrategy = "plain" | "rag" | "expanded";
 
 const workerUrl = process.env.LLM_WORKER_URL ?? "http://127.0.0.1:8775";
 const engine = new HttpLlmWorkerEngine(workerUrl, "boundary");
 const reportDir = "reports";
 const contextStrategy = parseContextStrategy(process.env.LLM_CONTEXT_STRATEGY ?? "plain");
-const suiteName = contextStrategy === "rag" ? "llm-rag-hard-baseline-v1" : "llm-hard-baseline-v1";
+const suiteName = createSuiteName(contextStrategy);
 const fixtureSubset = hardFixtures;
 const createdAt = new Date().toISOString();
 const runId = await resolveRunId(createdAt);
@@ -96,7 +96,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
 const report = aggregateScores(scores);
 const artifact = createBenchmarkArtifact({
   suiteName,
-  engineName: contextStrategy === "rag" ? "external-llm-worker-rag-hard-baseline" : "external-llm-worker-hard-baseline",
+  engineName: createEngineName(contextStrategy),
   createdAt: runCreatedAt,
   report,
   outputSnapshots
@@ -104,7 +104,7 @@ const artifact = createBenchmarkArtifact({
 const config = createExperimentConfig({
   runId,
   suiteName,
-  architectureName: contextStrategy === "rag" ? "external-ar-llm-rag-hard-baseline" : "external-ar-llm-hard-baseline",
+  architectureName: createArchitectureName(contextStrategy),
   engineName: "http-llm-worker",
   modelName,
   modelVersion: `${contextStrategy}-hard-baseline`,
@@ -184,6 +184,7 @@ type LlmHardBenchmarkCheckpoint = {
 
 function createStrategyPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
   if (contextStrategy === "plain") return packet;
+  if (contextStrategy === "expanded") return createExpandedPacket(packet, caseId);
   return createRagPacket(packet, caseId);
 }
 
@@ -213,6 +214,25 @@ function createRagPacket(packet: BoundedContextPacket, caseId: string): BoundedC
   };
 }
 
+function createExpandedPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+  const expandedFacts = createExpandedContextFacts(packet.id);
+  const existingEvidenceIds = new Set(packet.facts.map((fact) => fact.evidenceId));
+  const newFacts = expandedFacts.filter((fact) => !existingEvidenceIds.has(fact.evidenceId));
+
+  // Expanded-context baseline RAG'den farklıdır: burada amaç en alakalı birkaç
+  // fact'i almak değil, daha geniş ve gürültülü bir çalışma belleği simüle etmektir.
+  // Böylece "context büyüdükçe model daha iyi mi olur, yoksa karar odağı mı dağılır?"
+  // sorusunu aynı model ve aynı evaluator üzerinde ölçebiliriz.
+  return {
+    ...packet,
+    id: `${packet.id}-expanded`,
+    task: `${packet.task}\n\nExpanded context strategy: the packet includes a wider memory slice with relevant facts and distractors. Prefer the task-local current or correction evidence over adjacent context.`,
+    facts: [...packet.facts, ...newFacts],
+    responseContract: `${packet.responseContract} Do not merge adjacent tasks into the final result.`,
+    contextBudgetTokens: packet.contextBudgetTokens + 1200
+  };
+}
+
 function retrieveAdditionalFacts(query: string, currentPacketId: string): ContextFact[] {
   const queryTerms = normalizedTerms(query);
   const candidates = hardFixtures
@@ -231,6 +251,24 @@ function retrieveAdditionalFacts(query: string, currentPacketId: string): Contex
     .sort((left, right) => right.score - left.score || left.fact.evidenceId.localeCompare(right.fact.evidenceId));
 
   return candidates.slice(0, 4).map((candidate) => candidate.fact);
+}
+
+function createExpandedContextFacts(currentPacketId: string): ContextFact[] {
+  const byFamily = new Map(hardFixtures.map((fixture) => [fixture.family, fixture.packet.facts]));
+  const selectedFacts = [
+    ...(byFamily.get("correction_override") ?? []).slice(0, 4),
+    ...(byFamily.get("sensitive_boundary") ?? []).slice(0, 5),
+    ...(byFamily.get("scope_drift") ?? []).slice(0, 4),
+    ...(byFamily.get("insufficient_context") ?? []).slice(0, 3),
+    ...(byFamily.get("conflict_resolution") ?? []).slice(0, 4)
+  ];
+
+  return selectedFacts.map((fact, index) => ({
+    ...fact,
+    id: `expanded-${currentPacketId}-${index + 1}-${fact.id}`,
+    evidenceId: `expanded-${currentPacketId}-${index + 1}-${fact.evidenceId}`,
+    confidence: Math.max(0.4, fact.confidence - 0.08)
+  }));
 }
 
 async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspace>[0], caseId: string) {
@@ -279,13 +317,13 @@ async function resolveRunId(createdAt: string): Promise<string> {
     if (latest) return latest;
   }
 
-  return `${createdAt.replace(/[:.]/g, "-")}-${contextStrategy === "rag" ? "llm-rag-hard-baseline" : "llm-hard-baseline"}`;
+  return `${createdAt.replace(/[:.]/g, "-")}-${createRunSuffix(contextStrategy)}`;
 }
 
 async function latestCheckpointRunId(): Promise<string | undefined> {
   try {
     const files = await readdir(reportDir);
-    const suffix = contextStrategy === "rag" ? "-llm-rag-hard-baseline.checkpoint.json" : "-llm-hard-baseline.checkpoint.json";
+    const suffix = `-${createRunSuffix(contextStrategy)}.checkpoint.json`;
     const checkpoints = files
       .filter((file) => file.endsWith(suffix))
       .sort()
@@ -324,8 +362,32 @@ async function readWorkerHealth(baseUrl: string) {
 }
 
 function parseContextStrategy(value: string): LlmContextStrategy {
-  if (value === "plain" || value === "rag") return value;
+  if (value === "plain" || value === "rag" || value === "expanded") return value;
   throw new Error(`Unknown LLM_CONTEXT_STRATEGY: ${value}`);
+}
+
+function createSuiteName(strategy: LlmContextStrategy): string {
+  if (strategy === "rag") return "llm-rag-hard-baseline-v1";
+  if (strategy === "expanded") return "llm-expanded-hard-baseline-v1";
+  return "llm-hard-baseline-v1";
+}
+
+function createRunSuffix(strategy: LlmContextStrategy): string {
+  if (strategy === "rag") return "llm-rag-hard-baseline";
+  if (strategy === "expanded") return "llm-expanded-hard-baseline";
+  return "llm-hard-baseline";
+}
+
+function createEngineName(strategy: LlmContextStrategy): string {
+  if (strategy === "rag") return "external-llm-worker-rag-hard-baseline";
+  if (strategy === "expanded") return "external-llm-worker-expanded-hard-baseline";
+  return "external-llm-worker-hard-baseline";
+}
+
+function createArchitectureName(strategy: LlmContextStrategy): string {
+  if (strategy === "rag") return "external-ar-llm-rag-hard-baseline";
+  if (strategy === "expanded") return "external-ar-llm-expanded-hard-baseline";
+  return "external-ar-llm-hard-baseline";
 }
 
 function lexicalOverlapScore(queryTerms: Set<string>, content: string): number {

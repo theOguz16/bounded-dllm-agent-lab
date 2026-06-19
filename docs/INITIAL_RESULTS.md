@@ -468,6 +468,33 @@ This supports the project's broader motivation: context quantity is not enough.
 The architecture must also control what context is allowed to influence a
 specific region of the workspace.
 
+## Result 8: Qwen2.5-Coder 7B GGUF Expanded-Context Hard Baseline
+
+Status: pending RunPod execution.
+
+Command:
+
+```bash
+npm run worker:llm-expanded-hard-benchmark
+```
+
+Purpose:
+
+This baseline keeps the same Qwen2.5-Coder 7B GGUF model and the same
+OpenAI-compatible LLM worker, but changes the context strategy from selected
+retrieval to a broader memory slice. It intentionally adds more facts from
+multiple hard-suite families.
+
+The research question is:
+
+```text
+Does wider context improve the same autoregressive LLM, or does it introduce
+more distractor pressure and context mixing than the RAG-style baseline?
+```
+
+This result is intentionally pending. It should be filled only after the RunPod
+benchmark produces JSON, Markdown, and manifest artifacts.
+
 ## What These Results Show
 
 These initial results support nine early findings:
@@ -490,6 +517,9 @@ These initial results support nine early findings:
    violations.
 9. RAG-style context can improve task success while reducing evidence and trace
    quality, showing that extra context introduces an auditability trade-off.
+
+The expanded-context baseline has been implemented but is not counted as a
+finding until its RunPod result is produced.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an

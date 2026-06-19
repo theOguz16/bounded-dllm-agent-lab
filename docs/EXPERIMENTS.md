@@ -240,6 +240,12 @@ Run the RAG-style hard baseline with the same worker:
 npm run worker:llm-rag-hard-benchmark
 ```
 
+Run the expanded-context hard baseline with the same worker:
+
+```bash
+npm run worker:llm-expanded-hard-benchmark
+```
+
 The worker expects an endpoint compatible with:
 
 ```text
@@ -297,6 +303,33 @@ Plain Qwen2.5 hard baseline vs RAG-style Qwen2.5 hard baseline
 
 Because the model is held constant, a difference in score is mainly evidence
 about the context strategy rather than the model family.
+
+### Expanded-Context LLM Hard Baseline
+
+The expanded-context baseline also keeps the same model and worker, but it does
+not try to retrieve only the most relevant facts. Instead, it adds a wider memory
+slice from multiple benchmark families.
+
+This is a controlled stress test for a common assumption:
+
+```text
+More context should make the model better.
+```
+
+The experiment checks whether a wider context improves task success or whether
+it increases distractor pressure, context mixing, weak evidence selection, or
+trace degradation.
+
+The important comparison is:
+
+```text
+Plain Qwen2.5 vs RAG-style Qwen2.5 vs expanded-context Qwen2.5
+```
+
+RAG tests selected extra context. Expanded-context tests broad extra context.
+That distinction matters because production agent systems often have access to
+large memory stores, but not every accessible memory should influence the current
+workspace region.
 
 ### Failure Taxonomy
 
