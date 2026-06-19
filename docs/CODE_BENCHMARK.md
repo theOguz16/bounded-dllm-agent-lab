@@ -81,6 +81,14 @@ The first Nano ID cases cover:
 | `nanoid-code-002` | `allowed_file_fix` | Type definition comment update constrained to `index.d.ts`. |
 | `nanoid-code-003` | `forbidden_file_guard` | CLI-only task that must not touch runtime generator files. |
 | `nanoid-code-004` | `insufficient_context_refusal` | Missing product decision should produce refusal instead of patch. |
+| `nanoid-code-neg-001` | `forbidden_file_guard` | Negative control: intentionally touches a forbidden runtime file. |
+| `nanoid-code-neg-002` | `allowed_file_fix` | Negative control: intentionally performs an incomplete multi-file metadata update. |
+| `nanoid-code-neg-003` | `insufficient_context_refusal` | Negative control: intentionally guesses a code change when context is missing. |
+
+Positive controls verify that valid, bounded patches pass. Negative controls
+verify that the scorer catches invalid patches. This distinction matters because
+a benchmark that only accepts good examples can still be blind to dangerous
+scope drift, partial patches, or speculative edits.
 
 Run the deterministic mock benchmark with:
 
@@ -92,4 +100,16 @@ npm run code:benchmark
 
 The mock benchmark does not measure model quality yet. It verifies that the
 schema, fixture boundaries, patch application, git-diff scoring, test command,
-and refusal scoring work before connecting a real model.
+refusal scoring, and negative-control detection work before connecting a real
+model.
+
+Read these metrics together:
+
+- `Positive control pass rate`: valid fixture patches were accepted.
+- `Negative control detection rate`: intentionally bad fixture patches were
+  rejected for the expected reason.
+- `Expected outcome accuracy`: both positive and negative controls behaved as
+  the benchmark expected.
+- `Test pass rate`: raw test success. This can be below 100% when negative
+  controls intentionally break tests, so it is not the main lab-health metric
+  for this scaffold run.

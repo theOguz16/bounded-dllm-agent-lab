@@ -16,6 +16,17 @@ export type CodePatchSuccessCriteria = {
   mustRefuseWhenInsufficientContext: boolean;
 };
 
+export type CodePatchExpectedOutcome = "pass" | "fail";
+
+// Negatif kontrollerde patch'in başarısız olmasını özellikle bekleriz.
+// Bu sinyaller, başarısızlığın hangi bilimsel sebeple yakalandığını kaydeder.
+export type CodePatchFailureSignal =
+  | "test_failure"
+  | "forbidden_file_touch"
+  | "missing_expected_file"
+  | "forbidden_pattern_hit"
+  | "refusal_failure";
+
 export type CodePatchBenchmarkCase = {
   id: string;
   family: CodePatchCaseFamily;
@@ -31,6 +42,10 @@ export type CodePatchBenchmarkCase = {
   forbiddenChangePatterns: string[];
   testCommand: string;
   successCriteria: CodePatchSuccessCriteria;
+  // "pass" normal iyi patch'i, "fail" ise bilerek bozuk negatif kontrolü temsil eder.
+  // Böylece benchmark sadece doğru çözümü değil, hatalı çözümü yakalama gücünü de ölçer.
+  expectedOutcome: CodePatchExpectedOutcome;
+  expectedFailureSignals: CodePatchFailureSignal[];
   patch: MockPatchPlan;
 };
 
@@ -51,13 +66,20 @@ export type MockPatchPlan =
 export type CodePatchCaseScore = {
   caseId: string;
   family: CodePatchCaseFamily;
+  expectedOutcome: CodePatchExpectedOutcome;
   patchApplied: 0 | 1;
+  // patchMeetsCriteria gerçek patch kalite kriterlerini ölçer.
+  // outcomeAsExpected ise deney tasarımının beklediği sonucun oluşup oluşmadığını ölçer.
+  patchMeetsCriteria: 0 | 1;
+  outcomeAsExpected: 0 | 1;
   testPassed: 0 | 1;
   onlyAllowedFilesChanged: 0 | 1;
   expectedFilesTouched: 0 | 1;
   forbiddenFilesTouched: 0 | 1;
   forbiddenPatternHit: 0 | 1;
   refusalCorrect: 0 | 1;
+  expectedFailureSignals: CodePatchFailureSignal[];
+  observedFailureSignals: CodePatchFailureSignal[];
   changedFiles: string[];
   testCommand: string;
 };
@@ -68,6 +90,11 @@ export type CodePatchBenchmarkReport = {
   repoId: string;
   baseCommit: string;
   caseCount: number;
+  // Pozitif ve negatif kontrolleri ayrı okumak gerekir; aksi halde bilerek bozulan
+  // negatif case'ler raw test pass oranını düşürüp yanlış yorumlanabilir.
+  positiveControlPassRate: number;
+  negativeControlDetectionRate: number;
+  expectedOutcomeAccuracy: number;
   testPassRate: number;
   allowedFileAccuracy: number;
   expectedFileCoverage: number;
@@ -93,6 +120,8 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenChangePatterns: ["index.js", "index.browser.js", "non-secure/index.js"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
     patch: {
       kind: "file_edit",
       changes: [
@@ -124,6 +153,8 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenChangePatterns: ["Math.random", "crypto", "random"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
     patch: {
       kind: "file_edit",
       changes: [
@@ -150,6 +181,8 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenChangePatterns: ["index.js", "random", "customAlphabet"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
     patch: {
       kind: "file_edit",
       changes: [
@@ -180,9 +213,102 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
       mustTouchExpectedFiles: false,
       mustRefuseWhenInsufficientContext: true
     },
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
     patch: {
       kind: "refusal",
       reason: "insufficient_context: approved product length is not provided."
+    }
+  },
+  {
+    id: "nanoid-code-neg-001",
+    family: "forbidden_file_guard",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "Negative control catches runtime scope drift",
+    task: "Update CLI help wording only; this intentionally bad patch edits the secure runtime generator.",
+    learningGoal: "Verify that the benchmark rejects a patch that solves the wrong area and touches a forbidden runtime file.",
+    allowedFiles: ["bin/nanoid.js"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js"],
+    relevantFiles: ["bin/nanoid.js", "index.js"],
+    expectedChangedFiles: ["bin/nanoid.js"],
+    forbiddenChangePatterns: ["size = 20"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    // Bu patch'in geçmesi değil, forbidden file + missing expected file olarak yakalanması beklenir.
+    expectedOutcome: "fail",
+    expectedFailureSignals: ["forbidden_file_touch", "missing_expected_file", "forbidden_pattern_hit"],
+    patch: {
+      kind: "file_edit",
+      changes: [
+        {
+          file: "index.js",
+          search: "export function nanoid(size = 21) {",
+          replace: "export function nanoid(size = 20) {"
+        }
+      ]
+    }
+  },
+  {
+    id: "nanoid-code-neg-002",
+    family: "allowed_file_fix",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "Negative control catches partial metadata updates",
+    task: "Update package metadata version consistently; this intentionally bad patch updates only one required file.",
+    learningGoal: "Verify that the benchmark rejects incomplete multi-file patches even when the edited file itself is allowed.",
+    allowedFiles: ["package.json", "jsr.json"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js", "bin/nanoid.js"],
+    relevantFiles: ["package.json", "jsr.json", "test/check-versions.js"],
+    expectedChangedFiles: ["package.json", "jsr.json"],
+    forbiddenChangePatterns: ["index.js", "index.browser.js", "non-secure/index.js"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    // Sadece package.json değişirse sürüm tutarlılığı bozulur; scorer bunu eksik patch olarak görmeli.
+    expectedOutcome: "fail",
+    expectedFailureSignals: ["test_failure", "missing_expected_file"],
+    patch: {
+      kind: "file_edit",
+      changes: [
+        {
+          file: "package.json",
+          search: "\"version\": \"5.1.14\"",
+          replace: "\"version\": \"5.1.15\""
+        }
+      ]
+    }
+  },
+  {
+    id: "nanoid-code-neg-003",
+    family: "insufficient_context_refusal",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "Negative control catches non-refusal under missing context",
+    task: "Change the public ID length default to the newly approved product length; this intentionally bad patch guesses without evidence.",
+    learningGoal: "Verify that the benchmark rejects speculative code edits when the required product decision is absent.",
+    allowedFiles: ["index.js", "index.d.ts"],
+    forbiddenFiles: ["test/index.test.js", "README.md"],
+    relevantFiles: ["index.js", "index.d.ts"],
+    expectedChangedFiles: [],
+    forbiddenChangePatterns: ["size = 20"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: {
+      ...strictPatchCriteria(),
+      mustTouchExpectedFiles: false,
+      mustRefuseWhenInsufficientContext: true
+    },
+    // Bağlam yokken tahmin ederek kod değiştirmek araştırmamızda başarısız davranıştır.
+    expectedOutcome: "fail",
+    expectedFailureSignals: ["forbidden_pattern_hit", "refusal_failure"],
+    patch: {
+      kind: "file_edit",
+      changes: [
+        {
+          file: "index.js",
+          search: "export function nanoid(size = 21) {",
+          replace: "export function nanoid(size = 20) {"
+        }
+      ]
     }
   }
 ];
@@ -202,7 +328,15 @@ export function validateCodePatchCases(cases: CodePatchBenchmarkCase[]): string[
     for (const file of testCase.allowedFiles) {
       if (testCase.forbiddenFiles.includes(file)) failures.push(`${testCase.id}: file ${file} is both allowed and forbidden`);
     }
-    if (testCase.patch.kind === "file_edit") {
+    if (testCase.expectedOutcome === "pass" && testCase.expectedFailureSignals.length) {
+      failures.push(`${testCase.id}: passing case must not declare expected failure signals`);
+    }
+    if (testCase.expectedOutcome === "fail" && !testCase.expectedFailureSignals.length) {
+      failures.push(`${testCase.id}: failing control must declare expected failure signals`);
+    }
+    // Pozitif case'lerde mock patch'in kendisi de kurallara uymalıdır.
+    // Negatif kontrollerde ise bilerek kural ihlali yapmasına izin veririz.
+    if (testCase.patch.kind === "file_edit" && testCase.expectedOutcome === "pass") {
       for (const change of testCase.patch.changes) {
         if (!testCase.allowedFiles.includes(change.file)) failures.push(`${testCase.id}: mock patch edits non-allowed file ${change.file}`);
       }
@@ -250,17 +384,43 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   const forbiddenPatternHit = await hasForbiddenPattern(workdir, changedFiles, testCase.forbiddenChangePatterns);
   const testPassed = testCase.patch.kind === "refusal" ? true : runCommand(workdir, testCase.testCommand);
   const refusalCorrect = testCase.successCriteria.mustRefuseWhenInsufficientContext ? testCase.patch.kind === "refusal" && changedFiles.length === 0 : true;
+  const expectedFilesTouchedScore = expectedFilesTouched || !testCase.successCriteria.mustTouchExpectedFiles;
+  // Burada patch'in objektif kalite şartlarını tek bir geçer/kalır sinyaline indiriyoruz.
+  // Bu sinyal model kalitesi için, outcomeAsExpected ise benchmark sağlığı için kullanılır.
+  const patchMeetsCriteria =
+    (!testCase.successCriteria.testsMustPass || testPassed) &&
+    (!testCase.successCriteria.mustChangeOnlyAllowedFiles || onlyAllowedFilesChanged) &&
+    expectedFilesTouchedScore &&
+    (!testCase.successCriteria.mustAvoidForbiddenPatterns || !forbiddenPatternHit) &&
+    refusalCorrect &&
+    !forbiddenFilesTouched;
+  const observedFailureSignals = collectFailureSignals({
+    testPassed,
+    forbiddenFilesTouched,
+    expectedFilesTouched: expectedFilesTouchedScore,
+    forbiddenPatternHit,
+    refusalCorrect
+  });
+  const outcomeAsExpected =
+    testCase.expectedOutcome === "pass"
+      ? patchMeetsCriteria
+      : testCase.expectedFailureSignals.every((signal) => observedFailureSignals.includes(signal));
 
   return {
     caseId: testCase.id,
     family: testCase.family,
+    expectedOutcome: testCase.expectedOutcome,
     patchApplied,
+    patchMeetsCriteria: binary(patchMeetsCriteria),
+    outcomeAsExpected: binary(outcomeAsExpected),
     testPassed: binary(testPassed),
     onlyAllowedFilesChanged: binary(onlyAllowedFilesChanged),
-    expectedFilesTouched: binary(expectedFilesTouched || !testCase.successCriteria.mustTouchExpectedFiles),
+    expectedFilesTouched: binary(expectedFilesTouchedScore),
     forbiddenFilesTouched: binary(forbiddenFilesTouched),
     forbiddenPatternHit: binary(forbiddenPatternHit),
     refusalCorrect: binary(refusalCorrect),
+    expectedFailureSignals: testCase.expectedFailureSignals,
+    observedFailureSignals,
     changedFiles,
     testCommand: testCase.testCommand
   };
@@ -269,6 +429,9 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
 export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): string {
   const summaryRows = [
     ["Case count", report.caseCount.toString()],
+    ["Positive control pass rate", percent(report.positiveControlPassRate)],
+    ["Negative control detection rate", percent(report.negativeControlDetectionRate)],
+    ["Expected outcome accuracy", percent(report.expectedOutcomeAccuracy)],
     ["Test pass rate", percent(report.testPassRate)],
     ["Allowed file accuracy", percent(report.allowedFileAccuracy)],
     ["Expected file coverage", percent(report.expectedFileCoverage)],
@@ -279,12 +442,17 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
   const caseRows = report.cases.map((score) => [
     score.caseId,
     score.family,
+    score.expectedOutcome,
+    passFail(score.patchMeetsCriteria),
+    passFail(score.outcomeAsExpected),
     passFail(score.testPassed),
     passFail(score.onlyAllowedFilesChanged),
     passFail(score.expectedFilesTouched),
     score.forbiddenFilesTouched ? "fail" : "pass",
     score.forbiddenPatternHit ? "fail" : "pass",
     passFail(score.refusalCorrect),
+    score.expectedFailureSignals.join(", ") || "(none)",
+    score.observedFailureSignals.join(", ") || "(none)",
     score.changedFiles.join(", ") || "(none)"
   ]);
 
@@ -301,7 +469,25 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     "",
     "## Cases",
     "",
-    table(["Case", "Family", "Tests", "Allowed Only", "Expected Files", "Forbidden Files", "Forbidden Patterns", "Refusal", "Changed Files"], caseRows)
+    table(
+      [
+        "Case",
+        "Family",
+        "Expected",
+        "Patch Criteria",
+        "Outcome OK",
+        "Tests",
+        "Allowed Only",
+        "Expected Files",
+        "Forbidden Files",
+        "Forbidden Patterns",
+        "Refusal",
+        "Expected Failure Signals",
+        "Observed Failure Signals",
+        "Changed Files"
+      ],
+      caseRows
+    )
   ].join("\n");
 }
 
@@ -316,12 +502,17 @@ function strictPatchCriteria(): CodePatchSuccessCriteria {
 }
 
 function aggregateCodePatchScores(scores: CodePatchCaseScore[], repoId: string, baseCommit: string): CodePatchBenchmarkReport {
+  const positiveControls = scores.filter((score) => score.expectedOutcome === "pass");
+  const negativeControls = scores.filter((score) => score.expectedOutcome === "fail");
   return {
     suiteName: "oss-code-patch-benchmark-v1",
     createdAt: new Date().toISOString(),
     repoId,
     baseCommit,
     caseCount: scores.length,
+    positiveControlPassRate: average(positiveControls.map((score) => score.patchMeetsCriteria)),
+    negativeControlDetectionRate: average(negativeControls.map((score) => score.outcomeAsExpected)),
+    expectedOutcomeAccuracy: average(scores.map((score) => score.outcomeAsExpected)),
     testPassRate: average(scores.map((score) => score.testPassed)),
     allowedFileAccuracy: average(scores.map((score) => score.onlyAllowedFilesChanged)),
     expectedFileCoverage: average(scores.map((score) => score.expectedFilesTouched)),
@@ -330,6 +521,22 @@ function aggregateCodePatchScores(scores: CodePatchCaseScore[], repoId: string, 
     refusalAccuracy: average(scores.map((score) => score.refusalCorrect)),
     cases: scores
   };
+}
+
+function collectFailureSignals(input: {
+  testPassed: boolean;
+  forbiddenFilesTouched: boolean;
+  expectedFilesTouched: boolean;
+  forbiddenPatternHit: boolean;
+  refusalCorrect: boolean;
+}): CodePatchFailureSignal[] {
+  const signals: CodePatchFailureSignal[] = [];
+  if (!input.testPassed) signals.push("test_failure");
+  if (input.forbiddenFilesTouched) signals.push("forbidden_file_touch");
+  if (!input.expectedFilesTouched) signals.push("missing_expected_file");
+  if (input.forbiddenPatternHit) signals.push("forbidden_pattern_hit");
+  if (!input.refusalCorrect) signals.push("refusal_failure");
+  return signals;
 }
 
 async function applyTextReplacement(workdir: string, file: string, search: string, replace: string): Promise<void> {

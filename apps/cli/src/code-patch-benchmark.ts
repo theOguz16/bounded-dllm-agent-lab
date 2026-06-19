@@ -9,7 +9,7 @@ import {
 
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
 const workRoot = process.env.CODE_BENCH_WORK_ROOT ?? "reports/code-patch-workspaces";
-const reportDir = "reports";
+const reportDir = process.env.CODE_BENCH_REPORT_DIR ?? "reports";
 const failures = validateCodePatchCases(nanoidCodePatchCases);
 
 if (failures.length) {
@@ -38,6 +38,9 @@ console.log(
       jsonPath,
       markdownPath,
       summary: {
+        positiveControlPassRate: report.positiveControlPassRate,
+        negativeControlDetectionRate: report.negativeControlDetectionRate,
+        expectedOutcomeAccuracy: report.expectedOutcomeAccuracy,
         testPassRate: report.testPassRate,
         allowedFileAccuracy: report.allowedFileAccuracy,
         expectedFileCoverage: report.expectedFileCoverage,
