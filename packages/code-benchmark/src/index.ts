@@ -26,6 +26,7 @@ export type CodePatchExpectedOutcome = "pass" | "fail";
 // Negatif kontrollerde patch'in başarısız olmasını özellikle bekleriz.
 // Bu sinyaller, başarısızlığın hangi bilimsel sebeple yakalandığını kaydeder.
 export type CodePatchFailureSignal =
+  | "invalid_model_output"
   | "patch_application_failure"
   | "no_effect_patch"
   | "test_failure"
@@ -69,6 +70,10 @@ export type MockPatchPlan =
     }
   | {
       kind: "refusal";
+      reason: string;
+    }
+  | {
+      kind: "invalid";
       reason: string;
     };
 
@@ -653,9 +658,10 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   const onlyAllowedFilesChanged = changedFiles.every((file) => testCase.allowedFiles.includes(file));
   const expectedFilesTouched = testCase.expectedChangedFiles.every((file) => changedFiles.includes(file));
   const forbiddenPatternHit = await hasForbiddenPattern(workdir, changedFiles, testCase.forbiddenChangePatterns);
-  const testPassed = testCase.patch.kind === "refusal" ? true : runCommand(workdir, testCase.testCommand);
+  const testPassed = testCase.patch.kind === "file_edit" ? runCommand(workdir, testCase.testCommand) : true;
   const refusalCorrect = testCase.successCriteria.mustRefuseWhenInsufficientContext ? testCase.patch.kind === "refusal" && changedFiles.length === 0 : true;
   const expectedFilesTouchedScore = expectedFilesTouched || !testCase.successCriteria.mustTouchExpectedFiles;
+  const invalidModelOutput = testCase.patch.kind === "invalid";
   const patchActionValid = testCase.patch.kind === "refusal" || (patchApplied === 1 && patchApplicationError === null);
   // Burada patch'in objektif kalite şartlarını tek bir geçer/kalır sinyaline indiriyoruz.
   // Bu sinyal model kalitesi için, outcomeAsExpected ise benchmark sağlığı için kullanılır.
@@ -675,7 +681,8 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     forbiddenPatternHit,
     refusalCorrect,
     patchApplicationError,
-    noEffectPatch
+    noEffectPatch,
+    invalidModelOutput
   });
   const outcomeAsExpected =
     testCase.expectedOutcome === "pass"
@@ -858,6 +865,7 @@ function createRealityBreakdown(scores: CodePatchCaseScore[]): CodePatchRealityB
 function collectFailureSignals(input: {
   patchApplicationError: string | null;
   noEffectPatch: boolean;
+  invalidModelOutput: boolean;
   testPassed: boolean;
   forbiddenFilesTouched: boolean;
   expectedFilesTouched: boolean;
@@ -865,6 +873,7 @@ function collectFailureSignals(input: {
   refusalCorrect: boolean;
 }): CodePatchFailureSignal[] {
   const signals: CodePatchFailureSignal[] = [];
+  if (input.invalidModelOutput) signals.push("invalid_model_output");
   if (input.patchApplicationError) signals.push("patch_application_failure");
   if (input.noEffectPatch) signals.push("no_effect_patch");
   if (!input.testPassed) signals.push("test_failure");

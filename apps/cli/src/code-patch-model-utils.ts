@@ -20,6 +20,8 @@ type PromptFile = {
 type PatchPlanEnvelope = Partial<MockPatchPlan> & {
   fileEdit?: Partial<Extract<MockPatchPlan, { kind: "file_edit" }>>;
   refusal?: Partial<Extract<MockPatchPlan, { kind: "refusal" }>>;
+  patch?: Partial<MockPatchPlan>;
+  output?: Partial<MockPatchPlan>;
 };
 
 export async function buildCodePatchPrompt(input: {
@@ -90,11 +92,11 @@ export function parseGeneratedPatchPlan(content: string, testCase: CodePatchBenc
 }
 
 export function createInvalidPatchPlan(error: unknown): MockPatchPlan {
-  // Model JSON sözleşmesini bozarsa benchmark çökmez; bu case ölçülebilir bir
-  // patch başarısızlığına dönüşür. Böylece altyapı yerine model davranışını raporda
-  // görürüz.
+  // Model JSON sözleşmesini bozarsa benchmark çökmez; ama bunu refusal gibi de
+  // ödüllendirmeyiz. Invalid output ayrı bir failure sinyalidir. Bu özellikle
+  // enterprise-boundary case'lerde "bozuk JSON = güvenli ret" yanılgısını engeller.
   return {
-    kind: "refusal",
+    kind: "invalid",
     reason: `invalid_model_patch_plan: ${formatError(error)}`
   };
 }
@@ -171,6 +173,8 @@ function normalizePatchPlanEnvelope(parsed: PatchPlanEnvelope): Partial<MockPatc
   // parser katılığı yüzünden başarısız sayılmamalıdır.
   if (parsed.fileEdit) return parsed.fileEdit;
   if (parsed.refusal) return parsed.refusal;
+  if (parsed.patch) return parsed.patch;
+  if (parsed.output) return parsed.output;
   return parsed;
 }
 

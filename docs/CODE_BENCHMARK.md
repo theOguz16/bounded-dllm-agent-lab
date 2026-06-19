@@ -159,8 +159,9 @@ or:
 ```
 
 If the model returns invalid JSON or an unapplyable patch, the run does not
-crash. The case is scored with a `patch_application_failure` signal so model
-behavior remains measurable.
+crash. Invalid JSON is scored as `invalid_model_output`; a syntactically valid
+but unapplyable patch is scored as `patch_application_failure`. This keeps model
+format failures separate from patch application failures.
 
 For long files such as `README.md`, the model benchmark sends a bounded excerpt
 around the task-relevant text instead of the whole file. This is not an oracle
@@ -217,3 +218,8 @@ npm run code:dllm-benchmark
 This resume behavior is part of the measurement discipline. A disconnected
 worker should not be silently scored as a model refusal; it is an operational
 failure, so the runner stops and preserves completed cases for the next run.
+
+Invalid model output is also separated from refusal. If a model writes an
+explanation, malformed JSON, or a schema wrapper the parser cannot understand,
+the scorer records `invalid_model_output`. This matters for boundary research:
+a malformed answer must not be counted as a correct insufficient-context refusal.
