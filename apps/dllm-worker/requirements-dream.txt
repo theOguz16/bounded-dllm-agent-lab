@@ -1,0 +1,9 @@
+transformers==4.46.2
+accelerate
+huggingface_hub
+hf_transfer
+safetensors
+sentencepiece
+einops
+protobuf
+tiktoken

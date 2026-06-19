@@ -82,3 +82,48 @@ The separation is intentional:
 
 This keeps research comparisons fair. If Python worker logic knew benchmark
 answers, the experiment would become contaminated.
+
+## Dream-Coder Worker
+
+`dream_worker.py` is the first real dLLM worker for RunPod experiments. It uses
+`Dream-org/Dream-Coder-v0-Instruct-7B` through Hugging Face `trust_remote_code`.
+
+Install the pinned dependencies on a GPU pod:
+
+```bash
+python3 -m pip install -r apps/dllm-worker/requirements-dream.txt
+```
+
+Use `/workspace` for model cache on RunPod:
+
+```bash
+mkdir -p /workspace/hf-cache
+export HF_HOME=/workspace/hf-cache
+export HUGGINGFACE_HUB_CACHE=/workspace/hf-cache/hub
+```
+
+Run the real worker:
+
+```bash
+python3 apps/dllm-worker/dream_worker.py
+```
+
+Then, from a second terminal:
+
+```bash
+curl -sS http://127.0.0.1:8765/health
+npm run worker:dry-run
+```
+
+The Dream-Coder worker keeps the same HTTP contract as the mock worker:
+
+- `GET /health` returns `mode: "dllm"`.
+- `POST /refine` receives a masked workspace and returns the workspace with a
+  model-produced `finalResult`.
+- `POST /infill` fills one requested workspace region.
+- `POST /resolve-conflict` is intentionally deterministic for now.
+
+Important research note: the worker extracts fenced code blocks when Dream-Coder
+adds markdown or explanation. This does not remove the need to measure scope
+drift. It only keeps the TypeScript benchmark contract stable while the raw
+model behavior is studied through generated reports and failure reviews.
