@@ -15,6 +15,7 @@
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",
+    "code:dllm-benchmark": "node dist/apps/cli/src/code-dllm-patch-benchmark.js",
     "ablation:run": "node dist/apps/cli/src/ablation-run.js",
     "hard:benchmark": "node dist/apps/cli/src/ablation-run.js --suite hard --modes bounded_refinement",
     "hard:ablation": "node dist/apps/cli/src/ablation-run.js --suite hard",

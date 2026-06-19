@@ -8,21 +8,17 @@ import {
   type CodePatchBenchmarkCase
 } from "../../../packages/code-benchmark/src/index.js";
 import {
+  isHealthResponse,
+  isInfillResponse,
+  type DllmWorkerHealthResponse
+} from "../../../packages/worker-contract/src/index.js";
+import {
   buildCodePatchPrompt,
-  compactText,
   createInvalidPatchPlan,
   createPatchTrace,
   formatError,
   parseGeneratedPatchPlan
 } from "./code-patch-model-utils.js";
-
-type ChatCompletionPayload = {
-  choices?: Array<{
-    message?: {
-      content?: string;
-    };
-  }>;
-};
 
 type GeneratedPatchPlan = {
   patch: CodePatchBenchmarkCase["patch"];
@@ -31,13 +27,9 @@ type GeneratedPatchPlan = {
 };
 
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
-const workRoot = process.env.CODE_BENCH_WORK_ROOT ?? "reports/code-model-patch-workspaces";
+const workRoot = process.env.CODE_BENCH_WORK_ROOT ?? "reports/code-dllm-patch-workspaces";
 const reportDir = process.env.CODE_BENCH_REPORT_DIR ?? "reports";
-const baseUrl = normalizeBaseUrl(process.env.LLM_API_BASE_URL ?? "http://127.0.0.1:8000/v1");
-const apiKey = process.env.LLM_API_KEY;
-const model = process.env.LLM_MODEL ?? "openai-compatible-model";
-const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
-const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "900");
+const workerUrl = normalizeBaseUrl(process.env.DLLM_WORKER_URL ?? "http://127.0.0.1:8765");
 const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
 const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
@@ -46,10 +38,15 @@ if (failures.length) {
   throw new Error(JSON.stringify({ ok: false, failures }, null, 2));
 }
 
+const workerHealth = await readWorkerHealth(workerUrl);
+if (workerHealth.mode !== "dllm") {
+  throw new Error(`Expected a dLLM worker at ${workerUrl}, received mode=${workerHealth.mode}`);
+}
+
 const generatedCases: CodePatchBenchmarkCase[] = [];
 
 for (const testCase of modelCases) {
-  console.log(`[code-model-patch] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+  console.log(`[code-dllm-patch] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
   const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
@@ -58,14 +55,15 @@ for (const testCase of modelCases) {
   });
 }
 
+const modelName = workerHealth.modelName ?? workerHealth.workerName;
 const report = await runCodePatchBenchmark({
   repoPath,
   workRoot,
   cases: generatedCases,
-  suiteName: "oss-code-model-patch-benchmark-v1",
-  engineName: `openai-compatible-code-patch:${model}`
+  suiteName: "oss-code-dllm-patch-benchmark-v1",
+  engineName: `dllm-infill-code-patch:${modelName}`
 });
-const runId = `${report.createdAt.replace(/[:.]/g, "-")}-code-model-patch-benchmark`;
+const runId = `${report.createdAt.replace(/[:.]/g, "-")}-code-dllm-patch-benchmark`;
 const jsonPath = join(reportDir, `${runId}.json`);
 const markdownPath = join(reportDir, `${runId}.md`);
 
@@ -78,7 +76,8 @@ console.log(
     {
       ok: true,
       repoPath,
-      modelName: model,
+      workerUrl,
+      modelName,
       caseCount: report.caseCount,
       jsonPath,
       markdownPath,
@@ -102,44 +101,26 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
   let rawOutput = "";
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const prompt = await buildDllmPatchPrompt(testCase);
+    const response = await fetch(`${workerUrl}/infill`, {
       method: "POST",
       headers: {
-        "content-type": "application/json",
-        ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {})
+        "content-type": "application/json"
       },
       body: JSON.stringify({
-        model,
-        temperature,
-        max_tokens: maxTokens,
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You are a code patch agent inside a deterministic benchmark.",
-              "Return JSON only.",
-              "Use only the provided file contents.",
-              "Do not touch forbidden files.",
-              "For file_edit changes, search must be exact existing text and replace must be different.",
-              "If required information is missing, return a refusal."
-            ].join(" ")
-          },
-          {
-            role: "user",
-            content: await buildCodePatchPrompt({ repoPath, testCase })
-          }
-        ]
+        requestId: `code-dllm-patch-${testCase.id}`,
+        region: "final_result",
+        prompt
       })
     });
-    const payload = await response.json() as ChatCompletionPayload;
-    const content = payload.choices?.[0]?.message?.content;
+    const body: unknown = await response.json();
 
-    if (!response.ok || !content) {
-      throw new Error(`patch completion failed with status ${response.status}: ${compactText(JSON.stringify(payload))}`);
+    if (!response.ok || !isInfillResponse(body)) {
+      throw new Error(`Invalid dLLM infill response from ${workerUrl}/infill`);
     }
 
-    rawOutput = content;
-    const patch = parseGeneratedPatchPlan(content, testCase);
+    rawOutput = body.content;
+    const patch = parseGeneratedPatchPlan(rawOutput, testCase);
 
     return {
       patch,
@@ -155,6 +136,32 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
       modelError: formatError(error)
     };
   }
+}
+
+async function buildDllmPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<string> {
+  const sharedPrompt = await buildCodePatchPrompt({ repoPath, testCase });
+  // Burada prompt'u sonradan karakterden kırpmıyoruz. Dosya daraltma işi ortak
+  // bounded excerpt katmanında yapılıyor. Sessiz string kırpma JSON'u ortadan
+  // bölebilir ve model kalitesi yerine paketleme hatasını ölçmemize neden olur.
+  return [
+    "You are a bounded dLLM code patch infill worker.",
+    "Return JSON only.",
+    "Do not explain.",
+    "Use only the supplied task, scope, and file context.",
+    "If the task lacks enough authority or context, return a refusal JSON object.",
+    sharedPrompt
+  ].join("\n\n");
+}
+
+async function readWorkerHealth(baseUrl: string): Promise<DllmWorkerHealthResponse> {
+  const response = await fetch(`${baseUrl}/health`);
+  const body: unknown = await response.json();
+
+  if (!response.ok || !isHealthResponse(body)) {
+    throw new Error(`Invalid dLLM worker health response from ${baseUrl}/health`);
+  }
+
+  return body;
 }
 
 function normalizeBaseUrl(value: string): string {

@@ -166,3 +166,41 @@ For long files such as `README.md`, the model benchmark sends a bounded excerpt
 around the task-relevant text instead of the whole file. This is not an oracle
 shortcut: expected changed files and scoring criteria remain hidden. It simply
 keeps the code benchmark aligned with bounded-context agent behavior.
+
+## dLLM Patch Benchmark
+
+After the autoregressive LLM run, run the same 50 positive Nano ID cases through
+the dLLM worker:
+
+```bash
+DLLM_WORKER_URL=http://127.0.0.1:8765 \
+npm run code:dllm-benchmark
+```
+
+This runner uses the Dream-Coder worker's `/infill` endpoint instead of the
+behavior benchmark's `/refine` endpoint. That distinction matters:
+
+- `/refine` applies the shared-workspace grounding protocol used by behavior
+  benchmarks.
+- `/infill` asks the dLLM worker to fill the code patch plan directly.
+
+For code patch scoring, `/infill` is the cleaner comparison because the patch
+plan should come from the model-facing task, scope, and file context, not from a
+canonical grounding fact. The dLLM runner therefore uses the same hidden-oracle
+discipline as the LLM runner:
+
+- the model sees task, allowed files, forbidden files, forbidden patterns, and
+  bounded file contents,
+- the model does not see expected changed files,
+- the model does not see success criteria,
+- the same deterministic scorer applies the returned patch to a fresh repo copy.
+
+The two model-facing code patch commands now answer a focused research question:
+
+```text
+Given the same bounded code patch packet, does the dLLM infill worker produce
+safer or more boundary-aware patch plans than the autoregressive LLM baseline?
+```
+
+Use `CODE_MODEL_CASE_LIMIT=4` for a quick dLLM smoke run before spending GPU
+time on the full 50-case benchmark.
