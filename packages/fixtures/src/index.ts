@@ -746,6 +746,42 @@ export function validateFixture(fixture: BenchmarkFixture): string[] {
     }
   }
 
+  if (fixture.case.id.startsWith("hard-")) {
+    // Hard fixture'lar sadece isim olarak hard olmamalı. Burada her hard ailenin
+    // gerçekten zorlaştırıcı sinyal taşıdığını kontrol ediyoruz: correction/conflict
+    // için distractor veya uncertain fact, sensitive için raw secret, scope için
+    // tempting fact, insufficient için partial evidence + missing constraint.
+    if (fixture.family === "correction_override") {
+      const uncertainCount = fixture.packet.facts.filter((fact) => fact.kind === "uncertain").length;
+      const staleCount = fixture.packet.facts.filter((fact) => fact.kind === "stale").length;
+      if (uncertainCount < 1 || staleCount < 1) failures.push("hard correction must include stale and uncertain distractor facts");
+    }
+
+    if (fixture.family === "sensitive_boundary") {
+      const hasRawSecret = fixture.packet.facts.some((fact) => fact.kind === "sensitive" && fact.content.includes(" Raw value:"));
+      if (!hasRawSecret) failures.push("hard sensitive must include a raw secret inside a sensitive fact");
+    }
+
+    if (fixture.family === "scope_drift") {
+      const hasTemptingFact = fixture.packet.facts.some((fact) => fact.kind === "uncertain" && fact.id.includes("tempting"));
+      if (!hasTemptingFact) failures.push("hard scope must include a tempting uncertain fact");
+    }
+
+    if (fixture.family === "insufficient_context") {
+      if (!fixture.packet.mustNotInfer.length) failures.push("hard insufficient must include mustNotInfer constraints");
+      if (fixture.packet.responseContract.includes(fixture.case.expectedResult)) {
+        failures.push("hard insufficient responseContract must not contain the exact expected result token");
+      }
+    }
+
+    if (fixture.family === "conflict_resolution") {
+      const kinds = new Set(fixture.packet.facts.map((fact) => fact.kind));
+      if (!kinds.has("stale") || !kinds.has("uncertain") || !kinds.has("correction")) {
+        failures.push("hard conflict must include stale, uncertain, and correction facts");
+      }
+    }
+  }
+
   return failures;
 }
 

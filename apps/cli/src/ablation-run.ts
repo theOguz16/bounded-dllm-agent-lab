@@ -16,6 +16,8 @@ import {
   createExperimentConfig,
   createRunManifest,
   validateRunManifest,
+  type ExperimentComparisonArtifact,
+  type ExperimentComparisonRow,
   type ExperimentRunManifest
 } from "../../../packages/experiment-core/src/index.js";
 import { demoFixtures, hardFixtures, validateFixtures, type BenchmarkFixture } from "../../../packages/fixtures/src/index.js";
@@ -122,9 +124,19 @@ for (const modeId of selectedModeIds) {
 const comparison = createComparisonArtifact({ createdAt, manifests });
 const comparisonJsonPath = join(reportDir, `${safeTimestamp}-ablation-comparison.json`);
 const comparisonMarkdownPath = join(reportDir, `${safeTimestamp}-ablation-comparison.md`);
+const analysis = createAblationAnalysis({
+  suite,
+  suiteName,
+  createdAt,
+  comparison
+});
+const analysisJsonPath = join(reportDir, `${safeTimestamp}-ablation-analysis.json`);
+const analysisMarkdownPath = join(reportDir, `${safeTimestamp}-ablation-analysis.md`);
 
 await writeFile(comparisonJsonPath, `${JSON.stringify(comparison, null, 2)}\n`);
 await writeFile(comparisonMarkdownPath, comparisonArtifactToMarkdown(comparison));
+await writeFile(analysisJsonPath, `${JSON.stringify(analysis, null, 2)}\n`);
+await writeFile(analysisMarkdownPath, ablationAnalysisToMarkdown(analysis));
 
 console.log(
   JSON.stringify(
@@ -137,6 +149,8 @@ console.log(
       modes: selectedModeIds,
       comparisonJsonPath,
       comparisonMarkdownPath,
+      analysisJsonPath,
+      analysisMarkdownPath,
       summaries: manifests.map((manifest) => ({
         mode: manifest.architectureName,
         taskSuccessRate: manifest.summary.taskSuccessRate,
@@ -150,6 +164,107 @@ console.log(
     2
   )
 );
+
+type AblationAnalysis = {
+  suite: "base" | "hard";
+  suiteName: string;
+  createdAt: string;
+  observations: string[];
+  deltas: {
+    rawToBoundedTaskDelta?: number;
+    boundedToGroundedEvidenceDelta?: number;
+    boundedToGroundedTraceDelta?: number;
+    groundedToRefinementTaskDelta?: number;
+    groundedToRefinementEvidenceDelta?: number;
+    groundedToRefinementTraceDelta?: number;
+  };
+  warnings: string[];
+};
+
+function createAblationAnalysis(input: {
+  suite: "base" | "hard";
+  suiteName: string;
+  createdAt: string;
+  comparison: ExperimentComparisonArtifact;
+}): AblationAnalysis {
+  const raw = findRow(input.comparison, "raw_fact_only");
+  const bounded = findRow(input.comparison, "bounded_context");
+  const grounded = findRow(input.comparison, "bounded_grounded");
+  const refinement = findRow(input.comparison, "bounded_refinement");
+  const deltas = {
+    rawToBoundedTaskDelta: delta(raw?.taskSuccessRate, bounded?.taskSuccessRate),
+    boundedToGroundedEvidenceDelta: delta(bounded?.evidenceCoverage, grounded?.evidenceCoverage),
+    boundedToGroundedTraceDelta: delta(bounded?.traceCompletenessRate, grounded?.traceCompletenessRate),
+    groundedToRefinementTaskDelta: delta(grounded?.taskSuccessRate, refinement?.taskSuccessRate),
+    groundedToRefinementEvidenceDelta: delta(grounded?.evidenceCoverage, refinement?.evidenceCoverage),
+    groundedToRefinementTraceDelta: delta(grounded?.traceCompletenessRate, refinement?.traceCompletenessRate)
+  };
+  const observations = [
+    explainDelta("Raw to bounded task success", deltas.rawToBoundedTaskDelta),
+    explainDelta("Bounded to grounded evidence coverage", deltas.boundedToGroundedEvidenceDelta),
+    explainDelta("Bounded to grounded trace completeness", deltas.boundedToGroundedTraceDelta),
+    explainDelta("Grounded to refinement task success", deltas.groundedToRefinementTaskDelta)
+  ].filter((item): item is string => Boolean(item));
+  const warnings: string[] = [];
+
+  if (bounded && grounded && bounded.taskSuccessRate === grounded.taskSuccessRate && bounded.evidenceCoverage < grounded.evidenceCoverage) {
+    warnings.push("Task success alone hides auditability differences; grounded mode preserves success while improving evidence coverage.");
+  }
+
+  if (grounded && refinement && grounded.taskSuccessRate === refinement.taskSuccessRate && grounded.evidenceCoverage === refinement.evidenceCoverage && grounded.traceCompletenessRate === refinement.traceCompletenessRate) {
+    warnings.push("Current suite does not isolate a measurable refinement-loop advantage over single-pass grounded output.");
+  }
+
+  if (input.suite === "hard" && warnings.some((warning) => warning.includes("refinement-loop"))) {
+    warnings.push("Next hard-suite iteration should include verifier-fail/remask-required cases where the first pass can fail and a targeted remask can change the score.");
+  }
+
+  return {
+    suite: input.suite,
+    suiteName: input.suiteName,
+    createdAt: input.createdAt,
+    observations,
+    deltas,
+    warnings
+  };
+}
+
+function ablationAnalysisToMarkdown(analysis: AblationAnalysis): string {
+  return [
+    `# Ablation Analysis: ${analysis.suiteName}`,
+    "",
+    `- Suite: ${analysis.suite}`,
+    `- Created at: ${analysis.createdAt}`,
+    "",
+    "## Observations",
+    "",
+    ...analysis.observations.map((item) => `- ${item}`),
+    "",
+    "## Warnings",
+    "",
+    ...(analysis.warnings.length ? analysis.warnings.map((item) => `- ${item}`) : ["- No warnings."]),
+    ""
+  ].join("\n");
+}
+
+function findRow(comparison: ExperimentComparisonArtifact, architectureName: string): ExperimentComparisonRow | undefined {
+  return comparison.rows.find((row) => row.architectureName === architectureName);
+}
+
+function delta(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined || right === undefined) return undefined;
+  return Math.round((right - left) * 1000) / 1000;
+}
+
+function explainDelta(label: string, value: number | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const direction = value > 0 ? "improved by" : value < 0 ? "decreased by" : "changed by";
+  return `${label} ${direction} ${percent(Math.abs(value))}.`;
+}
+
+function percent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
 
 function readSuite(): "base" | "hard" {
   const value = readFlag("--suite") ?? "base";

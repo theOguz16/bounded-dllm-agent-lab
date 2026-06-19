@@ -143,6 +143,13 @@ mode improves task success but has weak evidence or trace metrics, that is usefu
 information: it means the architecture may answer correctly but still be hard to
 audit.
 
+The ablation runner also writes an analysis artifact beside the comparison
+table. The analysis highlights metric deltas and warnings such as:
+
+- task success improved but evidence did not,
+- grounding improved traceability without changing task success,
+- refinement did not improve over grounded output in the current suite.
+
 ### Hard Benchmark Suite
 
 The base suite checks whether the lab can measure core behaviors under controlled
