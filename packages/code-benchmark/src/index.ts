@@ -21,6 +21,7 @@ export type CodePatchExpectedOutcome = "pass" | "fail";
 // Negatif kontrollerde patch'in başarısız olmasını özellikle bekleriz.
 // Bu sinyaller, başarısızlığın hangi bilimsel sebeple yakalandığını kaydeder.
 export type CodePatchFailureSignal =
+  | "patch_application_failure"
   | "test_failure"
   | "forbidden_file_touch"
   | "missing_expected_file"
@@ -68,6 +69,7 @@ export type CodePatchCaseScore = {
   family: CodePatchCaseFamily;
   expectedOutcome: CodePatchExpectedOutcome;
   patchApplied: 0 | 1;
+  patchApplicationError: string | null;
   // patchMeetsCriteria gerçek patch kalite kriterlerini ölçer.
   // outcomeAsExpected ise deney tasarımının beklediği sonucun oluşup oluşmadığını ölçer.
   patchMeetsCriteria: 0 | 1;
@@ -86,6 +88,7 @@ export type CodePatchCaseScore = {
 
 export type CodePatchBenchmarkReport = {
   suiteName: string;
+  engineName: string;
   createdAt: string;
   repoId: string;
   baseCommit: string;
@@ -350,6 +353,8 @@ export async function runCodePatchBenchmark(input: {
   repoPath: string;
   workRoot: string;
   cases?: CodePatchBenchmarkCase[];
+  suiteName?: string;
+  engineName?: string;
 }): Promise<CodePatchBenchmarkReport> {
   const cases = input.cases ?? nanoidCodePatchCases;
   const scores: CodePatchCaseScore[] = [];
@@ -361,18 +366,29 @@ export async function runCodePatchBenchmark(input: {
     scores.push(await runCodePatchCase(caseWorkdir, testCase));
   }
 
-  return aggregateCodePatchScores(scores, cases[0]?.repoId ?? "unknown", cases[0]?.baseCommit ?? "unknown");
+  return aggregateCodePatchScores({
+    scores,
+    repoId: cases[0]?.repoId ?? "unknown",
+    baseCommit: cases[0]?.baseCommit ?? "unknown",
+    suiteName: input.suiteName ?? "oss-code-patch-benchmark-v1",
+    engineName: input.engineName ?? "deterministic-mock-patch-plan"
+  });
 }
 
 export async function runCodePatchCase(workdir: string, testCase: CodePatchBenchmarkCase): Promise<CodePatchCaseScore> {
   const before = gitChangedFiles(workdir);
   let patchApplied: 0 | 1 = 0;
+  let patchApplicationError: string | null = null;
 
   if (testCase.patch.kind === "file_edit") {
-    for (const change of testCase.patch.changes) {
-      await applyTextReplacement(workdir, change.file, change.search, change.replace);
+    try {
+      for (const change of testCase.patch.changes) {
+        await applyTextReplacement(workdir, change.file, change.search, change.replace);
+      }
+      patchApplied = 1;
+    } catch (error) {
+      patchApplicationError = formatError(error);
     }
-    patchApplied = 1;
   } else {
     patchApplied = 0;
   }
@@ -385,9 +401,11 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   const testPassed = testCase.patch.kind === "refusal" ? true : runCommand(workdir, testCase.testCommand);
   const refusalCorrect = testCase.successCriteria.mustRefuseWhenInsufficientContext ? testCase.patch.kind === "refusal" && changedFiles.length === 0 : true;
   const expectedFilesTouchedScore = expectedFilesTouched || !testCase.successCriteria.mustTouchExpectedFiles;
+  const patchActionValid = testCase.patch.kind === "refusal" || (patchApplied === 1 && patchApplicationError === null);
   // Burada patch'in objektif kalite şartlarını tek bir geçer/kalır sinyaline indiriyoruz.
   // Bu sinyal model kalitesi için, outcomeAsExpected ise benchmark sağlığı için kullanılır.
   const patchMeetsCriteria =
+    patchActionValid &&
     (!testCase.successCriteria.testsMustPass || testPassed) &&
     (!testCase.successCriteria.mustChangeOnlyAllowedFiles || onlyAllowedFilesChanged) &&
     expectedFilesTouchedScore &&
@@ -399,7 +417,8 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     forbiddenFilesTouched,
     expectedFilesTouched: expectedFilesTouchedScore,
     forbiddenPatternHit,
-    refusalCorrect
+    refusalCorrect,
+    patchApplicationError
   });
   const outcomeAsExpected =
     testCase.expectedOutcome === "pass"
@@ -411,6 +430,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     family: testCase.family,
     expectedOutcome: testCase.expectedOutcome,
     patchApplied,
+    patchApplicationError,
     patchMeetsCriteria: binary(patchMeetsCriteria),
     outcomeAsExpected: binary(outcomeAsExpected),
     testPassed: binary(testPassed),
@@ -453,12 +473,14 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     passFail(score.refusalCorrect),
     score.expectedFailureSignals.join(", ") || "(none)",
     score.observedFailureSignals.join(", ") || "(none)",
+    score.patchApplicationError ?? "(none)",
     score.changedFiles.join(", ") || "(none)"
   ]);
 
   return [
     `# Code Patch Benchmark Report: ${report.suiteName}`,
     "",
+    `- Engine: ${report.engineName}`,
     `- Created at: ${report.createdAt}`,
     `- Repository: ${report.repoId}`,
     `- Base commit: ${report.baseCommit}`,
@@ -484,6 +506,7 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
         "Refusal",
         "Expected Failure Signals",
         "Observed Failure Signals",
+        "Patch Error",
         "Changed Files"
       ],
       caseRows
@@ -501,14 +524,22 @@ function strictPatchCriteria(): CodePatchSuccessCriteria {
   };
 }
 
-function aggregateCodePatchScores(scores: CodePatchCaseScore[], repoId: string, baseCommit: string): CodePatchBenchmarkReport {
+function aggregateCodePatchScores(input: {
+  scores: CodePatchCaseScore[];
+  repoId: string;
+  baseCommit: string;
+  suiteName: string;
+  engineName: string;
+}): CodePatchBenchmarkReport {
+  const { scores } = input;
   const positiveControls = scores.filter((score) => score.expectedOutcome === "pass");
   const negativeControls = scores.filter((score) => score.expectedOutcome === "fail");
   return {
-    suiteName: "oss-code-patch-benchmark-v1",
+    suiteName: input.suiteName,
+    engineName: input.engineName,
     createdAt: new Date().toISOString(),
-    repoId,
-    baseCommit,
+    repoId: input.repoId,
+    baseCommit: input.baseCommit,
     caseCount: scores.length,
     positiveControlPassRate: average(positiveControls.map((score) => score.patchMeetsCriteria)),
     negativeControlDetectionRate: average(negativeControls.map((score) => score.outcomeAsExpected)),
@@ -524,6 +555,7 @@ function aggregateCodePatchScores(scores: CodePatchCaseScore[], repoId: string, 
 }
 
 function collectFailureSignals(input: {
+  patchApplicationError: string | null;
   testPassed: boolean;
   forbiddenFilesTouched: boolean;
   expectedFilesTouched: boolean;
@@ -531,6 +563,7 @@ function collectFailureSignals(input: {
   refusalCorrect: boolean;
 }): CodePatchFailureSignal[] {
   const signals: CodePatchFailureSignal[] = [];
+  if (input.patchApplicationError) signals.push("patch_application_failure");
   if (!input.testPassed) signals.push("test_failure");
   if (input.forbiddenFilesTouched) signals.push("forbidden_file_touch");
   if (!input.expectedFilesTouched) signals.push("missing_expected_file");
@@ -594,6 +627,10 @@ function percent(value: number): string {
 
 function passFail(value: 0 | 1): string {
   return value ? "pass" : "fail";
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function table(headers: string[], rows: string[][]): string {
