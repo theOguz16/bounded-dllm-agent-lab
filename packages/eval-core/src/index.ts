@@ -405,25 +405,23 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
     compact(snapshot.requiredTerms.join(", ")),
     compact(snapshot.finalResult)
   ]);
-  // Output snapshot bölümü özellikle gerçek model testlerinde gereklidir. Sadece
-  // metrikleri görmek "başarısız" der ama neden başarısız olduğunu öğretmez. Burada
-  // beklenen sonuç ile modelin finalResult'ını yan yana koyuyoruz; böylece prompt,
-  // mask policy veya evaluator tarafındaki eksikliği ayırabiliriz.
-
-  return [
-    `# Benchmark Report: ${artifact.suiteName}`,
-    "",
-    `- Engine: ${artifact.engineName}`,
-    `- Created at: ${artifact.createdAt}`,
-    `- Case count: ${artifact.report.cases.length}`,
-    "",
-    "## Summary Metrics",
-    "",
-    table(["Metric", "Value"], summaryRows),
-    "",
-    "## Family Breakdown",
-    "",
-    table(
+  // Output snapshot bölümü özellikle gerçek model benchmark koşularında gereklidir.
+  // Sadece metrikleri görmek "başarısız" der ama neden başarısız olduğunu öğretmez.
+  // Burada beklenen sonuç ile modelin finalResult'ını yan yana koyuyoruz; böylece
+  // prompt, mask policy veya evaluator tarafındaki eksikliği ayırabiliriz.
+  const sections = [
+    [
+      `# Benchmark Run Report: ${artifact.suiteName}`,
+      "",
+      `- Engine: ${artifact.engineName}`,
+      `- Created at: ${artifact.createdAt}`,
+      `- Scenario count: ${artifact.report.cases.length}`
+    ].join("\n"),
+    ["## Summary Metrics", "", table(["Metric", "Value"], summaryRows)].join("\n"),
+    [
+      "## Family Breakdown",
+      "",
+      table(
       ["Family", "Cases", "Task", "Drift", "Leakage", "Boundary", "Evidence", "Trace", "Budget Used"],
       artifact.report.familyBreakdown.map((score) => [
         score.family,
@@ -436,24 +434,29 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
         percent(score.traceCompletenessRate),
         percent(score.averageContextBudgetUtilization)
       ])
-    ),
-    "",
-    "## Case Results",
-    "",
-    table(
+      )
+    ].join("\n"),
+    [
+      "## Scenario Results",
+      "",
+      table(
       ["Case", "Task", "Required", "Forbidden Hits", "Scope Safe", "Leak Safe", "Evidence", "Budget Used"],
       caseRows
-    ),
-    ...(outputRows.length
-      ? [
-          "",
-          "## Output Snapshots",
-          "",
-          table(["Case", "Family", "Expected", "Required Terms", "Final Result"], outputRows)
-        ]
-      : []),
-    ""
-  ].join("\n");
+      )
+    ].join("\n")
+  ];
+
+  if (outputRows.length) {
+    sections.push(
+      [
+        "## Output Snapshots",
+        "",
+        table(["Case", "Family", "Expected", "Required Terms", "Final Result"], outputRows)
+      ].join("\n")
+    );
+  }
+
+  return `${sections.join("\n\n")}\n`;
 }
 
 function binary(value: boolean): 0 | 1 {
