@@ -87,6 +87,17 @@ export type BenchmarkArtifact = {
   engineName: string;
   createdAt: string;
   report: BenchmarkReport;
+  outputSnapshots?: CaseOutputSnapshot[];
+};
+
+export type CaseOutputSnapshot = {
+  caseId: string;
+  family: BenchmarkFamily;
+  task: string;
+  expectedResult: string;
+  requiredTerms: string[];
+  forbiddenTerms: string[];
+  finalResult: string;
 };
 
 export type FailureCategory =
@@ -328,6 +339,7 @@ export function createBenchmarkArtifact(input: {
   engineName: string;
   createdAt: string;
   report: BenchmarkReport;
+  outputSnapshots?: CaseOutputSnapshot[];
 }): BenchmarkArtifact {
   // BenchmarkArtifact, deney sonucunun paketlenmiş halidir. Bunu ayrı bir tipe
   // almamızın nedeni raporun sadece terminal çıktısı olmaması: aynı veri hem JSON'a
@@ -337,7 +349,8 @@ export function createBenchmarkArtifact(input: {
     suiteName: input.suiteName,
     engineName: input.engineName,
     createdAt: input.createdAt,
-    report: input.report
+    report: input.report,
+    outputSnapshots: input.outputSnapshots
   };
 }
 
@@ -385,6 +398,18 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
   // ortalama skoru yüksek olsa bile örneğin sensitive_boundary veya insufficient_context
   // ailesinde sistematik hata yapıp yapmadığını görebiliriz.
 
+  const outputRows = (artifact.outputSnapshots ?? []).map((snapshot) => [
+    snapshot.caseId,
+    snapshot.family,
+    compact(snapshot.expectedResult),
+    compact(snapshot.requiredTerms.join(", ")),
+    compact(snapshot.finalResult)
+  ]);
+  // Output snapshot bölümü özellikle gerçek model testlerinde gereklidir. Sadece
+  // metrikleri görmek "başarısız" der ama neden başarısız olduğunu öğretmez. Burada
+  // beklenen sonuç ile modelin finalResult'ını yan yana koyuyoruz; böylece prompt,
+  // mask policy veya evaluator tarafındaki eksikliği ayırabiliriz.
+
   return [
     `# Benchmark Report: ${artifact.suiteName}`,
     "",
@@ -419,6 +444,14 @@ export function benchmarkArtifactToMarkdown(artifact: BenchmarkArtifact): string
       ["Case", "Task", "Required", "Forbidden Hits", "Scope Safe", "Leak Safe", "Evidence", "Budget Used"],
       caseRows
     ),
+    ...(outputRows.length
+      ? [
+          "",
+          "## Output Snapshots",
+          "",
+          table(["Case", "Family", "Expected", "Required Terms", "Final Result"], outputRows)
+        ]
+      : []),
     ""
   ].join("\n");
 }
@@ -462,6 +495,14 @@ function invert(value: 0 | 1): 0 | 1 {
   // Bazı metriklerde 1 kötü durumu temsil eder: scopeDrift veya sensitiveLeakage gibi.
   // Markdown'da kullanıcıya "Scope Safe" göstermek için bu değeri ters çeviriyoruz.
   return value ? 0 : 1;
+}
+
+function compact(value: string): string {
+  // Markdown tabloları satır içi metin ister. Model çıktısı çok satırlı veya pipe
+  // karakterli olabilir; burada raporu okunur tutmak için satırı kısaltıyoruz.
+  // JSON artifact içinde aynı snapshot daha ayrıntılı biçimde korunur.
+  const normalized = value.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 }
 
 function table(headers: string[], rows: string[][]): string {

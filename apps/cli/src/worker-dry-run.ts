@@ -2,7 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { arch, cpus, platform, totalmem } from "node:os";
 import { join } from "node:path";
-import { aggregateScores, benchmarkArtifactToMarkdown, createBenchmarkArtifact, scoreCase } from "../../../packages/eval-core/src/index.js";
+import {
+  aggregateScores,
+  benchmarkArtifactToMarkdown,
+  createBenchmarkArtifact,
+  scoreCase,
+  type CaseOutputSnapshot
+} from "../../../packages/eval-core/src/index.js";
 import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
 import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
@@ -26,6 +32,7 @@ if (!healthy) {
 }
 
 const scores = [];
+const outputSnapshots: CaseOutputSnapshot[] = [];
 for (const fixture of fixtureSubset) {
   const workspace = createWorkspace(`dry-run-${fixture.case.id}`, fixture.packet);
   const masked = createMaskedWorkspaceView(workspace, "boundary");
@@ -35,6 +42,15 @@ for (const fixture of fixtureSubset) {
   // refine sözleşmesini taşıdığını görmek. Skorlar yine üretilir ama model kalitesi
   // yorumu için değil, pipeline'ın rapor/manifest üretebildiğini kanıtlamak içindir.
   scores.push(scoreCase(fixture.case, result.workspace));
+  outputSnapshots.push({
+    caseId: fixture.case.id,
+    family: fixture.case.family,
+    task: fixture.packet.task,
+    expectedResult: fixture.case.expectedResult,
+    requiredTerms: fixture.case.requiredTerms,
+    forbiddenTerms: fixture.case.forbiddenTerms,
+    finalResult: result.workspace.finalResult ?? ""
+  });
 }
 
 const report = aggregateScores(scores);
@@ -44,7 +60,8 @@ const artifact = createBenchmarkArtifact({
   suiteName,
   engineName: "external-dllm-worker-dry-run",
   createdAt,
-  report
+  report,
+  outputSnapshots
 });
 const jsonPath = join(reportDir, `${runId}.json`);
 const markdownPath = join(reportDir, `${runId}.md`);
