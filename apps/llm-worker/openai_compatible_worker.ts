@@ -67,7 +67,7 @@ server.listen(port, host, () => {
 async function handleRefine(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const started = Date.now();
   const body = await readJson(request) as DllmWorkerRefineRequest;
-  const decision = await requestLlmDecision(body.workspace);
+  const decision = await requestLlmDecisionSafely(body.workspace);
   const workspace = applyDecision(body.workspace, decision);
 
   const result: DllmWorkerRefineResponse = {
@@ -78,6 +78,24 @@ async function handleRefine(request: IncomingMessage, response: ServerResponse):
   };
 
   writeJson(response, 200, result);
+}
+
+async function requestLlmDecisionSafely(workspace: SharedSemanticWorkspace): Promise<LlmDecision> {
+  try {
+    return await requestLlmDecision(workspace);
+  } catch (error) {
+    // Expanded-context gibi stres koşularında autoregressive model bazen JSON
+    // sözleşmesini bozabilir veya yarım cevap döndürebilir. Bu durum benchmark'ı
+    // çökertmemeli; o case'in ölçülebilir bir model/contract failure olarak rapora
+    // girmesi gerekir. Böylece altyapı hatası ile model davranışı birbirine karışmaz.
+    return {
+      finalResult: "invalid_llm_response",
+      boundaryStatus: "insufficient_context",
+      evidenceIds: [],
+      verifierStatus: "fail",
+      verifierSummary: `LLM worker could not parse a valid decision: ${formatError(error)}`
+    };
+  }
 }
 
 async function requestLlmDecision(workspace: SharedSemanticWorkspace): Promise<LlmDecision> {
@@ -234,6 +252,10 @@ function parseBoundaryStatus(value: unknown): BoundaryStatus {
 function parseVerifierStatus(value: unknown): VerifierStatus {
   if (value === "pass" || value === "warn" || value === "fail") return value;
   return "warn";
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function readJson(request: IncomingMessage): Promise<unknown> {

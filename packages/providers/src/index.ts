@@ -113,7 +113,7 @@ export class HttpLlmWorkerEngine implements ModelEngine {
     // veya schema dışı workspace üretme riski taşır. Contract guard bu kirlenmeyi
     // benchmark metriğine sessizce sokmamızı engeller.
     if (!response.ok || !isRefineResponse(body)) {
-      throw new Error(`Invalid LLM worker response from ${this.baseUrl}/refine`);
+      throw new Error(`Invalid LLM worker response from ${this.baseUrl}/refine: ${compactWorkerBody(body)}`);
     }
 
     return {
@@ -122,6 +122,11 @@ export class HttpLlmWorkerEngine implements ModelEngine {
       engineName: body.engineName
     };
   }
+}
+
+function compactWorkerBody(body: unknown): string {
+  const text = JSON.stringify(body);
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 }
 
 export class MockDllmEngine implements ModelEngine {
