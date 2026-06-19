@@ -922,9 +922,121 @@ Can a dLLM worker improve safety, refusal, critique, verifier, or remask
 decisions around a stronger autoregressive patch writer?
 ```
 
+## Result 13: Qwen2.5-Coder Code Context Strategy Comparison
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- Qwen2.5-Coder 7B Instruct GGUF through llama.cpp.
+- Model file: `qwen2.5-coder-7b-instruct-q4_k_m.gguf`.
+- Benchmark target: `ai/nanoid`.
+- Repository commit: `e4b7a9a7323006474ec939112aec68944b0da097`.
+- Case count: 50 positive model-facing code patch cases per strategy.
+
+This experiment keeps the model and code benchmark fixed, then changes only the
+context packaging strategy:
+
+| Strategy | Artifact |
+| --- | --- |
+| Plain bounded | `reports/2026-06-19T21-51-47-466Z-code-model-patch-benchmark.json` |
+| Synthetic context | `reports/2026-06-19T21-53-51-365Z-code-model-synthetic-patch-benchmark.json` |
+| Expanded context | `reports/2026-06-19T21-55-52-025Z-code-model-expanded-patch-benchmark.json` |
+| RAG-style context | `reports/2026-06-19T21-58-00-370Z-code-model-rag-patch-benchmark.json` |
+
+Summary:
+
+| Strategy | Patch pass | Expected outcome | Expected files | Forbidden patterns | Refusal |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Plain bounded | 78% | 78% | 98% | 14% | 80% |
+| Synthetic context | 78% | 78% | 98% | 14% | 80% |
+| Expanded context | 84% | 84% | 98% | 8% | 86% |
+| RAG-style context | 80% | 80% | 98% | 12% | 82% |
+
+Reality breakdown:
+
+| Strategy | Micro patch | Module patch | Enterprise boundary |
+| --- | ---: | ---: | ---: |
+| Plain bounded | 96.7% | 100% | 0% |
+| Synthetic context | 96.7% | 100% | 0% |
+| Expanded context | 96.7% | 100% | 30% |
+| RAG-style context | 96.7% | 100% | 10% |
+
+Interpretation:
+
+This result shows that Qwen2.5-Coder's main code-patch bottleneck is not basic
+implementation ability. Across all four context strategies, micro-patch and
+module-patch performance remained very strong:
+
+```text
+micro_patch: 96.7%
+module_patch: 100%
+allowed files: 100%
+expected files: 98%
+```
+
+The meaningful difference appears in enterprise-boundary cases, where the model
+must decide whether enough authority or product context exists to make a change.
+Plain bounded and synthetic context did not improve that behavior:
+
+```text
+plain enterprise_boundary: 0 / 10 = 0%
+synthetic enterprise_boundary: 0 / 10 = 0%
+```
+
+RAG-style context helped slightly:
+
+```text
+rag enterprise_boundary: 1 / 10 = 10%
+```
+
+Expanded context helped the most in this code benchmark:
+
+```text
+expanded enterprise_boundary: 3 / 10 = 30%
+```
+
+This is an important contrast with the earlier hard behavior benchmark. In that
+benchmark, expanded context improved task success but reduced evidence and trace
+quality. In the code patch benchmark, expanded context improved boundary/refusal
+behavior while preserving file-scope safety.
+
+The current reading is:
+
+```text
+Context strategy is task-dependent.
+```
+
+For small and module-level code edits, Qwen2.5-Coder already has enough local
+information. Extra context does not materially improve the patch-writing part.
+For enterprise-boundary cases, extra operational context can help, but the
+improvement is still limited.
+
+The synthetic context result is also useful because it is negative:
+
+```text
+The current synthetic packet did not improve enterprise-boundary reasoning.
+```
+
+This means the synthetic packet should not merely summarize nearby information.
+The next version should behave more like a decision policy: when to refuse,
+when to request missing authority, when to avoid guessing product defaults, and
+when a patch is allowed.
+
+The strongest practical conclusion from Result 13 is:
+
+```text
+Qwen2.5-Coder is a strong scoped implementation agent, but enterprise-grade
+agentic coding needs a separate boundary/refusal mechanism.
+```
+
+This supports the next research direction: use the autoregressive coder model
+for implementation, then add a specialized verifier, boundary checker, remask
+planner, or dLLM-style reviewer around it.
+
 ## What These Results Show
 
-These initial results support eighteen early findings:
+These initial results support twenty-one early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -966,6 +1078,15 @@ These initial results support eighteen early findings:
     or remask reasoning rather than direct implementation.
 18. Invalid model output must be separated from true refusal; otherwise
     malformed JSON can falsely inflate insufficient-context performance.
+19. Qwen2.5-Coder context strategy changes did not materially affect micro or
+    module code patch performance, suggesting those cases are mostly local
+    implementation tasks rather than context-packaging tasks.
+20. Expanded context improved enterprise-boundary code behavior in the Qwen2.5
+    run, while synthetic context did not, showing that context enrichment quality
+    matters more than simply adding a synthetic summary.
+21. Code benchmark and behavior benchmark results can diverge: expanded context
+    weakened auditability in the behavior suite but improved refusal/boundary
+    outcomes in the code patch suite.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
