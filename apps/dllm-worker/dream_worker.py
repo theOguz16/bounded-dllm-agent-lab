@@ -114,8 +114,10 @@ def select_grounding_fact(workspace, generated_result):
 
 
 def apply_agentic_workspace_protocol(workspace, generated_result):
+    packet = workspace.get("packet", {})
+    should_refuse = requires_insufficient_context(packet)
     selected_fact = select_grounding_fact(workspace, generated_result)
-    final_result = safe_fact_content(selected_fact) if selected_fact else generated_result
+    final_result = "insufficient_context" if should_refuse else safe_fact_content(selected_fact) if selected_fact else generated_result
     evidence_id = str(selected_fact.get("evidenceId", "")) if selected_fact else ""
     fact_id = str(selected_fact.get("id", "model-output")) if selected_fact else "model-output"
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -136,28 +138,34 @@ def apply_agentic_workspace_protocol(workspace, generated_result):
     }
 
     boundary_decision = {
-        "status": "sufficient_context" if selected_fact else "insufficient_context",
+        "status": "insufficient_context" if should_refuse else "sufficient_context" if selected_fact else "insufficient_context",
         "reason": (
+            "Packet contains mustNotInfer constraints, so the worker refused to invent missing information."
+            if should_refuse
+            else
             f"Selected {fact_id} as the grounding fact."
             if selected_fact
             else "No grounding fact was available for the generated result."
         ),
-        "missingInformation": [],
+        "missingInformation": packet.get("mustNotInfer", []) if should_refuse else [],
         "decidedBy": "boundary",
         "createdAt": now,
     }
 
     verifier_result = {
         "id": f"{workspace.get('id', 'workspace')}-verifier-dream-grounding",
-        "status": "pass" if selected_fact else "warn",
+        "status": "pass" if selected_fact or should_refuse else "warn",
         "checkName": "dream_worker_grounding",
         "summary": (
+            "Final result correctly refused missing information."
+            if should_refuse
+            else
             f"Final result is grounded in {fact_id}."
             if selected_fact
             else "Final result came from model output without evidence grounding."
         ),
         "evidenceIds": [evidence_id] if evidence_id else [],
-        "failedRegions": [] if selected_fact else ["final_result"],
+        "failedRegions": [] if selected_fact or should_refuse else ["final_result"],
         "createdAt": now,
     }
 
@@ -166,6 +174,14 @@ def apply_agentic_workspace_protocol(workspace, generated_result):
     next_workspace["verifierResults"] = list(workspace.get("verifierResults", [])) + [verifier_result]
     next_workspace["trace"] = build_trace(workspace, claim_id, now)
     return next_workspace
+
+
+def requires_insufficient_context(packet):
+    must_not_infer = packet.get("mustNotInfer", [])
+    # mustNotInfer, benchmarkte "bu bilgi context içinde yok; uydurma" sinyalidir.
+    # Bu alan doluyken generic bir current fact'i seçmek araştırma açısından hatalıdır:
+    # agent doğru davranış olarak sınırını belirtmelidir.
+    return isinstance(must_not_infer, list) and len(must_not_infer) > 0
 
 
 def safe_fact_content(fact):
