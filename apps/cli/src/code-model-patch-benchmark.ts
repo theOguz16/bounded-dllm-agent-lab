@@ -23,6 +23,11 @@ type GeneratedPatchPlan = {
   trace: CodePatchModelTrace;
 };
 
+type PatchPlanEnvelope = Partial<MockPatchPlan> & {
+  fileEdit?: Partial<Extract<MockPatchPlan, { kind: "file_edit" }>>;
+  refusal?: Partial<Extract<MockPatchPlan, { kind: "refusal" }>>;
+};
+
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
 const workRoot = process.env.CODE_BENCH_WORK_ROOT ?? "reports/code-model-patch-workspaces";
 const reportDir = process.env.CODE_BENCH_REPORT_DIR ?? "reports";
@@ -205,7 +210,7 @@ async function buildPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<strin
 }
 
 function parsePatchPlan(content: string, testCase: CodePatchBenchmarkCase): MockPatchPlan {
-  const parsed = JSON.parse(extractJson(content)) as Partial<MockPatchPlan>;
+  const parsed = normalizePatchPlanEnvelope(JSON.parse(extractJson(content)) as PatchPlanEnvelope);
 
   if (parsed.kind === "refusal") {
     return {
@@ -226,6 +231,15 @@ function parsePatchPlan(content: string, testCase: CodePatchBenchmarkCase): Mock
   }
 
   throw new Error(`Model did not return a valid patch plan for ${testCase.id}`);
+}
+
+function normalizePatchPlanEnvelope(parsed: PatchPlanEnvelope): Partial<MockPatchPlan> {
+  // Modeller sık sık şemadaki örnek anahtarları root wrapper olarak döndürüyor:
+  // { "fileEdit": { "kind": "file_edit", ... } }. Bu gerçek patch niyetidir,
+  // parser katılığı yüzünden başarısız sayılmamalıdır.
+  if (parsed.fileEdit) return parsed.fileEdit;
+  if (parsed.refusal) return parsed.refusal;
+  return parsed;
 }
 
 function extractJson(content: string): string {
