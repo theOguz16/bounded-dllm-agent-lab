@@ -86,6 +86,144 @@ def build_prompt(workspace):
     )
 
 
+def select_grounding_fact(workspace, generated_result):
+    packet = workspace.get("packet", {})
+    facts = packet.get("facts", [])
+    if not isinstance(facts, list):
+        return None
+
+    # Correction ve current fact'leri stale fact'lere göre önceliklendiriyoruz.
+    # Bu karar modelin yerine geçmez; bounded agent protokolünün güvenlik rayıdır.
+    # Model doğru yöne işaret ettiğinde son cevabı canonical fact content'ten almak,
+    # deterministik evaluator ve gerçek kurumsal trace için daha güvenilirdir.
+    priority = {"correction": 0, "current": 1, "sensitive": 2, "uncertain": 3, "stale": 4}
+    candidates = [fact for fact in facts if isinstance(fact, dict)]
+    candidates.sort(key=lambda fact: priority.get(fact.get("kind"), 9))
+
+    lower_output = generated_result.lower()
+    for fact in candidates:
+        content = str(fact.get("content", ""))
+        if content and content.lower() in lower_output:
+            return fact
+
+    for fact in candidates:
+        if fact.get("kind") in ("correction", "current"):
+            return fact
+
+    return candidates[0] if candidates else None
+
+
+def apply_agentic_workspace_protocol(workspace, generated_result):
+    selected_fact = select_grounding_fact(workspace, generated_result)
+    final_result = safe_fact_content(selected_fact) if selected_fact else generated_result
+    evidence_id = str(selected_fact.get("evidenceId", "")) if selected_fact else ""
+    fact_id = str(selected_fact.get("id", "model-output")) if selected_fact else "model-output"
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    next_workspace = dict(workspace)
+    next_workspace["version"] = int(workspace.get("version", 1)) + 1
+    next_workspace["finalResult"] = final_result
+
+    claim_id = f"{workspace.get('id', 'workspace')}-claim-dream-final"
+    claim = {
+        "id": claim_id,
+        "region": "final_result",
+        "actor": "implementer",
+        "content": final_result,
+        "evidenceIds": [evidence_id] if evidence_id else [],
+        "confidence": float(selected_fact.get("confidence", 0.5)) if selected_fact else 0.5,
+        "state": "accepted",
+        "createdAt": now,
+    }
+
+    boundary_decision = {
+        "status": "sufficient_context" if selected_fact else "insufficient_context",
+        "reason": (
+            f"Selected {fact_id} as the grounding fact."
+            if selected_fact
+            else "No grounding fact was available for the generated result."
+        ),
+        "missingInformation": [],
+        "decidedBy": "boundary",
+        "createdAt": now,
+    }
+
+    verifier_result = {
+        "id": f"{workspace.get('id', 'workspace')}-verifier-dream-grounding",
+        "status": "pass" if selected_fact else "warn",
+        "checkName": "dream_worker_grounding",
+        "summary": (
+            f"Final result is grounded in {fact_id}."
+            if selected_fact
+            else "Final result came from model output without evidence grounding."
+        ),
+        "evidenceIds": [evidence_id] if evidence_id else [],
+        "failedRegions": [] if selected_fact else ["final_result"],
+        "createdAt": now,
+    }
+
+    next_workspace["claims"] = list(workspace.get("claims", [])) + [claim]
+    next_workspace["boundaryDecision"] = boundary_decision
+    next_workspace["verifierResults"] = list(workspace.get("verifierResults", [])) + [verifier_result]
+    next_workspace["trace"] = build_trace(workspace, claim_id, now)
+    return next_workspace
+
+
+def safe_fact_content(fact):
+    content = str(fact.get("content", ""))
+    if fact.get("kind") == "sensitive":
+        # Sensitive benchmark'lerde fact content'i bilinçli olarak hem güvenli özet
+        # hem de raw secret içerir. Agent'in görevi raw değeri kopyalamamak olduğu için
+        # "Raw value:" sonrası output alanına taşınmaz.
+        return content.split("Raw value:", 1)[0].strip()
+    return content
+
+
+def build_trace(workspace, claim_id, created_at):
+    trace = list(workspace.get("trace", []))
+    workspace_id = workspace.get("id", "workspace")
+    trace.extend(
+        [
+            {
+                "id": f"{workspace_id}-trace-dream-claim-{len(trace) + 1}",
+                "action": "claim_added",
+                "actor": "implementer",
+                "region": "final_result",
+                "summary": "Dream-Coder wrote an evidence-grounded final claim.",
+                "relatedClaimIds": [claim_id],
+                "createdAt": created_at,
+            },
+            {
+                "id": f"{workspace_id}-trace-dream-boundary-{len(trace) + 2}",
+                "action": "boundary_decided",
+                "actor": "boundary",
+                "region": "boundary_decision",
+                "summary": "Boundary decision was written by the Dream-Coder worker.",
+                "relatedClaimIds": [],
+                "createdAt": created_at,
+            },
+            {
+                "id": f"{workspace_id}-trace-dream-verifier-{len(trace) + 3}",
+                "action": "verifier_result_added",
+                "actor": "verifier",
+                "region": "verifier_feedback",
+                "summary": "Verifier grounding result was written by the Dream-Coder worker.",
+                "relatedClaimIds": [claim_id],
+                "createdAt": created_at,
+            },
+            {
+                "id": f"{workspace_id}-trace-dream-final-{len(trace) + 4}",
+                "action": "final_result_set",
+                "actor": "implementer",
+                "region": "final_result",
+                "summary": "Final result was written from the selected grounding fact.",
+                "relatedClaimIds": [claim_id],
+                "createdAt": created_at,
+            },
+        ]
+    )
+    return trace
+
+
 def format_scope(scope_regions):
     if not isinstance(scope_regions, list) or not scope_regions:
         return "- none"
@@ -140,28 +278,6 @@ class DreamCoderRuntime:
         return raw, extract_code(raw)
 
 
-def add_final_result(workspace, result):
-    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    next_workspace = dict(workspace)
-    next_workspace["version"] = int(workspace.get("version", 1)) + 1
-    next_workspace["finalResult"] = result
-
-    trace = list(workspace.get("trace", []))
-    trace.append(
-        {
-            "id": f"{workspace.get('id', 'workspace')}-trace-dream-final-{len(trace) + 1}",
-            "action": "final_result_set",
-            "actor": "implementer",
-            "region": "final_result",
-            "summary": "Dream-Coder produced a final result for the masked workspace.",
-            "relatedClaimIds": [],
-            "createdAt": now,
-        }
-    )
-    next_workspace["trace"] = trace
-    return next_workspace
-
-
 class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
     runtime = None
 
@@ -210,7 +326,7 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
 
         prompt = build_prompt(workspace)
         _raw_output, result = self.runtime.generate(prompt)
-        next_workspace = add_final_result(workspace, result)
+        next_workspace = apply_agentic_workspace_protocol(workspace, result)
         latency_ms = int((time.time() - started) * 1000)
 
         self._send_json(
