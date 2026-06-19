@@ -294,6 +294,18 @@ reports/2026-06-19T16-11-03-087Z-llm-hard-baseline.md
 reports/2026-06-19T16-11-03-087Z-llm-hard-baseline.manifest.json
 ```
 
+The run was repeated after model metadata and failure taxonomy reporting were
+added:
+
+```text
+reports/2026-06-19T16-23-38-717Z-llm-hard-baseline.json
+reports/2026-06-19T16-23-38-717Z-llm-hard-baseline.md
+reports/2026-06-19T16-23-38-717Z-llm-hard-baseline.manifest.json
+```
+
+The repeated run kept the same summary metrics and recorded the model name as
+`qwen2.5-coder-7b-instruct-q4_k_m`.
+
 Observed summary:
 
 | Metric | Value |
@@ -334,9 +346,51 @@ Several details matter for scientific interpretation:
 - Evidence and trace were high at 96%, but task success was only 64%. This is a
   valuable failure shape: the model often left an auditable process trace, yet
   still selected or summarized the wrong final result in part of the hard suite.
+- Failure taxonomy shows that several failed cases were semantically close, so
+  strict task success should be interpreted together with failure type, not alone.
 
 This result moves the project from infrastructure validation into comparative
 model-family testing.
+
+### Strict vs Taxonomy-Adjusted Interpretation
+
+The official benchmark score remains strict:
+
+```text
+Strict task success: 16 / 25 = 64%
+```
+
+After failure taxonomy was added, the 9 failed cases were separated into failure
+types:
+
+| Failure type | Count | Interpretation |
+| --- | ---: | --- |
+| `semantic_match_but_keyword_fail` | 3 | The final answer was close to the expected result, but missed exact required wording. |
+| `true_task_failure` | 5 | The final answer was not close enough to the expected result under the deterministic heuristic. |
+| `missing_evidence_or_trace` | 1 | The answer was near the target, but evidence or trace was incomplete. |
+| `leakage_or_scope_violation` | 0 | No failed case was caused by sensitive leakage or scope violation. |
+| `boundary_failure` | 0 | No failed case was caused by an incorrect boundary decision. |
+
+This gives a more careful reading:
+
+```text
+Strict score: 64%.
+Likely semantic-adjusted interpretation: up to 19 / 25 = 76%.
+```
+
+The 76% number is not a replacement benchmark score. It is an analysis note. It
+means that some failures look like deterministic wording mismatches rather than
+clear model failures.
+
+The most important research signal is therefore not only that Qwen2.5-Coder
+scored lower than the Dream-Coder worker. It is that the lower score came mostly
+from canonical answer alignment and sensitive-boundary wording, not from leakage,
+scope drift, or boundary collapse.
+
+This distinction matters because a production agent architecture needs both:
+
+- strict measurable correctness,
+- and diagnostic tools that explain why correctness failed.
 
 ## What These Results Show
 
@@ -355,6 +409,9 @@ These initial results support seven early findings:
 7. The first real autoregressive LLM baseline is now measurable on the same hard
    suite, and in this run it underperformed the Dream-Coder bounded dLLM worker
    on task success while remaining scope-safe and leakage-safe.
+8. Failure taxonomy can separate strict benchmark failures into likely semantic
+   wording misses, true task failures, trace gaps, boundary failures, and safety
+   violations.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -390,6 +447,8 @@ The main risks are:
   should not be treated as a full precision upper bound for that model family.
 - The LLM baseline prompt and JSON contract can affect success rate; future runs
   should compare prompt variants while keeping oracle fields hidden.
+- The taxonomy-adjusted interpretation is a diagnostic aid, not an official
+  replacement for strict task success.
 - The ablation modes are controlled architecture simulations, while the
   Dream-Coder and Qwen2.5-Coder runs are real worker baselines.
 - There is no latency, cost, or throughput analysis yet.
