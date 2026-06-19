@@ -100,15 +100,22 @@ def select_grounding_fact(workspace, generated_result):
     candidates = [fact for fact in facts if isinstance(fact, dict)]
     candidates.sort(key=lambda fact: priority.get(fact.get("kind"), 9))
 
+    fresh_facts = [fact for fact in candidates if fact.get("kind") in ("correction", "current")]
+    has_stale_fact = any(fact.get("kind") == "stale" for fact in candidates)
+    if fresh_facts and has_stale_fact:
+        # Conflict senaryolarında model yanlışlıkla stale cümleyi tekrar edebilir.
+        # Worker'ın görevi burada sadece model metnini aynalamak değil, workspace
+        # policy'sini uygulamaktır: correction/current fact stale fact'e üstün gelir.
+        return fresh_facts[0]
+
     lower_output = generated_result.lower()
     for fact in candidates:
         content = str(fact.get("content", ""))
         if content and content.lower() in lower_output:
             return fact
 
-    for fact in candidates:
-        if fact.get("kind") in ("correction", "current"):
-            return fact
+    if fresh_facts:
+        return fresh_facts[0]
 
     return candidates[0] if candidates else None
 
