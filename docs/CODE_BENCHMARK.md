@@ -161,3 +161,8 @@ or:
 If the model returns invalid JSON or an unapplyable patch, the run does not
 crash. The case is scored with a `patch_application_failure` signal so model
 behavior remains measurable.
+
+For long files such as `README.md`, the model benchmark sends a bounded excerpt
+around the task-relevant text instead of the whole file. This is not an oracle
+shortcut: expected changed files and scoring criteria remain hidden. It simply
+keeps the code benchmark aligned with bounded-context agent behavior.

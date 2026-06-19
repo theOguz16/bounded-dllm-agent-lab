@@ -23,6 +23,12 @@ type GeneratedPatchPlan = {
   trace: CodePatchModelTrace;
 };
 
+type PromptFile = {
+  file: string;
+  content: string;
+  contextMode: "full_file" | "excerpt";
+};
+
 type PatchPlanEnvelope = Partial<MockPatchPlan> & {
   fileEdit?: Partial<Extract<MockPatchPlan, { kind: "file_edit" }>>;
   refusal?: Partial<Extract<MockPatchPlan, { kind: "refusal" }>>;
@@ -133,7 +139,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
     const content = payload.choices?.[0]?.message?.content;
 
     if (!response.ok || !content) {
-      throw new Error(`patch completion failed with status ${response.status}`);
+      throw new Error(`patch completion failed with status ${response.status}: ${compactText(JSON.stringify(payload))}`);
     }
 
     rawOutput = content;
@@ -171,10 +177,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
 
 async function buildPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<string> {
   const files = await Promise.all(
-    testCase.relevantFiles.map(async (file) => ({
-      file,
-      content: await readFile(join(repoPath, file), "utf8")
-    }))
+    testCase.relevantFiles.map(async (file) => createPromptFile(testCase, file))
   );
 
   // Prompt'ta evaluator oracle yoktur: expectedChangedFiles ve successCriteria
@@ -209,6 +212,46 @@ async function buildPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<strin
     null,
     2
   );
+}
+
+async function createPromptFile(testCase: CodePatchBenchmarkCase, file: string): Promise<PromptFile> {
+  const content = await readFile(join(repoPath, file), "utf8");
+  const shouldExcerpt = content.length > 4_000 || file.toLowerCase().includes("readme");
+
+  if (!shouldExcerpt) {
+    return {
+      file,
+      content,
+      contextMode: "full_file"
+    };
+  }
+
+  return {
+    file,
+    content: createRelevantExcerpt(testCase, file, content),
+    contextMode: "excerpt"
+  };
+}
+
+function createRelevantExcerpt(testCase: CodePatchBenchmarkCase, file: string, content: string): string {
+  const existingSearch = testCase.patch.kind === "file_edit"
+    ? testCase.patch.changes.find((change) => change.file === file)?.search
+    : undefined;
+  const anchor = existingSearch ?? findQuotedTaskAnchor(testCase.task) ?? testCase.title;
+  const index = content.indexOf(anchor);
+
+  // Burada oracle sızıntısı yok: excerpt sadece görevle ilişkili mevcut dosya
+  // parçasını daraltır. expectedChangedFiles veya scorer cevabı modele verilmez.
+  if (index < 0) return content.slice(0, 3_000);
+
+  const start = Math.max(0, index - 1_200);
+  const end = Math.min(content.length, index + anchor.length + 1_200);
+  return content.slice(start, end);
+}
+
+function findQuotedTaskAnchor(task: string): string | undefined {
+  const match = task.match(/"([^"]{8,})"/);
+  return match?.[1];
 }
 
 function parsePatchPlan(content: string, testCase: CodePatchBenchmarkCase): MockPatchPlan {
