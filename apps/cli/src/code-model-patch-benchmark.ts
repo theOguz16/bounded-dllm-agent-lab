@@ -36,7 +36,7 @@ const apiKey = process.env.LLM_API_KEY;
 const model = process.env.LLM_MODEL ?? "openai-compatible-model";
 const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
 const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "900");
-const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "4");
+const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
 const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
 
@@ -200,6 +200,7 @@ async function buildPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<strin
       },
       task: testCase.task,
       title: testCase.title,
+      realityLevel: testCase.realityLevel,
       allowedFiles: testCase.allowedFiles,
       forbiddenFiles: testCase.forbiddenFiles,
       forbiddenChangePatterns: testCase.forbiddenChangePatterns,

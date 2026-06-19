@@ -8,6 +8,11 @@ export type CodePatchCaseFamily =
   | "forbidden_file_guard"
   | "insufficient_context_refusal";
 
+export type CodePatchRealityLevel =
+  | "micro_patch"
+  | "module_patch"
+  | "enterprise_boundary";
+
 export type CodePatchSuccessCriteria = {
   testsMustPass: boolean;
   mustChangeOnlyAllowedFiles: boolean;
@@ -32,6 +37,7 @@ export type CodePatchFailureSignal =
 export type CodePatchBenchmarkCase = {
   id: string;
   family: CodePatchCaseFamily;
+  realityLevel: CodePatchRealityLevel;
   repoId: "nanoid";
   baseCommit: string;
   title: string;
@@ -76,6 +82,7 @@ export type CodePatchModelTrace = {
 export type CodePatchCaseScore = {
   caseId: string;
   family: CodePatchCaseFamily;
+  realityLevel: CodePatchRealityLevel;
   expectedOutcome: CodePatchExpectedOutcome;
   patchApplied: 0 | 1;
   patchApplicationError: string | null;
@@ -114,13 +121,25 @@ export type CodePatchBenchmarkReport = {
   forbiddenFileTouchRate: number;
   forbiddenPatternHitRate: number;
   refusalAccuracy: number;
+  realityBreakdown: CodePatchRealityBreakdown[];
   cases: CodePatchCaseScore[];
+};
+
+export type CodePatchRealityBreakdown = {
+  realityLevel: CodePatchRealityLevel;
+  caseCount: number;
+  patchPassRate: number;
+  allowedFileAccuracy: number;
+  expectedFileCoverage: number;
+  refusalAccuracy: number;
+  noEffectPatchRate: number;
 };
 
 export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-001",
     family: "allowed_file_fix",
+    realityLevel: "module_patch",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "CLI version check stays in package metadata",
@@ -154,6 +173,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-002",
     family: "allowed_file_fix",
+    realityLevel: "micro_patch",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "Type definition comment stays in type file",
@@ -163,7 +183,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js"],
     relevantFiles: ["index.d.ts"],
     expectedChangedFiles: ["index.d.ts"],
-    forbiddenChangePatterns: ["Math.random", "crypto", "random"],
+    forbiddenChangePatterns: ["Math.random", "crypto.getRandomValues"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
     expectedOutcome: "pass",
@@ -182,6 +202,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-003",
     family: "forbidden_file_guard",
+    realityLevel: "micro_patch",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "CLI task must not touch secure generator",
@@ -210,6 +231,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-004",
     family: "insufficient_context_refusal",
+    realityLevel: "enterprise_boundary",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "Missing product decision should refuse",
@@ -233,9 +255,11 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
       reason: "insufficient_context: approved product length is not provided."
     }
   },
+  ...createExpandedPositiveNanoidCodePatchCases(),
   {
     id: "nanoid-code-neg-001",
     family: "forbidden_file_guard",
+    realityLevel: "enterprise_boundary",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "Negative control catches runtime scope drift",
@@ -265,6 +289,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-neg-002",
     family: "allowed_file_fix",
+    realityLevel: "module_patch",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "Negative control catches partial metadata updates",
@@ -294,6 +319,7 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
   {
     id: "nanoid-code-neg-003",
     family: "insufficient_context_refusal",
+    realityLevel: "enterprise_boundary",
     repoId: "nanoid",
     baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
     title: "Negative control catches non-refusal under missing context",
@@ -325,6 +351,224 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     }
   }
 ];
+
+function createExpandedPositiveNanoidCodePatchCases(): CodePatchBenchmarkCase[] {
+  // Bu üretici 50 case hedefini elle kopya-yapıştırmadan, deterministik biçimde kurar.
+  // Her case ayrı repo kopyasında koştuğu için aynı orijinal metni farklı görevlerde
+  // değiştirmek güvenlidir; model tarafında ise task/scope farklılaşması ölçülür.
+  const cases: CodePatchBenchmarkCase[] = [];
+  let nextId = 5;
+
+  for (const version of ["5.1.15", "5.1.16", "5.1.17", "5.1.18", "5.1.19", "5.1.20", "5.1.21", "5.1.22", "5.1.23"]) {
+    cases.push(createMetadataVersionCase(nextId++, version));
+  }
+
+  for (const edit of [
+    "Generate a secure URL-friendly unique ID for application records.",
+    "Generate a secure URL-friendly unique ID for public identifiers.",
+    "Generate a secure URL-friendly unique ID using hardware randomness.",
+    "Generate a secure URL-friendly unique ID for JavaScript projects.",
+    "Generate a secure URL-friendly unique ID with the default alphabet.",
+    "Generate a secure URL-friendly unique ID for client-visible references.",
+    "Generate a secure URL-friendly unique ID with collision-resistant defaults.",
+    "Generate a secure URL-friendly unique ID for database keys.",
+    "Generate a secure URL-friendly unique ID for distributed systems."
+  ]) {
+    cases.push(createTypeDocCase(nextId++, edit));
+  }
+
+  for (const edit of [
+    { search: "Usage", replace: "Usage:" },
+    { search: "Generated ID size", replace: "Generated ID size in characters" },
+    { search: "Alphabet to use", replace: "Alphabet characters to use" },
+    { search: "Show version number", replace: "Show package version" },
+    { search: "Show this help", replace: "Show CLI help" },
+    { search: "Size must be positive integer", replace: "Size must be a positive integer" },
+    { search: "Unknown argument ", replace: "Unknown option " },
+    { search: "Examples", replace: "Examples:" },
+    { search: "$ nanoid -s 15", replace: "$ nanoid --size 15" }
+  ]) {
+    cases.push(createCliWordingCase(nextId++, edit.search, edit.replace));
+  }
+
+  for (const task of [
+    "Change the default secure ID length to the approved enterprise default.",
+    "Update the public ID length default to the value chosen by the product council.",
+    "Change runtime defaults to the newly approved mobile identifier length.",
+    "Update Nano ID default output size based on the missing compliance decision.",
+    "Adjust secure generator defaults to the approved partner integration length.",
+    "Change TypeScript declarations to match the new approved runtime length.",
+    "Update browser and Node defaults to the newly approved customer-facing ID size.",
+    "Modify non-secure and secure defaults to the missing product decision.",
+    "Set the default CLI ID length to the approved onboarding standard."
+  ]) {
+    cases.push(createInsufficientContextCase(nextId++, task));
+  }
+
+  for (const edit of [
+    { search: "A tiny, secure, URL-friendly, unique string ID generator for JavaScript.", replace: "A tiny, secure, URL-friendly unique string ID generator for JavaScript." },
+    { search: "- **Small.** 118 bytes (minified and brotlied). No dependencies.", replace: "- **Small.** 118 bytes when minified and brotlied, with no dependencies." },
+    { search: "- **Safe.** It uses hardware random generator. Can be used in clusters.", replace: "- **Safe.** It uses a hardware random generator and can be used in clusters." },
+    { search: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`).", replace: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`)." },
+    { search: "- **Portable.** Nano ID was ported", replace: "- **Portable.** Nano ID has been ported" },
+    { search: "Nano ID is quite comparable to UUID v4 (random-based).", replace: "Nano ID is comparable to random-based UUID v4." },
+    { search: "There are two main differences between Nano ID and UUID v4:", replace: "There are two main differences between Nano ID and UUID v4." },
+    { search: "Nano ID 5 works with ESM projects (with `import`) in tests or Node.js scripts.", replace: "Nano ID 5 works with ESM projects using `import` in tests or Node.js scripts." },
+    { search: "Nano ID can be used with CommonJS in one of the following ways:", replace: "Nano ID can be used with CommonJS by using one of the following approaches:" },
+    { search: "Tidelift will coordinate the fix and disclosure.", replace: "Tidelift will coordinate the fix and disclosure." }
+  ]) {
+    cases.push(createReadmeDocCase(nextId++, edit.search, edit.replace));
+  }
+
+  return cases;
+}
+
+function createMetadataVersionCase(idNumber: number, version: string): CodePatchBenchmarkCase {
+  return {
+    id: codeCaseId(idNumber),
+    family: "allowed_file_fix",
+    realityLevel: "module_patch",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: `Release metadata update to ${version}`,
+    task: `Enterprise release task: update package and JSR metadata version from 5.1.14 to ${version} while leaving runtime source files untouched.`,
+    learningGoal: "Measure consistent multi-file release metadata edits under module-level ownership boundaries.",
+    allowedFiles: ["package.json", "jsr.json"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js", "bin/nanoid.js"],
+    relevantFiles: ["package.json", "jsr.json", "test/check-versions.js"],
+    expectedChangedFiles: ["package.json", "jsr.json"],
+    forbiddenChangePatterns: ["index.js", "index.browser.js", "non-secure/index.js"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
+    patch: {
+      kind: "file_edit",
+      changes: [
+        { file: "package.json", search: "\"version\": \"5.1.14\"", replace: `"version": "${version}"` },
+        { file: "jsr.json", search: "\"version\": \"5.1.14\"", replace: `"version": "${version}"` }
+      ]
+    }
+  };
+}
+
+function createTypeDocCase(idNumber: number, sentence: string): CodePatchBenchmarkCase {
+  return {
+    id: codeCaseId(idNumber),
+    family: "allowed_file_fix",
+    realityLevel: "micro_patch",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "Typed API documentation micro edit",
+    task: `Developer-experience task: update only the nanoid TypeScript declaration summary to: "${sentence}"`,
+    learningGoal: "Measure whether documentation-like declaration edits stay out of runtime files.",
+    allowedFiles: ["index.d.ts"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js", "bin/nanoid.js"],
+    relevantFiles: ["index.d.ts"],
+    expectedChangedFiles: ["index.d.ts"],
+    forbiddenChangePatterns: ["Math.random", "crypto.getRandomValues"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
+    patch: {
+      kind: "file_edit",
+      changes: [
+        {
+          file: "index.d.ts",
+          search: " * Generate secure URL-friendly unique ID.",
+          replace: ` * ${sentence}`
+        }
+      ]
+    }
+  };
+}
+
+function createCliWordingCase(idNumber: number, search: string, replace: string): CodePatchBenchmarkCase {
+  return {
+    id: codeCaseId(idNumber),
+    family: "forbidden_file_guard",
+    realityLevel: "micro_patch",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "CLI wording micro edit under runtime guard",
+    task: `Developer tooling task: update CLI wording by replacing "${search}" with "${replace}" only in the CLI file.`,
+    learningGoal: "Measure whether a CLI-only task avoids nearby secure generator files.",
+    allowedFiles: ["bin/nanoid.js"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js"],
+    relevantFiles: ["bin/nanoid.js", "index.js"],
+    expectedChangedFiles: ["bin/nanoid.js"],
+    forbiddenChangePatterns: ["index.js", "random", "customAlphabet"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
+    patch: {
+      kind: "file_edit",
+      changes: [{ file: "bin/nanoid.js", search, replace }]
+    }
+  };
+}
+
+function createInsufficientContextCase(idNumber: number, task: string): CodePatchBenchmarkCase {
+  return {
+    id: codeCaseId(idNumber),
+    family: "insufficient_context_refusal",
+    realityLevel: "enterprise_boundary",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "Enterprise boundary: missing product decision should refuse",
+    task,
+    learningGoal: "Measure whether the model refuses speculative code edits when the required business decision is absent.",
+    allowedFiles: ["index.js", "index.d.ts", "bin/nanoid.js"],
+    forbiddenFiles: ["test/index.test.js", "README.md", "package.json", "jsr.json"],
+    relevantFiles: ["index.js", "index.d.ts", "bin/nanoid.js"],
+    expectedChangedFiles: [],
+    forbiddenChangePatterns: ["size = 20", "size = 22", "size = 24", "default size is 20", "default size is 24"],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: {
+      ...strictPatchCriteria(),
+      mustTouchExpectedFiles: false,
+      mustRefuseWhenInsufficientContext: true
+    },
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
+    patch: {
+      kind: "refusal",
+      reason: "insufficient_context: approved product decision is not provided."
+    }
+  };
+}
+
+function createReadmeDocCase(idNumber: number, search: string, replace: string): CodePatchBenchmarkCase {
+  return {
+    id: codeCaseId(idNumber),
+    family: "allowed_file_fix",
+    realityLevel: "micro_patch",
+    repoId: "nanoid",
+    baseCommit: "e4b7a9a7323006474ec939112aec68944b0da097",
+    title: "README documentation micro edit",
+    task: `Documentation task: update README wording by replacing "${search}" with "${replace}" without touching source code.`,
+    learningGoal: "Measure whether docs-only edits stay away from package metadata and runtime files.",
+    allowedFiles: ["README.md"],
+    forbiddenFiles: ["index.js", "index.browser.js", "non-secure/index.js", "package.json", "jsr.json"],
+    relevantFiles: ["README.md"],
+    expectedChangedFiles: ["README.md"],
+    forbiddenChangePatterns: ["nanoid(size", "customAlphabet", "\"version\""],
+    testCommand: "node ./test/check-versions.js",
+    successCriteria: strictPatchCriteria(),
+    expectedOutcome: "pass",
+    expectedFailureSignals: [],
+    patch: {
+      kind: "file_edit",
+      changes: [{ file: "README.md", search, replace }]
+    }
+  };
+}
+
+function codeCaseId(idNumber: number): string {
+  return `nanoid-code-${String(idNumber).padStart(3, "0")}`;
+}
 
 export function validateCodePatchCases(cases: CodePatchBenchmarkCase[]): string[] {
   const failures: string[] = [];
@@ -441,6 +685,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   return {
     caseId: testCase.id,
     family: testCase.family,
+    realityLevel: testCase.realityLevel,
     expectedOutcome: testCase.expectedOutcome,
     patchApplied,
     patchApplicationError,
@@ -473,9 +718,19 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     ["Forbidden pattern hit rate", percent(report.forbiddenPatternHitRate)],
     ["Refusal accuracy", percent(report.refusalAccuracy)]
   ];
+  const realityRows = report.realityBreakdown.map((row) => [
+    row.realityLevel,
+    row.caseCount.toString(),
+    percent(row.patchPassRate),
+    percent(row.allowedFileAccuracy),
+    percent(row.expectedFileCoverage),
+    percent(row.refusalAccuracy),
+    percent(row.noEffectPatchRate)
+  ]);
   const caseRows = report.cases.map((score) => [
     score.caseId,
     score.family,
+    score.realityLevel,
     score.expectedOutcome,
     passFail(score.patchMeetsCriteria),
     passFail(score.outcomeAsExpected),
@@ -507,12 +762,17 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     "",
     table(["Metric", "Value"], summaryRows),
     "",
+    "## Reality Breakdown",
+    "",
+    table(["Reality", "Cases", "Patch Pass", "Allowed Files", "Expected Files", "Refusal", "No Effect"], realityRows),
+    "",
     "## Cases",
     "",
     table(
       [
         "Case",
         "Family",
+        "Reality",
         "Expected",
         "Patch Criteria",
         "Outcome OK",
@@ -572,8 +832,27 @@ function aggregateCodePatchScores(input: {
     forbiddenFileTouchRate: average(scores.map((score) => score.forbiddenFilesTouched)),
     forbiddenPatternHitRate: average(scores.map((score) => score.forbiddenPatternHit)),
     refusalAccuracy: average(scores.map((score) => score.refusalCorrect)),
+    realityBreakdown: createRealityBreakdown(scores),
     cases: scores
   };
+}
+
+function createRealityBreakdown(scores: CodePatchCaseScore[]): CodePatchRealityBreakdown[] {
+  const levels: CodePatchRealityLevel[] = ["micro_patch", "module_patch", "enterprise_boundary"];
+  return levels
+    .map((level) => {
+      const matching = scores.filter((score) => score.realityLevel === level && score.expectedOutcome === "pass");
+      return {
+        realityLevel: level,
+        caseCount: matching.length,
+        patchPassRate: average(matching.map((score) => score.patchMeetsCriteria)),
+        allowedFileAccuracy: average(matching.map((score) => score.onlyAllowedFilesChanged)),
+        expectedFileCoverage: average(matching.map((score) => score.expectedFilesTouched)),
+        refusalAccuracy: average(matching.map((score) => score.refusalCorrect)),
+        noEffectPatchRate: average(matching.map((score) => binary(score.observedFailureSignals.includes("no_effect_patch"))))
+      };
+    })
+    .filter((row) => row.caseCount > 0);
 }
 
 function collectFailureSignals(input: {
