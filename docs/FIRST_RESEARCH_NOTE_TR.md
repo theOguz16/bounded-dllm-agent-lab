@@ -288,6 +288,12 @@ uretilebilir:
 npm run reports:research-figures
 ```
 
+Ilk milestone icin kalici figur sayfasi:
+
+```text
+docs/results/FIRST_MILESTONE_FIGURES.md
+```
+
 Bu komut son benchmark artifact'lerini okuyarak Markdown icinde Mermaid bar chart
 grafikleri uretir:
 

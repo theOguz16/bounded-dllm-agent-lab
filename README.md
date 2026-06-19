@@ -206,6 +206,9 @@ benchmarks, hard-suite baselines, Qwen2.5-Coder code patch benchmarks,
 Dream-Coder dLLM direct patch benchmarks, context strategy comparisons, and code
 failure taxonomy.
 
+The first milestone figures are available at
+[`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
+
 Generate visual benchmark figures with:
 
 ```bash
