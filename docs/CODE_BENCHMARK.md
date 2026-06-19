@@ -168,6 +168,41 @@ around the task-relevant text instead of the whole file. This is not an oracle
 shortcut: expected changed files and scoring criteria remain hidden. It simply
 keeps the code benchmark aligned with bounded-context agent behavior.
 
+### Qwen Context Strategy Runs
+
+The autoregressive Qwen code benchmark can also be run with controlled context
+packaging strategies:
+
+```bash
+npm run code:model-benchmark
+npm run code:model-synthetic-benchmark
+npm run code:model-expanded-benchmark
+npm run code:model-rag-benchmark
+```
+
+All four commands use the same 50 positive Nano ID patch cases and the same
+deterministic scorer. The difference is only the model-facing context package:
+
+- `plain`: task, scope, forbidden files, forbidden patterns, and bounded file
+  contents.
+- `synthetic`: the plain packet plus a compact synthetic decision plan derived
+  from reality level, allowed files, forbidden files, and general boundary
+  discipline.
+- `expanded`: the plain packet plus broader cautionary memory about adjacent
+  repository tasks and ownership constraints.
+- `rag`: the plain packet plus retrieval-style scope and boundary notes.
+
+These strategies are not meant to prove that one model family is better than
+another. They test a narrower question:
+
+```text
+Does context packaging change Qwen2.5-Coder's code patch behavior, especially
+on enterprise-boundary/refusal cases?
+```
+
+The strategy packets still do not include evaluator-only fields such as
+`expectedChangedFiles` or success criteria.
+
 ## dLLM Patch Benchmark
 
 After the autoregressive LLM run, run the same 50 positive Nano ID cases through

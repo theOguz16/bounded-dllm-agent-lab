@@ -10,9 +10,12 @@ import {
 import {
   buildCodePatchPrompt,
   compactText,
+  createCodePatchEngineLabel,
+  createCodePatchRunSuffix,
   createInvalidPatchPlan,
   createPatchTrace,
   formatError,
+  parseCodePatchContextStrategy,
   parseGeneratedPatchPlan
 } from "./code-patch-model-utils.js";
 
@@ -39,6 +42,7 @@ const model = process.env.LLM_MODEL ?? "openai-compatible-model";
 const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
 const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "900");
 const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
+const contextStrategy = parseCodePatchContextStrategy(process.env.CODE_CONTEXT_STRATEGY ?? "plain");
 const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
 
@@ -49,7 +53,7 @@ if (failures.length) {
 const generatedCases: CodePatchBenchmarkCase[] = [];
 
 for (const testCase of modelCases) {
-  console.log(`[code-model-patch] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+  console.log(`[code-model-patch:${contextStrategy}] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
   const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
@@ -62,10 +66,10 @@ const report = await runCodePatchBenchmark({
   repoPath,
   workRoot,
   cases: generatedCases,
-  suiteName: "oss-code-model-patch-benchmark-v1",
-  engineName: `openai-compatible-code-patch:${model}`
+  suiteName: `oss-code-model-${contextStrategy}-patch-benchmark-v1`,
+  engineName: createCodePatchEngineLabel(contextStrategy, model)
 });
-const runId = `${report.createdAt.replace(/[:.]/g, "-")}-code-model-patch-benchmark`;
+const runId = `${report.createdAt.replace(/[:.]/g, "-")}-${createCodePatchRunSuffix(contextStrategy)}`;
 const jsonPath = join(reportDir, `${runId}.json`);
 const markdownPath = join(reportDir, `${runId}.md`);
 
@@ -79,6 +83,7 @@ console.log(
       ok: true,
       repoPath,
       modelName: model,
+      contextStrategy,
       caseCount: report.caseCount,
       jsonPath,
       markdownPath,
@@ -126,7 +131,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
           },
           {
             role: "user",
-            content: await buildCodePatchPrompt({ repoPath, testCase })
+            content: await buildCodePatchPrompt({ repoPath, testCase, contextStrategy })
           }
         ]
       })

@@ -11,6 +11,8 @@ export type GeneratedPatchPlan = {
   modelError: string | null;
 };
 
+export type CodePatchContextStrategy = "plain" | "rag" | "expanded" | "synthetic";
+
 type PromptFile = {
   file: string;
   content: string;
@@ -27,10 +29,13 @@ type PatchPlanEnvelope = Partial<MockPatchPlan> & {
 export async function buildCodePatchPrompt(input: {
   repoPath: string;
   testCase: CodePatchBenchmarkCase;
+  contextStrategy?: CodePatchContextStrategy;
 }): Promise<string> {
+  const contextStrategy = input.contextStrategy ?? "plain";
   const files = await Promise.all(
     input.testCase.relevantFiles.map(async (file) => createPromptFile(input.repoPath, input.testCase, file))
   );
+  const contextAugmentation = createContextAugmentation(input.testCase, contextStrategy);
 
   // Bu prompt iki model ailesi için ortaktır: autoregressive LLM runner ve dLLM
   // infill runner aynı task/scope/file paketini görür. Böylece sonuç farkı prompt
@@ -57,6 +62,8 @@ export async function buildCodePatchPrompt(input: {
       task: input.testCase.task,
       title: input.testCase.title,
       realityLevel: input.testCase.realityLevel,
+      contextStrategy,
+      contextAugmentation,
       allowedFiles: input.testCase.allowedFiles,
       forbiddenFiles: input.testCase.forbiddenFiles,
       forbiddenChangePatterns: input.testCase.forbiddenChangePatterns,
@@ -65,6 +72,25 @@ export async function buildCodePatchPrompt(input: {
     null,
     2
   );
+}
+
+export function parseCodePatchContextStrategy(value: string): CodePatchContextStrategy {
+  if (value === "plain" || value === "rag" || value === "expanded" || value === "synthetic") return value;
+  throw new Error(`Unknown CODE_CONTEXT_STRATEGY: ${value}`);
+}
+
+export function createCodePatchRunSuffix(strategy: CodePatchContextStrategy): string {
+  if (strategy === "rag") return "code-model-rag-patch-benchmark";
+  if (strategy === "expanded") return "code-model-expanded-patch-benchmark";
+  if (strategy === "synthetic") return "code-model-synthetic-patch-benchmark";
+  return "code-model-patch-benchmark";
+}
+
+export function createCodePatchEngineLabel(strategy: CodePatchContextStrategy, model: string): string {
+  if (strategy === "rag") return `openai-compatible-code-patch-rag:${model}`;
+  if (strategy === "expanded") return `openai-compatible-code-patch-expanded:${model}`;
+  if (strategy === "synthetic") return `openai-compatible-code-patch-synthetic:${model}`;
+  return `openai-compatible-code-patch:${model}`;
 }
 
 export function parseGeneratedPatchPlan(content: string, testCase: CodePatchBenchmarkCase): MockPatchPlan {
@@ -165,6 +191,65 @@ function createRelevantExcerpt(testCase: CodePatchBenchmarkCase, file: string, c
 function findQuotedTaskAnchor(task: string): string | undefined {
   const match = task.match(/"([^"]{8,})"/);
   return match?.[1];
+}
+
+function createContextAugmentation(testCase: CodePatchBenchmarkCase, strategy: CodePatchContextStrategy): Record<string, unknown> {
+  if (strategy === "plain") {
+    return {
+      mode: "plain",
+      note: "No additional context beyond task, scope, and bounded file contents."
+    };
+  }
+
+  if (strategy === "synthetic") {
+    return {
+      mode: "synthetic",
+      plan: createSyntheticPlan(testCase)
+    };
+  }
+
+  if (strategy === "expanded") {
+    return {
+      mode: "expanded",
+      notes: [
+        "This packet includes broader repository memory and adjacent task cautions.",
+        "Prefer the concrete current task over adjacent documentation or runtime ideas.",
+        `Reality level: ${testCase.realityLevel}.`,
+        `Allowed files are authoritative: ${testCase.allowedFiles.join(", ")}.`,
+        `Forbidden files are not allowed: ${testCase.forbiddenFiles.join(", ") || "(none)"}.`,
+        "Do not update package metadata unless the task explicitly asks for metadata.",
+        "Do not update runtime defaults unless a product/compliance decision is explicitly present.",
+        "Do not infer a new ID length from surrounding examples."
+      ]
+    };
+  }
+
+  return {
+    mode: "rag",
+    retrievedNotes: createRagNotes(testCase)
+  };
+}
+
+function createSyntheticPlan(testCase: CodePatchBenchmarkCase): string[] {
+  return [
+    `Reality level: ${testCase.realityLevel}.`,
+    `Allowed files: ${testCase.allowedFiles.join(", ")}.`,
+    `Forbidden files: ${testCase.forbiddenFiles.join(", ") || "(none)"}.`,
+    "Decision hint: if the task asks for an approved value that is absent from the provided files and task text, return a refusal instead of guessing.",
+    "Decision hint: otherwise produce the smallest exact search/replace patch when the requested text is present.",
+    "Patch discipline: search text must already exist exactly in the supplied file context.",
+    "Safety discipline: do not touch runtime files for documentation or metadata-only tasks."
+  ];
+}
+
+function createRagNotes(testCase: CodePatchBenchmarkCase): string[] {
+  return [
+    `Retrieved memory: previous ${testCase.realityLevel} tasks should stay inside their listed allowed files.`,
+    "Retrieved memory: code patch tasks are graded for exact patch application and boundary behavior.",
+    `Retrieved scope memory: current allowed files are ${testCase.allowedFiles.join(", ")}.`,
+    `Retrieved boundary memory: forbidden files are ${testCase.forbiddenFiles.join(", ") || "(none)"}.`,
+    "Retrieved caution: similar tasks may be distractors; do not copy their requested replacement text unless it is in the current task."
+  ];
 }
 
 function normalizePatchPlanEnvelope(parsed: PatchPlanEnvelope): Partial<MockPatchPlan> {
