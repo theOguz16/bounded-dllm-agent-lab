@@ -118,6 +118,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
               "Return JSON only.",
               "Use only the provided file contents.",
               "Do not touch forbidden files.",
+              "For file_edit changes, search must be exact existing text and replace must be different.",
               "If required information is missing, return a refusal."
             ].join(" ")
           },

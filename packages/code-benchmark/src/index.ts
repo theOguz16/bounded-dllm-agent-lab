@@ -22,6 +22,7 @@ export type CodePatchExpectedOutcome = "pass" | "fail";
 // Bu sinyaller, başarısızlığın hangi bilimsel sebeple yakalandığını kaydeder.
 export type CodePatchFailureSignal =
   | "patch_application_failure"
+  | "no_effect_patch"
   | "test_failure"
   | "forbidden_file_touch"
   | "missing_expected_file"
@@ -403,6 +404,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   }
 
   const changedFiles = gitChangedFiles(workdir).filter((file) => !before.includes(file));
+  const noEffectPatch = testCase.patch.kind === "file_edit" && patchApplied === 1 && changedFiles.length === 0;
   const forbiddenFilesTouched = changedFiles.some((file) => testCase.forbiddenFiles.includes(file));
   const onlyAllowedFilesChanged = changedFiles.every((file) => testCase.allowedFiles.includes(file));
   const expectedFilesTouched = testCase.expectedChangedFiles.every((file) => changedFiles.includes(file));
@@ -415,6 +417,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   // Bu sinyal model kalitesi için, outcomeAsExpected ise benchmark sağlığı için kullanılır.
   const patchMeetsCriteria =
     patchActionValid &&
+    !noEffectPatch &&
     (!testCase.successCriteria.testsMustPass || testPassed) &&
     (!testCase.successCriteria.mustChangeOnlyAllowedFiles || onlyAllowedFilesChanged) &&
     expectedFilesTouchedScore &&
@@ -427,7 +430,8 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     expectedFilesTouched: expectedFilesTouchedScore,
     forbiddenPatternHit,
     refusalCorrect,
-    patchApplicationError
+    patchApplicationError,
+    noEffectPatch
   });
   const outcomeAsExpected =
     testCase.expectedOutcome === "pass"
@@ -574,6 +578,7 @@ function aggregateCodePatchScores(input: {
 
 function collectFailureSignals(input: {
   patchApplicationError: string | null;
+  noEffectPatch: boolean;
   testPassed: boolean;
   forbiddenFilesTouched: boolean;
   expectedFilesTouched: boolean;
@@ -582,6 +587,7 @@ function collectFailureSignals(input: {
 }): CodePatchFailureSignal[] {
   const signals: CodePatchFailureSignal[] = [];
   if (input.patchApplicationError) signals.push("patch_application_failure");
+  if (input.noEffectPatch) signals.push("no_effect_patch");
   if (!input.testPassed) signals.push("test_failure");
   if (input.forbiddenFilesTouched) signals.push("forbidden_file_touch");
   if (!input.expectedFilesTouched) signals.push("missing_expected_file");
