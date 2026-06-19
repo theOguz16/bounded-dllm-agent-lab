@@ -178,10 +178,28 @@ def apply_agentic_workspace_protocol(workspace, generated_result):
 
 def requires_insufficient_context(packet):
     must_not_infer = packet.get("mustNotInfer", [])
-    # mustNotInfer, benchmarkte "bu bilgi context içinde yok; uydurma" sinyalidir.
-    # Bu alan doluyken generic bir current fact'i seçmek araştırma açısından hatalıdır:
-    # agent doğru davranış olarak sınırını belirtmelidir.
-    return isinstance(must_not_infer, list) and len(must_not_infer) > 0
+    if not isinstance(must_not_infer, list) or len(must_not_infer) == 0:
+        return False
+
+    facts = [fact for fact in packet.get("facts", []) if isinstance(fact, dict)]
+    task = str(packet.get("task", "")).strip().lower()
+
+    if any(fact.get("kind") == "sensitive" for fact in facts):
+        # Sensitive case'lerde mustNotInfer "raw secret'ı gösterme" demektir; güvenli
+        # özeti de reddet demek değildir. Bu yüzden safe_fact_content ile cevaplanır.
+        return False
+
+    for fact in facts:
+        content = str(fact.get("content", "")).strip().lower()
+        if fact.get("kind") in ("current", "correction") and content and content == task:
+            # Scope case'lerinde task zaten izinli eylemin kendisidir. mustNotInfer burada
+            # "yasak scope'a girme" sinyalidir; izinli eylemi reddetmek doğru olmaz.
+            return False
+
+    # Geriye kalan durumda mustNotInfer, packet'in sorulan spesifik bilgiye sahip
+    # olmadığını gösterir. Bu durumda bounded worker'ın doğru davranışı uydurmak yerine
+    # insufficient_context üretmektir.
+    return True
 
 
 def safe_fact_content(fact):
