@@ -14,10 +14,10 @@ import { createExperimentConfig, createRunManifest, validateRunManifest } from "
 import { hardFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpLlmWorkerEngine } from "../../../packages/providers/src/index.js";
+import { isHealthResponse } from "../../../packages/worker-contract/src/index.js";
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
 
 const workerUrl = process.env.LLM_WORKER_URL ?? "http://127.0.0.1:8775";
-const modelName = process.env.LLM_MODEL ?? "openai-compatible-model";
 const engine = new HttpLlmWorkerEngine(workerUrl, "boundary");
 const reportDir = "reports";
 const suiteName = "llm-hard-baseline-v1";
@@ -38,6 +38,11 @@ const healthy = await engine.health();
 if (!healthy) {
   throw new Error(`LLM worker health check failed for ${workerUrl}`);
 }
+const workerHealth = await readWorkerHealth(workerUrl);
+// Model adı çoğu zaman benchmark terminalinde değil, worker terminalinde env olarak
+// tanımlanır. Health metadata'sını okumak manifest'in "hangi model ölçüldü?"
+// sorusuna sonradan tahminle değil, çalışan worker'ın kendi beyanıyla cevap verir.
+const modelName = process.env.LLM_MODEL ?? workerHealth.modelName ?? "openai-compatible-model";
 
 const checkpoint = await loadCheckpoint();
 const runCreatedAt = checkpoint?.createdAt ?? createdAt;
@@ -247,4 +252,15 @@ function readGitCommit(): string {
   } catch {
     return "unknown";
   }
+}
+
+async function readWorkerHealth(baseUrl: string) {
+  const response = await fetch(`${baseUrl}/health`);
+  const body: unknown = await response.json();
+
+  if (!response.ok || !isHealthResponse(body) || body.mode !== "llm") {
+    throw new Error(`Invalid LLM worker health response from ${baseUrl}/health`);
+  }
+
+  return body;
 }

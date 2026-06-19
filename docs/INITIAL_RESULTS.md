@@ -266,9 +266,81 @@ style refinement:
 failed region -> targeted remask -> corrected region replacement
 ```
 
+## Result 6: Qwen2.5-Coder 7B GGUF Autoregressive LLM Hard Baseline
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- llama.cpp OpenAI-compatible server.
+- Model repo: `Qwen/Qwen2.5-Coder-7B-Instruct-GGUF`.
+- Model file: `qwen2.5-coder-7b-instruct-q4_k_m.gguf`.
+- Model parameters reported by llama.cpp: `7,615,616,512`.
+- Quantization: `Q4_K_M`.
+- llama.cpp route: `http://127.0.0.1:8000/v1`.
+- Lab LLM worker route: `http://127.0.0.1:8775`.
+
+Command:
+
+```bash
+npm run worker:llm-hard-benchmark
+```
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T16-11-03-087Z-llm-hard-baseline.json
+reports/2026-06-19T16-11-03-087Z-llm-hard-baseline.md
+reports/2026-06-19T16-11-03-087Z-llm-hard-baseline.manifest.json
+```
+
+Observed summary:
+
+| Metric | Value |
+| --- | --- |
+| Scenario count | 25 |
+| Task success rate | 64% |
+| Scope drift rate | 0% |
+| Sensitive leakage rate | 0% |
+| Evidence coverage | 96% |
+| Trace completeness rate | 96% |
+
+Interpretation:
+
+This is the first real autoregressive LLM baseline in the lab. The same hard
+fixture family was used, and evaluator-only oracle fields were not sent to the
+model.
+
+The useful reading is:
+
+```text
+On this bounded hard behavior suite, Dream-Coder dLLM worker scored higher than
+the Qwen2.5-Coder 7B GGUF autoregressive LLM baseline on task success.
+```
+
+The careful limitation is:
+
+```text
+This does not prove that dLLMs are generally better than autoregressive LLMs.
+```
+
+Several details matter for scientific interpretation:
+
+- The LLM baseline used a quantized GGUF model, not the full precision checkpoint.
+- The LLM baseline was forced through the same bounded JSON decision contract.
+- The LLM baseline still achieved 0% scope drift and 0% sensitive leakage, which
+  means the worker protocol helped keep the run safe even when task success was
+  lower.
+- Evidence and trace were high at 96%, but task success was only 64%. This is a
+  valuable failure shape: the model often left an auditable process trace, yet
+  still selected or summarized the wrong final result in part of the hard suite.
+
+This result moves the project from infrastructure validation into comparative
+model-family testing.
+
 ## What These Results Show
 
-These initial results support six early findings:
+These initial results support seven early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -280,6 +352,9 @@ These initial results support six early findings:
    refinement beyond single-pass grounded output.
 6. A controlled remask-required suite can isolate the value of verifier-guided
    region replacement.
+7. The first real autoregressive LLM baseline is now measurable on the same hard
+   suite, and in this run it underperformed the Dream-Coder bounded dLLM worker
+   on task success while remaining scope-safe and leakage-safe.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -294,6 +369,8 @@ These results do not yet prove:
 - that the architecture works on real code patches,
 - that the current benchmark is difficult enough,
 - that keyword-based scoring catches every semantic failure,
+- that one quantized Qwen2.5-Coder GGUF run represents all autoregressive LLM
+  baselines,
 - that refinement adds value inside real model generations under hard failure
   conditions,
 - that the system is ready for production use.
@@ -309,8 +386,12 @@ The main risks are:
 - Deterministic scoring may miss semantically wrong but keyword-matching outputs.
 - The Dream-Coder worker includes orchestration support around grounding and
   boundary behavior, so the result measures the system, not the raw model alone.
-- The ablation modes are controlled architecture simulations, not independent
-  real model baselines.
+- The Qwen2.5-Coder baseline used GGUF quantization and llama.cpp serving, so it
+  should not be treated as a full precision upper bound for that model family.
+- The LLM baseline prompt and JSON contract can affect success rate; future runs
+  should compare prompt variants while keeping oracle fields hidden.
+- The ablation modes are controlled architecture simulations, while the
+  Dream-Coder and Qwen2.5-Coder runs are real worker baselines.
 - There is no latency, cost, or throughput analysis yet.
 - There is no real repository patch benchmark yet.
 - The current hard suite still does not isolate verifier-guided remasking value;
@@ -320,17 +401,18 @@ These limitations are expected at this stage. They define the next experiments.
 
 ## Next Research Phase
 
-The next phase should make the benchmark harder and add real baselines.
+The next phase should inspect the first real baseline failures and then move
+toward repository-level patch benchmarks.
 
 Planned steps:
 
-1. Add an autoregressive LLM baseline on the same hard fixtures.
-2. Compare Dream-Coder bounded dLLM worker against the LLM baseline without
-   leaking evaluator oracle fields.
+1. Inspect the failed Qwen2.5-Coder hard-suite cases by family.
+2. Repeat the LLM baseline with recorded decoding settings and model metadata.
 3. Add a real repository patch benchmark with allowed files, forbidden files,
    expected diffs, and test outcomes.
 4. Add latency and cost measurement for each architecture.
-5. Add human failure-review notes for cases where deterministic metrics are too
+5. Add stronger or larger LLM baselines when hardware budget allows.
+6. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
 
 The current milestone is therefore not the end of the research. It is the point
@@ -370,7 +452,7 @@ first pass can fail, verifier feedback marks a specific region, and remasking
 that region changes the final score. That is the condition needed to test the
 specific value of dLLM-style refinement rather than only bounded selection.
 
-## Update: LLM Baseline Prepared
+## Update: LLM Baseline Prepared And First Run Completed
 
 The next implementation step adds an OpenAI-compatible autoregressive LLM worker
 and a hard-suite baseline runner.
@@ -409,5 +491,7 @@ Then, in another terminal:
 npm run worker:llm-hard-benchmark
 ```
 
-This does not yet produce an LLM result. It prepares the lab so the next RunPod
-or API run can produce the first real model-family comparison.
+The first RunPod baseline used Qwen2.5-Coder 7B Instruct GGUF through llama.cpp
+and produced the Result 6 measurement above. Future baseline runs should keep
+the same reporting discipline: model repo, model file, quantization, endpoint,
+artifact paths, and summary metrics must all be recorded.

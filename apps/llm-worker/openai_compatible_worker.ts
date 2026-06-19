@@ -38,7 +38,9 @@ const server = createServer(async (request, response) => {
         ok: true,
         workerName,
         mode: "llm",
-        version: workerVersion
+        version: workerVersion,
+        modelName: model,
+        upstreamBaseUrl: baseUrl
       });
       return;
     }

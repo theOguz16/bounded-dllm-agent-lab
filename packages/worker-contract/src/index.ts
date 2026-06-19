@@ -18,6 +18,9 @@ export type DllmWorkerHealthResponse = {
   workerName: string;
   mode: "mock" | "dllm" | "llm";
   version: string;
+  modelName?: string;
+  modelVersion?: string;
+  upstreamBaseUrl?: string;
 };
 
 export type DllmWorkerRefineRequest = {
@@ -92,7 +95,10 @@ export function isHealthResponse(value: unknown): value is DllmWorkerHealthRespo
     value.ok === true &&
     typeof value.workerName === "string" &&
     (value.mode === "mock" || value.mode === "dllm" || value.mode === "llm") &&
-    typeof value.version === "string"
+    typeof value.version === "string" &&
+    (value.modelName === undefined || typeof value.modelName === "string") &&
+    (value.modelVersion === undefined || typeof value.modelVersion === "string") &&
+    (value.upstreamBaseUrl === undefined || typeof value.upstreamBaseUrl === "string")
   );
 }
 

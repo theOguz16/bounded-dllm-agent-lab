@@ -244,6 +244,20 @@ This can be a hosted API, a local vLLM server, an OpenAI-compatible router, or a
 small local model server. The important rule is that the same fixture packet is
 sent and the evaluator oracle is not sent.
 
+For a local open-source GGUF baseline, llama.cpp can serve an OpenAI-compatible
+endpoint. The first validated run used Qwen2.5-Coder 7B Instruct GGUF:
+
+```bash
+LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
+LLM_MODEL=qwen2.5-coder-7b-instruct-q4_k_m \
+npm run worker:llm-openai
+```
+
+The benchmark runner records model metadata from the worker health endpoint.
+This matters because the worker terminal often owns `LLM_MODEL`, while the
+benchmark terminal may not. Recording the model from `/health` keeps the run
+manifest tied to the actual model server instead of a guessed label.
+
 The LLM baseline worker intentionally does not canonicalize the final answer to
 the best fact after generation. It asks the model for a JSON decision and writes
 the model's `finalResult`, `boundaryStatus`, and `evidenceIds` into the shared
