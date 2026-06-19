@@ -199,10 +199,12 @@ docs/
 
 ## Current Research Status
 
-The first base-suite validation is documented in
-[`docs/INITIAL_RESULTS.md`](docs/INITIAL_RESULTS.md). It includes the oracle
-leakage audit, controlled ablation benchmark, and first Dream-Coder dLLM worker
-full benchmark result.
+The first research milestone is documented in
+[`docs/FIRST_RESEARCH_NOTE_TR.md`](docs/FIRST_RESEARCH_NOTE_TR.md) and
+[`docs/INITIAL_RESULTS.md`](docs/INITIAL_RESULTS.md). It includes behavior
+benchmarks, hard-suite baselines, Qwen2.5-Coder code patch benchmarks,
+Dream-Coder dLLM direct patch benchmarks, context strategy comparisons, and code
+failure taxonomy.
 
 ## Development Philosophy
 
