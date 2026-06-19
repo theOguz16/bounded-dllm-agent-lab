@@ -1,0 +1,17 @@
+{
+  "repositories": [
+    {
+      "id": "nanoid",
+      "name": "Nano ID",
+      "url": "https://github.com/ai/nanoid.git",
+      "commit": "e4b7a9a7323006474ec939112aec68944b0da097",
+      "license": "MIT",
+      "localPath": "benchmarks/repos/nanoid",
+      "packageManager": "pnpm",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "testCommand": "pnpm test",
+      "fastCheckCommand": "node ./test/check-versions.js",
+      "benchmarkReason": "Small real JavaScript library with a compact source surface, test files, MIT license, and clear scope boundaries for patch tasks."
+    }
+  ]
+}

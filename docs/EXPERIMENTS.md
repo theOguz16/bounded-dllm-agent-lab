@@ -389,6 +389,26 @@ This report is meant for research communication. It keeps task success,
 scope drift, leakage, evidence, trace, and failure taxonomy in one table so the
 comparison does not collapse into a single leaderboard number.
 
+## Code Patch Benchmark Preparation
+
+The next phase uses a pinned open-source repository instead of a toy local repo.
+The first selected target is Nano ID:
+
+```text
+https://github.com/ai/nanoid.git
+commit: e4b7a9a7323006474ec939112aec68944b0da097
+```
+
+Prepare it with:
+
+```bash
+npm run build
+npm run oss:prepare
+```
+
+See `docs/CODE_BENCHMARK.md` for the selection rationale and the next patch
+fixture schema plan.
+
 ### Failure Taxonomy
 
 Benchmark reports include a deterministic failure taxonomy for failed cases.
