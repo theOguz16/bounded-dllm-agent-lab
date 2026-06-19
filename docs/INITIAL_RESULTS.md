@@ -392,6 +392,32 @@ This distinction matters because a production agent architecture needs both:
 - strict measurable correctness,
 - and diagnostic tools that explain why correctness failed.
 
+## Result 7: Qwen2.5-Coder 7B GGUF RAG-Style Hard Baseline
+
+Status: pending RunPod execution.
+
+Command:
+
+```bash
+npm run worker:llm-rag-hard-benchmark
+```
+
+Purpose:
+
+This baseline keeps the same Qwen2.5-Coder 7B GGUF model and the same
+OpenAI-compatible LLM worker, but changes the context strategy from plain bounded
+packet to RAG-style bounded packet plus deterministic retrieved facts.
+
+The research question is:
+
+```text
+Does adding retrieved context improve the same autoregressive LLM, or does it
+introduce distractors that reduce bounded reasoning quality?
+```
+
+This result is intentionally pending. It should be filled only after the RunPod
+benchmark produces JSON, Markdown, and manifest artifacts.
+
 ## What These Results Show
 
 These initial results support seven early findings:
@@ -412,6 +438,9 @@ These initial results support seven early findings:
 8. Failure taxonomy can separate strict benchmark failures into likely semantic
    wording misses, true task failures, trace gaps, boundary failures, and safety
    violations.
+
+The RAG-style baseline has been implemented but is not counted as a finding until
+its RunPod result is produced.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -466,12 +495,14 @@ toward repository-level patch benchmarks.
 Planned steps:
 
 1. Inspect the failed Qwen2.5-Coder hard-suite cases by family.
-2. Repeat the LLM baseline with recorded decoding settings and model metadata.
-3. Add a real repository patch benchmark with allowed files, forbidden files,
+2. Run the Qwen2.5-Coder RAG-style hard baseline and compare it to the plain LLM
+   baseline.
+3. Repeat key LLM baselines with recorded decoding settings and model metadata.
+4. Add a real repository patch benchmark with allowed files, forbidden files,
    expected diffs, and test outcomes.
-4. Add latency and cost measurement for each architecture.
-5. Add stronger or larger LLM baselines when hardware budget allows.
-6. Add human failure-review notes for cases where deterministic metrics are too
+5. Add latency and cost measurement for each architecture.
+6. Add stronger or larger LLM baselines when hardware budget allows.
+7. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
 
 The current milestone is therefore not the end of the research. It is the point

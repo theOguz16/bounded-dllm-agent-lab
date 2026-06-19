@@ -16,11 +16,15 @@ import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/
 import { HttpLlmWorkerEngine } from "../../../packages/providers/src/index.js";
 import { isHealthResponse } from "../../../packages/worker-contract/src/index.js";
 import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
+import type { BoundedContextPacket, ContextFact } from "../../../packages/context-core/src/index.js";
+
+type LlmContextStrategy = "plain" | "rag";
 
 const workerUrl = process.env.LLM_WORKER_URL ?? "http://127.0.0.1:8775";
 const engine = new HttpLlmWorkerEngine(workerUrl, "boundary");
 const reportDir = "reports";
-const suiteName = "llm-hard-baseline-v1";
+const contextStrategy = parseContextStrategy(process.env.LLM_CONTEXT_STRATEGY ?? "plain");
+const suiteName = contextStrategy === "rag" ? "llm-rag-hard-baseline-v1" : "llm-hard-baseline-v1";
 const fixtureSubset = hardFixtures;
 const createdAt = new Date().toISOString();
 const runId = await resolveRunId(createdAt);
@@ -57,9 +61,10 @@ for (const [index, fixture] of fixtureSubset.entries()) {
     continue;
   }
 
-  console.error(`[worker-llm-hard-benchmark] ${progress} ${fixture.case.id}`);
+  console.error(`[worker-llm-hard-benchmark:${contextStrategy}] ${progress} ${fixture.case.id}`);
 
-  const workspace = createWorkspace(`llm-hard-baseline-${fixture.case.id}`, fixture.packet);
+  const packet = createStrategyPacket(fixture.packet, fixture.case.id);
+  const workspace = createWorkspace(`llm-${contextStrategy}-hard-baseline-${fixture.case.id}`, packet);
   const masked = createMaskedWorkspaceView(workspace, "boundary");
   const result = await refineWithRetry(masked.workspace, fixture.case.id);
 
@@ -71,7 +76,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
   outputSnapshots.push({
     caseId: fixture.case.id,
     family: fixture.case.family,
-    task: fixture.packet.task,
+    task: packet.task,
     expectedResult: fixture.case.expectedResult,
     requiredTerms: fixture.case.requiredTerms,
     forbiddenTerms: fixture.case.forbiddenTerms,
@@ -91,7 +96,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
 const report = aggregateScores(scores);
 const artifact = createBenchmarkArtifact({
   suiteName,
-  engineName: "external-llm-worker-hard-baseline",
+  engineName: contextStrategy === "rag" ? "external-llm-worker-rag-hard-baseline" : "external-llm-worker-hard-baseline",
   createdAt: runCreatedAt,
   report,
   outputSnapshots
@@ -99,10 +104,10 @@ const artifact = createBenchmarkArtifact({
 const config = createExperimentConfig({
   runId,
   suiteName,
-  architectureName: "external-ar-llm-hard-baseline",
+  architectureName: contextStrategy === "rag" ? "external-ar-llm-rag-hard-baseline" : "external-ar-llm-hard-baseline",
   engineName: "http-llm-worker",
   modelName,
-  modelVersion: "hard-baseline",
+  modelVersion: `${contextStrategy}-hard-baseline`,
   workerUrl,
   seed: 0,
   maxAttempts: 1,
@@ -148,6 +153,7 @@ console.log(
       ok: true,
       workerUrl,
       modelName,
+      contextStrategy,
       scenarioCount: fixtureSubset.length,
       checkpointPath,
       jsonPath,
@@ -175,6 +181,57 @@ type LlmHardBenchmarkCheckpoint = {
   scores: CaseScore[];
   outputSnapshots: CaseOutputSnapshot[];
 };
+
+function createStrategyPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+  if (contextStrategy === "plain") return packet;
+  return createRagPacket(packet, caseId);
+}
+
+function createRagPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+  const query = [
+    packet.task,
+    packet.goal,
+    ...packet.allowedScope.map((scope) => `${scope.label} ${scope.path ?? ""}`),
+    ...packet.mustNotInfer
+  ].join(" ");
+  const retrievedFacts = retrieveAdditionalFacts(query, packet.id);
+  const existingEvidenceIds = new Set(packet.facts.map((fact) => fact.evidenceId));
+  const newFacts = retrievedFacts.filter((fact) => !existingEvidenceIds.has(fact.evidenceId));
+
+  // RAG baseline bilinçli olarak bounded packet'e ek retrieval bilgisi ekler.
+  // Bu mimariyi adil biçimde test etmek için oracle alanlarını değil, sadece başka
+  // fixture packet'lerinden gelebilecek fact benzeri context parçalarını ekliyoruz.
+  // Böylece "daha fazla bilgi" fayda mı getiriyor, yoksa distractor/gürültü mü
+  // üretiyor sorusunu aynı model üzerinde ölçebiliriz.
+  return {
+    ...packet,
+    id: `${packet.id}-rag`,
+    task: `${packet.task}\n\nRAG context strategy: retrieved facts may contain helpful context or distractors. Use only task-relevant, current evidence.`,
+    facts: [...packet.facts, ...newFacts],
+    responseContract: `${packet.responseContract} Cite only evidence ids that directly support the final result.`,
+    contextBudgetTokens: packet.contextBudgetTokens + 450
+  };
+}
+
+function retrieveAdditionalFacts(query: string, currentPacketId: string): ContextFact[] {
+  const queryTerms = normalizedTerms(query);
+  const candidates = hardFixtures
+    .filter((fixture) => fixture.packet.id !== currentPacketId)
+    .flatMap((fixture) =>
+      fixture.packet.facts.map((fact) => ({
+        fact: {
+          ...fact,
+          id: `rag-${fixture.packet.id}-${fact.id}`,
+          evidenceId: `rag-${fixture.packet.id}-${fact.evidenceId}`
+        },
+        score: lexicalOverlapScore(queryTerms, fact.content)
+      }))
+    )
+    .filter((candidate) => candidate.score > 0)
+    .sort((left, right) => right.score - left.score || left.fact.evidenceId.localeCompare(right.fact.evidenceId));
+
+  return candidates.slice(0, 4).map((candidate) => candidate.fact);
+}
 
 async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspace>[0], caseId: string) {
   const maxAttempts = Number(process.env.BENCHMARK_RETRY_ATTEMPTS ?? "3");
@@ -222,14 +279,15 @@ async function resolveRunId(createdAt: string): Promise<string> {
     if (latest) return latest;
   }
 
-  return `${createdAt.replace(/[:.]/g, "-")}-llm-hard-baseline`;
+  return `${createdAt.replace(/[:.]/g, "-")}-${contextStrategy === "rag" ? "llm-rag-hard-baseline" : "llm-hard-baseline"}`;
 }
 
 async function latestCheckpointRunId(): Promise<string | undefined> {
   try {
     const files = await readdir(reportDir);
+    const suffix = contextStrategy === "rag" ? "-llm-rag-hard-baseline.checkpoint.json" : "-llm-hard-baseline.checkpoint.json";
     const checkpoints = files
-      .filter((file) => file.endsWith("-llm-hard-baseline.checkpoint.json"))
+      .filter((file) => file.endsWith(suffix))
       .sort()
       .reverse();
     return checkpoints[0]?.replace(/\.checkpoint\.json$/, "");
@@ -263,4 +321,44 @@ async function readWorkerHealth(baseUrl: string) {
   }
 
   return body;
+}
+
+function parseContextStrategy(value: string): LlmContextStrategy {
+  if (value === "plain" || value === "rag") return value;
+  throw new Error(`Unknown LLM_CONTEXT_STRATEGY: ${value}`);
+}
+
+function lexicalOverlapScore(queryTerms: Set<string>, content: string): number {
+  const contentTerms = normalizedTerms(content);
+  return [...contentTerms].filter((term) => queryTerms.has(term)).length;
+}
+
+function normalizedTerms(value: string): Set<string> {
+  const stopWords = new Set([
+    "and",
+    "are",
+    "benchmark",
+    "context",
+    "current",
+    "final",
+    "for",
+    "from",
+    "hard",
+    "only",
+    "result",
+    "should",
+    "task",
+    "the",
+    "this",
+    "use",
+    "with"
+  ]);
+  const terms = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, " ")
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length > 2 && !stopWords.has(term));
+
+  return new Set(terms);
 }

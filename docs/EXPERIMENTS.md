@@ -234,6 +234,12 @@ Then run the hard baseline from another terminal:
 npm run worker:llm-hard-benchmark
 ```
 
+Run the RAG-style hard baseline with the same worker:
+
+```bash
+npm run worker:llm-rag-hard-benchmark
+```
+
 The worker expects an endpoint compatible with:
 
 ```text
@@ -264,6 +270,33 @@ the model's `finalResult`, `boundaryStatus`, and `evidenceIds` into the shared
 workspace. This makes the baseline more honest: if the autoregressive model
 chooses stale evidence, leaks sensitive content, or omits evidence ids, the
 normal benchmark metrics should show it.
+
+### RAG-Style LLM Hard Baseline
+
+The RAG-style baseline keeps the same model and worker but changes the context
+strategy. Instead of sending only the original bounded packet, it adds a small
+deterministic set of retrieved facts from other hard-suite packets.
+
+This is not intended to be a production RAG system. It is a controlled research
+baseline for one question:
+
+```text
+Does extra retrieved context help the same autoregressive LLM, or does it add
+distractor pressure that hurts bounded reasoning?
+```
+
+The runner does not retrieve evaluator oracle fields such as `expectedResult`,
+`requiredTerms`, or `forbiddenTerms`. It only retrieves fact-like context from
+other packets. This keeps the comparison useful without leaking the answer key.
+
+The important comparison is:
+
+```text
+Plain Qwen2.5 hard baseline vs RAG-style Qwen2.5 hard baseline
+```
+
+Because the model is held constant, a difference in score is mainly evidence
+about the context strategy rather than the model family.
 
 ### Failure Taxonomy
 

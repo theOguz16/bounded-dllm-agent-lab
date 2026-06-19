@@ -20,6 +20,7 @@
     "worker:full-benchmark": "node dist/apps/cli/src/worker-full-benchmark.js",
     "worker:hard-benchmark": "node dist/apps/cli/src/worker-hard-benchmark.js",
     "worker:llm-hard-benchmark": "node dist/apps/cli/src/worker-llm-hard-benchmark.js",
+    "worker:llm-rag-hard-benchmark": "LLM_CONTEXT_STRATEGY=rag node dist/apps/cli/src/worker-llm-hard-benchmark.js",
     "worker:smoke": "node dist/apps/cli/src/worker-smoke.js",
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
     "worker:llm-openai": "node dist/apps/llm-worker/openai_compatible_worker.js",
