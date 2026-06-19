@@ -70,12 +70,12 @@ answer key leaks into the model input. The audit does not prove that the model i
 generally capable. It proves the narrower but necessary condition that the
 current benchmark requests are not contaminated by their own grading key.
 
-After the hard suite was added, the audit covered 75 fixtures:
+After the hard and remask suites were added, the audit covered 80 fixtures:
 
 ```json
 {
   "ok": true,
-  "fixtureCount": 75,
+  "fixtureCount": 80,
   "findingCount": 0,
   "findings": []
 }
@@ -234,6 +234,13 @@ Command:
 npm run remask:benchmark
 ```
 
+Reported artifact paths:
+
+```text
+reports/2026-06-19T15-10-01-948Z-remask-comparison.json
+reports/2026-06-19T15-10-01-948Z-remask-comparison.md
+```
+
 Observed summary:
 
 | Mode | Task | Evidence | Trace |
@@ -269,8 +276,8 @@ These initial results support six early findings:
    success is already high.
 4. The Dream-Coder worker can pass both base and hard behavior suites under the
    current bounded orchestration.
-5. The current base and hard suites are not hard enough to expose the value of refinement
-   beyond single-pass grounded output.
+5. The current base and hard suites are not hard enough to expose the value of
+   refinement beyond single-pass grounded output.
 6. A controlled remask-required suite can isolate the value of verifier-guided
    region replacement.
 
@@ -287,7 +294,8 @@ These results do not yet prove:
 - that the architecture works on real code patches,
 - that the current benchmark is difficult enough,
 - that keyword-based scoring catches every semantic failure,
-- that refinement adds value under hard failure conditions,
+- that refinement adds value inside real model generations under hard failure
+  conditions,
 - that the system is ready for production use.
 
 The current result is best described as base-suite validation.
@@ -305,7 +313,8 @@ The main risks are:
   real model baselines.
 - There is no latency, cost, or throughput analysis yet.
 - There is no real repository patch benchmark yet.
-- The current hard suite still does not isolate verifier-guided remasking value.
+- The current hard suite still does not isolate verifier-guided remasking value;
+  that is why the separate remask-required mechanism suite exists.
 
 These limitations are expected at this stage. They define the next experiments.
 
@@ -315,13 +324,14 @@ The next phase should make the benchmark harder and add real baselines.
 
 Planned steps:
 
-1. Add a hard benchmark suite with misleading scope, partial evidence, multi-fact
-   conflict, sensitive-summary tension, and remasking-required cases.
-2. Run hard ablation to test whether refinement adds value beyond grounding.
-3. Add an autoregressive LLM baseline on the same fixtures.
-4. Add a real repository patch benchmark with allowed files, forbidden files,
+1. Add an autoregressive LLM baseline on the same hard fixtures.
+2. Compare Dream-Coder bounded dLLM worker against the LLM baseline without
+   leaking evaluator oracle fields.
+3. Add a real repository patch benchmark with allowed files, forbidden files,
    expected diffs, and test outcomes.
-5. Add latency and cost measurement for each architecture.
+4. Add latency and cost measurement for each architecture.
+5. Add human failure-review notes for cases where deterministic metrics are too
+   coarse.
 
 The current milestone is therefore not the end of the research. It is the point
 where the lab becomes credible enough to run harder experiments.
@@ -359,3 +369,45 @@ not a result to hide. The next hard-suite iteration should include cases where a
 first pass can fail, verifier feedback marks a specific region, and remasking
 that region changes the final score. That is the condition needed to test the
 specific value of dLLM-style refinement rather than only bounded selection.
+
+## Update: LLM Baseline Prepared
+
+The next implementation step adds an OpenAI-compatible autoregressive LLM worker
+and a hard-suite baseline runner.
+
+The baseline is intentionally conservative:
+
+- it uses the same hard fixture packets,
+- it does not send `expectedResult`, `requiredTerms`, `forbiddenTerms`, or
+  scoring fields to the model,
+- it asks the model for a JSON decision,
+- it writes the model's own `finalResult`, `boundaryStatus`, and `evidenceIds`
+  into the shared workspace,
+- it does not rewrite the answer to the canonical correction fact after
+  generation.
+
+This matters because the research question now becomes comparative:
+
+```text
+Given the same bounded packet, does a bounded dLLM worker behave differently
+from an autoregressive LLM baseline on task success, leakage, evidence, and trace?
+```
+
+The first baseline command sequence is:
+
+```bash
+npm run build
+LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
+LLM_API_KEY=optional-key \
+LLM_MODEL=your-model-name \
+npm run worker:llm-openai
+```
+
+Then, in another terminal:
+
+```bash
+npm run worker:llm-hard-benchmark
+```
+
+This does not yet produce an LLM result. It prepares the lab so the next RunPod
+or API run can produce the first real model-family comparison.

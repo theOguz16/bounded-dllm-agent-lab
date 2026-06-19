@@ -75,6 +75,55 @@ export class HttpDllmWorkerEngine implements ModelEngine {
   }
 }
 
+export class HttpLlmWorkerEngine implements ModelEngine {
+  readonly name = "http-llm-worker";
+  readonly mode = "llm";
+
+  constructor(
+    private readonly baseUrl: string,
+    private readonly view: MaskView
+  ) {}
+
+  async health(): Promise<boolean> {
+    const response = await fetch(`${this.baseUrl}/health`);
+    const body: unknown = await response.json();
+
+    // LLM baseline worker da aynı HTTP sözleşmesini konuşur; fark inference
+    // ailesindedir. Health guard burada "çalışıyor" ile "beklenen contract"ı ayırır.
+    return response.ok && isHealthResponse(body) && body.mode === "llm";
+  }
+
+  async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
+    const started = Date.now();
+    const request = createRefineRequest({
+      requestId: `${workspace.id}-${workspace.version}`,
+      view: this.view,
+      workspace
+    });
+    const response = await fetch(`${this.baseUrl}/refine`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(request)
+    });
+    const body: unknown = await response.json();
+
+    // Baseline worker dış API kullandığı için bozuk JSON, timeout sonrası yarım cevap
+    // veya schema dışı workspace üretme riski taşır. Contract guard bu kirlenmeyi
+    // benchmark metriğine sessizce sokmamızı engeller.
+    if (!response.ok || !isRefineResponse(body)) {
+      throw new Error(`Invalid LLM worker response from ${this.baseUrl}/refine`);
+    }
+
+    return {
+      workspace: body.workspace,
+      latencyMs: Date.now() - started,
+      engineName: body.engineName
+    };
+  }
+}
+
 export class MockDllmEngine implements ModelEngine {
   readonly name = "mock-dllm-engine";
   readonly mode = "dllm";

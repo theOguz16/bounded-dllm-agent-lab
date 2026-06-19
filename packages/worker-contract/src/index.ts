@@ -16,7 +16,7 @@ const workspaceRegions = new Set<WorkspaceRegion>([
 export type DllmWorkerHealthResponse = {
   ok: boolean;
   workerName: string;
-  mode: "mock" | "dllm";
+  mode: "mock" | "dllm" | "llm";
   version: string;
 };
 
@@ -91,7 +91,7 @@ export function isHealthResponse(value: unknown): value is DllmWorkerHealthRespo
   return (
     value.ok === true &&
     typeof value.workerName === "string" &&
-    (value.mode === "mock" || value.mode === "dllm") &&
+    (value.mode === "mock" || value.mode === "dllm" || value.mode === "llm") &&
     typeof value.version === "string"
   );
 }

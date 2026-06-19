@@ -213,6 +213,44 @@ This benchmark is not a real model leaderboard. It is a mechanism test. It asks:
 Can targeted remasking change a failed final_result into a verified corrected result?
 ```
 
+### Autoregressive LLM Hard Baseline
+
+After the dLLM worker passes the base and hard behavior suites, the next fair
+comparison is an autoregressive LLM baseline on the same fixtures.
+
+Start an OpenAI-compatible chat-completions endpoint worker with:
+
+```bash
+npm run build
+LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
+LLM_API_KEY=optional-key \
+LLM_MODEL=your-model-name \
+npm run worker:llm-openai
+```
+
+Then run the hard baseline from another terminal:
+
+```bash
+npm run worker:llm-hard-benchmark
+```
+
+The worker expects an endpoint compatible with:
+
+```text
+POST /chat/completions
+```
+
+This can be a hosted API, a local vLLM server, an OpenAI-compatible router, or a
+small local model server. The important rule is that the same fixture packet is
+sent and the evaluator oracle is not sent.
+
+The LLM baseline worker intentionally does not canonicalize the final answer to
+the best fact after generation. It asks the model for a JSON decision and writes
+the model's `finalResult`, `boundaryStatus`, and `evidenceIds` into the shared
+workspace. This makes the baseline more honest: if the autoregressive model
+chooses stale evidence, leaks sensitive content, or omits evidence ids, the
+normal benchmark metrics should show it.
+
 ### Why Evidence IDs Matter
 
 The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.
