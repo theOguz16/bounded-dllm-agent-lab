@@ -343,6 +343,51 @@ export const hardFixtures: BenchmarkFixture[] = [
   ...hardConflictSpecs.map(buildHardConflictFixture)
 ];
 
+const remaskCorrectionSpecs: CorrectionSpec[] = [
+  {
+    id: "001",
+    title: "Remask stale model strategy",
+    stale: "The remask experiment should report the first draft as final.",
+    correction: "The remask experiment should replace the failed final_result region after verifier feedback.",
+    oldEvidenceId: "remask-old-first-draft-final",
+    correctionEvidenceId: "remask-current-replace-final"
+  },
+  {
+    id: "002",
+    title: "Remask stale scope decision",
+    stale: "The agent may expand into neighboring packages after verifier feedback.",
+    correction: "The agent must repair only the failed region after verifier feedback.",
+    oldEvidenceId: "remask-old-expand-scope",
+    correctionEvidenceId: "remask-current-repair-region"
+  },
+  {
+    id: "003",
+    title: "Remask stale evidence rule",
+    stale: "A corrected final answer does not need a new evidence trace.",
+    correction: "A corrected final answer must keep evidence trace after remasking.",
+    oldEvidenceId: "remask-old-no-evidence",
+    correctionEvidenceId: "remask-current-evidence-trace"
+  },
+  {
+    id: "004",
+    title: "Remask stale boundary rule",
+    stale: "Boundary failures should restart the whole workspace.",
+    correction: "Boundary failures should remask only the failed workspace region.",
+    oldEvidenceId: "remask-old-restart-workspace",
+    correctionEvidenceId: "remask-current-region-remask"
+  },
+  {
+    id: "005",
+    title: "Remask stale verifier rule",
+    stale: "Verifier warnings can be ignored if task success looks good.",
+    correction: "Verifier warnings should trigger targeted remasking when failed regions are present.",
+    oldEvidenceId: "remask-old-ignore-verifier",
+    correctionEvidenceId: "remask-current-verifier-remask"
+  }
+];
+
+export const remaskFixtures: BenchmarkFixture[] = remaskCorrectionSpecs.map(buildRemaskFixture);
+
 function buildCorrectionFixture(spec: CorrectionSpec): BenchmarkFixture {
   // Correction fixture'ının ana fikri "güncel düzeltme eski bilgiyi ezer" kuralıdır.
   // Packet içinde hem stale hem correction fact bulunur. Model eski bilgiyi üretirse
@@ -660,6 +705,36 @@ function buildHardConflictFixture(spec: HardConflictSpec): BenchmarkFixture {
     })
   };
 }
+
+function buildRemaskFixture(spec: CorrectionSpec): BenchmarkFixture {
+  return {
+    id: `fixture-remask-required-${spec.id}`,
+    family: "correction_override",
+    learningGoal: "İlk pass hatalı final_result üretince verifier'ın failed region remask ederek düzeltmesini ölçer.",
+    case: {
+      id: `remask-required-${spec.id}`,
+      family: "correction_override",
+      title: spec.title,
+      description: "Single-pass stale sonucu seçer; refinement recovery failed final_result region'ını remask edip correction'a ulaşmalıdır.",
+      requiredTerms: [spec.correction],
+      forbiddenTerms: [spec.stale],
+      expectedEvidenceIds: [spec.correctionEvidenceId],
+      expectedResult: spec.correction
+    },
+    packet: basePacket({
+      id: `packet-remask-required-${spec.id}`,
+      task: `Repair failed final_result after verifier feedback: ${spec.title}.`,
+      goal: "Use targeted remasking to replace stale output with the corrected fact.",
+      facts: [
+        fact(`fact-remask-stale-${spec.id}`, "stale", spec.stale, spec.oldEvidenceId, 0.6),
+        fact(`fact-remask-correction-${spec.id}`, "correction", spec.correction, spec.correctionEvidenceId, 0.95)
+      ],
+      responseContract: "Return the corrected fact after targeted remasking.",
+      contextBudgetTokens: 900
+    })
+  };
+}
+
 
 function basePacket(input: {
   id: string;

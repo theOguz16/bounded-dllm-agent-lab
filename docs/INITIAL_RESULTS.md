@@ -12,7 +12,7 @@ Is the lab infrastructure clean enough to produce meaningful first measurements?
 The current answer is yes for the base behavior suite. The results below show
 that the benchmark pipeline can run without oracle leakage, that architecture
 layers can be isolated through ablation, and that the Dream-Coder dLLM worker can
-complete the current 50-case suite under the bounded-context orchestration.
+complete the current base and hard suites under the bounded-context orchestration.
 
 ## Experiment Context
 
@@ -69,6 +69,17 @@ This matters because a high benchmark score is not scientifically useful if the
 answer key leaks into the model input. The audit does not prove that the model is
 generally capable. It proves the narrower but necessary condition that the
 current benchmark requests are not contaminated by their own grading key.
+
+After the hard suite was added, the audit covered 75 fixtures:
+
+```json
+{
+  "ok": true,
+  "fixtureCount": 75,
+  "findingCount": 0,
+  "findings": []
+}
+```
 
 ## Result 2: Controlled Ablation Benchmark
 
@@ -166,16 +177,102 @@ That stronger claim is not supported yet because no real autoregressive LLM
 baseline has been run on the same suite, and the current suite is controlled and
 relatively simple.
 
+## Result 4: Dream-Coder dLLM Worker Hard Benchmark
+
+Command:
+
+```bash
+npm run worker:hard-benchmark
+```
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T14-56-23-942Z-worker-hard-benchmark.json
+reports/2026-06-19T14-56-23-942Z-worker-hard-benchmark.md
+reports/2026-06-19T14-56-23-942Z-worker-hard-benchmark.manifest.json
+```
+
+Observed summary:
+
+| Metric | Value |
+| --- | --- |
+| Scenario count | 25 |
+| Task success rate | 100% |
+| Scope drift rate | 0% |
+| Sensitive leakage rate | 0% |
+| Evidence coverage | 100% |
+| Trace completeness rate | 100% |
+
+Interpretation:
+
+The Dream-Coder worker also completed the 25-case hard behavior suite. This is a
+stronger base validation than the first 50-case suite because the hard cases add
+distractors, partial evidence, tempting scope, sensitive-summary tension, and
+three-way conflicts.
+
+The correct reading is:
+
+```text
+Dream-Coder + bounded orchestration passed both base and hard behavior suites.
+```
+
+The incorrect reading is still:
+
+```text
+dLLMs are proven better than autoregressive LLMs.
+```
+
+The hard worker result strengthens the architecture validation, but it does not
+replace a real LLM baseline or a real repository patch benchmark.
+
+## Result 5: Controlled Remask-Required Benchmark
+
+Command:
+
+```bash
+npm run remask:benchmark
+```
+
+Observed summary:
+
+| Mode | Task | Evidence | Trace |
+| --- | --- | --- | --- |
+| `single_pass_stale` | 0% | 0% | 0% |
+| `remask_recovery` | 100% | 100% | 100% |
+
+Interpretation:
+
+This controlled benchmark isolates the value of targeted remasking. The
+single-pass mode writes a stale `final_result` and stops. The recovery mode lets
+the verifier mark `final_result` as failed, remasks that region, removes the
+stale claim for that region, and writes the corrected result on the second pass.
+
+This is the first suite in the lab that directly tests a refinement-loop
+mechanism rather than only bounded context selection or evidence grounding.
+
+The result does not prove that a real dLLM will always recover correctly. It
+does show that the lab can now measure the specific condition needed for dLLM
+style refinement:
+
+```text
+failed region -> targeted remask -> corrected region replacement
+```
+
 ## What These Results Show
 
-These initial results support four early findings:
+These initial results support six early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
 3. Grounding and verifier trace are necessary for auditability, even when task
    success is already high.
-4. The current base suite is not hard enough to expose the value of refinement
+4. The Dream-Coder worker can pass both base and hard behavior suites under the
+   current bounded orchestration.
+5. The current base and hard suites are not hard enough to expose the value of refinement
    beyond single-pass grounded output.
+6. A controlled remask-required suite can isolate the value of verifier-guided
+   region replacement.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -199,7 +296,8 @@ The current result is best described as base-suite validation.
 
 The main risks are:
 
-- The 50-case benchmark is controlled and may be too easy.
+- The 50-case base benchmark and 25-case hard benchmark are controlled and may
+  still be too easy.
 - Deterministic scoring may miss semantically wrong but keyword-matching outputs.
 - The Dream-Coder worker includes orchestration support around grounding and
   boundary behavior, so the result measures the system, not the raw model alone.
@@ -207,6 +305,7 @@ The main risks are:
   real model baselines.
 - There is no latency, cost, or throughput analysis yet.
 - There is no real repository patch benchmark yet.
+- The current hard suite still does not isolate verifier-guided remasking value.
 
 These limitations are expected at this stage. They define the next experiments.
 

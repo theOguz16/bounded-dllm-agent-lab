@@ -188,6 +188,31 @@ scope temptation, sensitive-summary tension, and three-way conflict handling.
 This suite is still not a real code patch benchmark. It is the bridge between
 base behavior validation and future repository-level patch experiments.
 
+### Remask-Required Benchmark
+
+The base and hard suites can show that bounded context and grounding work, but
+they do not isolate the value of verifier-guided remasking. The remask-required
+benchmark is a controlled recovery test for that specific mechanism.
+
+Run it with:
+
+```bash
+npm run build
+npm run remask:benchmark
+```
+
+It compares two controlled modes:
+
+- `single_pass_stale`: writes the stale first-pass result and stops.
+- `remask_recovery`: lets the verifier fail `final_result`, remasks that region,
+  and then writes the corrected result on the second pass.
+
+This benchmark is not a real model leaderboard. It is a mechanism test. It asks:
+
+```text
+Can targeted remasking change a failed final_result into a verified corrected result?
+```
+
 ### Why Evidence IDs Matter
 
 The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.

@@ -1,7 +1,7 @@
 import { auditFixturesForOracleLeakage } from "../../../packages/oracle-audit/src/index.js";
-import { demoFixtures, hardFixtures } from "../../../packages/fixtures/src/index.js";
+import { demoFixtures, hardFixtures, remaskFixtures } from "../../../packages/fixtures/src/index.js";
 
-const result = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtures]);
+const result = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtures, ...remaskFixtures]);
 
 console.log(JSON.stringify(result, null, 2));
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { getAblationMode, listAblationModes } from "../../packages/ablation-core/src/index.js";
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
-import { demoFixtures, hardFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
+import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 
@@ -90,13 +90,14 @@ assert.equal(isHealthResponse({ ok: true, workerName: "mock", mode: "unknown", v
 
 assert.deepEqual(validateFixtures(demoFixtures), []);
 assert.deepEqual(validateFixtures(hardFixtures, { expectedFamilyCount: 5 }), []);
+assert.deepEqual(validateFixtures(remaskFixtures, { expectedFamilyCount: undefined }), []);
 
-const oracleAudit = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtures]);
+const oracleAudit = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtures, ...remaskFixtures]);
 
 // Oracle leakage smoke testi araştırmanın sigortasıdır. Worker'a cevap anahtarı
 // sızarsa modelin doğru cevap vermesi başarı değil, deney tasarımı hatası olur.
 assert.equal(oracleAudit.ok, true, JSON.stringify(oracleAudit.findings, null, 2));
-assert.equal(oracleAudit.fixtureCount, 75);
+assert.equal(oracleAudit.fixtureCount, 80);
 
 const ablationModeIds = listAblationModes().map((mode) => mode.id);
 
