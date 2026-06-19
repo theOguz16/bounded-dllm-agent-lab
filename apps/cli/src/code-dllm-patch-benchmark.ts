@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   codePatchReportToMarkdown,
@@ -33,6 +33,11 @@ const workerUrl = normalizeBaseUrl(process.env.DLLM_WORKER_URL ?? "http://127.0.
 const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
 const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
+const createdAt = new Date().toISOString();
+const runId = await resolveRunId(createdAt);
+const checkpointPath = join(reportDir, `${runId}.checkpoint.json`);
+const jsonPath = join(reportDir, `${runId}.json`);
+const markdownPath = join(reportDir, `${runId}.md`);
 
 if (failures.length) {
   throw new Error(JSON.stringify({ ok: false, failures }, null, 2));
@@ -43,15 +48,32 @@ if (workerHealth.mode !== "dllm") {
   throw new Error(`Expected a dLLM worker at ${workerUrl}, received mode=${workerHealth.mode}`);
 }
 
-const generatedCases: CodePatchBenchmarkCase[] = [];
+const checkpoint = await loadCheckpoint();
+const generatedCases: CodePatchBenchmarkCase[] = checkpoint?.generatedCases ?? [];
+const completedCaseIds = new Set(checkpoint?.completedCaseIds ?? []);
 
-for (const testCase of modelCases) {
-  console.log(`[code-dllm-patch] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+for (const [index, testCase] of modelCases.entries()) {
+  const progress = `${index + 1}/${modelCases.length}`;
+  if (completedCaseIds.has(testCase.id)) {
+    console.log(`[code-dllm-patch] ${progress} ${testCase.id} skipped from checkpoint`);
+    continue;
+  }
+
+  console.log(`[code-dllm-patch] ${progress} ${testCase.id}`);
   const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
     patch: generated.patch,
     modelTrace: createPatchTrace(generated)
+  });
+  completedCaseIds.add(testCase.id);
+  await writeCheckpoint({
+    runId,
+    workerUrl,
+    modelName: workerHealth.modelName ?? workerHealth.workerName,
+    createdAt: checkpoint?.createdAt ?? createdAt,
+    completedCaseIds: Array.from(completedCaseIds),
+    generatedCases
   });
 }
 
@@ -63,9 +85,6 @@ const report = await runCodePatchBenchmark({
   suiteName: "oss-code-dllm-patch-benchmark-v1",
   engineName: `dllm-infill-code-patch:${modelName}`
 });
-const runId = `${report.createdAt.replace(/[:.]/g, "-")}-code-dllm-patch-benchmark`;
-const jsonPath = join(reportDir, `${runId}.json`);
-const markdownPath = join(reportDir, `${runId}.md`);
 
 await mkdir(reportDir, { recursive: true });
 await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
@@ -79,6 +98,7 @@ console.log(
       workerUrl,
       modelName,
       caseCount: report.caseCount,
+      checkpointPath,
       jsonPath,
       markdownPath,
       summary: {
@@ -101,25 +121,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
   let rawOutput = "";
 
   try {
-    const prompt = await buildDllmPatchPrompt(testCase);
-    const response = await fetch(`${workerUrl}/infill`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({
-        requestId: `code-dllm-patch-${testCase.id}`,
-        region: "final_result",
-        prompt
-      })
-    });
-    const body: unknown = await response.json();
-
-    if (!response.ok || !isInfillResponse(body)) {
-      throw new Error(`Invalid dLLM infill response from ${workerUrl}/infill`);
-    }
-
-    rawOutput = body.content;
+    rawOutput = await requestInfillWithRetry(testCase);
     const patch = parseGeneratedPatchPlan(rawOutput, testCase);
 
     return {
@@ -128,6 +130,8 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
       modelError: null
     };
   } catch (error) {
+    if (isTransportError(error)) throw error;
+
     const patch = createInvalidPatchPlan(error);
 
     return {
@@ -136,6 +140,41 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
       modelError: formatError(error)
     };
   }
+}
+
+async function requestInfillWithRetry(testCase: CodePatchBenchmarkCase): Promise<string> {
+  const maxAttempts = Number(process.env.BENCHMARK_RETRY_ATTEMPTS ?? "3");
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const prompt = await buildDllmPatchPrompt(testCase);
+      const response = await fetch(`${workerUrl}/infill`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          requestId: `code-dllm-patch-${testCase.id}`,
+          region: "final_result",
+          prompt
+        })
+      });
+      const body: unknown = await response.json();
+
+      if (!response.ok || !isInfillResponse(body)) {
+        throw new TransportError(`Invalid dLLM infill response from ${workerUrl}/infill`);
+      }
+
+      return body.content;
+    } catch (error) {
+      lastError = error instanceof TransportError ? error : new TransportError(formatError(error));
+      console.error(`[code-dllm-patch] ${testCase.id} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
+      if (attempt < maxAttempts) await sleep(1500 * attempt);
+    }
+  }
+
+  throw lastError;
 }
 
 async function buildDllmPatchPrompt(testCase: CodePatchBenchmarkCase): Promise<string> {
@@ -162,6 +201,71 @@ async function readWorkerHealth(baseUrl: string): Promise<DllmWorkerHealthRespon
   }
 
   return body;
+}
+
+type DllmCodePatchCheckpoint = {
+  runId: string;
+  workerUrl: string;
+  modelName: string;
+  createdAt: string;
+  completedCaseIds: string[];
+  generatedCases: CodePatchBenchmarkCase[];
+};
+
+async function writeCheckpoint(checkpoint: DllmCodePatchCheckpoint): Promise<void> {
+  await mkdir(reportDir, { recursive: true });
+  // Dream-Coder code patch runs uzun sürebilir ve web terminal/worker kopabilir.
+  // Her model çıktısını hemen yazıyoruz ki yeniden başlatınca aynı case'leri tekrar
+  // üretmek zorunda kalmayalım.
+  await writeFile(checkpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
+}
+
+async function loadCheckpoint(): Promise<DllmCodePatchCheckpoint | undefined> {
+  if (process.env.BENCHMARK_RESUME !== "1") return undefined;
+
+  try {
+    const raw = await readFile(checkpointPath, "utf8");
+    const checkpoint = JSON.parse(raw) as DllmCodePatchCheckpoint;
+    console.error(`[code-dllm-patch] resuming ${checkpoint.completedCaseIds.length}/${modelCases.length} from ${checkpointPath}`);
+    return checkpoint;
+  } catch {
+    console.error(`[code-dllm-patch] no checkpoint found at ${checkpointPath}; starting fresh`);
+    return undefined;
+  }
+}
+
+async function resolveRunId(createdAt: string): Promise<string> {
+  if (process.env.BENCHMARK_RUN_ID) return process.env.BENCHMARK_RUN_ID;
+
+  if (process.env.BENCHMARK_RESUME === "1") {
+    const latest = await latestCheckpointRunId();
+    if (latest) return latest;
+  }
+
+  return `${createdAt.replace(/[:.]/g, "-")}-code-dllm-patch-benchmark`;
+}
+
+async function latestCheckpointRunId(): Promise<string | undefined> {
+  try {
+    const files = await readdir(reportDir);
+    const checkpoints = files
+      .filter((file) => file.endsWith("-code-dllm-patch-benchmark.checkpoint.json"))
+      .sort()
+      .reverse();
+    return checkpoints[0]?.replace(/\.checkpoint\.json$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+class TransportError extends Error {}
+
+function isTransportError(error: unknown): boolean {
+  return error instanceof TransportError;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeBaseUrl(value: string): string {

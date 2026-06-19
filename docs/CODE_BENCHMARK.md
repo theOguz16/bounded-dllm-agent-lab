@@ -204,3 +204,16 @@ safer or more boundary-aware patch plans than the autoregressive LLM baseline?
 
 Use `CODE_MODEL_CASE_LIMIT=4` for a quick dLLM smoke run before spending GPU
 time on the full 50-case benchmark.
+
+The dLLM run writes a checkpoint after every generated patch plan. If the worker
+or terminal closes during a long run, restart the worker and resume with:
+
+```bash
+BENCHMARK_RESUME=1 \
+DLLM_WORKER_URL=http://127.0.0.1:8765 \
+npm run code:dllm-benchmark
+```
+
+This resume behavior is part of the measurement discipline. A disconnected
+worker should not be silently scored as a model refusal; it is an operational
+failure, so the runner stops and preserves completed cases for the next run.
