@@ -538,8 +538,6 @@ context is available.
 
 ## Result 9: Qwen2.5-Coder 7B GGUF Synthetic-Context Hard Baseline
 
-Status: pending RunPod execution.
-
 Command:
 
 ```bash
@@ -561,12 +559,66 @@ Can narrow bounded context plus synthetic structure improve task success while
 preserving evidence and trace better than broad expanded context?
 ```
 
-This result is intentionally pending. It should be filled only after the RunPod
-benchmark produces JSON, Markdown, and manifest artifacts.
+Reported artifact paths:
+
+```text
+reports/2026-06-19T16-49-55-970Z-llm-synthetic-hard-baseline.json
+reports/2026-06-19T16-49-55-970Z-llm-synthetic-hard-baseline.md
+reports/2026-06-19T16-49-55-970Z-llm-synthetic-hard-baseline.manifest.json
+```
+
+Observed summary:
+
+| Metric | Plain Qwen2.5 | RAG-style Qwen2.5 | Expanded Qwen2.5 | Synthetic Qwen2.5 |
+| --- | ---: | ---: | ---: | ---: |
+| Task success rate | 64% | 68% | 80% | 68% |
+| Scope drift rate | 0% | 0% | 0% | 0% |
+| Sensitive leakage rate | 0% | 0% | 0% | 0% |
+| Evidence coverage | 96% | 84% | 52% | 96% |
+| Trace completeness rate | 96% | 84% | 52% | 96% |
+
+Interpretation:
+
+Synthetic context matched the RAG-style task success improvement while
+preserving the same evidence and trace coverage as the plain bounded baseline.
+
+The short reading is:
+
+```text
+Synthetic context gave a small task-success gain without the auditability loss
+seen in RAG-style and expanded-context runs.
+```
+
+Failure taxonomy showed eight failures:
+
+| Failure type | Count | Interpretation |
+| --- | ---: | --- |
+| `semantic_match_but_keyword_fail` | 4 | Several failures were close to the expected answer but missed exact wording. |
+| `true_task_failure` | 4 | Several failures remained real task-alignment problems. |
+| `missing_evidence_or_trace` | 0 | Synthetic context did not create trace or evidence gaps in this run. |
+| `leakage_or_scope_violation` | 0 | Synthetic context did not cause raw leakage or forbidden scope hits. |
+| `boundary_failure` | 0 | Synthetic context did not break boundary decisions. |
+
+This is the most balanced Qwen2.5 context strategy result so far:
+
+```text
+Plain: strong auditability, weaker task success.
+RAG: slightly better task success, weaker auditability.
+Expanded: strongest task success, weakest auditability.
+Synthetic: RAG-level task success, plain-level auditability.
+```
+
+This does not prove that synthetic context is always superior. It does support a
+narrower and more useful claim:
+
+```text
+Structured synthetic context can improve bounded LLM behavior without simply
+increasing context size.
+```
 
 ## What These Results Show
 
-These initial results support ten early findings:
+These initial results support eleven early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -588,6 +640,8 @@ These initial results support ten early findings:
    quality, showing that extra context introduces an auditability trade-off.
 10. Expanded context can further improve task success while sharply reducing
     evidence and trace quality, strengthening the context/auditability trade-off.
+11. Synthetic context can match the RAG task-success improvement while preserving
+    plain bounded evidence and trace quality in this run.
 
 The synthetic-context baseline has been implemented but is not counted as a
 finding until its RunPod result is produced.
