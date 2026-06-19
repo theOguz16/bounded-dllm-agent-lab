@@ -804,9 +804,127 @@ Qwen2.5-Coder is bad at coding.
 The model is not bad at coding in this benchmark. The measured weakness is more
 specific and more relevant to agentic coding in companies: boundary awareness.
 
+## Result 12: Dream-Coder dLLM Direct Code Patch Benchmark
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- Dream-Coder worker through the dLLM `/infill` endpoint.
+- Model worker: `dream-coder-dllm-worker`.
+- Benchmark target: `ai/nanoid`.
+- Repository commit: `e4b7a9a7323006474ec939112aec68944b0da097`.
+- Case count: 50 positive model-facing code patch cases.
+
+Command:
+
+```bash
+DLLM_WORKER_URL=http://127.0.0.1:8765 \
+npm run code:dllm-benchmark
+```
+
+Reported artifact paths:
+
+```text
+reports/2026-06-19T20-24-14-904Z-code-dllm-patch-benchmark.json
+reports/2026-06-19T20-24-14-904Z-code-dllm-patch-benchmark.md
+```
+
+Observed summary after separating invalid model output from true refusal:
+
+| Metric | Value |
+| --- | ---: |
+| Case count | 50 |
+| Positive control pass rate | 12% |
+| Expected outcome accuracy | 12% |
+| Test pass rate | 100% |
+| Allowed file accuracy | 100% |
+| Expected file coverage | 32% |
+| Forbidden file touch rate | 0% |
+| Forbidden pattern hit rate | 0% |
+| Refusal accuracy | 80% |
+
+Reality breakdown:
+
+| Reality | Cases | Patch pass | Allowed files | Expected files | Refusal | No effect |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `micro_patch` | 30 | 20% | 100% | 20% | 100% | 0% |
+| `module_patch` | 10 | 0% | 100% | 0% | 100% | 0% |
+| `enterprise_boundary` | 10 | 0% | 100% | 100% | 0% | 0% |
+
+Interpretation:
+
+This run tested Dream-Coder as a direct code patch writer using the same Nano ID
+fixture set used by the Qwen2.5-Coder baseline. The result is intentionally
+strict: malformed JSON is not counted as a correct refusal. Invalid model output
+is recorded separately as `invalid_model_output`.
+
+The central finding is:
+
+```text
+Dream-Coder dLLM was scope-safe but weak as a direct code patch implementer.
+```
+
+The strongest positive signal is file boundary behavior:
+
+```text
+Allowed file accuracy: 100%
+Forbidden file touch rate: 0%
+Forbidden pattern hit rate: 0%
+```
+
+The strongest negative signal is patch production:
+
+```text
+Positive control pass rate: 12%
+module_patch: 0 / 10 = 0%
+enterprise_boundary: 0 / 10 = 0%
+```
+
+Most failed cases did not fail because the model edited forbidden files. They
+failed because the worker often returned prose such as "To address the task..."
+or malformed JSON instead of a valid patch plan. This matters because code patch
+agents require not only local reasoning but also contract-following behavior:
+the model must produce a machine-applicable change, not merely describe one.
+
+The enterprise-boundary result is especially important. In the earlier raw run,
+malformed output was accidentally counted as refusal. After fixing the scorer,
+those cases correctly became failures:
+
+```text
+Malformed JSON is not a correct insufficient-context refusal.
+```
+
+The comparison with Qwen2.5-Coder is therefore more precise:
+
+| Model / worker | Direct patch writing | File boundary behavior | Missing-context refusal |
+| --- | ---: | ---: | ---: |
+| Qwen2.5-Coder 7B GGUF | strong | strong | weak |
+| Dream-Coder dLLM worker | weak | strong | weak / format-limited |
+
+This does not mean Dream-Coder is useless for the research. It means the current
+Dream-Coder worker should not be treated as the primary implementation agent for
+code patches. A more plausible architecture is role-specialized:
+
+```text
+Autoregressive coder model: implementation agent.
+dLLM worker: candidate verifier, boundary checker, remask planner, or
+conflict-check agent.
+Shared workspace: coordinates these roles under one bounded context state.
+```
+
+This result narrows the product/research direction. The next dLLM experiment
+should not ask "Can Dream-Coder directly write all patches better than Qwen?"
+It should ask:
+
+```text
+Can a dLLM worker improve safety, refusal, critique, verifier, or remask
+decisions around a stronger autoregressive patch writer?
+```
+
 ## What These Results Show
 
-These initial results support fifteen early findings:
+These initial results support eighteen early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -840,6 +958,14 @@ These initial results support fifteen early findings:
     leaking evaluator-only fields.
 15. Qwen2.5-Coder 7B shows a clear split: strong scoped patch ability, strong
     module metadata consistency, and weak enterprise-boundary refusal.
+16. Dream-Coder dLLM direct patch writing is weak on the current Nano ID code
+    benchmark, especially for module patch work and machine-readable JSON patch
+    contracts.
+17. Dream-Coder still preserved file boundaries in the direct patch benchmark,
+    suggesting that the useful dLLM role may be safety, verification, boundary,
+    or remask reasoning rather than direct implementation.
+18. Invalid model output must be separated from true refusal; otherwise
+    malformed JSON can falsely inflate insufficient-context performance.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -856,6 +982,8 @@ These results do not yet prove:
 - that keyword-based scoring catches every semantic failure,
 - that one quantized Qwen2.5-Coder GGUF run represents all autoregressive LLM
   baselines,
+- that one Dream-Coder worker prompt represents all dLLM code-patch designs,
+- that dLLMs are unsuitable for all coding-agent roles,
 - that refinement adds value inside real model generations under hard failure
   conditions,
 - that the system is ready for production use.
@@ -889,6 +1017,15 @@ The main risks are:
 - There is no latency, cost, or throughput analysis yet.
 - The first real repository patch benchmark uses one small OSS repository; it
   does not yet prove generality across larger repos or multiple languages.
+- The Dream-Coder direct patch result is sensitive to the current JSON patch
+  contract and worker prompt. A different dLLM prompt, decoding setup, or
+  parser contract may change patch-format success.
+- Dream-Coder behavior-suite results and Dream-Coder direct patch results are
+  not the same experiment. The former uses bounded workspace refinement and
+  grounding; the latter asks the worker to directly produce a machine-applicable
+  patch plan.
+- Invalid model output is now separated from refusal, but deterministic scoring
+  still cannot fully judge whether prose contained a semantically useful plan.
 - The current hard suite still does not isolate verifier-guided remasking value;
   that is why the separate remask-required mechanism suite exists.
 
@@ -896,22 +1033,24 @@ These limitations are expected at this stage. They define the next experiments.
 
 ## Next Research Phase
 
-The next phase should compare real code patch behavior across architectures and
-then increase repository realism.
+The next phase should test role-specialized model collaboration rather than only
+direct patch writing.
 
 Planned steps:
 
-1. Run the same 50-case code patch benchmark with Dream-Coder/dLLM-style patch
-   generation.
-2. Compare Qwen2.5-Coder autoregressive LLM and Dream-Coder dLLM code-patch
-   behavior under the same fixture set.
-3. Add a second OSS repository with more realistic implementation + test patch
+1. Add a verifier/boundary benchmark where Dream-Coder reviews Qwen2.5-Coder
+   patch plans instead of writing patches directly.
+2. Measure whether the dLLM worker can detect missing authority, invalid patch
+   contracts, forbidden file risk, and remask-needed regions.
+3. Add a hybrid run: Qwen2.5-Coder writes the patch, Dream-Coder evaluates or
+   requests remasking, and the shared workspace records both roles.
+4. Add a second OSS repository with more realistic implementation + test patch
    tasks.
-4. Expand enterprise-boundary code cases with missing decision, missing
+5. Expand enterprise-boundary code cases with missing decision, missing
    authority, sensitive logging, and cross-module ownership constraints.
-5. Add latency and cost measurement for each architecture.
-6. Add stronger or larger LLM baselines when hardware budget allows.
-7. Add human failure-review notes for cases where deterministic metrics are too
+6. Add latency and cost measurement for each architecture.
+7. Add stronger or larger LLM baselines when hardware budget allows.
+8. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
 
 The current milestone is therefore not the end of the research. It is the point
