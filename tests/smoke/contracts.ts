@@ -144,6 +144,8 @@ const remaskReview = reviewPatch({
 
 assert.equal(remaskReview.decision, "remask_required");
 assert.equal(remaskReview.remaskRegions.length, 1);
+assert.equal(remaskReview.repairProposals.length, 1);
+assert.equal(remaskReview.repairProposals[0].kind, "paired_file_update");
 assert.equal(remaskReview.workspace.roleViews.verifier.role, "verifier");
 assert.equal(remaskReview.metrics.remaskNeed, 1);
 assert.equal(remaskReview.metrics.pairedFileCompleteness, 0);

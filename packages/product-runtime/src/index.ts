@@ -76,6 +76,14 @@ export type RemaskRegion = {
   instruction: string;
 };
 
+export type RepairProposal = {
+  id: string;
+  kind: "paired_file_update" | "manual_follow_up";
+  files: string[];
+  summary: string;
+  instruction: string;
+};
+
 export type ProductTraceEvent = {
   id: string;
   actor: "workspace_builder" | "context_composer" | "verifier" | "remask_planner" | "system";
@@ -108,6 +116,7 @@ export type ReviewOutput = {
   decisionPriority: ReviewDecision[];
   findings: Finding[];
   remaskRegions: RemaskRegion[];
+  repairProposals: RepairProposal[];
   trace: ProductTraceEvent[];
   workspace: SharedWorkspaceSnapshot;
   markdownReport: string;
@@ -141,6 +150,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     ...findTestFindings(input)
   ];
   const remaskRegions = createRemaskRegions(findings);
+  const repairProposals = createRepairProposals(findings);
   const decision = decide(findings, input.diff);
   const riskLevel = toRiskLevel(decision, findings);
   const metrics = createMetrics(input, findings, workspace);
@@ -161,6 +171,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     decisionPriority,
     findings,
     remaskRegions,
+    repairProposals,
     trace,
     workspace
   });
@@ -172,6 +183,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     decisionPriority,
     findings,
     remaskRegions,
+    repairProposals,
     trace,
     workspace: { ...workspace, trace },
     markdownReport
@@ -229,6 +241,10 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
   return [
     "# Bounded Agent Runtime Review",
     "",
+    `> **Decision:** ${output.decision}  `,
+    `> **Risk:** ${output.riskLevel}  `,
+    `> **Suggested next action:** ${suggestNextAction(output.decision)}`,
+    "",
     `- Decision: ${output.decision}`,
     `- Risk: ${output.riskLevel}`,
     `- Changed files: ${output.metrics.changedFileCount}`,
@@ -253,6 +269,10 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
     "",
     output.decisionPriority.map((decision, index) => `${index + 1}. ${decision}`).join("\n"),
     "",
+    "## Why This Matters",
+    "",
+    explainDecision(output.decision),
+    "",
     "## Findings",
     "",
     table(["ID", "Severity", "Category", "Message", "Files", "Action"], findingRows),
@@ -260,6 +280,21 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
     "## Remask Regions",
     "",
     table(["ID", "Reason", "Files", "Instruction"], remaskRows),
+    "",
+    "## Repair Proposals",
+    "",
+    table(
+      ["ID", "Kind", "Files", "Summary", "Instruction"],
+      output.repairProposals.length
+        ? output.repairProposals.map((proposal) => [
+            proposal.id,
+            proposal.kind,
+            proposal.files.join(", "),
+            proposal.summary,
+            proposal.instruction
+          ])
+        : [["(none)", "(none)", "(none)", "(none)", "(none)"]]
+    ),
     "",
     "## Role-Specific Bounded Views",
     "",
@@ -380,6 +415,20 @@ function createRemaskRegions(findings: Finding[]): RemaskRegion[] {
     }));
 }
 
+function createRepairProposals(findings: Finding[]): RepairProposal[] {
+  return findings
+    .filter((finding) => finding.suggestedAction === "remask_required")
+    .map((finding, index) => ({
+      id: `repair-${index + 1}`,
+      kind: finding.category === "paired_file" ? "paired_file_update" : "manual_follow_up",
+      files: finding.files,
+      summary: finding.category === "paired_file"
+        ? "Add the missing paired-file update while keeping the current scope."
+        : "A human or remask agent should repair the verifier-marked local region.",
+      instruction: "Generate a minimal patch that touches only the listed repair files and preserves the original task authority."
+    }));
+}
+
 function decide(findings: Finding[], diff: PatchDiff): ReviewDecision {
   return createDecisionPriority(findings, diff)[0] ?? "approve";
 }
@@ -464,6 +513,30 @@ function escapeTableCell(value: string): string {
 
 function percentFlag(value: 0 | 1): string {
   return value ? "100%" : "0%";
+}
+
+function suggestNextAction(decision: ReviewDecision): string {
+  if (decision === "approve") return "Proceed to normal review.";
+  if (decision === "refuse") return "Stop and request the missing product, owner, platform, or compliance decision.";
+  if (decision === "reject") return "Reject this patch before merge; unsafe scope or sensitive boundary was detected.";
+  if (decision === "remask_required") return "Run a targeted repair only on the verifier-marked region.";
+  return "Ask a human reviewer to provide the missing signal.";
+}
+
+function explainDecision(decision: ReviewDecision): string {
+  if (decision === "approve") {
+    return "The patch stayed inside the declared policy boundaries. This does not replace human review; it means the runtime found no configured scope, authority, sensitive, or paired-file blocker.";
+  }
+  if (decision === "refuse") {
+    return "The runtime found missing authority. In the product philosophy, the agent should not guess product, platform, owner, or compliance decisions.";
+  }
+  if (decision === "reject") {
+    return "The runtime found a forbidden scope or sensitive boundary risk. This is stronger than a repair case because the patch crossed a configured safety boundary.";
+  }
+  if (decision === "remask_required") {
+    return "The patch appears locally repairable without broadening scope. The runtime recommends targeted remask instead of a full retry.";
+  }
+  return "The runtime could not collect enough signal for an automatic product decision. Human review should provide the missing context.";
 }
 
 function slugify(value: string): string {
