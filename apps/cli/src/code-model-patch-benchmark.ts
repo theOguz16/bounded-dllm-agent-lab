@@ -15,8 +15,11 @@ import {
   createInvalidPatchPlan,
   createPatchTrace,
   formatError,
+  parseCodePatchAgentFlow,
   parseCodePatchContextStrategy,
-  parseGeneratedPatchPlan
+  parseGeneratedPatchPlan,
+  parseVerifierDecision,
+  type CodePatchVerifierDecision
 } from "./code-patch-model-utils.js";
 
 type ChatCompletionPayload = {
@@ -43,6 +46,7 @@ const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
 const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "900");
 const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
 const contextStrategy = parseCodePatchContextStrategy(process.env.CODE_CONTEXT_STRATEGY ?? "plain");
+const agentFlow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
 const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
 
@@ -53,7 +57,7 @@ if (failures.length) {
 const generatedCases: CodePatchBenchmarkCase[] = [];
 
 for (const testCase of modelCases) {
-  console.log(`[code-model-patch:${contextStrategy}] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+  console.log(`[code-model-patch:${contextStrategy}:${agentFlow}] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
   const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
@@ -84,6 +88,7 @@ console.log(
       repoPath,
       modelName: model,
       contextStrategy,
+      agentFlow,
       caseCount: report.caseCount,
       jsonPath,
       markdownPath,
@@ -104,6 +109,43 @@ console.log(
 );
 
 async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<GeneratedPatchPlan> {
+  const firstPass = await requestPatchPlanOnce(testCase);
+
+  if (agentFlow === "direct" || agentFlow === "workspace") return firstPass;
+  if (firstPass.patch.kind === "invalid") return firstPass;
+
+  let verifier: CodePatchVerifierDecision;
+
+  try {
+    verifier = await requestVerifierDecision(testCase, firstPass);
+  } catch (error) {
+    return {
+      patch: createInvalidPatchPlan(error),
+      rawOutput: firstPass.rawOutput,
+      modelError: formatError(error)
+    };
+  }
+
+  if (verifier.decision === "approve") return firstPass;
+
+  if (verifier.decision === "refuse" || agentFlow === "workspace_verifier") {
+    return {
+      patch: {
+        kind: "refusal",
+        reason: `verifier_refusal: ${verifier.reason}`
+      },
+      rawOutput: `${firstPass.rawOutput}\n\nVERIFIER=${JSON.stringify(verifier)}`,
+      modelError: firstPass.modelError
+    };
+  }
+
+  return requestPatchPlanOnce(testCase, verifier);
+}
+
+async function requestPatchPlanOnce(
+  testCase: CodePatchBenchmarkCase,
+  verifierFeedback?: CodePatchVerifierDecision
+): Promise<GeneratedPatchPlan> {
   let rawOutput = "";
 
   try {
@@ -131,7 +173,7 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
           },
           {
             role: "user",
-            content: await buildCodePatchPrompt({ repoPath, testCase, contextStrategy })
+            content: await buildCodePatchPrompt({ repoPath, testCase, contextStrategy, agentFlow, verifierFeedback })
           }
         ]
       })
@@ -160,6 +202,65 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
       modelError: formatError(error)
     };
   }
+}
+
+async function requestVerifierDecision(
+  testCase: CodePatchBenchmarkCase,
+  generated: GeneratedPatchPlan
+): Promise<CodePatchVerifierDecision> {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model,
+      temperature,
+      max_tokens: 320,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are a boundary verifier for an enterprise code patch benchmark.",
+            "Return JSON only.",
+            "Decide whether the proposed patch is approved, should be refused, or should remask a failed region.",
+            "If product, platform, compliance, owner, or approved numeric decision is missing, do not allow guessing."
+          ].join(" ")
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              outputSchema: {
+                decision: "approve | refuse | remask",
+                reason: "short reason",
+                failedRegion: "none | boundary_decision | patch_plan | file_edit_contract"
+              },
+              task: testCase.task,
+              title: testCase.title,
+              realityLevel: testCase.realityLevel,
+              enterpriseContext: testCase.enterpriseContext ?? null,
+              allowedFiles: testCase.allowedFiles,
+              forbiddenFiles: testCase.forbiddenFiles,
+              proposedPatch: generated.patch,
+              proposedRawOutput: compactText(generated.rawOutput)
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+  });
+  const payload = await response.json() as ChatCompletionPayload;
+  const content = payload.choices?.[0]?.message?.content;
+
+  if (!response.ok || !content) {
+    throw new Error(`verifier completion failed with status ${response.status}: ${compactText(JSON.stringify(payload))}`);
+  }
+
+  return parseVerifierDecision(content);
 }
 
 function normalizeBaseUrl(value: string): string {

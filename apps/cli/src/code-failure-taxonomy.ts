@@ -94,6 +94,9 @@ async function findLatestCodeReports(directory: string): Promise<string[]> {
     "code-model-synthetic-patch-benchmark.json",
     "code-model-expanded-patch-benchmark.json",
     "code-model-rag-patch-benchmark.json",
+    "code-model-workspace-patch-benchmark.json",
+    "code-model-workspace-verifier-patch-benchmark.json",
+    "code-model-workspace-verifier-remask-patch-benchmark.json",
     "code-dllm-patch-benchmark.json"
   ];
 
@@ -188,6 +191,9 @@ function explainCodeFailure(category: CodeFailureCategory, score: CodePatchCaseS
 }
 
 function createRunLabel(engineName: string): string {
+  if (engineName.includes("code-patch-workspace_verifier_remask")) return "Qwen2.5 workspace verifier remask";
+  if (engineName.includes("code-patch-workspace_verifier")) return "Qwen2.5 workspace verifier";
+  if (engineName.includes("code-patch-workspace")) return "Qwen2.5 workspace";
   if (engineName.includes("code-patch-expanded")) return "Qwen2.5 expanded";
   if (engineName.includes("code-patch-synthetic")) return "Qwen2.5 synthetic";
   if (engineName.includes("code-patch-rag")) return "Qwen2.5 RAG";

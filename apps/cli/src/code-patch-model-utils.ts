@@ -12,6 +12,11 @@ export type GeneratedPatchPlan = {
 };
 
 export type CodePatchContextStrategy = "plain" | "rag" | "expanded" | "synthetic";
+export type CodePatchAgentFlow =
+  | "direct"
+  | "workspace"
+  | "workspace_verifier"
+  | "workspace_verifier_remask";
 
 type PromptFile = {
   file: string;
@@ -30,12 +35,16 @@ export async function buildCodePatchPrompt(input: {
   repoPath: string;
   testCase: CodePatchBenchmarkCase;
   contextStrategy?: CodePatchContextStrategy;
+  agentFlow?: CodePatchAgentFlow;
+  verifierFeedback?: CodePatchVerifierDecision;
 }): Promise<string> {
   const contextStrategy = input.contextStrategy ?? "plain";
+  const agentFlow = input.agentFlow ?? "direct";
   const files = await Promise.all(
     input.testCase.relevantFiles.map(async (file) => createPromptFile(input.repoPath, input.testCase, file))
   );
   const contextAugmentation = createContextAugmentation(input.testCase, contextStrategy);
+  const workspaceView = createWorkspaceView(input.testCase, agentFlow, input.verifierFeedback);
 
   // Bu prompt iki model ailesi için ortaktır: autoregressive LLM runner ve dLLM
   // infill runner aynı task/scope/file paketini görür. Böylece sonuç farkı prompt
@@ -63,7 +72,10 @@ export async function buildCodePatchPrompt(input: {
       title: input.testCase.title,
       realityLevel: input.testCase.realityLevel,
       contextStrategy,
+      agentFlow,
       contextAugmentation,
+      workspaceView,
+      enterpriseContext: input.testCase.enterpriseContext ?? null,
       allowedFiles: input.testCase.allowedFiles,
       forbiddenFiles: input.testCase.forbiddenFiles,
       forbiddenChangePatterns: input.testCase.forbiddenChangePatterns,
@@ -74,12 +86,35 @@ export async function buildCodePatchPrompt(input: {
   );
 }
 
+export type CodePatchVerifierDecision = {
+  decision: "approve" | "refuse" | "remask";
+  reason: string;
+  failedRegion: "none" | "boundary_decision" | "patch_plan" | "file_edit_contract";
+};
+
+export function parseCodePatchAgentFlow(value: string): CodePatchAgentFlow {
+  if (value === "direct" || value === "workspace" || value === "workspace_verifier" || value === "workspace_verifier_remask") {
+    return value;
+  }
+  throw new Error(`Unknown CODE_AGENT_FLOW: ${value}`);
+}
+
 export function parseCodePatchContextStrategy(value: string): CodePatchContextStrategy {
   if (value === "plain" || value === "rag" || value === "expanded" || value === "synthetic") return value;
   throw new Error(`Unknown CODE_CONTEXT_STRATEGY: ${value}`);
 }
 
 export function createCodePatchRunSuffix(strategy: CodePatchContextStrategy): string {
+  const flow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
+  const flowSuffix = flow === "workspace"
+    ? "code-model-workspace-patch-benchmark"
+    : flow === "workspace_verifier"
+      ? "code-model-workspace-verifier-patch-benchmark"
+      : flow === "workspace_verifier_remask"
+        ? "code-model-workspace-verifier-remask-patch-benchmark"
+        : "code-model-patch-benchmark";
+
+  if (flow !== "direct") return flowSuffix;
   if (strategy === "rag") return "code-model-rag-patch-benchmark";
   if (strategy === "expanded") return "code-model-expanded-patch-benchmark";
   if (strategy === "synthetic") return "code-model-synthetic-patch-benchmark";
@@ -87,10 +122,32 @@ export function createCodePatchRunSuffix(strategy: CodePatchContextStrategy): st
 }
 
 export function createCodePatchEngineLabel(strategy: CodePatchContextStrategy, model: string): string {
+  const flow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
+  const flowLabel = flow === "direct" ? "" : `-${flow}`;
   if (strategy === "rag") return `openai-compatible-code-patch-rag:${model}`;
   if (strategy === "expanded") return `openai-compatible-code-patch-expanded:${model}`;
   if (strategy === "synthetic") return `openai-compatible-code-patch-synthetic:${model}`;
-  return `openai-compatible-code-patch:${model}`;
+  return `openai-compatible-code-patch${flowLabel}:${model}`;
+}
+
+export function parseVerifierDecision(content: string): CodePatchVerifierDecision {
+  const parsed = JSON.parse(extractJson(content)) as Partial<CodePatchVerifierDecision>;
+  const decision = parsed.decision;
+  const failedRegion = parsed.failedRegion ?? "none";
+
+  if (decision !== "approve" && decision !== "refuse" && decision !== "remask") {
+    throw new Error("Verifier did not return a valid decision");
+  }
+
+  if (failedRegion !== "none" && failedRegion !== "boundary_decision" && failedRegion !== "patch_plan" && failedRegion !== "file_edit_contract") {
+    throw new Error("Verifier did not return a valid failedRegion");
+  }
+
+  return {
+    decision,
+    reason: String(parsed.reason ?? "verifier_decision"),
+    failedRegion
+  };
 }
 
 export function parseGeneratedPatchPlan(content: string, testCase: CodePatchBenchmarkCase): MockPatchPlan {
@@ -227,6 +284,50 @@ function createContextAugmentation(testCase: CodePatchBenchmarkCase, strategy: C
   return {
     mode: "rag",
     retrievedNotes: createRagNotes(testCase)
+  };
+}
+
+function createWorkspaceView(
+  testCase: CodePatchBenchmarkCase,
+  agentFlow: CodePatchAgentFlow,
+  verifierFeedback?: CodePatchVerifierDecision
+): Record<string, unknown> {
+  if (agentFlow === "direct") {
+    return {
+      mode: "direct_patch",
+      note: "The model receives the ordinary bounded patch packet."
+    };
+  }
+
+  return {
+    mode: "shared_semantic_workspace_with_role_view",
+    sourceOfTruth: {
+      taskIntent: testCase.task,
+      allowedScope: testCase.allowedFiles,
+      forbiddenScope: testCase.forbiddenFiles,
+      enterpriseContextAvailable: Boolean(testCase.enterpriseContext),
+      missingAuthority: testCase.enterpriseContext?.missingAuthority ?? []
+    },
+    roleView: {
+      role: verifierFeedback ? "remasked_implementer" : "implementer",
+      readableRegions: [
+        "task_intent",
+        "allowed_scope",
+        "forbidden_scope",
+        "enterprise_context",
+        "bounded_file_context",
+        ...(verifierFeedback ? ["verifier_feedback"] : [])
+      ],
+      writableRegions: ["patch_plan"],
+      lockedRegions: ["scoring_oracle", "expected_changed_files", "success_criteria"]
+    },
+    verifierFeedback: verifierFeedback ?? null,
+    policy: [
+      "Allowed scope is necessary but not sufficient for editing.",
+      "If the task requires a product, platform, compliance, or owner decision and that decision is absent, return a refusal.",
+      "Prefer refusal over guessing numeric defaults or organizational decisions.",
+      "Return only the machine-readable patch/refusal contract."
+    ]
   };
 }
 

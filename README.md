@@ -209,6 +209,9 @@ failure taxonomy.
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
+The second phase hybrid architecture is documented in
+[`docs/HYBRID_AGENT_ARCHITECTURE.md`](docs/HYBRID_AGENT_ARCHITECTURE.md).
+
 Generate visual benchmark figures with:
 
 ```bash

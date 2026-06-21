@@ -300,3 +300,38 @@ The taxonomy explains failed cases with deterministic categories:
 
 This report is especially useful for enterprise-boundary analysis. Raw patch
 pass rate tells whether a run succeeded. Failure taxonomy tells why it failed.
+
+## Hybrid Workspace Flow Benchmarks
+
+Phase 2 tests whether an autoregressive coder model can behave more safely when
+it is placed inside a dLLM-style bounded workspace protocol.
+
+Run the baseline and hybrid modes with the same model endpoint:
+
+```bash
+npm run code:model-benchmark
+npm run code:model-workspace-benchmark
+npm run code:model-workspace-verifier-benchmark
+npm run code:model-workspace-verifier-remask-benchmark
+```
+
+The modes are:
+
+- `direct`: one-pass patch generation.
+- `workspace`: same model, but with a shared-workspace role view and enterprise
+  context fields.
+- `workspace_verifier`: patch generation followed by a boundary verifier pass.
+- `workspace_verifier_remask`: verifier can request one failed-region retry.
+
+Then generate the comparison:
+
+```bash
+npm run reports:code-hybrid
+```
+
+The report answers the Phase 2 product-validation question:
+
+```text
+Does workspace/verifier/remask reduce enterprise-boundary guesses without
+collapsing patch pass rate?
+```

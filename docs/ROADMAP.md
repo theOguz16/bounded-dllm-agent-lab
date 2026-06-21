@@ -70,3 +70,24 @@ Deliverables:
 - charts,
 - first technical report.
 
+## M6: Hybrid Agent Product Validation
+
+Goal:
+
+Test whether the research can become a practical enterprise product direction.
+
+Deliverables:
+
+- hybrid workspace architecture,
+- role-specific bounded views,
+- LLM mask/remask benchmark mode,
+- enterprise boundary PR context,
+- hybrid comparison report,
+- product thesis for an AI patch boundary reviewer.
+
+Primary question:
+
+```text
+Can a workspace/verifier/remask flow reduce enterprise-boundary guesses without
+destroying scoped implementation quality?
+```

@@ -55,3 +55,40 @@ Issues:
 2. Write the first technical report.
 3. Prepare a reproducible release.
 
+## Phase 6: Validate The Hybrid Product Thesis
+
+The sixth phase connects the research result to a realistic product direction.
+It does not start with a full IDE. It tests whether a scoped verification layer
+can improve AI-generated patches.
+
+Issues:
+
+26. Define the hybrid workspace architecture.
+    - Shared semantic workspace as source of truth.
+    - Role-specific bounded views instead of one shared raw context window.
+    - Planner, coder, boundary verifier, and remask planner roles.
+    - Product thesis: AI patch boundary reviewer for enterprise teams.
+
+27. Add LLM mask/remask workspace benchmark mode.
+    - `direct` one-pass patch baseline.
+    - `workspace` bounded shared-workspace view.
+    - `workspace_verifier` second-pass boundary verifier.
+    - `workspace_verifier_remask` verifier-guided failed-region retry.
+
+28. Add enterprise boundary PR context.
+    - Ticket-like context.
+    - Ownership notes.
+    - ADR/policy notes.
+    - Missing authority records.
+    - Explicit rule that allowed files do not imply decision authority.
+
+29. Add hybrid comparison report.
+    - Compare direct/workspace/verifier/remask runs.
+    - Track patch pass, refusal, boundary guesses, invalid contracts, and allowed files.
+    - Use the report to decide whether the product thesis is supported.
+
+30. Write the product thesis.
+    - Define the initial user.
+    - Define the narrow MVP.
+    - Define what the product intentionally will not do first.
+    - Keep dLLM as research backend, not as a required first product dependency.
