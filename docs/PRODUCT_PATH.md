@@ -86,6 +86,31 @@ The system provides workspace, policy, verification, trace, and remask control.
 This keeps the product realistic. The research may continue testing dLLM-style
 verifier/remask workers, but the MVP should not depend on dLLM maturity.
 
+## Remask Product Rule
+
+Remask should not be a default second pass for every AI patch.
+
+The product should call remask only when the verifier finds a safe, repairable
+partial failure:
+
+| Verifier finding | Product action |
+| --- | --- |
+| Patch is complete and in scope | Approve |
+| Product, owner, platform, or compliance decision is missing | Refuse |
+| Patch touches forbidden files or unsafe scope | Reject |
+| Patch is in scope but misses a required paired file, type, schema, test, or metadata region | Remask |
+| Patch output contract is invalid | Retry or fail closed, depending on policy |
+
+The core product loop is:
+
+```text
+patch -> verifier -> approve | refuse | reject | remask failed region
+```
+
+This matters for cost and quality. Always-on remask increases latency and model
+spend. Verifier-triggered remask targets the expensive second pass only at cases
+where it can repair a specific failed region.
+
 ## What The MVP Should Not Do First
 
 The MVP should not try to:

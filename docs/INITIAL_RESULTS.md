@@ -1268,9 +1268,87 @@ Verifier is strongly positive in this run. Remask is neutral in this run and
 requires harder partial-failure code cases before its value can be judged.
 ```
 
+## Result 16: Remask-Required Enterprise Repair Flow
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- llama.cpp OpenAI-compatible server.
+- Model: `qwen2.5-coder-7b-instruct-q4_k_m`.
+- Benchmark target: `ai/nanoid`.
+- Repository commit: `e4b7a9a7323006474ec939112aec68944b0da097`.
+- Case count per run: 8.
+
+Commands:
+
+```bash
+npm run code:model-remask-verifier-benchmark
+npm run code:model-remask-verifier-remask-benchmark
+npm run reports:code-remask
+```
+
+Reported comparison artifact:
+
+```text
+reports/2026-06-21T12-07-57-156Z-code-remask-comparison.json
+reports/2026-06-21T12-07-57-156Z-code-remask-comparison.md
+```
+
+Observed summary:
+
+| Flow | Patch pass | Outcome | Required content miss | Missing expected file | Invalid contract |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen verifier only | 0% | 0% | 8 | 8 | 0 |
+| Qwen verifier + remask | 100% | 100% | 0 | 0 | 0 |
+
+Interpretation:
+
+This benchmark was designed after Result 15 showed that remask was neutral when
+the verifier could already resolve the task. The new suite changes the failure
+shape. It models a common enterprise coding situation:
+
+```text
+the first implementer sees a narrow role-view,
+the enterprise policy requires paired-file consistency,
+the verifier detects the missing paired file,
+the remask pass receives the failed-region feedback and full repair context.
+```
+
+The concrete scenario is release metadata consistency. Updating `package.json`
+alone is not enough; `jsr.json` must be updated to the same approved version.
+The verifier-only flow caught the incomplete patch and did not let it pass, but
+it did not repair the missing region. The verifier-plus-remask flow repaired the
+missing paired-file edit and reached 100% patch pass.
+
+The important distinction is:
+
+```text
+Verifier protects quality.
+Remask restores productivity after a safe, repairable partial failure.
+```
+
+This does not mean remask should run after every patch. The earlier hybrid flow
+showed that remask can be neutral when no repairable failed region exists. This
+result shows that remask becomes valuable under a more specific condition:
+
+```text
+authority is present,
+scope is safe,
+the first patch is incomplete,
+and the verifier can identify a failed patch region rather than a missing
+decision.
+```
+
+The product implication is therefore conditional:
+
+```text
+Remask should be verifier-triggered, not default-on.
+```
+
 ## What These Results Show
 
-These initial results support twenty-six early findings:
+These initial results support twenty-seven early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -1334,6 +1412,10 @@ These initial results support twenty-six early findings:
     from 78% to 96% patch pass and reduced enterprise-boundary guesses from 10
     to 0, while verifier-plus-remask was neutral rather than harmful on this
     suite.
+27. Remask-required enterprise repair cases showed the first strong remask code
+    result: verifier-only scored 0% patch pass because paired-file metadata
+    changes were incomplete, while verifier-plus-remask scored 100% by repairing
+    the missing paired-file region without invalid contracts.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -1399,6 +1481,10 @@ The main risks are:
 - The current code patch suite shows verifier value clearly, but it still does
   not contain enough partial-failure code cases to prove remask value beyond the
   verifier-only flow.
+- The remask-required suite is intentionally narrow and focused on paired
+  release metadata consistency. It proves a repair mechanism under one
+  controlled enterprise scenario, not general remask superiority across all code
+  tasks.
 
 These limitations are expected at this stage. They define the next experiments.
 
@@ -1423,8 +1509,8 @@ Planned steps:
 7. Add stronger or larger LLM baselines when hardware budget allows.
 8. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
-9. Add remask-required code patch cases that isolate partial repair rather than
-   binary refusal.
+9. Expand remask-required code patch cases beyond release metadata into schema,
+   type, test, and API contract consistency tasks.
 
 The current milestone is therefore not the end of the research. It is the point
 where the lab becomes credible enough to run harder experiments.
