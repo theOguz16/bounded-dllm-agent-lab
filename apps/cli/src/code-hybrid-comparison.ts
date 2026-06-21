@@ -47,7 +47,8 @@ const comparison = {
     forbiddenPatternHitRate: run.report.forbiddenPatternHitRate,
     enterpriseBoundaryGuessCount: countEnterpriseBoundaryGuesses(run.report.cases),
     invalidContractCount: countInvalidContracts(run.report.cases)
-  }))
+  })),
+  remaskDelta: createRemaskDelta(availableRuns)
 };
 
 await mkdir(reportDir, { recursive: true });
@@ -101,6 +102,42 @@ function countInvalidContracts(scores: CodePatchCaseScore[]): number {
   return scores.filter((score) => score.observedFailureSignals.includes("invalid_model_output")).length;
 }
 
+function createRemaskDelta(runs: Array<HybridRun & { path: string; report: CodePatchBenchmarkReport }>) {
+  const verifier = runs.find((run) => run.label === "Qwen workspace verifier")?.report;
+  const remask = runs.find((run) => run.label === "Qwen workspace verifier remask")?.report;
+
+  if (!verifier || !remask) return null;
+
+  const verifierBoundaryGuessCount = countEnterpriseBoundaryGuesses(verifier.cases);
+  const remaskBoundaryGuessCount = countEnterpriseBoundaryGuesses(remask.cases);
+  const patchPassDelta = remask.positiveControlPassRate - verifier.positiveControlPassRate;
+  const refusalDelta = remask.refusalAccuracy - verifier.refusalAccuracy;
+  const boundaryGuessDelta = remaskBoundaryGuessCount - verifierBoundaryGuessCount;
+
+  // Bu alan remask sonucunu tek kelimeye sıkıştırmaz; araştırma yorumunu düzenli tutar.
+  // Pozitif delta varsa remask ek değer vermiştir, negatif delta varsa zarar vermiştir.
+  // Hepsi sıfırsa bu suite remask gerektiren hatayı görünür kılmamış demektir.
+  const interpretation =
+    patchPassDelta > 0 || refusalDelta > 0 || boundaryGuessDelta < 0
+      ? "positive"
+      : patchPassDelta < 0 || refusalDelta < 0 || boundaryGuessDelta > 0
+        ? "negative"
+        : "neutral";
+
+  return {
+    verifierPatchPassRate: verifier.positiveControlPassRate,
+    remaskPatchPassRate: remask.positiveControlPassRate,
+    patchPassDelta,
+    verifierRefusalAccuracy: verifier.refusalAccuracy,
+    remaskRefusalAccuracy: remask.refusalAccuracy,
+    refusalDelta,
+    verifierBoundaryGuessCount,
+    remaskBoundaryGuessCount,
+    boundaryGuessDelta,
+    interpretation
+  };
+}
+
 function comparisonToMarkdown(input: typeof comparison): string {
   const rows = input.runs.map((run) => [
     run.label,
@@ -146,6 +183,45 @@ function comparisonToMarkdown(input: typeof comparison): string {
     ].join("\n")
   ];
 
+  if (input.remaskDelta) {
+    sections.push(
+      "",
+      "## Verifier vs Remask Delta",
+      "",
+      table(
+        ["Metric", "Verifier", "Verifier + Remask", "Delta"],
+        [
+          [
+            "Patch Pass",
+            percent(input.remaskDelta.verifierPatchPassRate),
+            percent(input.remaskDelta.remaskPatchPassRate),
+            signedPercent(input.remaskDelta.patchPassDelta)
+          ],
+          [
+            "Refusal",
+            percent(input.remaskDelta.verifierRefusalAccuracy),
+            percent(input.remaskDelta.remaskRefusalAccuracy),
+            signedPercent(input.remaskDelta.refusalDelta)
+          ],
+          [
+            "Boundary Guess",
+            input.remaskDelta.verifierBoundaryGuessCount.toString(),
+            input.remaskDelta.remaskBoundaryGuessCount.toString(),
+            signedNumber(input.remaskDelta.boundaryGuessDelta)
+          ]
+        ]
+      ),
+      "",
+      `Interpretation: ${input.remaskDelta.interpretation}.`,
+      "",
+      input.remaskDelta.interpretation === "neutral"
+        ? "In this run, remask did not harm the verifier flow, but it also did not add measurable improvement. This usually means the current cases were resolved or rejected by the verifier before a targeted remask could create a separate gain."
+        : input.remaskDelta.interpretation === "positive"
+          ? "In this run, remask added measurable value over verifier-only flow."
+          : "In this run, remask reduced at least one key metric and should be inspected before being treated as a product improvement."
+    );
+  }
+
   if (input.missingRuns.length) {
     sections.push(
       "",
@@ -171,6 +247,15 @@ function table(headers: string[], rows: string[][]): string {
 
 function percent(value: number): string {
   return `${Number((value * 100).toFixed(1))}%`;
+}
+
+function signedPercent(value: number): string {
+  const formatted = percent(Math.abs(value));
+  return value > 0 ? `+${formatted}` : value < 0 ? `-${formatted}` : "0%";
+}
+
+function signedNumber(value: number): string {
+  return value > 0 ? `+${value}` : value.toString();
 }
 
 function escapeCell(value: string): string {

@@ -1153,9 +1153,124 @@ This is exactly the level of detail needed for agentic coding research. A single
 task-success metric would hide the important difference between "can write code"
 and "knows when not to write code."
 
+## Result 15: Hybrid Workspace + Verifier Code Flow
+
+Runtime:
+
+- RunPod GPU pod.
+- RTX 3090 24GB VRAM.
+- llama.cpp OpenAI-compatible server.
+- Model: `qwen2.5-coder-7b-instruct-q4_k_m`.
+- Benchmark target: `ai/nanoid`.
+- Repository commit: `e4b7a9a7323006474ec939112aec68944b0da097`.
+- Case count per run: 50.
+
+Commands:
+
+```bash
+npm run code:model-benchmark
+npm run code:model-workspace-benchmark
+npm run code:model-workspace-verifier-benchmark
+npm run code:model-workspace-verifier-remask-benchmark
+npm run reports:code-hybrid
+```
+
+Reported comparison artifact:
+
+```text
+reports/2026-06-21T11-44-00-444Z-code-hybrid-comparison.json
+reports/2026-06-21T11-44-00-444Z-code-hybrid-comparison.md
+```
+
+Observed summary:
+
+| Flow | Patch pass | Refusal | Boundary guess | Invalid contract |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen direct | 78% | 80% | 10 | 0 |
+| Qwen workspace | 90% | 92% | 4 | 0 |
+| Qwen workspace verifier | 96% | 100% | 0 | 0 |
+| Qwen workspace verifier remask | 96% | 100% | 0 | 0 |
+
+Interpretation:
+
+This result is important because the model and benchmark stayed constant. The
+changed variable was the agent flow:
+
+```text
+direct patching -> semantic workspace -> verifier -> verifier plus remask
+```
+
+The direct Qwen2.5-Coder run was already a strong scoped patch writer, but it
+still guessed in all 10 enterprise-boundary cases. The workspace view reduced
+those boundary guesses from 10 to 4 while improving patch pass from 78% to 90%.
+This supports the claim that a shared semantic workspace with role-specific
+bounded views can change model behavior without changing the underlying model.
+
+The verifier flow produced the strongest practical result in this run:
+
+```text
+patch pass: 96%
+refusal: 100%
+boundary guess: 0
+invalid contract: 0
+```
+
+This is the first code benchmark result that directly supports the product
+direction:
+
+```text
+An enterprise agentic coding system may benefit more from a boundary-aware
+workspace and verifier layer than from simply asking the coder model to behave
+better in a single direct prompt.
+```
+
+### Verifier vs Remask
+
+The verifier-only and verifier-plus-remask flows produced the same aggregate
+score:
+
+| Flow | Patch pass | Refusal | Boundary guess |
+| --- | ---: | ---: | ---: |
+| Workspace + verifier | 96% | 100% | 0 |
+| Workspace + verifier + remask | 96% | 100% | 0 |
+
+This should be read as a neutral remask result, not as a negative result.
+Remask did not reduce patch pass, refusal accuracy, boundary behavior, or JSON
+contract reliability. However, it also did not add measurable improvement on
+this 50-case code suite.
+
+The likely reason is that the current enterprise-boundary failures are mostly
+binary authority decisions:
+
+```text
+If the required product, owner, compliance, or platform decision is missing,
+the correct behavior is refusal.
+```
+
+When the verifier can already catch that condition and force refusal, remasking
+has no separate region to repair. Remask is expected to matter more in a
+different failure shape:
+
+```text
+mostly correct patch + one failed region -> verifier marks region -> model
+rewrites only that region
+```
+
+The next code benchmark should therefore add remask-required patch cases where a
+first attempt touches the correct files but contains one local mistake, one
+missing related file, or one unsafe sub-region that can be repaired without
+rerunning the whole task.
+
+The careful conclusion is:
+
+```text
+Verifier is strongly positive in this run. Remask is neutral in this run and
+requires harder partial-failure code cases before its value can be judged.
+```
+
 ## What These Results Show
 
-These initial results support twenty-five early findings:
+These initial results support twenty-six early findings:
 
 1. The benchmark input pipeline can avoid answer-key leakage.
 2. Bounded context can strongly improve controlled behavior metrics.
@@ -1215,6 +1330,10 @@ These initial results support twenty-five early findings:
 25. The next architecture should test role specialization: autoregressive coder
     for implementation, plus a verifier/boundary/remask role that targets the
     failure modes exposed by taxonomy.
+26. Hybrid workspace + verifier flow improved the same Qwen2.5 code benchmark
+    from 78% to 96% patch pass and reduced enterprise-boundary guesses from 10
+    to 0, while verifier-plus-remask was neutral rather than harmful on this
+    suite.
 
 This is useful because it clarifies the research direction. The project is not
 only testing whether a model can answer correctly. It is testing whether an
@@ -1277,6 +1396,9 @@ The main risks are:
   still cannot fully judge whether prose contained a semantically useful plan.
 - The current hard suite still does not isolate verifier-guided remasking value;
   that is why the separate remask-required mechanism suite exists.
+- The current code patch suite shows verifier value clearly, but it still does
+  not contain enough partial-failure code cases to prove remask value beyond the
+  verifier-only flow.
 
 These limitations are expected at this stage. They define the next experiments.
 
@@ -1301,6 +1423,8 @@ Planned steps:
 7. Add stronger or larger LLM baselines when hardware budget allows.
 8. Add human failure-review notes for cases where deterministic metrics are too
    coarse.
+9. Add remask-required code patch cases that isolate partial repair rather than
+   binary refusal.
 
 The current milestone is therefore not the end of the research. It is the point
 where the lab becomes credible enough to run harder experiments.
