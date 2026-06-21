@@ -5,6 +5,7 @@ import { createComparisonArtifact, createRunManifest, validateRunManifest } from
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
+import { parseUnifiedDiff, reviewPatch, type RepoPolicy } from "../../packages/product-runtime/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 
 const cases = [
@@ -114,4 +115,44 @@ assert.deepEqual(validateCodePatchCases(nanoidCodePatchCases), []);
 assert.equal(nanoidCodePatchCases[0].repoId, "nanoid");
 assert.equal(nanoidCodePatchCases[0].baseCommit, "e4b7a9a7323006474ec939112aec68944b0da097");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark"] }, null, 2));
+const productPolicy: RepoPolicy = {
+  allowed_paths: ["package.json", "jsr.json"],
+  forbidden_paths: ["index.js"],
+  paired_files: [
+    {
+      source: "package.json",
+      requires: "jsr.json",
+      reason: "release metadata must stay consistent"
+    }
+  ],
+  sensitive_patterns: ["SECRET"],
+  missing_authority_rules: []
+};
+
+const productTask = {
+  id: "product-smoke",
+  title: "Update release metadata",
+  description: "Authority: release metadata update is approved.",
+  authorityFacts: ["release metadata update is approved"]
+};
+
+const remaskReview = reviewPatch({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+
+assert.equal(remaskReview.decision, "remask_required");
+assert.equal(remaskReview.remaskRegions.length, 1);
+assert.equal(remaskReview.workspace.roleViews.verifier.role, "verifier");
+
+const rejectReview = reviewPatch({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@\n-export const x = 1\n+export const x = 'SECRET'\n")
+});
+
+assert.equal(rejectReview.decision, "reject");
+assert.equal(rejectReview.findings.some((finding) => finding.category === "sensitive_boundary"), true);
+
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime"] }, null, 2));

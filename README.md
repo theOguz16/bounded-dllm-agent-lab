@@ -186,6 +186,7 @@ packages/
   context-core/    bounded context packet schema
   workspace-core/  shared semantic workspace schema
   masking-policy/  mask selection and remasking rules
+  product-runtime/ bounded-context orchestration runtime contracts
   eval-core/       deterministic scoring and benchmark metrics
   providers/       model engine interfaces and adapters
   fixtures/        benchmark cases and synthetic tasks
@@ -219,6 +220,14 @@ The first milestone figures are available at
 
 The second phase hybrid architecture is documented in
 [`docs/HYBRID_AGENT_ARCHITECTURE.md`](docs/HYBRID_AGENT_ARCHITECTURE.md).
+
+The product runtime direction is documented in
+[`docs/ORCHESTRATION_RUNTIME.md`](docs/ORCHESTRATION_RUNTIME.md). It adds the
+first deterministic CLI surface for reviewing task + diff + policy inputs:
+
+```bash
+npm run product:review -- --task task.md --diff patch.diff --policy policy.yml
+```
 
 Generate visual benchmark figures with:
 

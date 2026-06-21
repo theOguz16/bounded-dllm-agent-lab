@@ -1,0 +1,7 @@
+{
+  "name": "@bounded-dllm-agent-lab/product-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "private": false
+}

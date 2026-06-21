@@ -1,0 +1,131 @@
+# Bounded Agent Orchestration Runtime
+
+Bu doküman, araştırma labından ürün çekirdeğine geçişteki ilk runtime
+sözleşmesini tanımlar. Amaç bir IDE veya model router yazmak değildir. Amaç,
+kurumsal agentic coding akışında context, authority, workspace, verifier ve
+remask kararlarını modelden bağımsız şekilde yönetmektir.
+
+## Product Definition
+
+```text
+Bounded-context agent orchestration runtime for enterprise software teams.
+```
+
+Runtime şu sorulara cevap verir:
+
+- Agent hangi dosyaları görebilir?
+- Agent hangi dosyalara dokunabilir?
+- Eksik ürün/platform/compliance kararı varsa durmalı mı?
+- Patch forbidden scope veya sensitive boundary ihlali yapıyor mu?
+- Patch güvenli ama eksikse hangi lokal bölge remask edilmeli?
+- Son karar nasıl trace edilecek?
+
+## First Runtime Loop
+
+```text
+task + diff + policy
+  -> shared workspace snapshot
+  -> role-specific bounded views
+  -> verifier findings
+  -> approve | refuse | reject | remask_required | human_review_required
+  -> JSON + Markdown report
+```
+
+Bu ilk loop model çağırmaz. Bilerek deterministic tutulur. Böylece ürün
+çekirdeği, model kalitesiyle karışmadan test edilebilir.
+
+## Decisions
+
+| Decision | Anlamı |
+| --- | --- |
+| `approve` | Patch policy ve scope açısından geçebilir. |
+| `refuse` | Eksik authority/karar var; model tahmin yürütmemeli. |
+| `reject` | Forbidden path, unsafe scope veya sensitive risk var. |
+| `remask_required` | Patch scope içinde ama lokal/paired-file repair gerekiyor. |
+| `human_review_required` | Runtime otomatik karar için yeterli sinyal bulamadı. |
+
+Karar önceliği:
+
+```text
+reject > refuse > remask_required > human_review_required > approve
+```
+
+## Policy Contract
+
+İlk sürüm policy alanları:
+
+```yaml
+allowed_paths:
+  - package.json
+  - jsr.json
+forbidden_paths:
+  - index.js
+paired_files:
+  - source: package.json
+    requires: jsr.json
+    reason: release metadata must stay consistent
+sensitive_patterns:
+  - API_KEY
+  - SECRET
+required_tests:
+  - test/check-versions.js
+missing_authority_rules:
+  - approved product default
+```
+
+## CLI Usage
+
+Build sonrası:
+
+```bash
+npm run product:review -- \
+  --task task.md \
+  --diff patch.diff \
+  --policy policy.yml \
+  --out-dir reports/product-runtime
+```
+
+Çıktılar:
+
+- JSON review artifact,
+- Markdown PR/report metni,
+- decision,
+- risk level,
+- findings,
+- remask regions,
+- role-specific bounded views,
+- trace.
+
+## Why This Matters
+
+Bu runtime, klasik “hangi model hangi işi yapsın?” orkestrasyonu değildir.
+
+Asıl hedef:
+
+```text
+context + authority + workspace orchestration
+```
+
+Bu sayede her agent tüm geçmişi veya tüm repo bağlamını görmek zorunda kalmaz.
+Her agent kendi rolüne göre task-bound, ephemeral ve policy-bound bounded
+working memory görür.
+
+## Current Scope
+
+İlk ürün çekirdeği şunları yapar:
+
+- PR/diff/task/policy input alır.
+- Role-specific bounded view üretir.
+- Scope ve forbidden path kontrolü yapar.
+- Missing authority durumunda refusal üretir.
+- Sensitive pattern riskini yakalar.
+- Paired-file eksiklerinde remask region üretir.
+- Markdown ve JSON rapor üretir.
+
+İlk ürün çekirdeği şunları yapmaz:
+
+- IDE yerine geçmez.
+- Kod patch’i otomatik üretmez.
+- Her patch’i remask etmez.
+- İnsan review yerine geçmez.
+- dLLM veya belirli bir model provider gerektirmez.
