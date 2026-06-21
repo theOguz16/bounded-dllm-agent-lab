@@ -145,6 +145,8 @@ const remaskReview = reviewPatch({
 assert.equal(remaskReview.decision, "remask_required");
 assert.equal(remaskReview.remaskRegions.length, 1);
 assert.equal(remaskReview.workspace.roleViews.verifier.role, "verifier");
+assert.equal(remaskReview.metrics.remaskNeed, 1);
+assert.equal(remaskReview.metrics.pairedFileCompleteness, 0);
 
 const rejectReview = reviewPatch({
   task: productTask,
@@ -154,5 +156,46 @@ const rejectReview = reviewPatch({
 
 assert.equal(rejectReview.decision, "reject");
 assert.equal(rejectReview.findings.some((finding) => finding.category === "sensitive_boundary"), true);
+assert.equal(rejectReview.metrics.scopeSafety, 0);
+assert.equal(rejectReview.metrics.sensitiveBoundarySafety, 0);
+
+const approveReview = reviewPatch({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\ndiff --git a/jsr.json b/jsr.json\n--- a/jsr.json\n+++ b/jsr.json\n")
+});
+
+assert.equal(approveReview.decision, "approve");
+assert.equal(approveReview.riskLevel, "low");
+assert.equal(approveReview.metrics.scopeSafety, 1);
+assert.equal(approveReview.metrics.traceCompleteness, 1);
+
+const refuseReview = reviewPatch({
+  task: {
+    id: "missing-authority",
+    title: "Change runtime default",
+    description: "Change the runtime default to the new product default."
+  },
+  policy: {
+    ...productPolicy,
+    allowed_paths: ["index.js"],
+    forbidden_paths: [],
+    paired_files: [],
+    missing_authority_rules: ["approved product default"]
+  },
+  diff: parseUnifiedDiff("diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@\n-export const size = 21\n+export const size = 24\n")
+});
+
+assert.equal(refuseReview.decision, "refuse");
+assert.equal(refuseReview.metrics.authoritySafety, 0);
+
+const humanReview = reviewPatch({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("")
+});
+
+assert.equal(humanReview.decision, "human_review_required");
+assert.equal(humanReview.riskLevel, "medium");
 
 console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime"] }, null, 2));
