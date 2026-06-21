@@ -1,0 +1,107 @@
+name: "Bounded Agent Product Review"
+description: "Review task + diff + policy inputs with the bounded-context product runtime."
+inputs:
+  task:
+    description: "Path to a Markdown or JSON task file."
+    required: true
+  diff:
+    description: "Path to a unified diff file."
+    required: true
+  policy:
+    description: "Path to a JSON or simple YAML policy file."
+    required: true
+  output-dir:
+    description: "Directory where JSON and Markdown artifacts will be written."
+    required: false
+    default: "reports/product-runtime"
+  fail-on:
+    description: "CI failure threshold: high, medium, or never."
+    required: false
+    default: "high"
+outputs:
+  decision:
+    description: "Runtime decision: approve, refuse, reject, remask_required, or human_review_required."
+    value: ${{ steps.outputs.outputs.decision }}
+  risk-level:
+    description: "Risk level: low, medium, or high."
+    value: ${{ steps.outputs.outputs.risk-level }}
+  json-path:
+    description: "Path to the JSON artifact."
+    value: ${{ steps.outputs.outputs.json-path }}
+  markdown-path:
+    description: "Path to the Markdown artifact."
+    value: ${{ steps.outputs.outputs.markdown-path }}
+runs:
+  using: "composite"
+  steps:
+    - name: Install dependencies
+      shell: bash
+      run: |
+        cd "${{ github.action_path }}"
+        npm install
+    - name: Build runtime
+      shell: bash
+      run: |
+        cd "${{ github.action_path }}"
+        npm run build
+    - name: Run bounded review
+      id: review
+      shell: bash
+      run: |
+        resolve_path() {
+          case "$1" in
+            /*) printf '%s\n' "$1" ;;
+            *) printf '%s/%s\n' "${{ github.workspace }}" "$1" ;;
+          esac
+        }
+        TASK_PATH="$(resolve_path "${{ inputs.task }}")"
+        DIFF_PATH="$(resolve_path "${{ inputs.diff }}")"
+        POLICY_PATH="$(resolve_path "${{ inputs.policy }}")"
+        OUTPUT_DIR="$(resolve_path "${{ inputs.output-dir }}")"
+        mkdir -p "$OUTPUT_DIR"
+        node "${{ github.action_path }}/dist/apps/cli/src/product-review.js" \
+          --task "$TASK_PATH" \
+          --diff "$DIFF_PATH" \
+          --policy "$POLICY_PATH" \
+          --out-dir "$OUTPUT_DIR" \
+          --format json \
+          --fail-on never > "$OUTPUT_DIR/summary.json"
+        cat "$OUTPUT_DIR/summary.json"
+    - name: Export outputs
+      id: outputs
+      shell: bash
+      run: |
+        case "${{ inputs.output-dir }}" in
+          /*) SUMMARY_PATH="${{ inputs.output-dir }}/summary.json" ;;
+          *) SUMMARY_PATH="${{ github.workspace }}/${{ inputs.output-dir }}/summary.json" ;;
+        esac
+        node -e '
+          const fs = require("node:fs");
+          const summary = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `decision=${summary.decision}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `risk-level=${summary.riskLevel}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `json-path=${summary.jsonPath}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `markdown-path=${summary.markdownPath}\n`);
+        ' "$SUMMARY_PATH"
+    - name: Apply fail threshold
+      shell: bash
+      run: |
+        case "${{ inputs.output-dir }}" in
+          /*) SUMMARY_PATH="${{ inputs.output-dir }}/summary.json" ;;
+          *) SUMMARY_PATH="${{ github.workspace }}/${{ inputs.output-dir }}/summary.json" ;;
+        esac
+        node -e '
+          const fs = require("node:fs");
+          const summary = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          const failOn = process.argv[2];
+          const risk = summary.riskLevel;
+          const shouldFail = failOn === "high"
+            ? risk === "high"
+            : failOn === "medium"
+              ? risk === "high" || risk === "medium"
+              : false;
+          if (shouldFail) {
+            console.error(`Bounded review failed because risk=${risk} and fail-on=${failOn}.`);
+            process.exit(1);
+          }
+        ' "$SUMMARY_PATH" "${{ inputs.fail-on }}"
