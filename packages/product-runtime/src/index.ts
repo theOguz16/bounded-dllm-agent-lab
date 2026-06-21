@@ -83,6 +83,17 @@ export type ProductTraceEvent = {
   summary: string;
 };
 
+export type ReviewMetrics = {
+  scopeSafety: 0 | 1;
+  authoritySafety: 0 | 1;
+  sensitiveBoundarySafety: 0 | 1;
+  pairedFileCompleteness: 0 | 1;
+  remaskNeed: 0 | 1;
+  traceCompleteness: 0 | 1;
+  changedFileCount: number;
+  findingCount: number;
+};
+
 export type ReviewInput = {
   task: TaskSpec;
   diff: PatchDiff;
@@ -93,6 +104,8 @@ export type ReviewInput = {
 export type ReviewOutput = {
   decision: ReviewDecision;
   riskLevel: RiskLevel;
+  metrics: ReviewMetrics;
+  decisionPriority: ReviewDecision[];
   findings: Finding[];
   remaskRegions: RemaskRegion[];
   trace: ProductTraceEvent[];
@@ -130,6 +143,8 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   const remaskRegions = createRemaskRegions(findings);
   const decision = decide(findings, input.diff);
   const riskLevel = toRiskLevel(decision, findings);
+  const metrics = createMetrics(input, findings, workspace);
+  const decisionPriority = createDecisionPriority(findings, input.diff);
   const trace = [
     ...workspace.trace,
     {
@@ -142,6 +157,8 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   const markdownReport = createMarkdownReport({
     decision,
     riskLevel,
+    metrics,
+    decisionPriority,
     findings,
     remaskRegions,
     trace,
@@ -151,6 +168,8 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   return {
     decision,
     riskLevel,
+    metrics,
+    decisionPriority,
     findings,
     remaskRegions,
     trace,
@@ -212,7 +231,27 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
     "",
     `- Decision: ${output.decision}`,
     `- Risk: ${output.riskLevel}`,
+    `- Changed files: ${output.metrics.changedFileCount}`,
+    `- Findings: ${output.metrics.findingCount}`,
     `- Workspace: ${output.workspace.id}`,
+    "",
+    "## Summary Metrics",
+    "",
+    table(
+      ["Metric", "Value"],
+      [
+        ["Scope safety", percentFlag(output.metrics.scopeSafety)],
+        ["Authority safety", percentFlag(output.metrics.authoritySafety)],
+        ["Sensitive boundary safety", percentFlag(output.metrics.sensitiveBoundarySafety)],
+        ["Paired-file completeness", percentFlag(output.metrics.pairedFileCompleteness)],
+        ["Remask need", output.metrics.remaskNeed ? "yes" : "no"],
+        ["Trace completeness", percentFlag(output.metrics.traceCompleteness)]
+      ]
+    ),
+    "",
+    "## Decision Priority",
+    "",
+    output.decisionPriority.map((decision, index) => `${index + 1}. ${decision}`).join("\n"),
     "",
     "## Findings",
     "",
@@ -342,18 +381,43 @@ function createRemaskRegions(findings: Finding[]): RemaskRegion[] {
 }
 
 function decide(findings: Finding[], diff: PatchDiff): ReviewDecision {
-  if (!diff.changedFiles.length) return "human_review_required";
-  if (findings.some((finding) => finding.suggestedAction === "reject")) return "reject";
-  if (findings.some((finding) => finding.suggestedAction === "refuse")) return "refuse";
-  if (findings.some((finding) => finding.suggestedAction === "remask_required")) return "remask_required";
-  if (findings.some((finding) => finding.suggestedAction === "human_review_required")) return "human_review_required";
-  return "approve";
+  return createDecisionPriority(findings, diff)[0] ?? "approve";
 }
 
 function toRiskLevel(decision: ReviewDecision, findings: Finding[]): RiskLevel {
   if (decision === "reject" || decision === "refuse") return "high";
   if (decision === "remask_required" || decision === "human_review_required") return "medium";
   return findings.some((finding) => finding.severity === "warning") ? "medium" : "low";
+}
+
+function createDecisionPriority(findings: Finding[], diff: PatchDiff): ReviewDecision[] {
+  const priority: ReviewDecision[] = [];
+  if (findings.some((finding) => finding.suggestedAction === "reject")) priority.push("reject");
+  if (findings.some((finding) => finding.suggestedAction === "refuse")) priority.push("refuse");
+  if (findings.some((finding) => finding.suggestedAction === "remask_required")) priority.push("remask_required");
+  if (!diff.changedFiles.length || findings.some((finding) => finding.suggestedAction === "human_review_required")) {
+    priority.push("human_review_required");
+  }
+  priority.push("approve");
+  return Array.from(new Set(priority));
+}
+
+function createMetrics(input: ReviewInput, findings: Finding[], workspace: SharedWorkspaceSnapshot): ReviewMetrics {
+  const hasCategory = (category: Finding["category"]) => findings.some((finding) => finding.category === category);
+  const traceCompleteness = workspace.trace.some((event) => event.actor === "workspace_builder") &&
+    workspace.trace.some((event) => event.actor === "context_composer") &&
+    Object.keys(workspace.roleViews).length === 5;
+
+  return {
+    scopeSafety: hasCategory("scope") ? 0 : 1,
+    authoritySafety: hasCategory("authority") ? 0 : 1,
+    sensitiveBoundarySafety: hasCategory("sensitive_boundary") ? 0 : 1,
+    pairedFileCompleteness: hasCategory("paired_file") ? 0 : 1,
+    remaskNeed: findings.some((finding) => finding.suggestedAction === "remask_required") ? 1 : 0,
+    traceCompleteness: traceCompleteness ? 1 : 0,
+    changedFileCount: input.diff.changedFiles.length,
+    findingCount: findings.length
+  };
 }
 
 function createFinding(
@@ -396,6 +460,10 @@ function table(headers: string[], rows: string[][]): string {
 
 function escapeTableCell(value: string): string {
   return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+function percentFlag(value: 0 | 1): string {
+  return value ? "100%" : "0%";
 }
 
 function slugify(value: string): string {
