@@ -1,0 +1,159 @@
+# MVP Usage: Bounded Agent Runtime
+
+Bu MVP, kurumsal agentic coding için tam orkestrasyon platformunun ilk küçük
+ürün yüzeyidir. Bir IDE değildir; bir model router değildir. İlk işi, task +
+diff + policy girdisini okuyup patch'in scope, authority, sensitive boundary ve
+paired-file risklerini deterministik olarak değerlendirmektir.
+
+## Kim İçin?
+
+İlk hedef kullanıcılar:
+
+- AI coding kullanan engineering ekipleri,
+- PR review yükünü azaltmak isteyen tech lead'ler,
+- kurum içi AI coding policy standardı kurmak isteyen platform/DevEx ekipleri,
+- kendi coding agent'ına verifier/remask katmanı bağlamak isteyen agent tool
+  geliştiricileri.
+
+## Ne Yapar?
+
+Runtime şu kararları üretir:
+
+| Decision | Anlamı |
+| --- | --- |
+| `approve` | Patch scope ve policy açısından geçebilir. |
+| `refuse` | Eksik authority/karar var; agent tahmin yürütmemeli. |
+| `reject` | Forbidden path, unsafe scope veya sensitive risk var. |
+| `remask_required` | Patch scope içinde ama lokal/paired-file repair gerekiyor. |
+| `human_review_required` | Otomatik karar için yeterli sinyal yok. |
+
+Ek olarak JSON ve Markdown raporda şunları verir:
+
+- summary metrics,
+- role-specific bounded views,
+- verifier findings,
+- remask regions,
+- trace events.
+
+## CLI
+
+Önce build:
+
+```bash
+npm install
+npm run build
+```
+
+Örnek approve koşusu:
+
+```bash
+npm run product:review -- \
+  --task examples/product-runtime/tasks/release-metadata.md \
+  --diff examples/product-runtime/diffs/approve.diff \
+  --policy examples/product-runtime/policies/release-policy.yml \
+  --format both
+```
+
+Örnek remask koşusu:
+
+```bash
+npm run product:review -- \
+  --task examples/product-runtime/tasks/release-metadata.md \
+  --diff examples/product-runtime/diffs/remask-required.diff \
+  --policy examples/product-runtime/policies/release-policy.yml \
+  --format both
+```
+
+CI için risk eşiği:
+
+```bash
+npm run product:review -- \
+  --task task.md \
+  --diff patch.diff \
+  --policy policy.yml \
+  --fail-on high
+```
+
+`--fail-on medium` medium ve high riskte non-zero döner. `--fail-on never`
+sadece rapor üretir.
+
+## GitHub Action
+
+Örnek workflow:
+
+```yaml
+name: Bounded Agent Review
+
+on:
+  pull_request:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create PR diff
+        run: git diff origin/${{ github.base_ref }}...HEAD > pr.diff
+      - name: Bounded review
+        uses: theOguz16/bounded-dllm-agent-lab@main
+        with:
+          task: task.md
+          diff: pr.diff
+          policy: bounded-agent.policy.yml
+          fail-on: high
+          output-dir: reports/product-runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bounded-agent-review
+          path: reports/product-runtime
+```
+
+## Policy Contract
+
+Minimum policy:
+
+```yaml
+allowed_paths:
+  - package.json
+  - jsr.json
+forbidden_paths:
+  - index.js
+paired_files:
+  - source: package.json
+    requires: jsr.json
+    reason: release metadata must stay consistent
+sensitive_patterns:
+  - SECRET
+  - API_KEY
+required_tests:
+missing_authority_rules:
+```
+
+## Örnekler
+
+Hazır örnekler:
+
+| Diff | Beklenen Karar |
+| --- | --- |
+| `examples/product-runtime/diffs/approve.diff` | `approve` |
+| `examples/product-runtime/diffs/remask-required.diff` | `remask_required` |
+| `examples/product-runtime/diffs/reject-forbidden.diff` | `reject` |
+| `examples/product-runtime/diffs/refuse-missing-authority.diff` | `refuse` |
+| `examples/product-runtime/diffs/human-review-empty.diff` | `human_review_required` |
+
+## Ne Yapmaz?
+
+MVP şunları özellikle yapmaz:
+
+- IDE yerine geçmez.
+- Cursor/Codex/Windsurf alternatifi değildir.
+- Patch'i otomatik üretmez.
+- Her patch'i otomatik remask etmez.
+- Belirli bir model veya API key gerektirmez.
+- İnsan review yerine geçmez.
+
+Bu MVP'nin amacı daha dar ve ölçülebilirdir:
+
+```text
+AI patch'lerde context, authority, scope ve repair kararlarını görünür yapmak.
+```

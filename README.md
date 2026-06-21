@@ -229,6 +229,9 @@ first deterministic CLI surface for reviewing task + diff + policy inputs:
 npm run product:review -- --task task.md --diff patch.diff --policy policy.yml
 ```
 
+The MVP usage guide, example inputs, and GitHub Action workflow are documented in
+[`docs/MVP_USAGE.md`](docs/MVP_USAGE.md).
+
 Generate visual benchmark figures with:
 
 ```bash

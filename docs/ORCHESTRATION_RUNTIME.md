@@ -85,6 +85,12 @@ npm run product:review -- \
   --out-dir reports/product-runtime
 ```
 
+MVP kullanım rehberi ve GitHub Action örneği için:
+
+```text
+docs/MVP_USAGE.md
+```
+
 Çıktılar:
 
 - JSON review artifact,
