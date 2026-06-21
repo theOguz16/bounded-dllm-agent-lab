@@ -333,17 +333,19 @@ remask planner rollerinde daha anlamli test edilmelidir.
 
 ## Ikinci Faz: Hybrid Agent Mimarisi
 
-Ilk fazdan sonra en dogal ikinci adim hybrid mimaridir.
+Ilk fazdan sonra en dogal ikinci adim hybrid mimariydi. Bu ikinci faz artik
+yalnizca onerilen bir adim degildir; ilk hybrid benchmarklari kosulmus ve
+olculmustur.
 
-Onerilen mimari:
+Test edilen mimari:
 
 ```text
 User task
   -> bounded context composer
   -> shared semantic workspace
   -> Qwen2.5-Coder implementation agent
-  -> dLLM boundary/verifier agent
-  -> remask planner
+  -> boundary/verifier agent
+  -> verifier-triggered remask planner
   -> final patch + trace
 ```
 
@@ -364,7 +366,34 @@ Autoregressive coder modelin enterprise-boundary hatalari, dLLM-style
 verifier/remask agent eklenince azalir mi?
 ```
 
-Eger bu dogrulanirsa, calisma bir urun fikrine de evrilebilir:
+Ilk hybrid code benchmark sonucunda bu soruya pozitif bir ilk sinyal alindi:
+
+| Akis | Patch pass | Refusal | Boundary guess | Invalid contract |
+| --- | --- | --- | --- | --- |
+| Qwen direct | 78% | 80% | 10 | 0 |
+| Qwen workspace | 90% | 92% | 4 | 0 |
+| Qwen workspace + verifier | 96% | 100% | 0 | 0 |
+| Qwen workspace + verifier + remask | 96% | 100% | 0 | 0 |
+
+Bu tablo su anlama gelir: ayni autoregressive coder model kullanilirken agent
+akisinin degistirilmesi, kurumsal sinir ihlali sayisini dusurmus ve patch
+basarisini artirmistir. Bu, "modeli degistirmeden mimariyi degistirmek" fikri
+icin onemli bir arastirma sinyalidir.
+
+Remask icin ayrica repair odakli ikinci bir suite kosuldu. Bu suite, verifier'in
+eksik fakat guvenli sekilde tamir edilebilir bolgeyi isaretledigi kurumsal
+senaryolari olcer.
+
+| Akis | Patch pass | Required content miss | Missing expected file | Invalid contract |
+| --- | --- | --- | --- | --- |
+| Qwen verifier only | 0% | 8 | 8 | 0 |
+| Qwen verifier + remask | 100% | 0 | 0 | 0 |
+
+Bu sonuc remask'in default-on bir mekanizma olmamasi gerektigini gosterir.
+Remask, sadece verifier tarafindan isaretlenen dar, guvenli ve tamir edilebilir
+bolgelerde calistiginda kalite belirleyici bir faktor olabilir.
+
+Bu nedenle calisma bir urun fikrine de evrilebilir:
 
 ```text
 Scope-safe coding agent layer for enterprise software teams.
@@ -380,6 +409,10 @@ baslangici olabilir:
 - shared workspace trace generator,
 - enterprise-safe agent orchestration SDK.
 
+Daha guncel ve UTF-8 destekli ana rapor icin `docs/RESEARCH_REPORT_TR.md`
+kullanilmalidir. Bu dosya ise ilk arastirma notu ve tarihsel anlatim olarak
+korunur.
+
 ## Tehditler ve Sinirlar
 
 Bu calisma henuz son sonuc degildir. Onemli sinirlar vardir:
@@ -391,14 +424,17 @@ Bu calisma henuz son sonuc degildir. Onemli sinirlar vardir:
 - dLLM direct patch sonucu, dLLM'in verifier rolundeki potansiyelini olcmez.
 - Benchmark case'leri artirilmali ve farkli repository'lere yayilmalidir.
 - Latency, cost ve throughput henuz sistematik olculmedi.
+- Remask-required suite dar bir enterprise metadata ve repair senaryosu
+  uzerinden olculdu; daha genis repo ve domain'lerde tekrar edilmelidir.
 
-Bu sinirlar calismayi zayiflatmak icin degil, ikinci fazi dogru tasarlamak icin
+Bu sinirlar calismayi zayiflatmak icin degil, ucuncu fazi dogru tasarlamak icin
 acikca belirtilmelidir.
 
 ## Sonuc
 
-Ilk fazin sonucu, "dLLM her konuda LLM'den iyidir" gibi abartili bir iddia
-degildir. Daha guclu ve bilimsel olarak daha savunulabilir sonuc sudur:
+Ilk ve ikinci fazin ortak sonucu, "dLLM her konuda LLM'den iyidir" gibi
+abartili bir iddia degildir. Daha guclu ve bilimsel olarak daha savunulabilir
+sonuc sudur:
 
 ```text
 Agentic coding'de modellerin failure mode'lari ayrismaktadir. Qwen2.5-Coder gibi
@@ -408,9 +444,21 @@ dLLM-style modeller direct patch contract'inda zayif kalabilir, fakat verifier,
 boundary checker ve remask planner rollerinde arastirilmaya degerdir.
 ```
 
-Bu nedenle proje ikinci fazda hybrid bir agent mimarisine evrilmelidir. Bu
-mimari, tek modelin daha akilli olmasina degil, farkli rollerin shared workspace
-uzerinde olculebilir ve sinirli sekilde calismasina odaklanmalidir.
+Bu nedenle proje hybrid bir agent mimarisine evrilmistir. Ikinci fazda elde
+edilen en guclu sinyal, modelin degil agent akisinin degistirilmesiyle patch pass
+oraninin 78%'den 96%'ya cikmasi ve boundary guess sayisinin 10'dan 0'a
+dusmesidir.
+
+Remask icin dogru yorum kosulludur:
+
+```text
+Remask default-on olmamalidir. Verifier tarafindan sinirlandirilmis, guvenli ve
+tamir edilebilir bolgelerde calistiginda kalite artirabilir; aksi halde gereksiz
+maliyet ve karmasiklik uretir.
+```
+
+Bu mimari, tek modelin daha akilli olmasina degil, farkli rollerin shared
+workspace uzerinde olculebilir ve sinirli sekilde calismasina odaklanmalidir.
 
 Bu calismanin ana katkisi, agentic coding arastirmasini "model iyi mi kotu mu?"
 sorusundan "hangi role hangi model/agent davranisi uygun ve hangi failure mode'u
