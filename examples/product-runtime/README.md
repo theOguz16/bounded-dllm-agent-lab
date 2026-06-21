@@ -23,5 +23,25 @@ npm run product:review -- \
 | `refuse-missing-authority.diff` | `refuse` | Eksik product authority varken runtime default değiştirir. |
 | `human-review-empty.diff` | `human_review_required` | Diff içinde değişen dosya yoktur. |
 
+## Repository Dogfood Examples
+
+Bu örnekler kökteki `bounded-agent.policy.yml` dosyasını kullanır:
+
+| Diff | Beklenen Karar | Neden |
+| --- | --- | --- |
+| `repo-docs-approve.diff` | `approve` | Sadece izinli docs alanını değiştirir. |
+| `repo-package-remask.diff` | `remask_required` | `package.json` değişir ama `package-lock.json` eksiktir. |
+| `repo-sensitive-reject.diff` | `reject` | `reports/**` forbidden scope ve sensitive pattern içerir. |
+
+Örnek:
+
+```bash
+npm run product:review -- \
+  --task examples/product-runtime/tasks/repo-dogfood.md \
+  --diff examples/product-runtime/diffs/repo-package-remask.diff \
+  --policy bounded-agent.policy.yml \
+  --format both
+```
+
 Bu örnekler ürün felsefesini gösterir: runtime model seçmez, önce context,
 authority, scope ve repair kararını yapılandırır.

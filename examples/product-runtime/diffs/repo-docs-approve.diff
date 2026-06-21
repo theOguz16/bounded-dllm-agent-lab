@@ -1,0 +1,6 @@
+diff --git a/docs/MVP_USAGE.md b/docs/MVP_USAGE.md
+--- a/docs/MVP_USAGE.md
++++ b/docs/MVP_USAGE.md
+@@
+-This MVP reviews task, diff, and policy inputs.
++This MVP reviews task, diff, and policy inputs with bounded context.

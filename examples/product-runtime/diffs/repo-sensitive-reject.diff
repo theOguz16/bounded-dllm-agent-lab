@@ -1,0 +1,5 @@
+diff --git a/reports/leaked.txt b/reports/leaked.txt
+--- a/reports/leaked.txt
++++ b/reports/leaked.txt
+@@
++SECRET=example
