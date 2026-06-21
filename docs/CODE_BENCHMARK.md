@@ -352,8 +352,12 @@ This suite is different from binary missing-authority cases:
 
 - authority is present,
 - the task is locally repairable,
-- verifier-only should catch incomplete or approximate patch plans,
-- verifier-plus-remask gets one chance to repair the failed patch region,
+- the first implementer pass receives a deliberately narrow role-view,
+- the concrete enterprise scenario is release metadata consistency across
+  `package.json` and `jsr.json`,
+- verifier-only should catch incomplete paired-file patches,
+- verifier-plus-remask gets one chance to repair the failed patch region with
+  full workspace context,
 - the scorer checks required content, not only touched files.
 
 The main reading is:

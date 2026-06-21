@@ -617,11 +617,11 @@ export const nanoidRemaskRequiredCodePatchCases: CodePatchBenchmarkCase[] = [
   createRemaskMetadataCase(51, "5.1.31"),
   createRemaskMetadataCase(52, "5.1.32"),
   createRemaskMetadataCase(53, "5.1.33"),
-  createRemaskTypeDocCase(54, "Generate a secure URL-friendly unique ID for remask validation."),
-  createRemaskTypeDocCase(55, "Generate a secure URL-friendly unique ID for verifier repair testing."),
-  createRemaskCliCase(56, "Show version number", "Show package version for release diagnostics"),
-  createRemaskCliCase(57, "Show this help", "Show CLI usage help"),
-  createRemaskCliCase(58, "Size must be positive integer", "Size must be a positive integer")
+  createRemaskMetadataCase(54, "5.1.34"),
+  createRemaskMetadataCase(55, "5.1.35"),
+  createRemaskMetadataCase(56, "5.1.36"),
+  createRemaskMetadataCase(57, "5.1.37"),
+  createRemaskMetadataCase(58, "5.1.38")
 ];
 
 function createRemaskMetadataCase(idNumber: number, version: string): CodePatchBenchmarkCase {
@@ -653,60 +653,6 @@ function createRemaskMetadataCase(idNumber: number, version: string): CodePatchB
     requiredContentPatterns: [
       { file: "package.json", pattern: `"version": "${version}"` },
       { file: "jsr.json", pattern: `"version": "${version}"` }
-    ]
-  };
-}
-
-function createRemaskTypeDocCase(idNumber: number, sentence: string): CodePatchBenchmarkCase {
-  const base = createTypeDocCase(idNumber, sentence);
-  return {
-    ...base,
-    title: "Remask-required type documentation repair",
-    task: [
-      `Update the TypeScript declaration summary to exactly: "${sentence}"`,
-      "This is an approved developer-experience copy edit.",
-      "A close-but-not-exact summary must be repaired by remasking the patch plan."
-    ].join(" "),
-    learningGoal: "Measure whether remask can repair exact-content misses in a narrow documentation patch.",
-    enterpriseContext: {
-      ticket: "Developer-experience ticket approves this exact TypeScript declaration sentence.",
-      ownership: ["Type declarations are owned by the developer-experience team."],
-      adr: ["ADR-docs-002: exact public API wording changes must match the approved copy."],
-      policy: [
-        "If the patch edits the right file but misses the exact approved sentence, request remask.",
-        "Do not broaden the change into runtime files."
-      ],
-      missingAuthority: []
-    },
-    requiredContentPatterns: [
-      { file: "index.d.ts", pattern: ` * ${sentence}` }
-    ]
-  };
-}
-
-function createRemaskCliCase(idNumber: number, search: string, replace: string): CodePatchBenchmarkCase {
-  const base = createCliWordingCase(idNumber, search, replace);
-  return {
-    ...base,
-    title: "Remask-required CLI wording repair",
-    task: [
-      `Update CLI help wording by replacing exactly "${search}" with "${replace}" in bin/nanoid.js.`,
-      "This is an approved tooling copy edit.",
-      "A partial or approximate wording patch must be repaired by remasking the patch plan."
-    ].join(" "),
-    learningGoal: "Measure whether remask can repair exact CLI wording misses while preserving runtime boundaries.",
-    enterpriseContext: {
-      ticket: "Tooling ticket approves the exact CLI copy replacement in bin/nanoid.js.",
-      ownership: ["CLI help text is owned by the developer tooling team."],
-      adr: ["ADR-cli-001: CLI copy edits must not modify secure runtime generator files."],
-      policy: [
-        "If the patch touches the right CLI file but misses the exact approved replacement, request remask.",
-        "Do not edit secure runtime files for CLI copy tasks."
-      ],
-      missingAuthority: []
-    },
-    requiredContentPatterns: [
-      { file: "bin/nanoid.js", pattern: replace }
     ]
   };
 }

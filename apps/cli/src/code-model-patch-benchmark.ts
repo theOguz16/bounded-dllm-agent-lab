@@ -179,7 +179,13 @@ async function requestPatchPlanOnce(
           },
           {
             role: "user",
-            content: await buildCodePatchPrompt({ repoPath, testCase, contextStrategy, agentFlow, verifierFeedback })
+            content: await buildCodePatchPrompt({
+              repoPath,
+              testCase: createPromptCase(testCase, verifierFeedback),
+              contextStrategy,
+              agentFlow,
+              verifierFeedback
+            })
           }
         ]
       })
@@ -272,4 +278,24 @@ async function requestVerifierDecision(
 
 function normalizeBaseUrl(value: string): string {
   return value.replace(/\/$/, "");
+}
+
+function createPromptCase(
+  testCase: CodePatchBenchmarkCase,
+  verifierFeedback?: CodePatchVerifierDecision
+): CodePatchBenchmarkCase {
+  if (caseSuite !== "remask_required" || verifierFeedback) return testCase;
+
+  // Remask-required suite kurumsal hayattaki dar role-view problemini simüle eder:
+  // ilk implementer yalnızca kendi lokal dosyasını görür, verifier ise workspace
+  // politikasından eş dosyanın eksik olduğunu yakalar. Remask pass tam context alır.
+  return {
+    ...testCase,
+    relevantFiles: testCase.relevantFiles.slice(0, 1),
+    task: [
+      testCase.task,
+      "Initial role view: you currently have only the local package metadata file.",
+      "Do not edit files whose contents are not present in this packet."
+    ].join(" ")
+  };
 }
