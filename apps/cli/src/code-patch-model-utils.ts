@@ -106,28 +106,30 @@ export function parseCodePatchContextStrategy(value: string): CodePatchContextSt
 
 export function createCodePatchRunSuffix(strategy: CodePatchContextStrategy): string {
   const flow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
+  const caseSuite = process.env.CODE_MODEL_CASE_SUITE === "remask_required" ? "remask-required-" : "";
   const flowSuffix = flow === "workspace"
-    ? "code-model-workspace-patch-benchmark"
+    ? `code-model-${caseSuite}workspace-patch-benchmark`
     : flow === "workspace_verifier"
-      ? "code-model-workspace-verifier-patch-benchmark"
+      ? `code-model-${caseSuite}workspace-verifier-patch-benchmark`
       : flow === "workspace_verifier_remask"
-        ? "code-model-workspace-verifier-remask-patch-benchmark"
-        : "code-model-patch-benchmark";
+        ? `code-model-${caseSuite}workspace-verifier-remask-patch-benchmark`
+        : `code-model-${caseSuite}patch-benchmark`;
 
   if (flow !== "direct") return flowSuffix;
-  if (strategy === "rag") return "code-model-rag-patch-benchmark";
-  if (strategy === "expanded") return "code-model-expanded-patch-benchmark";
-  if (strategy === "synthetic") return "code-model-synthetic-patch-benchmark";
-  return "code-model-patch-benchmark";
+  if (strategy === "rag") return `code-model-${caseSuite}rag-patch-benchmark`;
+  if (strategy === "expanded") return `code-model-${caseSuite}expanded-patch-benchmark`;
+  if (strategy === "synthetic") return `code-model-${caseSuite}synthetic-patch-benchmark`;
+  return `code-model-${caseSuite}patch-benchmark`;
 }
 
 export function createCodePatchEngineLabel(strategy: CodePatchContextStrategy, model: string): string {
   const flow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
+  const caseSuite = process.env.CODE_MODEL_CASE_SUITE === "remask_required" ? "-remask-required" : "";
   const flowLabel = flow === "direct" ? "" : `-${flow}`;
-  if (strategy === "rag") return `openai-compatible-code-patch-rag:${model}`;
-  if (strategy === "expanded") return `openai-compatible-code-patch-expanded:${model}`;
-  if (strategy === "synthetic") return `openai-compatible-code-patch-synthetic:${model}`;
-  return `openai-compatible-code-patch${flowLabel}:${model}`;
+  if (strategy === "rag") return `openai-compatible-code-patch${caseSuite}-rag:${model}`;
+  if (strategy === "expanded") return `openai-compatible-code-patch${caseSuite}-expanded:${model}`;
+  if (strategy === "synthetic") return `openai-compatible-code-patch${caseSuite}-synthetic:${model}`;
+  return `openai-compatible-code-patch${caseSuite}${flowLabel}:${model}`;
 }
 
 export function parseVerifierDecision(content: string): CodePatchVerifierDecision {

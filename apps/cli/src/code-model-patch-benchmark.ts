@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   codePatchReportToMarkdown,
   nanoidCodePatchCases,
+  nanoidRemaskRequiredCodePatchCases,
   runCodePatchBenchmark,
   validateCodePatchCases,
   type CodePatchBenchmarkCase
@@ -45,9 +46,11 @@ const model = process.env.LLM_MODEL ?? "openai-compatible-model";
 const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
 const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "900");
 const caseLimit = Number(process.env.CODE_MODEL_CASE_LIMIT ?? "50");
+const caseSuite = process.env.CODE_MODEL_CASE_SUITE === "remask_required" ? "remask_required" : "standard";
 const contextStrategy = parseCodePatchContextStrategy(process.env.CODE_CONTEXT_STRATEGY ?? "plain");
 const agentFlow = parseCodePatchAgentFlow(process.env.CODE_AGENT_FLOW ?? "direct");
-const modelCases = nanoidCodePatchCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
+const sourceCases = caseSuite === "remask_required" ? nanoidRemaskRequiredCodePatchCases : nanoidCodePatchCases;
+const modelCases = sourceCases.filter((testCase) => testCase.expectedOutcome === "pass").slice(0, caseLimit);
 const failures = validateCodePatchCases(modelCases);
 
 if (failures.length) {
@@ -57,7 +60,7 @@ if (failures.length) {
 const generatedCases: CodePatchBenchmarkCase[] = [];
 
 for (const testCase of modelCases) {
-  console.log(`[code-model-patch:${contextStrategy}:${agentFlow}] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
+  console.log(`[code-model-patch:${caseSuite}:${contextStrategy}:${agentFlow}] ${generatedCases.length + 1}/${modelCases.length} ${testCase.id}`);
   const generated = await requestPatchPlan(testCase);
   generatedCases.push({
     ...testCase,
@@ -70,7 +73,9 @@ const report = await runCodePatchBenchmark({
   repoPath,
   workRoot,
   cases: generatedCases,
-  suiteName: `oss-code-model-${contextStrategy}-patch-benchmark-v1`,
+  suiteName: caseSuite === "remask_required"
+    ? `oss-code-model-remask-required-${contextStrategy}-patch-benchmark-v1`
+    : `oss-code-model-${contextStrategy}-patch-benchmark-v1`,
   engineName: createCodePatchEngineLabel(contextStrategy, model)
 });
 const runId = `${report.createdAt.replace(/[:.]/g, "-")}-${createCodePatchRunSuffix(contextStrategy)}`;
@@ -87,6 +92,7 @@ console.log(
       ok: true,
       repoPath,
       modelName: model,
+      caseSuite,
       contextStrategy,
       agentFlow,
       caseCount: report.caseCount,
@@ -225,7 +231,8 @@ async function requestVerifierDecision(
             "You are a boundary verifier for an enterprise code patch benchmark.",
             "Return JSON only.",
             "Decide whether the proposed patch is approved, should be refused, or should remask a failed region.",
-            "If product, platform, compliance, owner, or approved numeric decision is missing, do not allow guessing."
+            "If product, platform, compliance, owner, or approved numeric decision is missing, do not allow guessing.",
+            "If authority is present but the patch is incomplete, approximate, or locally repairable, choose remask instead of refuse."
           ].join(" ")
         },
         {

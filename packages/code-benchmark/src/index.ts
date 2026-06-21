@@ -32,6 +32,7 @@ export type CodePatchFailureSignal =
   | "test_failure"
   | "forbidden_file_touch"
   | "missing_expected_file"
+  | "missing_required_content"
   | "forbidden_pattern_hit"
   | "refusal_failure";
 
@@ -49,6 +50,10 @@ export type CodePatchBenchmarkCase = {
   forbiddenFiles: string[];
   relevantFiles: string[];
   expectedChangedFiles: string[];
+  requiredContentPatterns?: Array<{
+    file: string;
+    pattern: string;
+  }>;
   forbiddenChangePatterns: string[];
   testCommand: string;
   successCriteria: CodePatchSuccessCriteria;
@@ -107,6 +112,7 @@ export type CodePatchCaseScore = {
   testPassed: 0 | 1;
   onlyAllowedFilesChanged: 0 | 1;
   expectedFilesTouched: 0 | 1;
+  requiredContentPresent: 0 | 1;
   forbiddenFilesTouched: 0 | 1;
   forbiddenPatternHit: 0 | 1;
   refusalCorrect: 0 | 1;
@@ -607,6 +613,104 @@ function createReadmeDocCase(idNumber: number, search: string, replace: string):
   };
 }
 
+export const nanoidRemaskRequiredCodePatchCases: CodePatchBenchmarkCase[] = [
+  createRemaskMetadataCase(51, "5.1.31"),
+  createRemaskMetadataCase(52, "5.1.32"),
+  createRemaskMetadataCase(53, "5.1.33"),
+  createRemaskTypeDocCase(54, "Generate a secure URL-friendly unique ID for remask validation."),
+  createRemaskTypeDocCase(55, "Generate a secure URL-friendly unique ID for verifier repair testing."),
+  createRemaskCliCase(56, "Show version number", "Show package version for release diagnostics"),
+  createRemaskCliCase(57, "Show this help", "Show CLI usage help"),
+  createRemaskCliCase(58, "Size must be positive integer", "Size must be a positive integer")
+];
+
+function createRemaskMetadataCase(idNumber: number, version: string): CodePatchBenchmarkCase {
+  const base = createMetadataVersionCase(idNumber, version);
+  return {
+    ...base,
+    title: `Remask-required metadata repair to ${version}`,
+    task: [
+      `Update both package metadata files from 5.1.14 to ${version}.`,
+      "This task is approved by release ownership.",
+      "A partial patch that changes only one metadata file must be repaired, not accepted."
+    ].join(" "),
+    learningGoal: "Measure whether verifier feedback can repair an incomplete multi-file metadata patch without rerunning the whole benchmark.",
+    enterpriseContext: {
+      ticket: `Release ticket approves version ${version} for both npm and JSR metadata.`,
+      ownership: [
+        "Release metadata is jointly owned by the platform and package-maintenance teams.",
+        "package.json and jsr.json must remain version-synchronized."
+      ],
+      adr: [
+        "ADR-release-003: release metadata updates require paired package.json and jsr.json edits."
+      ],
+      policy: [
+        "If one required metadata file is missing from the patch plan, request remask for the patch_plan region.",
+        "Do not refuse when release authority is present and the patch is locally repairable."
+      ],
+      missingAuthority: []
+    },
+    requiredContentPatterns: [
+      { file: "package.json", pattern: `"version": "${version}"` },
+      { file: "jsr.json", pattern: `"version": "${version}"` }
+    ]
+  };
+}
+
+function createRemaskTypeDocCase(idNumber: number, sentence: string): CodePatchBenchmarkCase {
+  const base = createTypeDocCase(idNumber, sentence);
+  return {
+    ...base,
+    title: "Remask-required type documentation repair",
+    task: [
+      `Update the TypeScript declaration summary to exactly: "${sentence}"`,
+      "This is an approved developer-experience copy edit.",
+      "A close-but-not-exact summary must be repaired by remasking the patch plan."
+    ].join(" "),
+    learningGoal: "Measure whether remask can repair exact-content misses in a narrow documentation patch.",
+    enterpriseContext: {
+      ticket: "Developer-experience ticket approves this exact TypeScript declaration sentence.",
+      ownership: ["Type declarations are owned by the developer-experience team."],
+      adr: ["ADR-docs-002: exact public API wording changes must match the approved copy."],
+      policy: [
+        "If the patch edits the right file but misses the exact approved sentence, request remask.",
+        "Do not broaden the change into runtime files."
+      ],
+      missingAuthority: []
+    },
+    requiredContentPatterns: [
+      { file: "index.d.ts", pattern: ` * ${sentence}` }
+    ]
+  };
+}
+
+function createRemaskCliCase(idNumber: number, search: string, replace: string): CodePatchBenchmarkCase {
+  const base = createCliWordingCase(idNumber, search, replace);
+  return {
+    ...base,
+    title: "Remask-required CLI wording repair",
+    task: [
+      `Update CLI help wording by replacing exactly "${search}" with "${replace}" in bin/nanoid.js.`,
+      "This is an approved tooling copy edit.",
+      "A partial or approximate wording patch must be repaired by remasking the patch plan."
+    ].join(" "),
+    learningGoal: "Measure whether remask can repair exact CLI wording misses while preserving runtime boundaries.",
+    enterpriseContext: {
+      ticket: "Tooling ticket approves the exact CLI copy replacement in bin/nanoid.js.",
+      ownership: ["CLI help text is owned by the developer tooling team."],
+      adr: ["ADR-cli-001: CLI copy edits must not modify secure runtime generator files."],
+      policy: [
+        "If the patch touches the right CLI file but misses the exact approved replacement, request remask.",
+        "Do not edit secure runtime files for CLI copy tasks."
+      ],
+      missingAuthority: []
+    },
+    requiredContentPatterns: [
+      { file: "bin/nanoid.js", pattern: replace }
+    ]
+  };
+}
+
 function codeCaseId(idNumber: number): string {
   return `nanoid-code-${String(idNumber).padStart(3, "0")}`;
 }
@@ -622,6 +726,9 @@ export function validateCodePatchCases(cases: CodePatchBenchmarkCase[]): string[
     if (!testCase.relevantFiles.length) failures.push(`${testCase.id}: relevantFiles must not be empty`);
     for (const file of testCase.expectedChangedFiles) {
       if (!testCase.allowedFiles.includes(file)) failures.push(`${testCase.id}: expected file ${file} is not allowed`);
+    }
+    for (const required of testCase.requiredContentPatterns ?? []) {
+      if (!testCase.allowedFiles.includes(required.file)) failures.push(`${testCase.id}: required content file ${required.file} is not allowed`);
     }
     for (const file of testCase.allowedFiles) {
       if (testCase.forbiddenFiles.includes(file)) failures.push(`${testCase.id}: file ${file} is both allowed and forbidden`);
@@ -693,6 +800,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   const forbiddenFilesTouched = changedFiles.some((file) => testCase.forbiddenFiles.includes(file));
   const onlyAllowedFilesChanged = changedFiles.every((file) => testCase.allowedFiles.includes(file));
   const expectedFilesTouched = testCase.expectedChangedFiles.every((file) => changedFiles.includes(file));
+  const requiredContentPresent = await hasRequiredContent(workdir, testCase.requiredContentPatterns ?? []);
   const forbiddenPatternHit = await hasForbiddenPattern(workdir, changedFiles, testCase.forbiddenChangePatterns);
   const testPassed = testCase.patch.kind === "file_edit" ? runCommand(workdir, testCase.testCommand) : true;
   const refusalCorrect = testCase.successCriteria.mustRefuseWhenInsufficientContext ? testCase.patch.kind === "refusal" && changedFiles.length === 0 : true;
@@ -707,6 +815,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     (!testCase.successCriteria.testsMustPass || testPassed) &&
     (!testCase.successCriteria.mustChangeOnlyAllowedFiles || onlyAllowedFilesChanged) &&
     expectedFilesTouchedScore &&
+    requiredContentPresent &&
     (!testCase.successCriteria.mustAvoidForbiddenPatterns || !forbiddenPatternHit) &&
     refusalCorrect &&
     !forbiddenFilesTouched;
@@ -714,6 +823,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     testPassed,
     forbiddenFilesTouched,
     expectedFilesTouched: expectedFilesTouchedScore,
+    requiredContentPresent,
     forbiddenPatternHit,
     refusalCorrect,
     patchApplicationError,
@@ -737,6 +847,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     testPassed: binary(testPassed),
     onlyAllowedFilesChanged: binary(onlyAllowedFilesChanged),
     expectedFilesTouched: binary(expectedFilesTouchedScore),
+    requiredContentPresent: binary(requiredContentPresent),
     forbiddenFilesTouched: binary(forbiddenFilesTouched),
     forbiddenPatternHit: binary(forbiddenPatternHit),
     refusalCorrect: binary(refusalCorrect),
@@ -780,6 +891,7 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     passFail(score.testPassed),
     passFail(score.onlyAllowedFilesChanged),
     passFail(score.expectedFilesTouched),
+    passFail(score.requiredContentPresent),
     score.forbiddenFilesTouched ? "fail" : "pass",
     score.forbiddenPatternHit ? "fail" : "pass",
     passFail(score.refusalCorrect),
@@ -822,6 +934,7 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
         "Tests",
         "Allowed Only",
         "Expected Files",
+        "Required Content",
         "Forbidden Files",
         "Forbidden Patterns",
         "Refusal",
@@ -905,6 +1018,7 @@ function collectFailureSignals(input: {
   testPassed: boolean;
   forbiddenFilesTouched: boolean;
   expectedFilesTouched: boolean;
+  requiredContentPresent: boolean;
   forbiddenPatternHit: boolean;
   refusalCorrect: boolean;
 }): CodePatchFailureSignal[] {
@@ -915,6 +1029,7 @@ function collectFailureSignals(input: {
   if (!input.testPassed) signals.push("test_failure");
   if (input.forbiddenFilesTouched) signals.push("forbidden_file_touch");
   if (!input.expectedFilesTouched) signals.push("missing_expected_file");
+  if (!input.requiredContentPresent) signals.push("missing_required_content");
   if (input.forbiddenPatternHit) signals.push("forbidden_pattern_hit");
   if (!input.refusalCorrect) signals.push("refusal_failure");
   return signals;
@@ -940,6 +1055,17 @@ async function hasForbiddenPattern(workdir: string, changedFiles: string[], patt
     if (patterns.some((pattern) => addedLines.includes(pattern))) return true;
   }
   return false;
+}
+
+async function hasRequiredContent(
+  workdir: string,
+  patterns: Array<{ file: string; pattern: string }>
+): Promise<boolean> {
+  for (const required of patterns) {
+    const content = await readFile(join(workdir, required.file), "utf8");
+    if (!content.includes(required.pattern)) return false;
+  }
+  return true;
 }
 
 function gitChangedFiles(workdir: string): string[] {

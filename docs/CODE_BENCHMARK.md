@@ -335,3 +335,34 @@ The report answers the Phase 2 product-validation question:
 Does workspace/verifier/remask reduce enterprise-boundary guesses without
 collapsing patch pass rate?
 ```
+
+## Remask-Required Code Repair Suite
+
+The hybrid flow benchmark can show verifier value without showing remask value.
+That happens when the verifier already resolves the case by approval or refusal.
+To test remask more directly, the lab includes a smaller repair-oriented suite:
+
+```bash
+npm run code:model-remask-verifier-benchmark
+npm run code:model-remask-verifier-remask-benchmark
+npm run reports:code-remask
+```
+
+This suite is different from binary missing-authority cases:
+
+- authority is present,
+- the task is locally repairable,
+- verifier-only should catch incomplete or approximate patch plans,
+- verifier-plus-remask gets one chance to repair the failed patch region,
+- the scorer checks required content, not only touched files.
+
+The main reading is:
+
+```text
+verifier-only catches partial patch failure
+verifier + remask repairs the failed region without broadening scope
+```
+
+If both flows remain tied, the case set still is not exposing a repairable failed
+region. If remask improves required-content or missing-file signals without
+increasing invalid contracts, remask is adding measurable value.
