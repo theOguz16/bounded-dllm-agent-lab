@@ -1,0 +1,54 @@
+name: Bounded Agent Review
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create review task
+        run: |
+          mkdir -p reports/product-runtime
+          cat > reports/product-runtime/pr-task.md <<'EOF'
+          # Pull request bounded review
+
+          Authority: repository maintenance update is approved.
+
+          Review this pull request diff against the repository bounded-agent policy.
+          EOF
+
+      - name: Create pull request diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff "origin/${{ github.base_ref }}...HEAD" > reports/product-runtime/pr.diff
+          else
+            git diff HEAD~1...HEAD > reports/product-runtime/pr.diff
+          fi
+
+      - name: Run bounded agent review
+        id: bounded-review
+        uses: ./
+        with:
+          task: reports/product-runtime/pr-task.md
+          diff: reports/product-runtime/pr.diff
+          policy: bounded-agent.policy.yml
+          output-dir: reports/product-runtime
+          fail-on: high
+
+      - name: Show review summary
+        run: |
+          echo "Decision: ${{ steps.bounded-review.outputs.decision }}"
+          echo "Risk: ${{ steps.bounded-review.outputs.risk-level }}"
+          echo "JSON: ${{ steps.bounded-review.outputs.json-path }}"
+          echo "Markdown: ${{ steps.bounded-review.outputs.markdown-path }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bounded-agent-review
+          path: reports/product-runtime
