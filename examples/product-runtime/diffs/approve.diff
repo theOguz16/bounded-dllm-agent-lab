@@ -1,0 +1,12 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@
+-  "version": "1.0.0"
++  "version": "1.0.1"
+diff --git a/jsr.json b/jsr.json
+--- a/jsr.json
++++ b/jsr.json
+@@
+-  "version": "1.0.0"
++  "version": "1.0.1"

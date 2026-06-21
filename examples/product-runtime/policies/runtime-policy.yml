@@ -1,0 +1,10 @@
+allowed_paths:
+  - index.js
+forbidden_paths:
+paired_files:
+sensitive_patterns:
+  - SECRET
+  - API_KEY
+required_tests:
+missing_authority_rules:
+  - approved product default

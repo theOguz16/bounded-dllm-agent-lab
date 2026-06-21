@@ -1,0 +1,6 @@
+diff --git a/index.js b/index.js
+--- a/index.js
++++ b/index.js
+@@
+-export const size = 21
++export const size = "SECRET"

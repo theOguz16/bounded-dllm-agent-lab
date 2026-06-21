@@ -1,0 +1,15 @@
+allowed_paths:
+  - package.json
+  - jsr.json
+forbidden_paths:
+  - index.js
+  - index.browser.js
+paired_files:
+  - source: package.json
+    requires: jsr.json
+    reason: release metadata must stay consistent
+sensitive_patterns:
+  - SECRET
+  - API_KEY
+required_tests:
+missing_authority_rules:
