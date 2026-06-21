@@ -8,10 +8,17 @@ import {
 } from "../../../packages/product-runtime/src/index.js";
 
 const args = parseArgs(process.argv.slice(2));
+if (args.help === "true" || args.h === "true") {
+  printHelp();
+  process.exit(0);
+}
+
 const taskPath = requireArg(args, "task");
 const diffPath = requireArg(args, "diff");
 const policyPath = requireArg(args, "policy");
 const outDir = args["out-dir"] ?? "reports/product-runtime";
+const format = parseFormat(args.format ?? "json");
+const failOn = parseFailOn(args["fail-on"] ?? "never");
 
 const task = parseTask(await readFile(taskPath, "utf8"), taskPath);
 const diff = parseUnifiedDiff(await readFile(diffPath, "utf8"));
@@ -25,15 +32,28 @@ await mkdir(dirname(jsonPath), { recursive: true });
 await writeFile(jsonPath, `${JSON.stringify(output, null, 2)}\n`);
 await writeFile(markdownPath, `${output.markdownReport}\n`);
 
-console.log(JSON.stringify({
+const summary = {
   ok: true,
   decision: output.decision,
   riskLevel: output.riskLevel,
   findingCount: output.findings.length,
+  metrics: output.metrics,
   remaskRegionCount: output.remaskRegions.length,
   jsonPath,
   markdownPath
-}, null, 2));
+};
+
+if (format === "json" || format === "both") {
+  console.log(JSON.stringify(summary, null, 2));
+}
+
+if (format === "markdown" || format === "both") {
+  console.log(output.markdownReport);
+}
+
+if (shouldFail(failOn, output.riskLevel)) {
+  process.exitCode = 1;
+}
 
 function parseArgs(values: string[]): Record<string, string> {
   const parsed: Record<string, string> = {};
@@ -62,6 +82,45 @@ function requireArg(args: Record<string, string>, key: string): string {
     throw new Error(`Missing required argument --${key}`);
   }
   return value;
+}
+
+function printHelp(): void {
+  console.log(`Bounded Agent Product Review
+
+Usage:
+  npm run product:review -- --task task.md --diff patch.diff --policy policy.yml [options]
+
+Required:
+  --task <path>       Markdown or JSON task file.
+  --diff <path>       Unified diff file.
+  --policy <path>     JSON or simple YAML policy file.
+
+Options:
+  --out-dir <path>    Artifact output directory. Default: reports/product-runtime
+  --format <value>    Console output: json, markdown, both. Default: json
+  --fail-on <value>   CI exit behavior: high, medium, never. Default: never
+  --help              Show this help.
+
+Examples:
+  npm run product:review -- --task examples/product-runtime/tasks/release-metadata.md --diff examples/product-runtime/diffs/remask-required.diff --policy examples/product-runtime/policies/release-policy.yml
+  npm run product:review -- --task task.md --diff patch.diff --policy policy.yml --fail-on high --format both
+`);
+}
+
+function parseFormat(value: string): "json" | "markdown" | "both" {
+  if (value === "json" || value === "markdown" || value === "both") return value;
+  throw new Error(`Unknown --format value: ${value}`);
+}
+
+function parseFailOn(value: string): "high" | "medium" | "never" {
+  if (value === "high" || value === "medium" || value === "never") return value;
+  throw new Error(`Unknown --fail-on value: ${value}`);
+}
+
+function shouldFail(failOn: "high" | "medium" | "never", riskLevel: "low" | "medium" | "high"): boolean {
+  if (failOn === "never") return false;
+  if (failOn === "high") return riskLevel === "high";
+  return riskLevel === "medium" || riskLevel === "high";
 }
 
 function parseTask(content: string, path: string): TaskSpec {
