@@ -321,6 +321,72 @@ Verifier kaliteyi korur.
 Remask güvenli ve tamir edilebilir kısmi hatalarda üretkenliği geri kazandırır.
 ```
 
+## 2. Faz Araştırma Sonucu
+
+İkinci fazın amacı, ilk fazda görülen model failure mode’larını ürünleşebilir
+bir agent mimarisine dönüştürmekti. İlk faz bize şunu göstermişti:
+
+```text
+Qwen2.5-Coder güçlü bir implementation agent adayıdır; fakat enterprise
+boundary ve missing-authority kararlarında tek başına yeterli değildir.
+```
+
+İkinci faz bu nedenle model değiştirmek yerine agent akışını değiştirdi:
+
+```text
+direct coder -> shared semantic workspace -> verifier -> verifier-triggered remask
+```
+
+Bu fazda test edilen ana araştırma sorusu şuydu:
+
+```text
+Aynı coder model, kurumsal workspace + verifier + hedefli remask mimarisine
+yerleştirildiğinde daha güvenli, daha kapsam kontrollü ve daha tam patch
+sonuçları üretebilir mi?
+```
+
+Ölçülen cevap:
+
+| Faz 2 Bulgusu | Ölçülen Sonuç | Yorum |
+| --- | ---: | --- |
+| Workspace + verifier patch pass’i artırdı. | `%78 -> %96` | Aynı model, daha iyi agent mimarisinde daha iyi davrandı. |
+| Boundary guess ortadan kalktı. | `10 -> 0` | Verifier eksik yetki/karar durumunda tahmin üretimini engelledi. |
+| Remask genel suite’te nötr kaldı. | `%96 -> %96` | Remask gerekmeyen yerde ek değer üretmedi ama zarar da vermedi. |
+| Remask-required suite’te repair başarısı oluştu. | `%0 -> %100` | Güvenli kısmi hata varsa remask eksik paired-file bölgesini tamir etti. |
+| Invalid contract artmadı. | `0` | İyileşme parser/format gevşetmesiyle oluşmadı. |
+
+Bu fazın ana sonucu:
+
+```text
+Verifier güvenlik ve kalite kapısıdır.
+Remask ise sadece verifier tarafından işaretlenen güvenli, yerel ve
+tamir edilebilir kısmi hatalarda çalışması gereken maliyetli ama değerli bir
+repair mekanizmasıdır.
+```
+
+Bu nedenle ikinci faz, araştırmanın ürünleşme yönünü de netleştirdi. Ürün fikri
+bir IDE veya genel coding assistant değildir. Daha dar ve savunulabilir ürün
+konumu şudur:
+
+```text
+Kurumsal AI patch boundary reviewer + verifier-triggered repair layer.
+```
+
+Bu katman, mevcut AI coding araçlarının ürettiği patch’leri inceleyebilir:
+
+- görev scope’u içinde mi?
+- eksik product/platform/compliance kararı tahmin edilmiş mi?
+- paired file, schema, type veya test eksik mi?
+- patch güvenli şekilde remask edilebilir mi?
+
+Dolayısıyla ikinci fazın araştırma sonucu, “remask her zaman iyidir” değildir.
+Daha doğru sonuç şudur:
+
+```text
+Remask, default-on değil; verifier-triggered olursa kurumsal agentic coding
+kalitesini belirleyen mekanizmalardan biri olabilir.
+```
+
 ## Ürünleşme Yorumu
 
 Bu araştırmadan çıkan ürün fikri bir IDE veya Cursor alternatifi değildir.
@@ -386,13 +452,15 @@ mekanizması sonuç kalitesini doğrudan etkiler.
 
 En güçlü ölçülmüş sonuçlar:
 
-| Bulgular | Ölçülen Sonuç |
-| --- | --- |
-| Workspace + verifier aynı modelde patch pass’i artırdı. | `%78 -> %96` |
-| Boundary guess ortadan kalktı. | `10 -> 0` |
-| Remask genel suite’te nötr kaldı. | `%96 -> %96` |
-| Remask-required suite’te güçlü pozitif ayrıştı. | `%0 -> %100` |
-| Invalid contract artmadı. | `0` |
+| Faz | Bulgular | Ölçülen Sonuç |
+| --- | --- | ---: |
+| Faz 1 | Davranış ve code benchmark altyapısı kuruldu. | Deterministik ölçüm |
+| Faz 1 | Qwen2.5-Coder scoped implementation tarafında güçlü, enterprise boundary tarafında zayıf çıktı. | `78% patch pass`, `10 boundary guess` |
+| Faz 2 | Workspace + verifier aynı modelde patch pass’i artırdı. | `%78 -> %96` |
+| Faz 2 | Boundary guess ortadan kalktı. | `10 -> 0` |
+| Faz 2 | Remask genel suite’te nötr kaldı. | `%96 -> %96` |
+| Faz 2 | Remask-required suite’te güçlü pozitif ayrıştı. | `%0 -> %100` |
+| Faz 2 | Invalid contract artmadı. | `0` |
 
 Bu nedenle araştırmanın güncel yönü şu olmalıdır:
 
