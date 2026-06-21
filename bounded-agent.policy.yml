@@ -1,0 +1,31 @@
+allowed_paths:
+  - README.md
+  - package.json
+  - package-lock.json
+  - action.yml
+  - bounded-agent.policy.yml
+  - apps/**
+  - packages/**
+  - tests/**
+  - docs/**
+  - examples/**
+  - .github/**
+forbidden_paths:
+  - reports/**
+  - benchmarks/repos/**
+  - node_modules/**
+  - dist/**
+paired_files:
+  - source: package.json
+    requires: package-lock.json
+    reason: npm package metadata changes must keep the lockfile in sync
+  - source: action.yml
+    requires: docs/MVP_USAGE.md
+    reason: GitHub Action behavior changes must be documented for users
+sensitive_patterns:
+  - SECRET
+  - API_KEY
+  - TOKEN
+  - PASSWORD
+required_tests:
+missing_authority_rules:

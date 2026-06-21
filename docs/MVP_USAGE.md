@@ -108,6 +108,15 @@ jobs:
           path: reports/product-runtime
 ```
 
+Bu repo kendi kendini dogfood etmek için ayrıca şu workflow'u içerir:
+
+```text
+.github/workflows/bounded-review.yml
+```
+
+Workflow PR diff'i çıkarır, `bounded-agent.policy.yml` ile local action'ı
+çalıştırır ve JSON/Markdown artifact yükler. Model veya API secret gerektirmez.
+
 ## Policy Contract
 
 Minimum policy:
@@ -129,6 +138,12 @@ required_tests:
 missing_authority_rules:
 ```
 
+Bu repo kendi dogfood policy dosyasını kökte tutar:
+
+```text
+bounded-agent.policy.yml
+```
+
 ## Örnekler
 
 Hazır örnekler:
@@ -140,6 +155,14 @@ Hazır örnekler:
 | `examples/product-runtime/diffs/reject-forbidden.diff` | `reject` |
 | `examples/product-runtime/diffs/refuse-missing-authority.diff` | `refuse` |
 | `examples/product-runtime/diffs/human-review-empty.diff` | `human_review_required` |
+
+Repo dogfood örnekleri:
+
+| Diff | Beklenen Karar |
+| --- | --- |
+| `examples/product-runtime/diffs/repo-docs-approve.diff` | `approve` |
+| `examples/product-runtime/diffs/repo-package-remask.diff` | `remask_required` |
+| `examples/product-runtime/diffs/repo-sensitive-reject.diff` | `reject` |
 
 ## Ne Yapmaz?
 
