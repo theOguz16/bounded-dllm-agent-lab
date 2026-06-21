@@ -210,6 +210,10 @@ The current Turkish research report with hypotheses, methodology, result
 tables, and charts is available at
 [`docs/RESEARCH_REPORT_TR.md`](docs/RESEARCH_REPORT_TR.md).
 
+The Turkish LinkedIn draft and short social figures are available at
+[`docs/LINKEDIN_DRAFT_TR.md`](docs/LINKEDIN_DRAFT_TR.md) and
+[`docs/results/LINKEDIN_FIGURES_TR.md`](docs/results/LINKEDIN_FIGURES_TR.md).
+
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
