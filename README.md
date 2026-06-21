@@ -206,6 +206,10 @@ benchmarks, hard-suite baselines, Qwen2.5-Coder code patch benchmarks,
 Dream-Coder dLLM direct patch benchmarks, context strategy comparisons, and code
 failure taxonomy.
 
+The current Turkish research report with hypotheses, methodology, result
+tables, and charts is available at
+[`docs/RESEARCH_REPORT_TR.md`](docs/RESEARCH_REPORT_TR.md).
+
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
