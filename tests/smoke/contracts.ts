@@ -7,6 +7,7 @@ import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "..
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import { parseUnifiedDiff, reviewPatch, type RepoPolicy } from "../../packages/product-runtime/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
+import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
 const cases = [
   {
@@ -129,6 +130,17 @@ const productPolicy: RepoPolicy = {
   missing_authority_rules: []
 };
 
+const starterPolicyValidation = validatePolicy(parsePolicy(starterPolicyYaml, "bounded-agent.policy.yml"));
+assert.equal(starterPolicyValidation.ok, true);
+assert.equal(starterPolicyValidation.errorCount, 0);
+
+const invalidPolicyValidation = validatePolicy({
+  ...productPolicy,
+  paired_files: [{ source: "package.json", requires: "package.json" }]
+});
+assert.equal(invalidPolicyValidation.ok, false);
+assert.equal(invalidPolicyValidation.findings.some((finding) => finding.code === "self_paired_file_rule"), true);
+
 const productTask = {
   id: "product-smoke",
   title: "Update release metadata",
@@ -200,4 +212,4 @@ const humanReview = reviewPatch({
 assert.equal(humanReview.decision, "human_review_required");
 assert.equal(humanReview.riskLevel, "medium");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime"] }, null, 2));
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy"] }, null, 2));

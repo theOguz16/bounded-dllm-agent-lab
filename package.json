@@ -17,6 +17,7 @@
     "reports:code-remask": "node dist/apps/cli/src/code-remask-comparison.js",
     "product:review": "node dist/apps/cli/src/product-review.js",
     "product:comment": "node dist/apps/cli/src/product-comment.js",
+    "product:policy": "node dist/apps/cli/src/product-policy.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",

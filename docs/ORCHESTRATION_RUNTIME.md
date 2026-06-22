@@ -73,6 +73,23 @@ missing_authority_rules:
   - approved product default
 ```
 
+Yeni bir repo için starter policy üretilebilir:
+
+```bash
+npm run product:policy -- --init --out bounded-agent.policy.yml
+```
+
+Policy doğrulama komutu, dosyanın parse edilebilir olmasının ötesinde bazı ürün
+uyarıları da verir:
+
+```bash
+npm run product:policy -- --validate --policy bounded-agent.policy.yml
+```
+
+Örneğin boş `forbidden_paths` bir syntax hatası değildir, fakat ürün açısından
+zayıf bir boundary sinyalidir. Bu yüzden validation sonucu error ve warning
+ayrımı yapar.
+
 ## CLI Usage
 
 Build sonrası:

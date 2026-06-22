@@ -46,6 +46,27 @@ npm install
 npm run build
 ```
 
+Yeni bir repoda starter policy üretmek:
+
+```bash
+npm run product:policy -- \
+  --init \
+  --out bounded-agent.policy.yml
+```
+
+Policy dosyasını doğrulamak:
+
+```bash
+npm run product:policy -- \
+  --validate \
+  --policy bounded-agent.policy.yml
+```
+
+Starter policy bilinçli olarak muhafazakardır. Önce `allowed_paths`,
+`forbidden_paths`, `paired_files` ve `sensitive_patterns` alanlarını takımın repo
+yapısına göre daraltmak gerekir. Bu adım ürün felsefesinin temelidir: her agent'a
+tüm repo değil, policy-bound çalışma alanı verilir.
+
 Örnek approve koşusu:
 
 ```bash
