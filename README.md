@@ -232,6 +232,9 @@ npm run product:review -- --task task.md --diff patch.diff --policy policy.yml
 The MVP usage guide, example inputs, and GitHub Action workflow are documented in
 [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md).
 
+The MVP demo/readiness checklist is available at
+[`docs/MVP_READINESS.md`](docs/MVP_READINESS.md).
+
 Generate visual benchmark figures with:
 
 ```bash
@@ -266,6 +269,56 @@ It will create a small benchmark suite with these case families:
 Each system will receive the same task family and produce a structured result. The evaluator will produce a JSON report with comparable metrics.
 
 ## Quick Start
+
+### Product MVP
+
+The current product MVP is a deterministic bounded-agent review runtime. It
+does not call a model. It reviews `task + diff + policy` and returns one of:
+
+```text
+approve | refuse | reject | remask_required | human_review_required
+```
+
+Run the MVP locally:
+
+```bash
+npm install
+npm run build
+npm run product:policy -- --init --out /tmp/bounded-agent.policy.yml
+npm run product:policy -- --validate --policy /tmp/bounded-agent.policy.yml
+npm run product:review -- \
+  --task examples/product-runtime/tasks/repo-dogfood.md \
+  --diff examples/product-runtime/diffs/repo-package-remask.diff \
+  --policy bounded-agent.policy.yml \
+  --format both
+```
+
+Generate a PR-comment-ready artifact from a review JSON:
+
+```bash
+npm run product:comment -- \
+  --review reports/product-runtime/2026-...-product-review.json \
+  --out reports/product-runtime/pr-comment.md \
+  --marker "<!-- bounded-agent-review -->"
+```
+
+Create an index for product runtime artifacts:
+
+```bash
+npm run product:report-index -- \
+  --dir reports/product-runtime \
+  --out-dir reports/product-runtime
+```
+
+The GitHub Action surface is documented in
+[`docs/MVP_USAGE.md`](docs/MVP_USAGE.md). PR comment posting is disabled by
+default and can be enabled intentionally with:
+
+```text
+BOUNDED_REVIEW_POST_COMMENT=true
+```
+
+### Research Lab
 
 ```bash
 npm install
@@ -302,4 +355,13 @@ npm run worker:smoke
 
 ## Status
 
-This repository is at research scaffold stage. The first work is to define the benchmark, workspace schema, masking policy, and model adapter interface before connecting a real dLLM.
+This repository now contains two connected tracks:
+
+- a reproducible research lab for bounded-context/dLLM-style agent experiments,
+- a first product MVP for deterministic bounded-agent review of task + diff +
+  policy inputs.
+
+The MVP is not a full IDE, not a Cursor/Codex replacement, and not a claim that
+dLLMs are universally better. It is the first working product surface for the
+architecture we validated in the research phase: context, authority, workspace,
+verifier, remask, trace and policy orchestration.

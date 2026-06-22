@@ -35,6 +35,13 @@ jobs:
       - name: Smoke contract tests
         run: npm run test:smoke
 
+      - name: Product policy onboarding
+        run: |
+          mkdir -p /tmp/bounded-agent-ci
+          npm run product:policy -- --init --out /tmp/bounded-agent-ci/bounded-agent.policy.yml
+          npm run product:policy -- --validate --policy /tmp/bounded-agent-ci/bounded-agent.policy.yml
+          npm run product:policy -- --validate --policy bounded-agent.policy.yml
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.
