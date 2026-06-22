@@ -95,6 +95,8 @@ docs/MVP_USAGE.md
 
 - JSON review artifact,
 - Markdown PR/report metni,
+- comment-ready PR summary,
+- report index artifact,
 - decision,
 - risk level,
 - findings,

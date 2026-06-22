@@ -41,12 +41,27 @@ jobs:
           output-dir: reports/product-runtime
           fail-on: high
 
+      - name: Generate PR comment artifact
+        run: |
+          REVIEW_JSON="${{ steps.bounded-review.outputs.json-path }}"
+          node dist/apps/cli/src/product-comment.js \
+            --review "$REVIEW_JSON" \
+            --out reports/product-runtime/pr-comment.md
+
+      - name: Generate report index
+        run: |
+          node dist/apps/cli/src/product-report-index.js \
+            --dir reports/product-runtime \
+            --out-dir reports/product-runtime
+
       - name: Show review summary
         run: |
           echo "Decision: ${{ steps.bounded-review.outputs.decision }}"
           echo "Risk: ${{ steps.bounded-review.outputs.risk-level }}"
           echo "JSON: ${{ steps.bounded-review.outputs.json-path }}"
           echo "Markdown: ${{ steps.bounded-review.outputs.markdown-path }}"
+          echo "Comment: reports/product-runtime/pr-comment.md"
+          echo "Index: reports/product-runtime/product-report-index.md"
 
       - uses: actions/upload-artifact@v4
         with:

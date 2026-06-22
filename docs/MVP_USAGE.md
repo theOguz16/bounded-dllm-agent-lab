@@ -34,6 +34,8 @@ Ek olarak JSON ve Markdown raporda şunları verir:
 - verifier findings,
 - remask regions,
 - trace events.
+- comment-ready PR summary,
+- report index for CI artifacts.
 
 ## CLI
 
@@ -76,6 +78,22 @@ npm run product:review -- \
 
 `--fail-on medium` medium ve high riskte non-zero döner. `--fail-on never`
 sadece rapor üretir.
+
+PR comment artifact üretimi:
+
+```bash
+npm run product:comment -- \
+  --review reports/product-runtime/2026-...-product-review.json \
+  --out reports/product-runtime/pr-comment.md
+```
+
+Birden fazla ürün raporunu indekslemek:
+
+```bash
+npm run product:report-index -- \
+  --dir reports/product-runtime \
+  --out-dir reports/product-runtime
+```
 
 ## GitHub Action
 
