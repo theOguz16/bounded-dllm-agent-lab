@@ -34,7 +34,8 @@ npm run build
 npm run test:smoke
 npm run product:policy -- --init --out /tmp/bounded-agent.policy.yml
 npm run product:policy -- --validate --policy /tmp/bounded-agent.policy.yml
-npm run product:policy -- --validate --policy bounded-agent.policy.yml
+npm run product:policy -- --validate --policy bounded-agent.policy.yml --format both
+npm run product:action-smoke
 ```
 
 Ürün review örneği:
@@ -150,6 +151,7 @@ MVP demo edilebilir sayılır, eğer:
 - local build ve smoke test geçiyor,
 - starter policy üretilebiliyor,
 - starter ve dogfood policy validate edilebiliyor,
+- action artifact smoke geçiyor,
 - dogfood review expected decision üretiyor,
 - PR comment artifact marker içeriyor,
 - GitHub Action JSON/Markdown/comment/index artifact path'lerini output olarak

@@ -8,6 +8,8 @@ if (args.help === "true" || args.h === "true") {
   process.exit(0);
 }
 
+const format = parseFormat(args.format ?? "json");
+
 if (args.init === "true") {
   const outPath = args.out ?? "bounded-agent.policy.yml";
   await mkdir(dirname(outPath), { recursive: true });
@@ -15,15 +17,16 @@ if (args.init === "true") {
 
   const policy = parsePolicy(starterPolicyYaml, outPath);
   const validation = validatePolicy(policy);
-
-  console.log(JSON.stringify({
+  const summary = {
     ok: validation.ok,
     mode: "init",
     policyPath: outPath,
     warningCount: validation.warningCount,
     errorCount: validation.errorCount,
     findings: validation.findings
-  }, null, 2));
+  };
+
+  printFormatted(summary, createPolicyMarkdown("init", outPath, validation), format);
   process.exit(validation.ok ? 0 : 1);
 }
 
@@ -31,8 +34,7 @@ if (args.validate === "true") {
   const policyPath = requireArg(args, "policy");
   const content = await readFile(policyPath, "utf8");
   const validation = validatePolicy(parsePolicy(content, policyPath));
-
-  console.log(JSON.stringify({
+  const summary = {
     ok: validation.ok,
     mode: "validate",
     policyPath,
@@ -40,7 +42,9 @@ if (args.validate === "true") {
     errorCount: validation.errorCount,
     findings: validation.findings,
     normalizedPolicy: validation.policy
-  }, null, 2));
+  };
+
+  printFormatted(summary, createPolicyMarkdown("validate", policyPath, validation), format);
   process.exit(validation.ok ? 0 : 1);
 }
 
@@ -73,6 +77,70 @@ function requireArg(args: Record<string, string>, key: string): string {
   return value;
 }
 
+function parseFormat(value: string): "json" | "markdown" | "both" {
+  if (value === "json" || value === "markdown" || value === "both") return value;
+  throw new Error(`Unknown --format value: ${value}`);
+}
+
+function printFormatted(summary: unknown, markdown: string, value: "json" | "markdown" | "both"): void {
+  if (value === "json" || value === "both") {
+    console.log(JSON.stringify(summary, null, 2));
+  }
+  if (value === "markdown" || value === "both") {
+    console.log(markdown);
+  }
+}
+
+function createPolicyMarkdown(
+  mode: "init" | "validate",
+  policyPath: string,
+  validation: ReturnType<typeof validatePolicy>
+): string {
+  const findingRows = validation.findings.length
+    ? validation.findings.map((finding) => [finding.severity, finding.code, finding.message])
+    : [["info", "no_findings", "Policy validation passed without findings."]];
+
+  return [
+    "# Bounded Agent Policy Validation",
+    "",
+    `- Mode: ${mode}`,
+    `- Policy: ${policyPath}`,
+    `- OK: ${validation.ok ? "yes" : "no"}`,
+    `- Errors: ${validation.errorCount}`,
+    `- Warnings: ${validation.warningCount}`,
+    "",
+    "## Findings",
+    "",
+    table(["Severity", "Code", "Message"], findingRows),
+    "",
+    "## Policy Shape",
+    "",
+    table(
+      ["Section", "Count"],
+      [
+        ["allowed_paths", validation.policy.allowed_paths.length.toString()],
+        ["forbidden_paths", validation.policy.forbidden_paths.length.toString()],
+        ["paired_files", (validation.policy.paired_files ?? []).length.toString()],
+        ["sensitive_patterns", (validation.policy.sensitive_patterns ?? []).length.toString()],
+        ["required_tests", (validation.policy.required_tests ?? []).length.toString()],
+        ["missing_authority_rules", (validation.policy.missing_authority_rules ?? []).length.toString()]
+      ]
+    )
+  ].join("\n");
+}
+
+function table(headers: string[], rows: string[][]): string {
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.map(escapeCell).join(" | ")} |`)
+  ].join("\n");
+}
+
+function escapeCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
 function printHelp(): void {
   console.log(`Bounded Agent Policy
 
@@ -85,6 +153,7 @@ Options:
   --validate         Validate an existing policy file.
   --out <path>       Output path for --init. Default: bounded-agent.policy.yml
   --policy <path>    Policy path for --validate.
+  --format <value>   Console output: json, markdown, both. Default: json
   --help             Show this help.
 `);
 }

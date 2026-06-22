@@ -232,6 +232,9 @@ npm run product:review -- --task task.md --diff patch.diff --policy policy.yml
 The MVP usage guide, example inputs, and GitHub Action workflow are documented in
 [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md).
 
+The consumer repository setup guide is available at
+[`docs/CONSUMER_SETUP.md`](docs/CONSUMER_SETUP.md).
+
 The MVP demo/readiness checklist is available at
 [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md).
 

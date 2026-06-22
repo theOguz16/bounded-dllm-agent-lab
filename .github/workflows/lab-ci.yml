@@ -42,6 +42,9 @@ jobs:
           npm run product:policy -- --validate --policy /tmp/bounded-agent-ci/bounded-agent.policy.yml
           npm run product:policy -- --validate --policy bounded-agent.policy.yml
 
+      - name: Product action artifact smoke
+        run: npm run product:action-smoke
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.

@@ -59,7 +59,8 @@ Policy dosyasını doğrulamak:
 ```bash
 npm run product:policy -- \
   --validate \
-  --policy bounded-agent.policy.yml
+  --policy bounded-agent.policy.yml \
+  --format both
 ```
 
 Starter policy bilinçli olarak muhafazakardır. Önce `allowed_paths`,
@@ -123,6 +124,12 @@ npm run product:report-index -- \
 ```
 
 ## GitHub Action
+
+Daha ayrıntılı external repo kurulumu için:
+
+```text
+docs/CONSUMER_SETUP.md
+```
 
 Örnek workflow:
 
