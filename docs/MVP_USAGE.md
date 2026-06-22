@@ -33,7 +33,7 @@ Ek olarak JSON ve Markdown raporda şunları verir:
 - role-specific bounded views,
 - verifier findings,
 - remask regions,
-- trace events.
+- trace events,
 - comment-ready PR summary,
 - report index for CI artifacts.
 
@@ -140,6 +140,7 @@ jobs:
       - name: Create PR diff
         run: git diff origin/${{ github.base_ref }}...HEAD > pr.diff
       - name: Bounded review
+        id: bounded-review
         uses: theOguz16/bounded-dllm-agent-lab@main
         with:
           task: task.md
@@ -147,11 +148,27 @@ jobs:
           policy: bounded-agent.policy.yml
           fail-on: high
           output-dir: reports/product-runtime
+      - name: Show bounded review outputs
+        run: |
+          echo "Decision: ${{ steps.bounded-review.outputs.decision }}"
+          echo "Risk: ${{ steps.bounded-review.outputs.risk-level }}"
+          echo "Comment: ${{ steps.bounded-review.outputs.comment-path }}"
+          echo "Index: ${{ steps.bounded-review.outputs.index-markdown-path }}"
       - uses: actions/upload-artifact@v4
         with:
           name: bounded-agent-review
           path: reports/product-runtime
 ```
+
+Composite action şu artifact'leri üretir:
+
+| Output | Anlamı |
+| --- | --- |
+| `json-path` | Makine-okunur review sonucu |
+| `markdown-path` | İnsan-okunur review raporu |
+| `comment-path` | PR yorumuna hazır kısa Markdown |
+| `index-json-path` | Ürün runtime rapor index'i |
+| `index-markdown-path` | İnsan-okunur rapor index'i |
 
 Bu repo kendi kendini dogfood etmek için ayrıca şu workflow'u içerir:
 
@@ -160,7 +177,8 @@ Bu repo kendi kendini dogfood etmek için ayrıca şu workflow'u içerir:
 ```
 
 Workflow PR diff'i çıkarır, `bounded-agent.policy.yml` ile local action'ı
-çalıştırır ve JSON/Markdown artifact yükler. Model veya API secret gerektirmez.
+çalıştırır ve JSON/Markdown/comment/index artifact'lerini yükler. Model veya API
+secret gerektirmez.
 
 Varsayılan mod artifact-only'dir. Yani workflow PR comment dosyasını üretir ama
 PR sayfasına otomatik yorum yazmaz. PR'a yorum yazdırmak isteyen repo sahibi şu

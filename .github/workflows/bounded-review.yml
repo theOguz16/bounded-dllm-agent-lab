@@ -46,14 +46,6 @@ jobs:
           output-dir: reports/product-runtime
           fail-on: high
 
-      - name: Generate PR comment artifact
-        run: |
-          REVIEW_JSON="${{ steps.bounded-review.outputs.json-path }}"
-          node dist/apps/cli/src/product-comment.js \
-            --review "$REVIEW_JSON" \
-            --out reports/product-runtime/pr-comment.md \
-            --marker "<!-- bounded-agent-review -->"
-
       - name: Post or update PR comment
         if: github.event_name == 'pull_request' && vars.BOUNDED_REVIEW_POST_COMMENT == 'true'
         uses: actions/github-script@v7
@@ -61,7 +53,7 @@ jobs:
           script: |
             const fs = require("node:fs");
             const marker = "<!-- bounded-agent-review -->";
-            const body = fs.readFileSync("reports/product-runtime/pr-comment.md", "utf8");
+            const body = fs.readFileSync("${{ steps.bounded-review.outputs.comment-path }}", "utf8");
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
             const comments = await github.rest.issues.listComments({
@@ -88,20 +80,14 @@ jobs:
               });
             }
 
-      - name: Generate report index
-        run: |
-          node dist/apps/cli/src/product-report-index.js \
-            --dir reports/product-runtime \
-            --out-dir reports/product-runtime
-
       - name: Show review summary
         run: |
           echo "Decision: ${{ steps.bounded-review.outputs.decision }}"
           echo "Risk: ${{ steps.bounded-review.outputs.risk-level }}"
           echo "JSON: ${{ steps.bounded-review.outputs.json-path }}"
           echo "Markdown: ${{ steps.bounded-review.outputs.markdown-path }}"
-          echo "Comment: reports/product-runtime/pr-comment.md"
-          echo "Index: reports/product-runtime/product-report-index.md"
+          echo "Comment: ${{ steps.bounded-review.outputs.comment-path }}"
+          echo "Index: ${{ steps.bounded-review.outputs.index-markdown-path }}"
 
       - uses: actions/upload-artifact@v4
         with:

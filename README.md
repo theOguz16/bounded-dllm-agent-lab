@@ -311,8 +311,9 @@ npm run product:report-index -- \
 ```
 
 The GitHub Action surface is documented in
-[`docs/MVP_USAGE.md`](docs/MVP_USAGE.md). PR comment posting is disabled by
-default and can be enabled intentionally with:
+[`docs/MVP_USAGE.md`](docs/MVP_USAGE.md). The action produces JSON, Markdown,
+PR-comment-ready, and report-index artifacts. PR comment posting is disabled by
+default in the dogfood workflow and can be enabled intentionally with:
 
 ```text
 BOUNDED_REVIEW_POST_COMMENT=true

@@ -76,6 +76,9 @@ pr-comment.md içinde <!-- bounded-agent-review --> marker'ı bulunmalı.
 
 Bu marker aynı PR'da tek yorumun güncellenmesini sağlar.
 
+Composite GitHub Action kullanıldığında bu artifact ayrıca manuel üretilmez;
+action `comment-path` output'u olarak verir.
+
 ## GitHub Action Gate
 
 Bir consumer repo için minimum workflow:
@@ -96,6 +99,7 @@ jobs:
       - name: Create PR diff
         run: git diff origin/${{ github.base_ref }}...HEAD > pr.diff
       - name: Bounded review
+        id: bounded-review
         uses: theOguz16/bounded-dllm-agent-lab@main
         with:
           task: task.md
@@ -103,6 +107,11 @@ jobs:
           policy: bounded-agent.policy.yml
           output-dir: reports/product-runtime
           fail-on: high
+      - name: Show bounded review outputs
+        run: |
+          echo "Decision: ${{ steps.bounded-review.outputs.decision }}"
+          echo "Comment: ${{ steps.bounded-review.outputs.comment-path }}"
+          echo "Index: ${{ steps.bounded-review.outputs.index-markdown-path }}"
 ```
 
 PR comment posting güvenli varsayılan olarak kapalıdır. Açmak için repository
@@ -143,4 +152,5 @@ MVP demo edilebilir sayılır, eğer:
 - starter ve dogfood policy validate edilebiliyor,
 - dogfood review expected decision üretiyor,
 - PR comment artifact marker içeriyor,
-- GitHub Action artifact-only modda çalışacak şekilde dokümante edilmişse.
+- GitHub Action JSON/Markdown/comment/index artifact path'lerini output olarak
+  verecek şekilde dokümante edilmişse.

@@ -127,7 +127,10 @@ docs/MVP_USAGE.md
 Runtime'ın güvenli varsayılanı artifact üretmektir. PR sayfasına yorum yazmak
 opsiyonel bir yayınlama yüzeyidir. Bu nedenle dogfood workflow'u önce
 `pr-comment.md` üretir; sadece `BOUNDED_REVIEW_POST_COMMENT=true` repository
-variable'ı açılmışsa GitHub PR yorumunu yazar veya günceller.
+variable'ı açılmışsa GitHub PR yorumunu yazar veya günceller. Composite action
+bu artifact'i `comment-path` output'u olarak verir. Aynı action ayrıca
+`json-path`, `markdown-path`, `index-json-path` ve `index-markdown-path`
+output'larını üretir.
 
 Yorum güncelleme davranışı sabit bir marker ile yapılır:
 

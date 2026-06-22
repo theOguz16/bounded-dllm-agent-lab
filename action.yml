@@ -18,6 +18,10 @@ inputs:
     description: "CI failure threshold: high, medium, or never."
     required: false
     default: "high"
+  comment-marker:
+    description: "Hidden marker used in generated PR comment artifacts."
+    required: false
+    default: "<!-- bounded-agent-review -->"
 outputs:
   decision:
     description: "Runtime decision: approve, refuse, reject, remask_required, or human_review_required."
@@ -31,6 +35,15 @@ outputs:
   markdown-path:
     description: "Path to the Markdown artifact."
     value: ${{ steps.outputs.outputs.markdown-path }}
+  comment-path:
+    description: "Path to the generated PR comment Markdown artifact."
+    value: ${{ steps.outputs.outputs.comment-path }}
+  index-json-path:
+    description: "Path to the generated product report index JSON artifact."
+    value: ${{ steps.outputs.outputs.index-json-path }}
+  index-markdown-path:
+    description: "Path to the generated product report index Markdown artifact."
+    value: ${{ steps.outputs.outputs.index-markdown-path }}
 runs:
   using: "composite"
   steps:
@@ -67,6 +80,33 @@ runs:
           --format json \
           --fail-on never > "$OUTPUT_DIR/summary.json"
         cat "$OUTPUT_DIR/summary.json"
+    - name: Generate bounded review comment artifact
+      shell: bash
+      run: |
+        case "${{ inputs.output-dir }}" in
+          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        esac
+        SUMMARY_PATH="$OUTPUT_DIR/summary.json"
+        REVIEW_JSON="$(node -e '
+          const fs = require("node:fs");
+          const summary = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+          process.stdout.write(summary.jsonPath);
+        ' "$SUMMARY_PATH")"
+        node "${{ github.action_path }}/dist/apps/cli/src/product-comment.js" \
+          --review "$REVIEW_JSON" \
+          --out "$OUTPUT_DIR/pr-comment.md" \
+          --marker "${{ inputs.comment-marker }}"
+    - name: Generate bounded review report index
+      shell: bash
+      run: |
+        case "${{ inputs.output-dir }}" in
+          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        esac
+        node "${{ github.action_path }}/dist/apps/cli/src/product-report-index.js" \
+          --dir "$OUTPUT_DIR" \
+          --out-dir "$OUTPUT_DIR"
     - name: Export outputs
       id: outputs
       shell: bash
@@ -82,7 +122,11 @@ runs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `risk-level=${summary.riskLevel}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `json-path=${summary.jsonPath}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `markdown-path=${summary.markdownPath}\n`);
-        ' "$SUMMARY_PATH"
+          const outputDir = process.argv[2];
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `comment-path=${outputDir}/pr-comment.md\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `index-json-path=${outputDir}/product-report-index.json\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `index-markdown-path=${outputDir}/product-report-index.md\n`);
+        ' "$SUMMARY_PATH" "$(dirname "$SUMMARY_PATH")"
     - name: Apply fail threshold
       shell: bash
       run: |
