@@ -67,6 +67,7 @@ export type Finding = {
   message: string;
   files: string[];
   suggestedAction: ReviewDecision;
+  metadata?: Record<string, string>;
 };
 
 export type RemaskRegion = {
@@ -82,6 +83,7 @@ export type RepairProposal = {
   files: string[];
   summary: string;
   instruction: string;
+  patchOutline: string[];
 };
 
 export type ProductTraceEvent = {
@@ -291,7 +293,7 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
             proposal.kind,
             proposal.files.join(", "),
             proposal.summary,
-            proposal.instruction
+            `${proposal.instruction} Outline: ${proposal.patchOutline.join(" ")}`
           ])
         : [["(none)", "(none)", "(none)", "(none)", "(none)"]]
     ),
@@ -391,7 +393,12 @@ function findPairedFileFindings(input: ReviewInput): Finding[] {
       "warning",
       rule.reason ?? `${rule.source} requires paired update in ${rule.requires}.`,
       [rule.source, rule.requires],
-      "remask_required"
+      "remask_required",
+      {
+        source: rule.source,
+        requires: rule.requires,
+        rule: "paired_file"
+      }
     ));
 }
 
@@ -425,7 +432,8 @@ function createRepairProposals(findings: Finding[]): RepairProposal[] {
       summary: finding.category === "paired_file"
         ? "Add the missing paired-file update while keeping the current scope."
         : "A human or remask agent should repair the verifier-marked local region.",
-      instruction: "Generate a minimal patch that touches only the listed repair files and preserves the original task authority."
+      instruction: "Generate a minimal patch that touches only the listed repair files and preserves the original task authority.",
+      patchOutline: createPatchOutline(finding)
     }));
 }
 
@@ -474,7 +482,8 @@ function createFinding(
   severity: FindingSeverity,
   message: string,
   files: string[],
-  suggestedAction: ReviewDecision
+  suggestedAction: ReviewDecision,
+  metadata?: Record<string, string>
 ): Finding {
   return {
     id: `${category}-${slugify(message).slice(0, 48)}`,
@@ -482,8 +491,27 @@ function createFinding(
     category,
     message,
     files,
-    suggestedAction
+    suggestedAction,
+    metadata
   };
+}
+
+function createPatchOutline(finding: Finding): string[] {
+  if (finding.category === "paired_file" && finding.metadata?.source && finding.metadata.requires) {
+    return [
+      `Inspect ${finding.metadata.source} for the intended metadata/version/config change.`,
+      `Apply the equivalent minimal update to ${finding.metadata.requires}.`,
+      "Do not touch files outside the repair proposal file list.",
+      "Re-run the bounded review after repair."
+    ];
+  }
+
+  return [
+    "Inspect the verifier finding.",
+    "Repair only the listed files.",
+    "Do not broaden scope.",
+    "Re-run the bounded review after repair."
+  ];
 }
 
 function matchesAny(file: string, patterns: string[]): boolean {
