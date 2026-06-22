@@ -10,8 +10,9 @@ if (args.help === "true" || args.h === "true") {
 
 const reviewPath = requireArg(args, "review");
 const outPath = args.out ?? join(dirname(reviewPath), "pr-comment.md");
+const marker = args.marker ?? "<!-- bounded-agent-review -->";
 const review = JSON.parse(await readFile(reviewPath, "utf8")) as ReviewOutput;
-const comment = createPrComment(review, reviewPath);
+const comment = createPrComment(review, reviewPath, marker);
 
 await mkdir(dirname(outPath), { recursive: true });
 await writeFile(outPath, `${comment}\n`);
@@ -22,10 +23,11 @@ console.log(JSON.stringify({
   riskLevel: review.riskLevel,
   findingCount: review.findings.length,
   repairProposalCount: review.repairProposals.length,
-  commentPath: outPath
+  commentPath: outPath,
+  marker
 }, null, 2));
 
-function createPrComment(review: ReviewOutput, reviewPath: string): string {
+function createPrComment(review: ReviewOutput, reviewPath: string, marker: string): string {
   const findingSummary = review.findings.length
     ? review.findings.map((finding) => `- **${finding.category}**: ${finding.message}`).join("\n")
     : "- No configured verifier findings.";
@@ -37,7 +39,7 @@ function createPrComment(review: ReviewOutput, reviewPath: string): string {
       ].join("\n")).join("\n")
     : "- No repair proposal.";
 
-  return [
+  const body = [
     "## Bounded Agent Review",
     "",
     `**Decision:** \`${review.decision}\``,
@@ -69,6 +71,11 @@ function createPrComment(review: ReviewOutput, reviewPath: string): string {
     "",
     `<sub>Full JSON artifact: ${reviewPath}</sub>`
   ].join("\n");
+
+  // GitHub comment upsert akışı aynı yorumu bulabilmek için sabit bir HTML
+  // marker'a ihtiyaç duyar. Marker kullanıcıya görünmez ama duplicate yorumları
+  // engelleyen deterministik kimlik gibi çalışır.
+  return marker ? [marker, "", body].join("\n") : body;
 }
 
 function suggestNextAction(decision: ReviewOutput["decision"]): string {
@@ -119,6 +126,7 @@ Usage:
 Options:
   --review <path>  Product review JSON artifact.
   --out <path>     Output Markdown comment path.
+  --marker <text>  Hidden marker used for idempotent PR comment updates.
   --help           Show this help.
 `);
 }

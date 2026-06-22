@@ -84,8 +84,14 @@ PR comment artifact üretimi:
 ```bash
 npm run product:comment -- \
   --review reports/product-runtime/2026-...-product-review.json \
-  --out reports/product-runtime/pr-comment.md
+  --out reports/product-runtime/pr-comment.md \
+  --marker "<!-- bounded-agent-review -->"
 ```
+
+`--marker` PR yorumunun içine görünmez bir HTML marker ekler. Bunun amacı
+yorum içeriğini değiştirmek değil, GitHub workflow'unun önceki bounded review
+yorumunu bulup güncellemesini sağlamaktır. Böylece her CI koşusunda yeni yorum
+oluşmaz.
 
 Birden fazla ürün raporunu indekslemek:
 
@@ -134,6 +140,20 @@ Bu repo kendi kendini dogfood etmek için ayrıca şu workflow'u içerir:
 
 Workflow PR diff'i çıkarır, `bounded-agent.policy.yml` ile local action'ı
 çalıştırır ve JSON/Markdown artifact yükler. Model veya API secret gerektirmez.
+
+Varsayılan mod artifact-only'dir. Yani workflow PR comment dosyasını üretir ama
+PR sayfasına otomatik yorum yazmaz. PR'a yorum yazdırmak isteyen repo sahibi şu
+repository variable'ı bilinçli şekilde açabilir:
+
+```text
+BOUNDED_REVIEW_POST_COMMENT=true
+```
+
+Bu değişken açıkken workflow `<!-- bounded-agent-review -->` marker'ı taşıyan
+önceki yorumu arar. Bulursa günceller, bulamazsa tek yeni yorum oluşturur. Bu
+mod için workflow `issues: write` ve `pull-requests: write` izinlerini ister.
+Fork PR'larında token izinleri kısıtlı olabileceği için posting modu dikkatli
+kullanılmalıdır.
 
 ## Policy Contract
 

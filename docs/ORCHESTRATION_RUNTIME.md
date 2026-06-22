@@ -96,6 +96,7 @@ docs/MVP_USAGE.md
 - JSON review artifact,
 - Markdown PR/report metni,
 - comment-ready PR summary,
+- idempotent PR comment marker,
 - report index artifact,
 - decision,
 - risk level,
@@ -103,6 +104,23 @@ docs/MVP_USAGE.md
 - remask regions,
 - role-specific bounded views,
 - trace.
+
+## PR Comment Publishing
+
+Runtime'ın güvenli varsayılanı artifact üretmektir. PR sayfasına yorum yazmak
+opsiyonel bir yayınlama yüzeyidir. Bu nedenle dogfood workflow'u önce
+`pr-comment.md` üretir; sadece `BOUNDED_REVIEW_POST_COMMENT=true` repository
+variable'ı açılmışsa GitHub PR yorumunu yazar veya günceller.
+
+Yorum güncelleme davranışı sabit bir marker ile yapılır:
+
+```text
+<!-- bounded-agent-review -->
+```
+
+Bu marker kullanıcıya görünmez. Ürün açısından görevi, aynı PR'da tek bounded
+review yorumunun güncel kalmasını sağlamaktır. Böylece runtime hem CI artifact
+olarak denetlenebilir kalır hem de PR içinde okunabilir bir review yüzeyi sunar.
 
 ## Why This Matters
 
