@@ -1,13 +1,15 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseUnifiedDiff, reviewPatch, type ReviewDecision } from "../../../packages/product-runtime/src/index.js";
 import { validatePolicy } from "./product-policy-utils.js";
 import { computeProductReadiness, formatReadiness } from "./product-readiness.js";
-import { externalStylePolicy, productPilotV2Cases, type ProductPilotV2Case } from "./product-pilot-v2-fixtures.js";
+import { realPrPilotCases, type RealPrPilotCase } from "./product-real-pr-pilot-fixtures.js";
 
-type PilotV2CaseResult = {
+type RealPrPilotResult = {
   id: string;
-  family: ProductPilotV2Case["family"];
+  repository: string;
+  pullRequest: string;
+  family: RealPrPilotCase["family"];
   expectedDecision: ReviewDecision;
   actualDecision: ReviewDecision;
   decisionMatches: boolean;
@@ -16,6 +18,7 @@ type PilotV2CaseResult = {
   falsePositive: boolean;
   falseRefusal: boolean;
   missedBlocker: boolean;
+  reviewerNotes: string[];
   riskLevel: string;
 };
 
@@ -25,12 +28,14 @@ if (args.help === "true" || args.h === "true") {
   process.exit(0);
 }
 
+const cases = args.input ? JSON.parse(await readFile(args.input, "utf8")) as RealPrPilotCase[] : realPrPilotCases;
 const outDir = args["out-dir"] ?? "reports/product-runtime";
 const createdAt = new Date().toISOString();
-const suiteName = args.suite ?? "mvp3-external-style-pilot";
-const baseName = `${createdAt.replace(/[:.]/g, "-")}-${suiteName.includes("mvp3") ? "mvp3" : "mvp2"}-pilot`;
-const results = productPilotV2Cases.map(runCase);
-const policyQuality = validatePolicy(externalStylePolicy);
+const results = cases.map(runCase);
+const averagePolicyQuality = ratio(
+  cases.reduce((total, testCase) => total + validatePolicy(testCase.policy).qualityScore, 0),
+  cases.length
+);
 const summary = {
   caseCount: results.length,
   decisionAccuracy: ratio(results.filter((result) => result.decisionMatches).length, results.length),
@@ -38,8 +43,7 @@ const summary = {
   falseRefusalRate: ratio(results.filter((result) => result.falseRefusal).length, results.length),
   missedBlockerRate: ratio(results.filter((result) => result.missedBlocker).length, results.length),
   expectedFindingCoverage: ratio(results.filter((result) => result.expectedFindingsPresent).length, results.length),
-  policyQualityScore: policyQuality.qualityScore,
-  policyQualityGrade: policyQuality.qualityGrade
+  policyQualityScore: averagePolicyQuality
 };
 const readiness = computeProductReadiness(summary);
 const reportSummary = {
@@ -48,18 +52,18 @@ const reportSummary = {
 };
 const artifact = {
   ok: readiness.blockers.length === 0,
-  suiteName,
+  suiteName: "mvp4-real-pr-pilot",
   createdAt,
   summary: reportSummary,
-  policyQualityFindings: policyQuality.findings,
   results
 };
+const baseName = `${createdAt.replace(/[:.]/g, "-")}-real-pr-pilot`;
 const jsonPath = join(outDir, `${baseName}.json`);
 const markdownPath = join(outDir, `${baseName}.md`);
 
 await mkdir(outDir, { recursive: true });
 await writeFile(jsonPath, `${JSON.stringify(artifact, null, 2)}\n`);
-await writeFile(markdownPath, `${createMarkdown(createdAt, reportSummary, results)}\n`);
+await writeFile(markdownPath, `${createMarkdown(createdAt, reportSummary, readiness, results)}\n`);
 
 console.log(JSON.stringify({
   ok: artifact.ok,
@@ -74,7 +78,7 @@ if (args["fail-on-regression"] === "true" && !artifact.ok) {
   process.exitCode = 1;
 }
 
-function runCase(testCase: ProductPilotV2Case): PilotV2CaseResult {
+function runCase(testCase: RealPrPilotCase): RealPrPilotResult {
   const review = reviewPatch({
     task: testCase.task,
     diff: parseUnifiedDiff(testCase.diff),
@@ -87,6 +91,8 @@ function runCase(testCase: ProductPilotV2Case): PilotV2CaseResult {
 
   return {
     id: testCase.id,
+    repository: testCase.source.repository,
+    pullRequest: testCase.source.pullRequest,
     family: testCase.family,
     expectedDecision: testCase.expectedDecision,
     actualDecision: review.decision,
@@ -96,18 +102,23 @@ function runCase(testCase: ProductPilotV2Case): PilotV2CaseResult {
     falsePositive: !expectedBlocking && actualBlocking,
     falseRefusal: testCase.expectedDecision !== "refuse" && review.decision === "refuse",
     missedBlocker: expectedBlocking && review.decision === "approve",
+    reviewerNotes: testCase.reviewerNotes,
     riskLevel: review.riskLevel
   };
 }
 
-function createMarkdown(createdAt: string, summary: typeof artifact.summary, results: PilotV2CaseResult[]): string {
+function createMarkdown(
+  createdAt: string,
+  summary: typeof artifact.summary,
+  readiness: ReturnType<typeof computeProductReadiness>,
+  results: RealPrPilotResult[]
+): string {
   return [
-    "# MVP-2 External-Style Pilot Report",
+    "# Real PR Pilot Report",
     "",
     `- Created at: ${createdAt}`,
     `- Case count: ${summary.caseCount}`,
-    `- Policy quality: ${percent(summary.policyQualityScore)} (${summary.policyQualityGrade})`,
-    `- Readiness: ${formatReadiness(summary.readiness)}`,
+    `- Readiness: ${formatReadiness(readiness)}`,
     "",
     "## Summary",
     "",
@@ -119,54 +130,32 @@ function createMarkdown(createdAt: string, summary: typeof artifact.summary, res
         ["False refusal rate", percent(summary.falseRefusalRate)],
         ["Missed blocker rate", percent(summary.missedBlockerRate)],
         ["Expected finding coverage", percent(summary.expectedFindingCoverage)],
-        ["Policy quality score", `${percent(summary.policyQualityScore)} (${summary.policyQualityGrade})`],
-        ["Product readiness", formatReadiness(summary.readiness)],
-        ["Readiness blockers", summary.readiness.blockers.join(", ") || "(none)"]
+        ["Policy quality score", percent(summary.policyQualityScore)],
+        ["Readiness blockers", readiness.blockers.join(", ") || "(none)"]
       ]
     ),
     "",
     "## Case Results",
     "",
     table(
-      ["Case", "Family", "Expected", "Actual", "Risk", "Findings", "Decision OK", "Finding OK"],
+      ["Case", "Repo", "PR", "Family", "Expected", "Actual", "Risk", "Findings", "Reviewer Notes"],
       results.map((result) => [
         result.id,
+        result.repository,
+        result.pullRequest,
         result.family,
         result.expectedDecision,
         result.actualDecision,
         result.riskLevel,
         result.findingCategories.join(", ") || "(none)",
-        result.decisionMatches ? "pass" : "fail",
-        result.expectedFindingsPresent ? "pass" : "fail"
+        result.reviewerNotes.join(" ")
       ])
     ),
     "",
     "## Reading",
     "",
-    "MVP-2 adds owner aliases, path-aware required test mappings, and policy quality scoring.",
-    "This pilot is still deterministic and controlled; it is closer to an external repository workflow but is not yet a live production pilot."
+    "This suite is a bridge between synthetic product pilots and real repository adoption. Replace the built-in samples with reviewer-labeled PR diffs before treating the score as external validation."
   ].join("\n");
-}
-
-function ratio(value: number, total: number): number {
-  if (total === 0) return 0;
-  return Number((value / total).toFixed(4));
-}
-
-function percent(value: number): string {
-  return `${Math.round(value * 1000) / 10}%`;
-}
-
-function table(headers: string[], rows: string[][]): string {
-  return [
-    `| ${headers.join(" | ")} |`,
-    `| ${headers.map(() => "---").join(" | ")} |`,
-    ...rows.map((row) => `| ${row.map(escapeCell).join(" | ")} |`)
-  ].join("\n");
-}
-
-function escapeCell(value: string): string {
-  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
 }
 
 function parseArgs(values: string[]): Record<string, string> {
@@ -190,18 +179,38 @@ function parseArgs(values: string[]): Record<string, string> {
   return parsed;
 }
 
+function ratio(value: number, total: number): number {
+  if (total === 0) return 0;
+  return Number((value / total).toFixed(4));
+}
+
+function percent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function table(headers: string[], rows: string[][]): string {
+  return [
+    `| ${headers.join(" | ")} |`,
+    `| ${headers.map(() => "---").join(" | ")} |`,
+    ...rows.map((row) => `| ${row.map(escapeCell).join(" | ")} |`)
+  ].join("\n");
+}
+
+function escapeCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
 function printHelp(): void {
-  console.log(`Product External-Style Pilot
+  console.log(`Real PR Product Pilot
 
 Usage:
-  npm run product:pilot-v2
-  npm run product:pilot-v3
-  npm run product:pilot-v2 -- --out-dir reports/product-runtime --fail-on-regression
+  npm run product:real-pr-pilot
+  npm run product:real-pr-pilot -- --input real-pr-cases.json --out-dir reports/product-runtime
 
 Options:
-  --out-dir <path>          Artifact output directory. Default: reports/product-runtime
-  --suite <name>            Suite name. Default: mvp3-external-style-pilot
-  --fail-on-regression      Exit non-zero if pilot accuracy regresses.
-  --help                    Show this help.
+  --input <path>             JSON array of real-PR pilot cases. Defaults to built-in samples.
+  --out-dir <path>           Output directory. Default: reports/product-runtime
+  --fail-on-regression       Exit non-zero if readiness blockers exist.
+  --help                     Show this help.
 `);
 }

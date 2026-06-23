@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { computeProductReadiness, formatReadiness } from "./product-readiness.js";
 
 type PilotResult = {
   id: string;
@@ -33,6 +34,13 @@ const outDir = args["out-dir"] ?? "reports/product-runtime";
 const createdAt = new Date().toISOString();
 const artifact = JSON.parse(await readFile(inputPath, "utf8")) as PilotArtifact;
 const insights = createInsights(artifact);
+const readiness = computeProductReadiness({
+  decisionAccuracy: metricNumber(artifact.summary.decisionAccuracy),
+  missedBlockerRate: metricNumber(artifact.summary.missedBlockerRate),
+  falsePositiveRate: metricNumber(artifact.summary.falsePositiveRate),
+  expectedFindingCoverage: metricNumber(artifact.summary.expectedFindingCoverage),
+  policyQualityScore: metricNumber(artifact.summary.policyQualityScore)
+});
 const baseName = `${createdAt.replace(/[:.]/g, "-")}-pilot-insights`;
 const jsonPath = join(outDir, `${baseName}.json`);
 const markdownPath = join(outDir, `${baseName}.md`);
@@ -43,9 +51,10 @@ await writeFile(jsonPath, `${JSON.stringify({
   inputPath,
   createdAt,
   suiteName: artifact.suiteName,
+  readiness,
   insights
 }, null, 2)}\n`);
-await writeFile(markdownPath, `${createMarkdown(inputPath, artifact, insights)}\n`);
+await writeFile(markdownPath, `${createMarkdown(inputPath, artifact, insights, readiness)}\n`);
 
 console.log(JSON.stringify({
   ok: insights.missedBlockerCount === 0,
@@ -54,6 +63,7 @@ console.log(JSON.stringify({
   falsePositiveCount: insights.falsePositiveCount,
   missedBlockerCount: insights.missedBlockerCount,
   extraWarningCount: insights.extraWarningCount,
+  readiness,
   jsonPath,
   markdownPath
 }, null, 2));
@@ -114,13 +124,19 @@ function toCaseInsight(result: PilotResult) {
   };
 }
 
-function createMarkdown(inputPath: string, artifact: PilotArtifact, insights: ReturnType<typeof createInsights>): string {
+function createMarkdown(
+  inputPath: string,
+  artifact: PilotArtifact,
+  insights: ReturnType<typeof createInsights>,
+  readiness: ReturnType<typeof computeProductReadiness>
+): string {
   return [
     "# Product Pilot Insight Report",
     "",
     `- Suite: ${artifact.suiteName}`,
     `- Source artifact: ${inputPath}`,
     `- Pilot created at: ${artifact.createdAt}`,
+    `- Readiness: ${formatReadiness(readiness)}`,
     "",
     "## Summary",
     "",
@@ -131,7 +147,9 @@ function createMarkdown(inputPath: string, artifact: PilotArtifact, insights: Re
         ["Where did it over-warn?", `${insights.falsePositiveCount} false positive case(s)`],
         ["Where did it under-warn?", `${insights.missedBlockerCount} missed blocker case(s)`],
         ["Where were findings incomplete?", `${insights.findingGapCount} finding gap case(s)`],
-        ["Extra warnings on expected approve", `${insights.extraWarningCount} case(s)`]
+        ["Extra warnings on expected approve", `${insights.extraWarningCount} case(s)`],
+        ["Product readiness", formatReadiness(readiness)],
+        ["Readiness blockers", readiness.blockers.join(", ") || "(none)"]
       ]
     ),
     "",
@@ -186,7 +204,12 @@ function caseTable(rows: ReturnType<typeof toCaseInsight>[]): string {
 async function findLatestPilotArtifact(dir: string): Promise<string> {
   const files = await readdir(dir);
   const candidates = files
-    .filter((file) => file.endsWith("-mvp3-pilot.json") || file.endsWith("-mvp2-pilot.json") || file.endsWith("-mvp1-pilot.json"))
+    .filter((file) =>
+      file.endsWith("-real-pr-pilot.json") ||
+      file.endsWith("-mvp3-pilot.json") ||
+      file.endsWith("-mvp2-pilot.json") ||
+      file.endsWith("-mvp1-pilot.json")
+    )
     .sort()
     .reverse();
 
@@ -221,6 +244,10 @@ function parseArgs(values: string[]): Record<string, string> {
 function ratio(value: number, total: number): number {
   if (total === 0) return 0;
   return Number((value / total).toFixed(4));
+}
+
+function metricNumber(value: unknown): number {
+  return typeof value === "number" ? value : 0;
 }
 
 function percent(value: number): string {

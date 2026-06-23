@@ -664,7 +664,16 @@ function matchesAny(file: string, patterns: string[]): boolean {
 }
 
 function hasOwnerAuthority(authorityText: string, owner: string, aliases: string[]): boolean {
-  return [owner, ...aliases].some((value) => authorityText.includes(value.toLowerCase()));
+  const candidates = [owner, ...aliases].map((value) => value.toLowerCase());
+  const authorityLines = authorityText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("authority:"));
+
+  return authorityLines.some((line) => candidates.some((candidate) =>
+    line.startsWith(`authority: ${candidate}`) ||
+    line.includes(`approved by ${candidate}`)
+  ));
 }
 
 function matchesPattern(file: string, pattern: string): boolean {

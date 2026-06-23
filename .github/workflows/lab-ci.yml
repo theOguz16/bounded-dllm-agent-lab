@@ -54,6 +54,9 @@ jobs:
       - name: Product pilot insights
         run: npm run product:pilot-insights -- --dir /tmp/bounded-agent-ci/pilot-v3 --out-dir /tmp/bounded-agent-ci/pilot-v3 --fail-on-missed-blocker
 
+      - name: Product real PR pilot
+        run: npm run product:real-pr-pilot -- --out-dir /tmp/bounded-agent-ci/real-pr-pilot --fail-on-regression
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.

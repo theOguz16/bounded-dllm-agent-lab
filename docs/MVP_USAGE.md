@@ -137,6 +137,23 @@ sorusunu tablo halinde cevaplar. Ürünleştirme tarafında bu rapor, tek başı
 başarı iddiası değil; reviewer'ın runtime davranışını denetlemesi için
 okunabilir analiz yüzeyidir.
 
+Real-PR pilot köprüsü:
+
+```bash
+npm run product:real-pr-pilot -- \
+  --out-dir reports/product-runtime \
+  --fail-on-regression
+```
+
+Kendi reviewer-labeled fixture dosyanla:
+
+```bash
+npm run product:real-pr-pilot -- \
+  --input real-pr-cases.json \
+  --out-dir reports/product-runtime \
+  --fail-on-regression
+```
+
 PR comment artifact üretimi:
 
 ```bash

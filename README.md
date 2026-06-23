@@ -240,6 +240,7 @@ The product MVP documentation is available at:
 - [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md)
 - [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
 - [`docs/VERIFIER_ADAPTER_CONTRACT.md`](docs/VERIFIER_ADAPTER_CONTRACT.md)
+- [`docs/EXTERNAL_REPO_ADOPTION.md`](docs/EXTERNAL_REPO_ADOPTION.md)
 
 Useful product checks:
 
@@ -247,6 +248,8 @@ Useful product checks:
 npm run product:action-smoke
 npm run product:pilot -- --out-dir /tmp/bounded-mvp1-pilot --fail-on-regression
 npm run product:pilot-v2 -- --out-dir /tmp/bounded-mvp2-pilot --fail-on-regression
+npm run product:pilot-v3 -- --out-dir /tmp/bounded-mvp3-pilot --fail-on-regression
+npm run product:real-pr-pilot -- --out-dir /tmp/bounded-real-pr-pilot --fail-on-regression
 ```
 
 The second phase hybrid architecture is documented in
