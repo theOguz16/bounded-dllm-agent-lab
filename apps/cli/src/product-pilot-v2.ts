@@ -26,7 +26,8 @@ if (args.help === "true" || args.h === "true") {
 
 const outDir = args["out-dir"] ?? "reports/product-runtime";
 const createdAt = new Date().toISOString();
-const baseName = `${createdAt.replace(/[:.]/g, "-")}-mvp2-pilot`;
+const suiteName = args.suite ?? "mvp3-external-style-pilot";
+const baseName = `${createdAt.replace(/[:.]/g, "-")}-${suiteName.includes("mvp3") ? "mvp3" : "mvp2"}-pilot`;
 const results = productPilotV2Cases.map(runCase);
 const policyQuality = validatePolicy(externalStylePolicy);
 const summary = {
@@ -41,7 +42,7 @@ const summary = {
 };
 const artifact = {
   ok: summary.decisionAccuracy === 1 && summary.missedBlockerRate === 0 && summary.policyQualityGrade === "strong",
-  suiteName: "mvp2-external-style-pilot",
+  suiteName,
   createdAt,
   summary,
   policyQualityFindings: policyQuality.findings,
@@ -180,15 +181,17 @@ function parseArgs(values: string[]): Record<string, string> {
 }
 
 function printHelp(): void {
-  console.log(`MVP-2 Product Pilot
+  console.log(`Product External-Style Pilot
 
 Usage:
   npm run product:pilot-v2
+  npm run product:pilot-v3
   npm run product:pilot-v2 -- --out-dir reports/product-runtime --fail-on-regression
 
 Options:
   --out-dir <path>          Artifact output directory. Default: reports/product-runtime
-  --fail-on-regression      Exit non-zero if pilot v2 accuracy regresses.
+  --suite <name>            Suite name. Default: mvp3-external-style-pilot
+  --fail-on-regression      Exit non-zero if pilot accuracy regresses.
   --help                    Show this help.
 `);
 }

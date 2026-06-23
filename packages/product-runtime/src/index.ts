@@ -33,6 +33,13 @@ export type RequiredTestMappingRule = {
   reason?: string;
 };
 
+export type ModuleBoundaryRule = {
+  source: string;
+  allowedWith: string[];
+  authority?: string;
+  reason?: string;
+};
+
 export type RepoPolicy = {
   allowed_paths: string[];
   forbidden_paths: string[];
@@ -42,6 +49,7 @@ export type RepoPolicy = {
   sensitive_patterns?: string[];
   required_tests?: string[];
   required_test_mappings?: RequiredTestMappingRule[];
+  module_boundaries?: ModuleBoundaryRule[];
   missing_authority_rules?: string[];
 };
 
@@ -69,10 +77,12 @@ export type Finding = {
     | "scope"
     | "authority"
     | "ownership"
+    | "module_boundary"
     | "sensitive_boundary"
     | "paired_file"
     | "test"
-    | "trace";
+    | "trace"
+    | "verifier_adapter";
   message: string;
   files: string[];
   suggestedAction: ReviewDecision;
@@ -97,7 +107,7 @@ export type RepairProposal = {
 
 export type ProductTraceEvent = {
   id: string;
-  actor: "workspace_builder" | "context_composer" | "verifier" | "remask_planner" | "system";
+  actor: "workspace_builder" | "context_composer" | "verifier" | "verifier_adapter" | "remask_planner" | "system";
   action: string;
   summary: string;
 };
@@ -106,6 +116,7 @@ export type ReviewMetrics = {
   scopeSafety: 0 | 1;
   authoritySafety: 0 | 1;
   ownershipSafety: 0 | 1;
+  moduleBoundarySafety: 0 | 1;
   sensitiveBoundarySafety: 0 | 1;
   pairedFileCompleteness: 0 | 1;
   remaskNeed: 0 | 1;
@@ -119,6 +130,38 @@ export type ReviewInput = {
   diff: PatchDiff;
   policy: RepoPolicy;
   workspace?: SharedWorkspaceSnapshot;
+  verifierAdapterOutput?: VerifierAdapterOutput;
+};
+
+export type VerifierAdapterFinding = {
+  category: Finding["category"];
+  severity: FindingSeverity;
+  message: string;
+  files: string[];
+  suggestedAction: ReviewDecision;
+  metadata?: Record<string, string>;
+};
+
+export type VerifierAdapterInput = {
+  task: TaskSpec;
+  diff: PatchDiff;
+  policy: RepoPolicy;
+  workspace: SharedWorkspaceSnapshot;
+  deterministicFindings: Finding[];
+};
+
+export type VerifierAdapterOutput = {
+  adapterName: string;
+  mode: "llm" | "dllm" | "deterministic" | "mock";
+  findings: VerifierAdapterFinding[];
+  confidence: number;
+  summary: string;
+};
+
+export type VerifierAdapter = {
+  name: string;
+  mode: VerifierAdapterOutput["mode"];
+  verify(input: VerifierAdapterInput): Promise<VerifierAdapterOutput>;
 };
 
 export type ReviewOutput = {
@@ -158,9 +201,11 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     ...findScopeFindings(input),
     ...findAuthorityFindings(input),
     ...findOwnershipFindings(input),
+    ...findModuleBoundaryFindings(input),
     ...findSensitiveBoundaryFindings(input),
     ...findPairedFileFindings(input),
-    ...findTestFindings(input)
+    ...findTestFindings(input),
+    ...normalizeVerifierAdapterFindings(input.verifierAdapterOutput)
   ];
   const remaskRegions = createRemaskRegions(findings);
   const repairProposals = createRepairProposals(findings);
@@ -272,6 +317,7 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
         ["Scope safety", percentFlag(output.metrics.scopeSafety)],
         ["Authority safety", percentFlag(output.metrics.authoritySafety)],
         ["Ownership safety", percentFlag(output.metrics.ownershipSafety)],
+        ["Module boundary safety", percentFlag(output.metrics.moduleBoundarySafety)],
         ["Sensitive boundary safety", percentFlag(output.metrics.sensitiveBoundarySafety)],
         ["Paired-file completeness", percentFlag(output.metrics.pairedFileCompleteness)],
         ["Remask need", output.metrics.remaskNeed ? "yes" : "no"],
@@ -342,7 +388,7 @@ function createRoleViews(input: ReviewInput): Record<AgentRoleView, BoundedRoleV
     },
     verifier: {
       role: "verifier",
-      visibleFields: ["task", "diff", "policy", "authorityFacts"],
+      visibleFields: ["task", "diff", "policy", "authorityFacts", "module_boundaries"],
       writableFields: ["verifier_decision", "findings"],
       tokenBudget: 2_500,
       summary: "Check scope, authority, sensitive boundaries and paired-file consistency."
@@ -407,6 +453,39 @@ function findOwnershipFindings(input: ReviewInput): Finding[] {
         { owner, pattern }
       ));
     }
+  }
+
+  return findings;
+}
+
+function findModuleBoundaryFindings(input: ReviewInput): Finding[] {
+  const authorityText = `${input.task.description}\n${(input.task.authorityFacts ?? []).join("\n")}`.toLowerCase();
+  const findings: Finding[] = [];
+
+  for (const rule of input.policy.module_boundaries ?? []) {
+    const sourceTouched = input.diff.changedFiles.some((file) => matchesPattern(file, rule.source));
+    if (!sourceTouched) continue;
+
+    const boundaryViolations = input.diff.changedFiles.filter((file) => {
+      if (matchesPattern(file, rule.source)) return false;
+      return !rule.allowedWith.some((allowedPattern) => matchesPattern(file, allowedPattern));
+    });
+
+    if (!boundaryViolations.length) continue;
+    if (rule.authority && authorityText.includes(rule.authority.toLowerCase())) continue;
+
+    findings.push(createFinding(
+      "module_boundary",
+      "error",
+      rule.reason ?? `Module boundary crossed from ${rule.source} without explicit authority.`,
+      boundaryViolations,
+      "refuse",
+      {
+        source: rule.source,
+        allowedWith: rule.allowedWith.join(", "),
+        authority: rule.authority ?? ""
+      }
+    ));
   }
 
   return findings;
@@ -515,6 +594,7 @@ function createMetrics(input: ReviewInput, findings: Finding[], workspace: Share
     scopeSafety: hasCategory("scope") ? 0 : 1,
     authoritySafety: hasCategory("authority") ? 0 : 1,
     ownershipSafety: hasCategory("ownership") ? 0 : 1,
+    moduleBoundarySafety: hasCategory("module_boundary") ? 0 : 1,
     sensitiveBoundarySafety: hasCategory("sensitive_boundary") ? 0 : 1,
     pairedFileCompleteness: hasCategory("paired_file") ? 0 : 1,
     remaskNeed: findings.some((finding) => finding.suggestedAction === "remask_required") ? 1 : 0,
@@ -522,6 +602,24 @@ function createMetrics(input: ReviewInput, findings: Finding[], workspace: Share
     changedFileCount: input.diff.changedFiles.length,
     findingCount: findings.length
   };
+}
+
+function normalizeVerifierAdapterFindings(output: VerifierAdapterOutput | undefined): Finding[] {
+  if (!output) return [];
+
+  return output.findings.map((finding) => createFinding(
+    finding.category,
+    finding.severity,
+    finding.message,
+    finding.files,
+    finding.suggestedAction,
+    {
+      ...(finding.metadata ?? {}),
+      adapterName: output.adapterName,
+      adapterMode: output.mode,
+      adapterConfidence: String(output.confidence)
+    }
+  ));
 }
 
 function createFinding(

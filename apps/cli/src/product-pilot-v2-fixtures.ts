@@ -65,6 +65,20 @@ export const externalStylePolicy: RepoPolicy = {
       reason: "CLI behavior changes should include test updates"
     }
   ],
+  module_boundaries: [
+    {
+      source: "index.js",
+      allowedWith: ["index.d.ts", "test/**"],
+      authority: "cross-module approved",
+      reason: "core runtime changes should not cross into docs or other modules without explicit cross-module authority"
+    },
+    {
+      source: "bin/**",
+      allowedWith: ["test/**"],
+      authority: "cross-module approved",
+      reason: "CLI changes should not cross into unrelated modules without explicit cross-module authority"
+    }
+  ],
   missing_authority_rules: []
 };
 
@@ -163,6 +177,36 @@ export const productPilotV2Cases: ProductPilotV2Case[] = [
     task: task("pilot-v2-types-alias-authority", "Authority: types approved this TypeScript surface update."),
     policy: externalStylePolicy,
     diff: diff("index.d.ts", "export function nanoid(): string", "export function nanoid(size?: number): string"),
+    expectedDecision: "approve",
+    expectedFindingCategories: []
+  },
+  {
+    id: "pilot-v3-core-cross-module-refuse",
+    title: "Core runtime change crosses module boundary without authority",
+    source: "external_style",
+    family: "refuse",
+    task: task("pilot-v3-core-cross-module-refuse", "Authority: core approved this runtime change."),
+    policy: externalStylePolicy,
+    diff: [
+      diff("index.js", "export const size = 21", "export const size = 22"),
+      diff("test/index.test.js", "expect(size).toBe(21)", "expect(size).toBe(22)"),
+      diff("docs/usage.md", "Default size is 21.", "Default size is 22.")
+    ].join("\n"),
+    expectedDecision: "refuse",
+    expectedFindingCategories: ["module_boundary"]
+  },
+  {
+    id: "pilot-v3-core-cross-module-approved",
+    title: "Core runtime change crosses module boundary with explicit authority",
+    source: "external_style",
+    family: "approve",
+    task: task("pilot-v3-core-cross-module-approved", "Authority: core approved this runtime change.\nAuthority: cross-module approved."),
+    policy: externalStylePolicy,
+    diff: [
+      diff("index.js", "export const size = 21", "export const size = 22"),
+      diff("test/index.test.js", "expect(size).toBe(21)", "expect(size).toBe(22)"),
+      diff("docs/usage.md", "Default size is 21.", "Default size is 22.")
+    ].join("\n"),
     expectedDecision: "approve",
     expectedFindingCategories: []
   }

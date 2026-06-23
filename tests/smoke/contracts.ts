@@ -5,7 +5,7 @@ import { createComparisonArtifact, createRunManifest, validateRunManifest } from
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
-import { parseUnifiedDiff, reviewPatch, type RepoPolicy } from "../../packages/product-runtime/src/index.js";
+import { parseUnifiedDiff, reviewPatch, type RepoPolicy, type VerifierAdapterOutput } from "../../packages/product-runtime/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
@@ -297,6 +297,86 @@ const mappedTestPresentReview = reviewPatch({
 
 assert.equal(mappedTestPresentReview.decision, "approve");
 
+const moduleBoundaryPolicy: RepoPolicy = {
+  allowed_paths: ["packages/billing/**", "packages/auth/**", "packages/shared/**"],
+  forbidden_paths: [],
+  ownership: {
+    "packages/billing/**": "billing-team"
+  },
+  owner_aliases: {
+    "billing-team": ["payments"]
+  },
+  paired_files: [],
+  sensitive_patterns: [],
+  required_test_mappings: [],
+  module_boundaries: [
+    {
+      source: "packages/billing/**",
+      allowedWith: ["packages/billing/**", "packages/shared/**"],
+      authority: "cross-module approved",
+      reason: "billing changes should not cross into auth without explicit authority"
+    }
+  ],
+  missing_authority_rules: []
+};
+
+const moduleBoundaryRefuseReview = reviewPatch({
+  task: {
+    id: "module-boundary-refuse",
+    title: "Update billing and auth",
+    description: "Authority: billing-team approved this billing update."
+  },
+  policy: moduleBoundaryPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/rule.ts b/packages/billing/rule.ts\n--- a/packages/billing/rule.ts\n+++ b/packages/billing/rule.ts\n@@\n-export const rule = 'old'\n+export const rule = 'new'\ndiff --git a/packages/auth/rule.ts b/packages/auth/rule.ts\n--- a/packages/auth/rule.ts\n+++ b/packages/auth/rule.ts\n@@\n-export const rule = 'old'\n+export const rule = 'new'\n")
+});
+
+assert.equal(moduleBoundaryRefuseReview.decision, "refuse");
+assert.equal(moduleBoundaryRefuseReview.findings.some((finding) => finding.category === "module_boundary"), true);
+assert.equal(moduleBoundaryRefuseReview.metrics.moduleBoundarySafety, 0);
+
+const moduleBoundaryApproveReview = reviewPatch({
+  task: {
+    id: "module-boundary-approved",
+    title: "Update billing and auth",
+    description: "Authority: billing-team approved this billing update.\nAuthority: cross-module approved."
+  },
+  policy: moduleBoundaryPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/rule.ts b/packages/billing/rule.ts\n--- a/packages/billing/rule.ts\n+++ b/packages/billing/rule.ts\n@@\n-export const rule = 'old'\n+export const rule = 'new'\ndiff --git a/packages/auth/rule.ts b/packages/auth/rule.ts\n--- a/packages/auth/rule.ts\n+++ b/packages/auth/rule.ts\n@@\n-export const rule = 'old'\n+export const rule = 'new'\n")
+});
+
+assert.equal(moduleBoundaryApproveReview.decision, "approve");
+assert.equal(moduleBoundaryApproveReview.metrics.moduleBoundarySafety, 1);
+
+const verifierAdapterOutput: VerifierAdapterOutput = {
+  adapterName: "mock-dllm-verifier",
+  mode: "mock",
+  confidence: 0.9,
+  summary: "Mock adapter detected an external verifier concern.",
+  findings: [
+    {
+      category: "verifier_adapter",
+      severity: "warning",
+      message: "External verifier suggests human review for ambiguous product wording.",
+      files: ["packages/billing/rule.ts"],
+      suggestedAction: "human_review_required"
+    }
+  ]
+};
+
+const verifierAdapterReview = reviewPatch({
+  task: {
+    id: "verifier-adapter",
+    title: "Update billing copy",
+    description: "Authority: billing-team approved this billing update."
+  },
+  policy: moduleBoundaryPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/rule.ts b/packages/billing/rule.ts\n--- a/packages/billing/rule.ts\n+++ b/packages/billing/rule.ts\n@@\n-export const rule = 'old'\n+export const rule = 'new'\n"),
+  verifierAdapterOutput
+});
+
+assert.equal(verifierAdapterReview.decision, "human_review_required");
+assert.equal(verifierAdapterReview.findings.some((finding) => finding.category === "verifier_adapter"), true);
+
 const humanReview = reviewPatch({
   task: productTask,
   policy: productPolicy,
@@ -306,4 +386,4 @@ const humanReview = reviewPatch({
 assert.equal(humanReview.decision, "human_review_required");
 assert.equal(humanReview.riskLevel, "medium");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy", "ownership-policy"] }, null, 2));
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy", "ownership-policy", "module-boundary-policy", "verifier-adapter-contract"] }, null, 2));

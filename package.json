@@ -21,6 +21,8 @@
     "product:action-smoke": "node dist/apps/cli/src/product-action-smoke.js",
     "product:pilot": "node dist/apps/cli/src/product-pilot.js",
     "product:pilot-v2": "node dist/apps/cli/src/product-pilot-v2.js",
+    "product:pilot-v3": "node dist/apps/cli/src/product-pilot-v2.js --suite mvp3-external-style-pilot",
+    "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",

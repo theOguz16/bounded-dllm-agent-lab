@@ -65,6 +65,12 @@ required_test_mappings:
     test: "packages/billing/**/*.test.ts"
     reason: "billing module changes should include billing tests"
 
+module_boundaries:
+  - source: "packages/billing/**"
+    allowedWith: "packages/billing/**, packages/shared/**"
+    authority: "cross-module approved"
+    reason: "billing changes should not spill into unrelated modules without explicit authority"
+
 missing_authority_rules:
   - "Authority:"
 `;
@@ -147,6 +153,16 @@ export function validatePolicy(policy: RepoPolicy): PolicyValidationResult {
     }
   }
 
+  for (const [index, rule] of (policy.module_boundaries ?? []).entries()) {
+    if (!rule.source || !rule.allowedWith.length) {
+      findings.push({
+        severity: "error",
+        code: "invalid_module_boundary_rule",
+        message: `module_boundaries[${index}] must include source and at least one allowedWith pattern.`
+      });
+    }
+  }
+
   const errorCount = findings.filter((finding) => finding.severity === "error").length;
   const warningCount = findings.filter((finding) => finding.severity === "warning").length;
   const qualityScore = computePolicyQualityScore(policy, errorCount);
@@ -184,6 +200,16 @@ function normalizePolicy(policy: Partial<RepoPolicy>): RepoPolicy {
           reason: rule.reason ? String(rule.reason) : undefined
         }))
       : [],
+    module_boundaries: Array.isArray(policy.module_boundaries)
+      ? policy.module_boundaries.map((rule) => ({
+          source: String(rule.source ?? ""),
+          allowedWith: Array.isArray(rule.allowedWith)
+            ? rule.allowedWith.map(String)
+            : String(rule.allowedWith ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+          authority: rule.authority ? String(rule.authority) : undefined,
+          reason: rule.reason ? String(rule.reason) : undefined
+        }))
+      : [],
     missing_authority_rules: Array.isArray(policy.missing_authority_rules) ? policy.missing_authority_rules.map(String) : []
   };
 }
@@ -195,6 +221,7 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
   let currentPair: Record<string, string> | null = null;
   let currentAliasOwner: string | null = null;
   let currentTestMapping: Record<string, string> | null = null;
+  let currentModuleBoundary: Record<string, string> | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -206,10 +233,12 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
       else if (section === "ownership") policy.ownership = {};
       else if (section === "owner_aliases") policy.owner_aliases = {};
       else if (section === "required_test_mappings") policy.required_test_mappings = [];
+      else if (section === "module_boundaries") policy.module_boundaries = [];
       else if (isArraySection(section)) (policy[section] as string[] | undefined) = [];
       currentPair = null;
       currentAliasOwner = null;
       currentTestMapping = null;
+      currentModuleBoundary = null;
       continue;
     }
 
@@ -222,6 +251,17 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
         parsePairLine(line.slice(2), currentPair);
       } else if (currentPair) {
         parsePairLine(line, currentPair);
+      }
+      continue;
+    }
+
+    if (section === "module_boundaries") {
+      if (line.startsWith("- ")) {
+        currentModuleBoundary = {};
+        (policy.module_boundaries ??= []).push(currentModuleBoundary as never);
+        parsePairLine(line.slice(2), currentModuleBoundary);
+      } else if (currentModuleBoundary) {
+        parsePairLine(line, currentModuleBoundary);
       }
       continue;
     }
@@ -300,6 +340,7 @@ function computePolicyQualityScore(policy: RepoPolicy, errorCount: number): numb
     (policy.paired_files ?? []).length > 0,
     (policy.sensitive_patterns ?? []).length > 0,
     (policy.required_test_mappings ?? []).length > 0 || (policy.required_tests ?? []).length > 0,
+    (policy.module_boundaries ?? []).length > 0,
     (policy.missing_authority_rules ?? []).length > 0
   ];
   const passed = checks.filter(Boolean).length;

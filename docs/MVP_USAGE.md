@@ -112,16 +112,30 @@ npm run product:pilot -- \
 Bu komut ownership, refusal, reject, remask ve human-review senaryolarını tek
 raporda karşılaştırır.
 
-MVP-2 external-style pilot koşusu:
+MVP-3 external-style pilot koşusu:
 
 ```bash
-npm run product:pilot-v2 -- \
+npm run product:pilot-v3 -- \
   --out-dir reports/product-runtime \
   --fail-on-regression
 ```
 
 Bu komut owner alias, path-aware required test mapping ve policy quality score
-sinyallerini dış-repo benzeri kontrollü senaryolarda doğrular.
+sinyallerini; ayrıca module boundary / cross-module authority davranışını
+dış-repo benzeri kontrollü senaryolarda doğrular.
+
+Pilot insight raporu:
+
+```bash
+npm run product:pilot-insights -- \
+  --dir reports/product-runtime \
+  --fail-on-missed-blocker
+```
+
+Bu rapor "ne yakalandı, nerede fazla uyarı verildi, nerede blocker kaçtı"
+sorusunu tablo halinde cevaplar. Ürünleştirme tarafında bu rapor, tek başına
+başarı iddiası değil; reviewer'ın runtime davranışını denetlemesi için
+okunabilir analiz yüzeyidir.
 
 PR comment artifact üretimi:
 

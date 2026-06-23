@@ -131,6 +131,7 @@ function createPolicyMarkdown(
         ["sensitive_patterns", (validation.policy.sensitive_patterns ?? []).length.toString()],
         ["required_tests", (validation.policy.required_tests ?? []).length.toString()],
         ["required_test_mappings", (validation.policy.required_test_mappings ?? []).length.toString()],
+        ["module_boundaries", (validation.policy.module_boundaries ?? []).length.toString()],
         ["missing_authority_rules", (validation.policy.missing_authority_rules ?? []).length.toString()]
       ]
     )
