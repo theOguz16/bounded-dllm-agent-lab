@@ -238,7 +238,6 @@ The product MVP documentation is available at:
 
 - [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md)
 - [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md)
-- [`docs/MVP2_PILOT_REPORT.md`](docs/MVP2_PILOT_REPORT.md)
 - [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
 
 Useful product checks:
