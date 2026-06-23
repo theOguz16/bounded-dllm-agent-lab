@@ -27,11 +27,15 @@ allowed_paths:
   - "package.json"
   - "package-lock.json"
 
-forbidden_paths:
+  forbidden_paths:
   - ".env"
   - ".env.*"
   - "secrets/**"
   - "infra/production/**"
+
+ownership:
+  "packages/billing/**": "billing-team"
+  "packages/auth/**": "auth-team"
 
 paired_files:
   - source: "package.json"
@@ -145,6 +149,7 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
     if (!rawLine.startsWith(" ") && line.endsWith(":")) {
       section = line.slice(0, -1) as keyof RepoPolicy;
       if (section === "paired_files") policy.paired_files = [];
+      else if (section === "ownership") policy.ownership = {};
       else if (isArraySection(section)) (policy[section] as string[] | undefined) = [];
       currentPair = null;
       continue;
@@ -163,6 +168,11 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
       continue;
     }
 
+    if (section === "ownership") {
+      parseMapLine(line, policy.ownership ??= {});
+      continue;
+    }
+
     if (isArraySection(section) && line.startsWith("- ")) {
       ((policy[section] as string[] | undefined) ??= []).push(unquote(line.slice(2).trim()));
     }
@@ -175,6 +185,12 @@ function parsePairLine(line: string, target: Record<string, string>): void {
   const [key, ...rest] = line.split(":");
   if (!key || !rest.length) return;
   target[key.trim()] = unquote(rest.join(":").trim());
+}
+
+function parseMapLine(line: string, target: Record<string, string>): void {
+  const [key, ...rest] = line.split(":");
+  if (!key || !rest.length) return;
+  target[unquote(key.trim())] = unquote(rest.join(":").trim());
 }
 
 function isArraySection(section: keyof RepoPolicy): section is "allowed_paths" | "forbidden_paths" | "sensitive_patterns" | "required_tests" | "missing_authority_rules" {

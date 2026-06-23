@@ -45,6 +45,9 @@ jobs:
       - name: Product action artifact smoke
         run: npm run product:action-smoke
 
+      - name: Product MVP-1 pilot
+        run: npm run product:pilot -- --out-dir /tmp/bounded-agent-ci/pilot --fail-on-regression
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.

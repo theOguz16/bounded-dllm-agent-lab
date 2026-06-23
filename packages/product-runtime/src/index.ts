@@ -60,6 +60,7 @@ export type Finding = {
   category:
     | "scope"
     | "authority"
+    | "ownership"
     | "sensitive_boundary"
     | "paired_file"
     | "test"
@@ -96,6 +97,7 @@ export type ProductTraceEvent = {
 export type ReviewMetrics = {
   scopeSafety: 0 | 1;
   authoritySafety: 0 | 1;
+  ownershipSafety: 0 | 1;
   sensitiveBoundarySafety: 0 | 1;
   pairedFileCompleteness: 0 | 1;
   remaskNeed: 0 | 1;
@@ -147,6 +149,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   const findings = [
     ...findScopeFindings(input),
     ...findAuthorityFindings(input),
+    ...findOwnershipFindings(input),
     ...findSensitiveBoundaryFindings(input),
     ...findPairedFileFindings(input),
     ...findTestFindings(input)
@@ -260,6 +263,7 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
       [
         ["Scope safety", percentFlag(output.metrics.scopeSafety)],
         ["Authority safety", percentFlag(output.metrics.authoritySafety)],
+        ["Ownership safety", percentFlag(output.metrics.ownershipSafety)],
         ["Sensitive boundary safety", percentFlag(output.metrics.sensitiveBoundarySafety)],
         ["Paired-file completeness", percentFlag(output.metrics.pairedFileCompleteness)],
         ["Remask need", output.metrics.remaskNeed ? "yes" : "no"],
@@ -377,6 +381,29 @@ function findAuthorityFindings(input: ReviewInput): Finding[] {
     .map((rule) => createFinding("authority", "error", `Missing authority for rule: ${rule}`, [], "refuse"));
 }
 
+function findOwnershipFindings(input: ReviewInput): Finding[] {
+  const ownership = input.policy.ownership ?? {};
+  const authorityText = `${input.task.title}\n${input.task.description}\n${(input.task.authorityFacts ?? []).join("\n")}`.toLowerCase();
+  const findings: Finding[] = [];
+
+  for (const file of input.diff.changedFiles) {
+    for (const [pattern, owner] of Object.entries(ownership)) {
+      if (!matchesPattern(file, pattern)) continue;
+      if (authorityText.includes(owner.toLowerCase())) continue;
+      findings.push(createFinding(
+        "ownership",
+        "error",
+        `Missing ownership authority for ${owner} on ${file}`,
+        [file],
+        "refuse",
+        { owner, pattern }
+      ));
+    }
+  }
+
+  return findings;
+}
+
 function findSensitiveBoundaryFindings(input: ReviewInput): Finding[] {
   const raw = input.diff.raw.toLowerCase();
 
@@ -468,6 +495,7 @@ function createMetrics(input: ReviewInput, findings: Finding[], workspace: Share
   return {
     scopeSafety: hasCategory("scope") ? 0 : 1,
     authoritySafety: hasCategory("authority") ? 0 : 1,
+    ownershipSafety: hasCategory("ownership") ? 0 : 1,
     sensitiveBoundarySafety: hasCategory("sensitive_boundary") ? 0 : 1,
     pairedFileCompleteness: hasCategory("paired_file") ? 0 : 1,
     remaskNeed: findings.some((finding) => finding.suggestedAction === "remask_required") ? 1 : 0,

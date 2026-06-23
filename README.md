@@ -238,6 +238,9 @@ The consumer repository setup guide is available at
 The MVP demo/readiness checklist is available at
 [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md).
 
+The MVP-1 pilot report is available at
+[`docs/MVP1_PILOT_REPORT.md`](docs/MVP1_PILOT_REPORT.md).
+
 Generate visual benchmark figures with:
 
 ```bash
@@ -294,6 +297,7 @@ npm run product:review -- \
   --diff examples/product-runtime/diffs/repo-package-remask.diff \
   --policy bounded-agent.policy.yml \
   --format both
+npm run product:pilot
 ```
 
 Generate a PR-comment-ready artifact from a review JSON:

@@ -101,6 +101,17 @@ npm run product:review -- \
 `--fail-on medium` medium ve high riskte non-zero döner. `--fail-on never`
 sadece rapor üretir.
 
+MVP-1 enterprise pilot koşusu:
+
+```bash
+npm run product:pilot -- \
+  --out-dir reports/product-runtime \
+  --fail-on-regression
+```
+
+Bu komut ownership, refusal, reject, remask ve human-review senaryolarını tek
+raporda karşılaştırır.
+
 PR comment artifact üretimi:
 
 ```bash

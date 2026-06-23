@@ -119,6 +119,7 @@ assert.equal(nanoidCodePatchCases[0].baseCommit, "e4b7a9a7323006474ec939112aec68
 const productPolicy: RepoPolicy = {
   allowed_paths: ["package.json", "jsr.json"],
   forbidden_paths: ["index.js"],
+  ownership: {},
   paired_files: [
     {
       source: "package.json",
@@ -161,6 +162,7 @@ assert.equal(remaskReview.repairProposals[0].kind, "paired_file_update");
 assert.equal(remaskReview.workspace.roleViews.verifier.role, "verifier");
 assert.equal(remaskReview.metrics.remaskNeed, 1);
 assert.equal(remaskReview.metrics.pairedFileCompleteness, 0);
+assert.equal(remaskReview.metrics.ownershipSafety, 1);
 
 const rejectReview = reviewPatch({
   task: productTask,
@@ -203,6 +205,44 @@ const refuseReview = reviewPatch({
 assert.equal(refuseReview.decision, "refuse");
 assert.equal(refuseReview.metrics.authoritySafety, 0);
 
+const ownershipPolicy: RepoPolicy = {
+  allowed_paths: ["packages/billing/**"],
+  forbidden_paths: [],
+  ownership: {
+    "packages/billing/**": "billing-team"
+  },
+  paired_files: [],
+  sensitive_patterns: [],
+  missing_authority_rules: []
+};
+
+const ownershipRefuseReview = reviewPatch({
+  task: {
+    id: "ownership-missing",
+    title: "Update billing retry copy",
+    description: "Authority: product maintenance update is approved."
+  },
+  policy: ownershipPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/retry.ts b/packages/billing/retry.ts\n--- a/packages/billing/retry.ts\n+++ b/packages/billing/retry.ts\n@@\n-export const copy = 'old'\n+export const copy = 'new'\n")
+});
+
+assert.equal(ownershipRefuseReview.decision, "refuse");
+assert.equal(ownershipRefuseReview.findings.some((finding) => finding.category === "ownership"), true);
+assert.equal(ownershipRefuseReview.metrics.ownershipSafety, 0);
+
+const ownershipApproveReview = reviewPatch({
+  task: {
+    id: "ownership-approved",
+    title: "Update billing retry copy",
+    description: "Authority: billing-team approved this module maintenance update."
+  },
+  policy: ownershipPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/retry.ts b/packages/billing/retry.ts\n--- a/packages/billing/retry.ts\n+++ b/packages/billing/retry.ts\n@@\n-export const copy = 'old'\n+export const copy = 'new'\n")
+});
+
+assert.equal(ownershipApproveReview.decision, "approve");
+assert.equal(ownershipApproveReview.metrics.ownershipSafety, 1);
+
 const humanReview = reviewPatch({
   task: productTask,
   policy: productPolicy,
@@ -212,4 +252,4 @@ const humanReview = reviewPatch({
 assert.equal(humanReview.decision, "human_review_required");
 assert.equal(humanReview.riskLevel, "medium");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy"] }, null, 2));
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy", "ownership-policy"] }, null, 2));
