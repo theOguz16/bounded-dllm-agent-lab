@@ -10,6 +10,8 @@ export type PolicyValidationResult = {
   ok: boolean;
   errorCount: number;
   warningCount: number;
+  qualityScore: number;
+  qualityGrade: "weak" | "usable" | "strong";
   findings: PolicyValidationFinding[];
   policy: RepoPolicy;
 };
@@ -27,7 +29,7 @@ allowed_paths:
   - "package.json"
   - "package-lock.json"
 
-  forbidden_paths:
+forbidden_paths:
   - ".env"
   - ".env.*"
   - "secrets/**"
@@ -36,6 +38,14 @@ allowed_paths:
 ownership:
   "packages/billing/**": "billing-team"
   "packages/auth/**": "auth-team"
+
+owner_aliases:
+  billing-team:
+    - "billing"
+    - "payments"
+  auth-team:
+    - "auth"
+    - "identity"
 
 paired_files:
   - source: "package.json"
@@ -49,6 +59,11 @@ sensitive_patterns:
   - "PRIVATE_KEY"
 
 required_tests:
+
+required_test_mappings:
+  - source: "packages/billing/**"
+    test: "packages/billing/**/*.test.ts"
+    reason: "billing module changes should include billing tests"
 
 missing_authority_rules:
   - "Authority:"
@@ -89,6 +104,22 @@ export function validatePolicy(policy: RepoPolicy): PolicyValidationResult {
     });
   }
 
+  if (!Object.keys(policy.ownership ?? {}).length) {
+    findings.push({
+      severity: "warning",
+      code: "empty_ownership",
+      message: "ownership is empty; module owner authority checks will not run."
+    });
+  }
+
+  if (!(policy.required_test_mappings ?? []).length) {
+    findings.push({
+      severity: "warning",
+      code: "empty_required_test_mappings",
+      message: "required_test_mappings is empty; path-aware test coverage checks will not run."
+    });
+  }
+
   for (const [index, rule] of (policy.paired_files ?? []).entries()) {
     if (!rule.source || !rule.requires) {
       findings.push({
@@ -106,13 +137,26 @@ export function validatePolicy(policy: RepoPolicy): PolicyValidationResult {
     }
   }
 
+  for (const [index, rule] of (policy.required_test_mappings ?? []).entries()) {
+    if (!rule.source || !rule.test) {
+      findings.push({
+        severity: "error",
+        code: "invalid_required_test_mapping",
+        message: `required_test_mappings[${index}] must include both source and test.`
+      });
+    }
+  }
+
   const errorCount = findings.filter((finding) => finding.severity === "error").length;
   const warningCount = findings.filter((finding) => finding.severity === "warning").length;
+  const qualityScore = computePolicyQualityScore(policy, errorCount);
 
   return {
     ok: errorCount === 0,
     errorCount,
     warningCount,
+    qualityScore,
+    qualityGrade: toQualityGrade(qualityScore),
     findings,
     policy
   };
@@ -123,6 +167,7 @@ function normalizePolicy(policy: Partial<RepoPolicy>): RepoPolicy {
     allowed_paths: Array.isArray(policy.allowed_paths) ? policy.allowed_paths.map(String) : [],
     forbidden_paths: Array.isArray(policy.forbidden_paths) ? policy.forbidden_paths.map(String) : [],
     ownership: policy.ownership ?? {},
+    owner_aliases: normalizeStringArrayMap(policy.owner_aliases),
     paired_files: Array.isArray(policy.paired_files)
       ? policy.paired_files.map((rule) => ({
           source: String(rule.source ?? ""),
@@ -132,6 +177,13 @@ function normalizePolicy(policy: Partial<RepoPolicy>): RepoPolicy {
       : [],
     sensitive_patterns: Array.isArray(policy.sensitive_patterns) ? policy.sensitive_patterns.map(String) : [],
     required_tests: Array.isArray(policy.required_tests) ? policy.required_tests.map(String) : [],
+    required_test_mappings: Array.isArray(policy.required_test_mappings)
+      ? policy.required_test_mappings.map((rule) => ({
+          source: String(rule.source ?? ""),
+          test: String(rule.test ?? ""),
+          reason: rule.reason ? String(rule.reason) : undefined
+        }))
+      : [],
     missing_authority_rules: Array.isArray(policy.missing_authority_rules) ? policy.missing_authority_rules.map(String) : []
   };
 }
@@ -141,6 +193,8 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
   const lines = content.split("\n");
   let section: keyof RepoPolicy | null = null;
   let currentPair: Record<string, string> | null = null;
+  let currentAliasOwner: string | null = null;
+  let currentTestMapping: Record<string, string> | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -150,8 +204,12 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
       section = line.slice(0, -1) as keyof RepoPolicy;
       if (section === "paired_files") policy.paired_files = [];
       else if (section === "ownership") policy.ownership = {};
+      else if (section === "owner_aliases") policy.owner_aliases = {};
+      else if (section === "required_test_mappings") policy.required_test_mappings = [];
       else if (isArraySection(section)) (policy[section] as string[] | undefined) = [];
       currentPair = null;
+      currentAliasOwner = null;
+      currentTestMapping = null;
       continue;
     }
 
@@ -168,8 +226,29 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
       continue;
     }
 
+    if (section === "required_test_mappings") {
+      if (line.startsWith("- ")) {
+        currentTestMapping = {};
+        (policy.required_test_mappings ??= []).push(currentTestMapping as { source: string; test: string; reason?: string });
+        parsePairLine(line.slice(2), currentTestMapping);
+      } else if (currentTestMapping) {
+        parsePairLine(line, currentTestMapping);
+      }
+      continue;
+    }
+
     if (section === "ownership") {
       parseMapLine(line, policy.ownership ??= {});
+      continue;
+    }
+
+    if (section === "owner_aliases") {
+      if (line.endsWith(":")) {
+        currentAliasOwner = unquote(line.slice(0, -1).trim());
+        (policy.owner_aliases ??= {})[currentAliasOwner] = [];
+      } else if (currentAliasOwner && line.startsWith("- ")) {
+        ((policy.owner_aliases ??= {})[currentAliasOwner] ??= []).push(unquote(line.slice(2).trim()));
+      }
       continue;
     }
 
@@ -199,6 +278,38 @@ function isArraySection(section: keyof RepoPolicy): section is "allowed_paths" |
     section === "sensitive_patterns" ||
     section === "required_tests" ||
     section === "missing_authority_rules";
+}
+
+function normalizeStringArrayMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, list]) => [
+      key,
+      Array.isArray(list) ? list.map(String) : []
+    ])
+  );
+}
+
+function computePolicyQualityScore(policy: RepoPolicy, errorCount: number): number {
+  if (errorCount > 0) return 0;
+  const checks = [
+    policy.allowed_paths.length > 0,
+    policy.forbidden_paths.length > 0,
+    Object.keys(policy.ownership ?? {}).length > 0,
+    Object.keys(policy.owner_aliases ?? {}).length > 0,
+    (policy.paired_files ?? []).length > 0,
+    (policy.sensitive_patterns ?? []).length > 0,
+    (policy.required_test_mappings ?? []).length > 0 || (policy.required_tests ?? []).length > 0,
+    (policy.missing_authority_rules ?? []).length > 0
+  ];
+  const passed = checks.filter(Boolean).length;
+  return Number((passed / checks.length).toFixed(4));
+}
+
+function toQualityGrade(score: number): "weak" | "usable" | "strong" {
+  if (score >= 0.75) return "strong";
+  if (score >= 0.5) return "usable";
+  return "weak";
 }
 
 function unquote(value: string): string {

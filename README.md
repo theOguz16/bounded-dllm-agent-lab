@@ -218,6 +218,37 @@ The Turkish LinkedIn draft and short social figures are available at
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
+## Product Runtime Status
+
+The research lab is now being translated into a bounded agent orchestration
+runtime. The current MVP surface is not a replacement for Cursor, Codex, or
+Windsurf. It is a policy-bound review/runtime layer for task + diff + policy
+flows:
+
+```text
+task + diff + policy
+  -> shared semantic workspace
+  -> bounded role views
+  -> verifier findings
+  -> approve / refuse / reject / remask_required / human_review_required
+  -> JSON + Markdown + PR comment artifact
+```
+
+The product MVP documentation is available at:
+
+- [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md)
+- [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md)
+- [`docs/MVP2_PILOT_REPORT.md`](docs/MVP2_PILOT_REPORT.md)
+- [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
+
+Useful product checks:
+
+```bash
+npm run product:action-smoke
+npm run product:pilot -- --out-dir /tmp/bounded-mvp1-pilot --fail-on-regression
+npm run product:pilot-v2 -- --out-dir /tmp/bounded-mvp2-pilot --fail-on-regression
+```
+
 The second phase hybrid architecture is documented in
 [`docs/HYBRID_AGENT_ARCHITECTURE.md`](docs/HYBRID_AGENT_ARCHITECTURE.md).
 

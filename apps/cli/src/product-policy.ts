@@ -23,6 +23,8 @@ if (args.init === "true") {
     policyPath: outPath,
     warningCount: validation.warningCount,
     errorCount: validation.errorCount,
+    qualityScore: validation.qualityScore,
+    qualityGrade: validation.qualityGrade,
     findings: validation.findings
   };
 
@@ -40,6 +42,8 @@ if (args.validate === "true") {
     policyPath,
     warningCount: validation.warningCount,
     errorCount: validation.errorCount,
+    qualityScore: validation.qualityScore,
+    qualityGrade: validation.qualityGrade,
     findings: validation.findings,
     normalizedPolicy: validation.policy
   };
@@ -108,6 +112,8 @@ function createPolicyMarkdown(
     `- OK: ${validation.ok ? "yes" : "no"}`,
     `- Errors: ${validation.errorCount}`,
     `- Warnings: ${validation.warningCount}`,
+    `- Quality score: ${Math.round(validation.qualityScore * 100)}%`,
+    `- Quality grade: ${validation.qualityGrade}`,
     "",
     "## Findings",
     "",
@@ -121,8 +127,10 @@ function createPolicyMarkdown(
         ["allowed_paths", validation.policy.allowed_paths.length.toString()],
         ["forbidden_paths", validation.policy.forbidden_paths.length.toString()],
         ["paired_files", (validation.policy.paired_files ?? []).length.toString()],
+        ["owner_aliases", Object.keys(validation.policy.owner_aliases ?? {}).length.toString()],
         ["sensitive_patterns", (validation.policy.sensitive_patterns ?? []).length.toString()],
         ["required_tests", (validation.policy.required_tests ?? []).length.toString()],
+        ["required_test_mappings", (validation.policy.required_test_mappings ?? []).length.toString()],
         ["missing_authority_rules", (validation.policy.missing_authority_rules ?? []).length.toString()]
       ]
     )

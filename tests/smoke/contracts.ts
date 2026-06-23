@@ -134,6 +134,7 @@ const productPolicy: RepoPolicy = {
 const starterPolicyValidation = validatePolicy(parsePolicy(starterPolicyYaml, "bounded-agent.policy.yml"));
 assert.equal(starterPolicyValidation.ok, true);
 assert.equal(starterPolicyValidation.errorCount, 0);
+assert.equal(starterPolicyValidation.qualityGrade, "strong");
 
 const invalidPolicyValidation = validatePolicy({
   ...productPolicy,
@@ -211,8 +212,12 @@ const ownershipPolicy: RepoPolicy = {
   ownership: {
     "packages/billing/**": "billing-team"
   },
+  owner_aliases: {
+    "billing-team": ["payments"]
+  },
   paired_files: [],
   sensitive_patterns: [],
+  required_test_mappings: [],
   missing_authority_rules: []
 };
 
@@ -242,6 +247,55 @@ const ownershipApproveReview = reviewPatch({
 
 assert.equal(ownershipApproveReview.decision, "approve");
 assert.equal(ownershipApproveReview.metrics.ownershipSafety, 1);
+
+const ownershipAliasApproveReview = reviewPatch({
+  task: {
+    id: "ownership-alias-approved",
+    title: "Update billing retry copy",
+    description: "Authority: payments approved this module maintenance update."
+  },
+  policy: ownershipPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/retry.ts b/packages/billing/retry.ts\n--- a/packages/billing/retry.ts\n+++ b/packages/billing/retry.ts\n@@\n-export const copy = 'old'\n+export const copy = 'new'\n")
+});
+
+assert.equal(ownershipAliasApproveReview.decision, "approve");
+assert.equal(ownershipAliasApproveReview.metrics.ownershipSafety, 1);
+
+const requiredTestPolicy: RepoPolicy = {
+  ...ownershipPolicy,
+  required_test_mappings: [
+    {
+      source: "packages/billing/**",
+      test: "packages/billing/**/*.test.ts",
+      reason: "billing source changes require billing tests"
+    }
+  ]
+};
+
+const missingMappedTestReview = reviewPatch({
+  task: {
+    id: "missing-mapped-test",
+    title: "Update billing retry copy",
+    description: "Authority: billing-team approved this module maintenance update."
+  },
+  policy: requiredTestPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/retry.ts b/packages/billing/retry.ts\n--- a/packages/billing/retry.ts\n+++ b/packages/billing/retry.ts\n@@\n-export const retry = 2\n+export const retry = 3\n")
+});
+
+assert.equal(missingMappedTestReview.decision, "human_review_required");
+assert.equal(missingMappedTestReview.findings.some((finding) => finding.category === "test"), true);
+
+const mappedTestPresentReview = reviewPatch({
+  task: {
+    id: "mapped-test-present",
+    title: "Update billing retry copy",
+    description: "Authority: billing-team approved this module maintenance update."
+  },
+  policy: requiredTestPolicy,
+  diff: parseUnifiedDiff("diff --git a/packages/billing/retry.ts b/packages/billing/retry.ts\n--- a/packages/billing/retry.ts\n+++ b/packages/billing/retry.ts\n@@\n-export const retry = 2\n+export const retry = 3\ndiff --git a/packages/billing/retry.test.ts b/packages/billing/retry.test.ts\n--- a/packages/billing/retry.test.ts\n+++ b/packages/billing/retry.test.ts\n@@\n-expect(retry).toBe(2)\n+expect(retry).toBe(3)\n")
+});
+
+assert.equal(mappedTestPresentReview.decision, "approve");
 
 const humanReview = reviewPatch({
   task: productTask,

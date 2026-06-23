@@ -27,13 +27,21 @@ export type PairedFileRule = {
   reason?: string;
 };
 
+export type RequiredTestMappingRule = {
+  source: string;
+  test: string;
+  reason?: string;
+};
+
 export type RepoPolicy = {
   allowed_paths: string[];
   forbidden_paths: string[];
   ownership?: Record<string, string>;
+  owner_aliases?: Record<string, string[]>;
   paired_files?: PairedFileRule[];
   sensitive_patterns?: string[];
   required_tests?: string[];
+  required_test_mappings?: RequiredTestMappingRule[];
   missing_authority_rules?: string[];
 };
 
@@ -383,13 +391,13 @@ function findAuthorityFindings(input: ReviewInput): Finding[] {
 
 function findOwnershipFindings(input: ReviewInput): Finding[] {
   const ownership = input.policy.ownership ?? {};
-  const authorityText = `${input.task.title}\n${input.task.description}\n${(input.task.authorityFacts ?? []).join("\n")}`.toLowerCase();
+  const authorityText = `${input.task.description}\n${(input.task.authorityFacts ?? []).join("\n")}`.toLowerCase();
   const findings: Finding[] = [];
 
   for (const file of input.diff.changedFiles) {
     for (const [pattern, owner] of Object.entries(ownership)) {
       if (!matchesPattern(file, pattern)) continue;
-      if (authorityText.includes(owner.toLowerCase())) continue;
+      if (hasOwnerAuthority(authorityText, owner, input.policy.owner_aliases?.[owner] ?? [])) continue;
       findings.push(createFinding(
         "ownership",
         "error",
@@ -430,12 +438,23 @@ function findPairedFileFindings(input: ReviewInput): Finding[] {
 }
 
 function findTestFindings(input: ReviewInput): Finding[] {
-  if (!input.policy.required_tests?.length) return [];
   const raw = input.diff.raw.toLowerCase();
-
-  return input.policy.required_tests
+  const globalFindings = (input.policy.required_tests ?? [])
     .filter((test) => !raw.includes(test.toLowerCase()))
     .map((test) => createFinding("test", "warning", `Required test signal is missing: ${test}`, [], "human_review_required"));
+  const mappingFindings = (input.policy.required_test_mappings ?? [])
+    .filter((rule) => input.diff.changedFiles.some((file) => matchesPattern(file, rule.source)))
+    .filter((rule) => !input.diff.changedFiles.some((file) => matchesPattern(file, rule.test)) && !raw.includes(rule.test.toLowerCase()))
+    .map((rule) => createFinding(
+      "test",
+      "warning",
+      rule.reason ?? `Required mapped test signal is missing for ${rule.source}: ${rule.test}`,
+      [],
+      "human_review_required",
+      { source: rule.source, test: rule.test }
+    ));
+
+  return [...globalFindings, ...mappingFindings];
 }
 
 function createRemaskRegions(findings: Finding[]): RemaskRegion[] {
@@ -546,12 +565,20 @@ function matchesAny(file: string, patterns: string[]): boolean {
   return patterns.some((pattern) => matchesPattern(file, pattern));
 }
 
+function hasOwnerAuthority(authorityText: string, owner: string, aliases: string[]): boolean {
+  return [owner, ...aliases].some((value) => authorityText.includes(value.toLowerCase()));
+}
+
 function matchesPattern(file: string, pattern: string): boolean {
+  const doubleStarSlash = "__DOUBLE_STAR_SLASH__";
+  const doubleStar = "__DOUBLE_STAR__";
   const escaped = pattern
+    .replace(/\*\*\//g, doubleStarSlash)
+    .replace(/\*\*/g, doubleStar)
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "§DOUBLE_STAR§")
     .replace(/\*/g, "[^/]*")
-    .replace(/§DOUBLE_STAR§/g, ".*");
+    .replaceAll(doubleStarSlash, "(?:.*/)?")
+    .replaceAll(doubleStar, ".*");
   return new RegExp(`^${escaped}$`).test(file);
 }
 

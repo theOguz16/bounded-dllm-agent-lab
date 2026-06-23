@@ -37,6 +37,7 @@ npm run product:policy -- --validate --policy /tmp/bounded-agent.policy.yml
 npm run product:policy -- --validate --policy bounded-agent.policy.yml --format both
 npm run product:action-smoke
 npm run product:pilot -- --out-dir /tmp/bounded-agent-pilot --fail-on-regression
+npm run product:pilot-v2 -- --out-dir /tmp/bounded-agent-pilot-v2 --fail-on-regression
 ```
 
 Ürün review örneği:
@@ -134,13 +135,17 @@ Kısa anlatım:
 4. Eksik authority varsa `refuse`, forbidden scope varsa `reject`, lokal eksik
    varsa `remask_required` üretir.
 5. Sonuç JSON/Markdown/PR comment artifact olarak trace edilebilir.
+6. MVP-2 pilotunda owner alias, required test mapping ve policy quality score
+   sinyalleri gösterilir.
 
 ## Known Limits
 
 - Policy parser basit YAML subset'i destekler.
 - Glob desteği sınırlı ama MVP için yeterlidir.
 - Runtime henüz gerçek repo graph çıkarmıyor.
-- Ownership kuralları şemada var ama karar motorunda henüz sınırlı kullanılıyor.
+- Ownership kuralları ve owner alias'ları karar motorunda deterministic
+  uygulanıyor; fakat gerçek organizasyon ownership graph'i henüz otomatik
+  çıkarılmıyor.
 - GitHub comment posting repo variable ile açılır; fork PR izinleri ayrıca
   değerlendirilmelidir.
 - Dashboard, SDK ve IDE adapter sonraki fazdır.
@@ -157,4 +162,6 @@ MVP demo edilebilir sayılır, eğer:
 - dogfood review expected decision üretiyor,
 - PR comment artifact marker içeriyor,
 - GitHub Action JSON/Markdown/comment/index artifact path'lerini output olarak
-  verecek şekilde dokümante edilmişse.
+  verecek şekilde dokümante edilmişse,
+- MVP-2 pilot suite policy quality, owner alias ve required test mapping
+  senaryolarını regresyonsuz geçiriyorsa.

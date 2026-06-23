@@ -20,6 +20,7 @@
     "product:policy": "node dist/apps/cli/src/product-policy.js",
     "product:action-smoke": "node dist/apps/cli/src/product-action-smoke.js",
     "product:pilot": "node dist/apps/cli/src/product-pilot.js",
+    "product:pilot-v2": "node dist/apps/cli/src/product-pilot-v2.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
