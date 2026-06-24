@@ -25,12 +25,14 @@ export type PairedFileRule = {
   source: string;
   requires: string;
   reason?: string;
+  changed_when_contains?: string[];
 };
 
 export type RequiredTestMappingRule = {
   source: string;
   test: string;
   reason?: string;
+  changed_when_contains?: string[];
 };
 
 export type ModuleBoundaryRule = {
@@ -501,7 +503,11 @@ function findSensitiveBoundaryFindings(input: ReviewInput): Finding[] {
 
 function findPairedFileFindings(input: ReviewInput): Finding[] {
   return (input.policy.paired_files ?? [])
-    .filter((rule) => input.diff.changedFiles.includes(rule.source) && !input.diff.changedFiles.includes(rule.requires))
+    .filter((rule) =>
+      input.diff.changedFiles.includes(rule.source) &&
+      ruleConditionMatches(input.diff, rule.changed_when_contains) &&
+      !input.diff.changedFiles.includes(rule.requires)
+    )
     .map((rule) => createFinding(
       "paired_file",
       "warning",
@@ -523,6 +529,7 @@ function findTestFindings(input: ReviewInput): Finding[] {
     .map((test) => createFinding("test", "warning", `Required test signal is missing: ${test}`, [], "human_review_required"));
   const mappingFindings = (input.policy.required_test_mappings ?? [])
     .filter((rule) => input.diff.changedFiles.some((file) => matchesPattern(file, rule.source)))
+    .filter((rule) => ruleConditionMatches(input.diff, rule.changed_when_contains))
     .filter((rule) => !input.diff.changedFiles.some((file) => matchesPattern(file, rule.test)) && !raw.includes(rule.test.toLowerCase()))
     .map((rule) => createFinding(
       "test",
@@ -534,6 +541,19 @@ function findTestFindings(input: ReviewInput): Finding[] {
     ));
 
   return [...globalFindings, ...mappingFindings];
+}
+
+function ruleConditionMatches(diff: PatchDiff, changedWhenContains: string[] | undefined): boolean {
+  if (!changedWhenContains?.length) return true;
+  const changedText = diff.raw
+    .split("\n")
+    .filter((line) =>
+      (line.startsWith("+") && !line.startsWith("+++")) ||
+      (line.startsWith("-") && !line.startsWith("---"))
+    )
+    .join("\n")
+    .toLowerCase();
+  return changedWhenContains.some((signal) => changedText.includes(signal.toLowerCase()));
 }
 
 function createRemaskRegions(findings: Finding[]): RemaskRegion[] {

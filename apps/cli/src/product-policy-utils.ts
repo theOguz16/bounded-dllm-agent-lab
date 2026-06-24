@@ -51,6 +51,7 @@ paired_files:
   - source: "package.json"
     requires: "package-lock.json"
     reason: "npm package metadata changes must keep the lockfile in sync"
+    changed_when_contains: "version"
 
 sensitive_patterns:
   - "SECRET"
@@ -64,6 +65,7 @@ required_test_mappings:
   - source: "packages/billing/**"
     test: "packages/billing/**/*.test.ts"
     reason: "billing module changes should include billing tests"
+    changed_when_contains: "export function, export const"
 
 module_boundaries:
   - source: "packages/billing/**"
@@ -188,7 +190,8 @@ function normalizePolicy(policy: Partial<RepoPolicy>): RepoPolicy {
       ? policy.paired_files.map((rule) => ({
           source: String(rule.source ?? ""),
           requires: String(rule.requires ?? ""),
-          reason: rule.reason ? String(rule.reason) : undefined
+          reason: rule.reason ? String(rule.reason) : undefined,
+          changed_when_contains: normalizeStringArray(rule.changed_when_contains)
         }))
       : [],
     sensitive_patterns: Array.isArray(policy.sensitive_patterns) ? policy.sensitive_patterns.map(String) : [],
@@ -197,7 +200,8 @@ function normalizePolicy(policy: Partial<RepoPolicy>): RepoPolicy {
       ? policy.required_test_mappings.map((rule) => ({
           source: String(rule.source ?? ""),
           test: String(rule.test ?? ""),
-          reason: rule.reason ? String(rule.reason) : undefined
+          reason: rule.reason ? String(rule.reason) : undefined,
+          changed_when_contains: normalizeStringArray(rule.changed_when_contains)
         }))
       : [],
     module_boundaries: Array.isArray(policy.module_boundaries)
@@ -328,6 +332,14 @@ function normalizeStringArrayMap(value: unknown): Record<string, string[]> {
       Array.isArray(list) ? list.map(String) : []
     ])
   );
+}
+
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === "string" && value.trim()) {
+    return value.split(",").map((part) => part.trim()).filter(Boolean);
+  }
+  return undefined;
 }
 
 function computePolicyQualityScore(policy: RepoPolicy, errorCount: number): number {

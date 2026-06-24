@@ -269,12 +269,18 @@ paired_files:
   - source: package.json
     requires: jsr.json
     reason: release metadata must stay consistent
+    changed_when_contains: version
 sensitive_patterns:
   - SECRET
   - API_KEY
 required_tests:
 missing_authority_rules:
 ```
+
+`changed_when_contains`, paired-file ve test mapping kurallarını daha cerrahi
+hale getirir. Örneğin `package.json` değişti diye her zaman lockfile istemek
+yerine, yalnızca değişen satırlarda `version` veya dependency sinyali varsa
+uyarı üretilebilir.
 
 Bu repo kendi dogfood policy dosyasını kökte tutar:
 

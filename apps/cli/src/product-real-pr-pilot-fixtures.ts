@@ -57,7 +57,7 @@ export const nanoidPilotPolicy: RepoPolicy = {
     "SECURITY.md": "security-team"
   },
   owner_aliases: {
-    "core-team": ["core", "runtime"],
+    "core-team": ["core", "runtime", "performance"],
     "types-team": ["types", "typescript"],
     "cli-team": ["cli", "developer-tools"],
     "non-secure-team": ["non-secure", "performance"],
@@ -69,17 +69,20 @@ export const nanoidPilotPolicy: RepoPolicy = {
     {
       source: "package.json",
       requires: "jsr.json",
-      reason: "package metadata changes must keep JSR metadata aligned"
+      reason: "package version metadata changes must keep JSR metadata aligned",
+      changed_when_contains: ["\"version\""]
     },
     {
       source: "package.json",
       requires: "pnpm-lock.yaml",
-      reason: "dependency metadata changes must keep pnpm lockfile aligned"
+      reason: "dependency metadata changes must keep pnpm lockfile aligned",
+      changed_when_contains: ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
     },
     {
       source: "index.js",
       requires: "index.d.ts",
-      reason: "runtime API surface changes should keep TypeScript declarations aligned"
+      reason: "runtime API surface changes should keep TypeScript declarations aligned",
+      changed_when_contains: ["export function", "export const", "export let"]
     }
   ],
   sensitive_patterns: ["SECRET", "API_KEY", "NPM_TOKEN", "PRIVATE_KEY"],
@@ -88,7 +91,8 @@ export const nanoidPilotPolicy: RepoPolicy = {
     {
       source: "index.js",
       test: "test/index.test.js",
-      reason: "core runtime changes should update core tests"
+      reason: "core runtime behavior changes should update core tests",
+      changed_when_contains: ["export function", "export const", "export let", "return (", "while", "random"]
     },
     {
       source: "bin/**",
@@ -109,7 +113,7 @@ export const nanoidPilotPolicy: RepoPolicy = {
   module_boundaries: [
     {
       source: "index.js",
-      allowedWith: ["index.d.ts", "test/**", "README.md"],
+      allowedWith: ["index.browser.js", "index.d.ts", "package.json", "test/**", "README.md"],
       authority: "cross-module approved",
       reason: "core runtime changes should not cross unrelated module boundaries without explicit authority"
     },
@@ -121,7 +125,7 @@ export const nanoidPilotPolicy: RepoPolicy = {
     },
     {
       source: "non-secure/**",
-      allowedWith: ["test/non-secure.test.js", "README.md"],
+      allowedWith: ["package.json", "test/non-secure.test.js", "README.md"],
       authority: "cross-module approved",
       reason: "non-secure changes should stay inside non-secure scope unless explicitly approved"
     }
@@ -329,7 +333,7 @@ export const nanoidRealPrPilotCases: RealPrPilotCase[] = [
     diff: diff("package.json", "  \"publishConfig\": {}", "  \"publishConfig\": { \"token\": \"NPM_TOKEN=abc\" }"),
     reviewerNotes: ["Token-like publish configuration is a sensitive boundary risk."],
     expectedDecision: "reject",
-    expectedFindingCategories: ["sensitive_boundary", "paired_file"]
+    expectedFindingCategories: ["sensitive_boundary"]
   },
   {
     id: "nanoid-pr-012-security-doc-owner",

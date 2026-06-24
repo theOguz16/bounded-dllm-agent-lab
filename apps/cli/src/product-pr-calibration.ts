@@ -79,6 +79,10 @@ if (args["fail-on-runtime-drift"] === "true" && summary.runtimeDriftCount > 0) {
   process.exitCode = 1;
 }
 
+if (args["fail-on-unreviewed"] === "true" && summary.needsHumanReviewCount > 0) {
+  process.exitCode = 1;
+}
+
 function calibrateCase(testCase: RealPrPilotCase): CalibrationRow {
   const review = reviewPatch({
     task: testCase.task,
@@ -289,6 +293,7 @@ Options:
   --overrides <path>             Human reviewer label override JSON.
   --out-dir <path>               Output directory. Default: reports/product-runtime
   --fail-on-runtime-drift        Exit non-zero when expected labels drift from runtime output.
+  --fail-on-unreviewed           Exit non-zero when any imported label still needs human review.
   --help                         Show this help.
 `);
 }

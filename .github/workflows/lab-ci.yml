@@ -63,6 +63,12 @@ jobs:
       - name: Product imported PR calibration
         run: npm run product:pr-calibration -- --out-dir /tmp/bounded-agent-ci/imported-pr-calibration --fail-on-runtime-drift
 
+      - name: Product reviewed PR calibration
+        run: npm run product:pr-reviewed-calibration -- --out-dir /tmp/bounded-agent-ci/reviewed-pr-calibration --fail-on-runtime-drift --fail-on-unreviewed
+
+      - name: Product draft vs reviewed labels
+        run: npm run product:pr-label-comparison -- --out-dir /tmp/bounded-agent-ci/pr-label-comparison --fail-on-unreviewed
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.

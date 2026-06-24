@@ -115,6 +115,24 @@ npm run product:pr-calibration -- \
   --out-dir reports/product-runtime
 ```
 
+For the committed NanoID external validation set:
+
+```bash
+npm run product:pr-reviewed-calibration -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:pr-label-comparison -- \
+  --out-dir reports/product-runtime \
+  --fail-on-unreviewed
+```
+
+The reviewed NanoID set should be interpreted as a positive-control external
+set: these are real merged upstream PRs, so the calibrated policy should avoid
+false blockers. Synthetic and built-in pilot suites still cover blocker and
+repair cases.
+
 ## 6. Interpret Readiness
 
 Readiness combines:

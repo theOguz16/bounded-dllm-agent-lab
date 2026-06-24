@@ -26,6 +26,15 @@ npm run product:github-pr-pilot -- \
 npm run product:pr-calibration -- \
   --out-dir /tmp/bounded-imported-pr-calibration \
   --fail-on-runtime-drift
+
+npm run product:pr-reviewed-calibration -- \
+  --out-dir /tmp/bounded-reviewed-pr-calibration \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:pr-label-comparison -- \
+  --out-dir /tmp/bounded-pr-label-comparison \
+  --fail-on-unreviewed
 ```
 
 If a reviewer has checked a case, add an override file shaped like
@@ -35,3 +44,8 @@ If a reviewer has checked a case, add an override file shaped like
 npm run product:pr-calibration -- \
   --overrides examples/product-runtime/real-pr-fixtures/reviewer-label-overrides.example.json
 ```
+
+The committed `nanoid-reviewed-label-overrides.json` file is the first
+human-reviewed NanoID external validation label set. It should be read as a
+small positive-control external set: these PRs were merged upstream, and the
+calibrated NanoID policy should not produce false blockers for them.

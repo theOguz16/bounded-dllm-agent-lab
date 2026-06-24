@@ -105,9 +105,9 @@ function inferAuthority(pullRequest: GitHubPullRequest): string {
   if (text.includes("non-secure")) return "Authority: non-secure approved this imported PR draft.";
   if (text.includes("benchmark")) return "Authority: performance approved this imported PR draft.";
   if (text.includes("release") || text.includes("version")) return "Authority: release maintenance update is approved.";
+  if (text.includes("types") || text.includes("typescript") || text.includes("jsdoc")) return "Authority: types approved this imported PR draft.";
   if (text.includes("readme") || text.includes("docs") || text.includes("translation")) return "Authority: docs approved this imported PR draft.";
   if (text.includes("cli") || text.includes("bin")) return "Authority: developer-tools approved this imported PR draft.";
-  if (text.includes("types") || text.includes("typescript")) return "Authority: types approved this imported PR draft.";
   return "Authority: core approved this imported PR draft.";
 }
 

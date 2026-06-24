@@ -1,7 +1,7 @@
 [
   {
     "id": "ai-nanoid-pr-600",
-    "family": "expected_block",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#600",
@@ -55,7 +55,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -85,17 +86,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -109,7 +124,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -131,7 +154,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -150,6 +175,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -165,15 +191,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: fix(non-secure): clamp a negative size instead of looping forever"
     ],
-    "expectedDecision": "refuse",
-    "expectedFindingCategories": [
-      "module_boundary",
-      "paired_file"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-586",
-    "family": "expected_repair",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#586",
@@ -227,7 +250,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -257,17 +281,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -281,7 +319,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -303,7 +349,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -322,6 +370,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -337,14 +386,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Release 5.1.8 version"
     ],
-    "expectedDecision": "remask_required",
-    "expectedFindingCategories": [
-      "paired_file"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-585",
-    "family": "expected_repair",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#585",
@@ -398,7 +445,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -428,17 +476,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -452,7 +514,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -474,7 +544,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -493,6 +565,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -508,15 +581,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Fix comment 80 columsn limit"
     ],
-    "expectedDecision": "remask_required",
-    "expectedFindingCategories": [
-      "paired_file",
-      "test"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-582",
-    "family": "expected_block",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#582",
@@ -570,7 +640,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -600,17 +671,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -624,7 +709,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -646,7 +739,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -665,6 +760,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -680,16 +776,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Use full byte range in customAlphabet (+ ~75% ops / sec optimisation)"
     ],
-    "expectedDecision": "refuse",
-    "expectedFindingCategories": [
-      "module_boundary",
-      "ownership",
-      "paired_file"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-581",
-    "family": "expected_repair",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#581",
@@ -743,7 +835,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -773,17 +866,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -797,7 +904,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -819,7 +934,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -838,6 +955,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -853,14 +971,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Re-use var in the price of extra 4 bytes of JS bundle size"
     ],
-    "expectedDecision": "remask_required",
-    "expectedFindingCategories": [
-      "paired_file"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-580",
-    "family": "expected_repair",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#580",
@@ -914,7 +1030,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -944,17 +1061,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -968,7 +1099,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -990,7 +1129,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1009,6 +1150,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1024,15 +1166,12 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Do not calculate expression twice in Node.js where size is not important"
     ],
-    "expectedDecision": "remask_required",
-    "expectedFindingCategories": [
-      "paired_file",
-      "test"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-575",
-    "family": "expected_repair",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#575",
@@ -1086,7 +1225,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1116,17 +1256,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1140,7 +1294,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -1162,7 +1324,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1181,6 +1345,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1196,10 +1361,8 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Fix 0-size browser customAlphabet"
     ],
-    "expectedDecision": "remask_required",
-    "expectedFindingCategories": [
-      "paired_file"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-570",
@@ -1257,7 +1420,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1287,17 +1451,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1311,7 +1489,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -1333,7 +1519,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1352,6 +1540,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1426,7 +1615,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1456,17 +1646,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1480,7 +1684,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -1502,7 +1714,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1521,6 +1735,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1541,7 +1756,7 @@
   },
   {
     "id": "ai-nanoid-pr-567",
-    "family": "expected_block",
+    "family": "expected_pass",
     "source": {
       "repository": "ai/nanoid",
       "pullRequest": "#567",
@@ -1552,9 +1767,9 @@
     "task": {
       "id": "ai-nanoid-pr-567",
       "title": "Fix incorrect import paths in JSDoc examples",
-      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/567\nTitle: Fix incorrect import paths in JSDoc examples\nAuthority: docs approved this imported PR draft.\nBody: Two incorrect import paths in `index.d.ts` JSDoc examples:\n\n1. **`customAlphabet`** (line 42): Used `require('nanoid')` — should be ESM `import` since nanoid v5 is ESM-only\n2. **`customRandom`** (line 59): Referenced `nanoid/format` which doesn't exist as an export — the correct path is `nanoid`\n\nThese show up in editor tooltips and auto-generated docs, so incorrect paths could confuse users.",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/567\nTitle: Fix incorrect import paths in JSDoc examples\nAuthority: types approved this imported PR draft.\nBody: Two incorrect import paths in `index.d.ts` JSDoc examples:\n\n1. **`customAlphabet`** (line 42): Used `require('nanoid')` — should be ESM `import` since nanoid v5 is ESM-only\n2. **`customRandom`** (line 59): Referenced `nanoid/format` which doesn't exist as an export — the correct path is `nanoid`\n\nThese show up in editor tooltips and auto-generated docs, so incorrect paths could confuse users.",
       "authorityFacts": [
-        "Authority: docs approved this imported PR draft."
+        "Authority: types approved this imported PR draft."
       ]
     },
     "policy": {
@@ -1595,7 +1810,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1625,17 +1841,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1649,7 +1879,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -1671,7 +1909,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1690,6 +1930,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1705,10 +1946,8 @@
       "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
       "PR title: Fix incorrect import paths in JSDoc examples"
     ],
-    "expectedDecision": "refuse",
-    "expectedFindingCategories": [
-      "ownership"
-    ]
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
   },
   {
     "id": "ai-nanoid-pr-566",
@@ -1766,7 +2005,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1796,17 +2036,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1820,7 +2074,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -1842,7 +2104,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -1861,6 +2125,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],
@@ -1935,7 +2200,8 @@
       "owner_aliases": {
         "core-team": [
           "core",
-          "runtime"
+          "runtime",
+          "performance"
         ],
         "types-team": [
           "types",
@@ -1965,17 +2231,31 @@
         {
           "source": "package.json",
           "requires": "jsr.json",
-          "reason": "package metadata changes must keep JSR metadata aligned"
+          "reason": "package version metadata changes must keep JSR metadata aligned",
+          "changed_when_contains": [
+            "\"version\""
+          ]
         },
         {
           "source": "package.json",
           "requires": "pnpm-lock.yaml",
-          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
         },
         {
           "source": "index.js",
           "requires": "index.d.ts",
-          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let"
+          ]
         }
       ],
       "sensitive_patterns": [
@@ -1989,7 +2269,15 @@
         {
           "source": "index.js",
           "test": "test/index.test.js",
-          "reason": "core runtime changes should update core tests"
+          "reason": "core runtime behavior changes should update core tests",
+          "changed_when_contains": [
+            "export function",
+            "export const",
+            "export let",
+            "return (",
+            "while",
+            "random"
+          ]
         },
         {
           "source": "bin/**",
@@ -2011,7 +2299,9 @@
         {
           "source": "index.js",
           "allowedWith": [
+            "index.browser.js",
             "index.d.ts",
+            "package.json",
             "test/**",
             "README.md"
           ],
@@ -2030,6 +2320,7 @@
         {
           "source": "non-secure/**",
           "allowedWith": [
+            "package.json",
             "test/non-secure.test.js",
             "README.md"
           ],

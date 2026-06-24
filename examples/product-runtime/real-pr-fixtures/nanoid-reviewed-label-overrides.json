@@ -1,0 +1,134 @@
+[
+  {
+    "id": "ai-nanoid-pr-600",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as an accepted non-secure bug fix with matching non-secure tests and package size-budget adjustment.",
+      "No blocker is expected after NanoID policy was narrowed to distinguish size-limit package changes from version/dependency metadata changes."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-586",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a release metadata PR where package.json, jsr.json and changelog moved together.",
+      "No lockfile blocker is expected because the patch changes package version metadata, not dependency metadata."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-585",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a comment-only formatting change inside index.js.",
+      "No paired type declaration or test blocker is expected because exported runtime behavior did not change."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-582",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a core performance optimization with browser/node implementation updates and tests.",
+      "Package.json size-limit changes are considered an allowed performance budget update, not dependency metadata drift."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-581",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a browser performance micro-change with a package size-budget update.",
+      "No dependency or release metadata blocker is expected."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-580",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a Node runtime micro-optimization that reuses an expression result.",
+      "No paired declaration blocker is expected because public API shape did not change."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-575",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a browser behavior fix with matching tests and package size-budget adjustment.",
+      "No dependency metadata blocker is expected."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-570",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a documentation translation update.",
+      "Docs-only translation edits are in allowed scope and require no runtime findings."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-568",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a documentation translation link update.",
+      "Docs-only translation edits are in allowed scope and require no runtime findings."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-567",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a JSDoc example correction in index.d.ts.",
+      "Types authority is sufficient because the change is documentation inside the type declaration surface."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-566",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a root README maintenance update.",
+      "Docs-only root README edits are in allowed scope and require no runtime findings."
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-588",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewed as a lockfile-only dependency metadata update produced by dependency maintenance.",
+      "The bounded runtime currently treats lockfile-only dependency maintenance as allowed when no forbidden or sensitive paths are touched."
+    ]
+  }
+]

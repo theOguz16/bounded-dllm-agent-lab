@@ -128,3 +128,28 @@ The calibration report separates three states:
 Use `examples/product-runtime/real-pr-fixtures/reviewer-label-overrides.example.json`
 as the shape for human-reviewed labels. Do not copy expected labels into task
 descriptions; that would leak the answer into the benchmark.
+
+## Reviewed NanoID External Set
+
+The first committed human-reviewed external label set is:
+
+```text
+examples/product-runtime/real-pr-fixtures/nanoid-reviewed-label-overrides.json
+```
+
+Run it with:
+
+```bash
+npm run product:pr-reviewed-calibration -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:pr-label-comparison -- \
+  --out-dir reports/product-runtime \
+  --fail-on-unreviewed
+```
+
+This set is intentionally a positive-control set over merged NanoID PRs. It
+does not replace blocker/reject/remask benchmarks; it checks whether the
+calibrated external-repo policy creates false blockers on real accepted PRs.

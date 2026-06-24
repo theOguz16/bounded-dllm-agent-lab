@@ -142,6 +142,8 @@ const invalidPolicyValidation = validatePolicy({
 });
 assert.equal(invalidPolicyValidation.ok, false);
 assert.equal(invalidPolicyValidation.findings.some((finding) => finding.code === "self_paired_file_rule"), true);
+assert.deepEqual(starterPolicyValidation.policy.paired_files?.[0].changed_when_contains, ["version"]);
+assert.deepEqual(starterPolicyValidation.policy.required_test_mappings?.[0].changed_when_contains, ["export function", "export const"]);
 
 const productTask = {
   id: "product-smoke",
@@ -186,6 +188,36 @@ assert.equal(approveReview.decision, "approve");
 assert.equal(approveReview.riskLevel, "low");
 assert.equal(approveReview.metrics.scopeSafety, 1);
 assert.equal(approveReview.metrics.traceCompleteness, 1);
+
+const conditionalPairedPolicy: RepoPolicy = {
+  ...productPolicy,
+  paired_files: [
+    {
+      source: "package.json",
+      requires: "jsr.json",
+      reason: "only version metadata requires jsr alignment",
+      changed_when_contains: ["\"version\""]
+    }
+  ]
+};
+
+const packageBudgetReview = reviewPatch({
+  task: productTask,
+  policy: conditionalPairedPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-      \"limit\": \"90 B\"\n+      \"limit\": \"93 B\"\n")
+});
+
+assert.equal(packageBudgetReview.decision, "approve");
+assert.equal(packageBudgetReview.findings.some((finding) => finding.category === "paired_file"), false);
+
+const packageVersionReview = reviewPatch({
+  task: productTask,
+  policy: conditionalPairedPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+
+assert.equal(packageVersionReview.decision, "remask_required");
+assert.equal(packageVersionReview.findings.some((finding) => finding.category === "paired_file"), true);
 
 const refuseReview = reviewPatch({
   task: {

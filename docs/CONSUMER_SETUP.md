@@ -26,6 +26,12 @@ Consumer repoda ilk düzenlenecek alanlar:
 | `sensitive_patterns` | Secret-like patch text için reject sinyali üretir. |
 | `missing_authority_rules` | Eksik ürün/platform/compliance kararı varsa refuse üretir. |
 
+`paired_files` ve `required_test_mappings` kuralları isteğe bağlı
+`changed_when_contains` alanı alabilir. Bu alan, kuralın sadece gerçek değişen
+satırlarda belirli bir sinyal görülürse çalışmasını sağlar. Örneğin
+`package.json` içindeki size-limit bütçesi değiştiğinde lockfile istemeyip,
+sadece `version` değişince metadata eşlemesi istemek için kullanılır.
+
 Policy doğrula:
 
 ```bash
