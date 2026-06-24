@@ -90,3 +90,19 @@ The built-in NanoID-shaped suite can be run with:
 npm run product:real-pr-pilot -- --suite nanoid --fail-on-regression
 npm run product:pilot-insights -- --dir reports/product-runtime --fail-on-missed-blocker
 ```
+
+## Importing Real GitHub PRs
+
+Use the importer to create a draft JSON file:
+
+```bash
+npm run product:github-pr-import -- \
+  --repo ai/nanoid \
+  --prs 600,586,585 \
+  --out examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json
+```
+
+The importer does not create scientific ground truth. It creates a draft by
+running the current deterministic runtime and marking the labels as
+`DRAFT_LABEL` in reviewer notes. A human reviewer must still verify the
+expected decision and finding categories.

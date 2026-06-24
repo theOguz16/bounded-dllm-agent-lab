@@ -23,6 +23,8 @@
     "product:pilot-v2": "node dist/apps/cli/src/product-pilot-v2.js",
     "product:pilot-v3": "node dist/apps/cli/src/product-pilot-v2.js --suite mvp3-external-style-pilot",
     "product:real-pr-pilot": "node dist/apps/cli/src/product-real-pr-pilot.js",
+    "product:github-pr-import": "node dist/apps/cli/src/product-github-pr-import.js",
+    "product:github-pr-pilot": "node dist/apps/cli/src/product-real-pr-pilot.js --input examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json",
     "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",

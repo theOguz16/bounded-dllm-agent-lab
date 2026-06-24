@@ -38,6 +38,23 @@ For each PR sample, capture:
 The first pilot does not need many samples. Ten to twenty high-quality PR diffs
 are more useful than hundreds of unlabeled examples.
 
+You can create a draft fixture from GitHub PRs:
+
+```bash
+npm run product:github-pr-import -- \
+  --repo ai/nanoid \
+  --prs 600,586,585 \
+  --out examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json
+```
+
+The importer preserves real PR metadata and raw diffs. Its default labels are
+`runtime-draft` labels, not human ground truth. Before using the fixture as
+external validation, a reviewer should inspect and correct:
+
+- `expectedDecision`
+- `expectedFindingCategories`
+- `reviewerNotes`
+
 ## 3. Run The Real PR Pilot
 
 Use built-in samples:
@@ -53,7 +70,7 @@ Use your own fixture JSON:
 
 ```bash
 npm run product:real-pr-pilot -- \
-  --input real-pr-cases.json \
+  --input examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json \
   --out-dir reports/product-runtime \
   --fail-on-regression
 ```

@@ -1,0 +1,2051 @@
+[
+  {
+    "id": "ai-nanoid-pr-600",
+    "family": "expected_block",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#600",
+      "baseRef": "main",
+      "headRef": "fix/non-secure-negative-size",
+      "note": "Imported from https://github.com/ai/nanoid/pull/600. merged_at=2026-06-24T13:32:39Z changed_files=3"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-600",
+      "title": "fix(non-secure): clamp a negative size instead of looping forever",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/600\nTitle: fix(non-secure): clamp a negative size instead of looping forever\nAuthority: non-secure approved this imported PR draft.\nBody: The secure module already guards against an out-of-range `size`: `fillPool` throws a `RangeError` and the generators short-circuit empty input. The `nanoid/non-secure` twin was missed.\n\nBoth `nanoid` and `customAlphabet` in `non-secure/index.js` count down with `let i = size | 0; while (i--)`. `size | 0` truncates fractional sizes but does not clamp negatives, so a negative `size` decrements `i` toward `-2^31` without ever reaching `0`. The string keeps growing, the synchronous loop blocks the event loop, and the process hangs until it runs out of heap (a denial-of-service trigger):\n\n```js\nimport { nanoid, customAlphabet } from 'nanoid/non-secure'\n\nnanoid(-1)                 // hangs forever -> OOM\ncustomAlphabet('abc')(-1)  // hangs forever -> OOM\n```\n\n#508 and #510 established size-driven infinite loops as an in-scope bug class, but #510's non-secure change (`size | 0`) only addressed the fractional case, not negatives.\n\n## Fix\n\nClamp the counter with `Math.max(size | 0, 0)` in both functions, so a negative size yields `''` (the same result as `nanoid(0)`). One extra function call, no behavior change for valid sizes.\n\n## Verification\n\nWith the fix reverted, the new negative-size test hangs: `node --test` produces no output and is killed by a hard 6s cap (exit 142, SIGALRM) because the blocked loop never lets the reporter flush. With the fix applied:\n\n- `nanoid(-1) === ''`, `nanoid(-100) === ''`\n- `customAlphabet('abcdef')(-1) === ''`, `customAlphabet('abcdef', -5)() === ''`\n- Regressions preserved: `nanoid(0) === ''`, `nanoid(2.9).length === 2`, `nanoid(10).length === 10`\n- Full suite green (non-secure, index, bin): 65 tests pass, 0 fail\n",
+      "authorityFacts": [
+        "Authority: non-secure approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/non-secure/index.js b/non-secure/index.js\nindex 235765ad..6d060546 100644\n--- a/non-secure/index.js\n+++ b/non-secure/index.js\n@@ -13,8 +13,9 @@ export let customAlphabet = (alphabet, defaultSize = 21) => {\n   return (size = defaultSize) => {\n     let id = ''\n     // A compact alternative for `for (var i = 0; i < step; i++)`.\n+    // `> 0` stops a negative size from looping forever.\n     let i = size | 0\n-    while (i--) {\n+    while (i-- > 0) {\n       // `| 0` is more compact and faster than `Math.floor()`.\n       id += alphabet[(Math.random() * alphabet.length) | 0]\n     }\n@@ -25,8 +26,9 @@ export let customAlphabet = (alphabet, defaultSize = 21) => {\n export let nanoid = (size = 21) => {\n   let id = ''\n   // A compact alternative for `for (var i = 0; i < step; i++)`.\n+  // `> 0` stops a negative size from looping forever.\n   let i = size | 0\n-  while (i--) {\n+  while (i-- > 0) {\n     // `| 0` is more compact and faster than `Math.floor()`.\n     id += urlAlphabet[(Math.random() * 64) | 0]\n   }\ndiff --git a/package.json b/package.json\nindex 098f6a1f..3e6e75a8 100644\n--- a/package.json\n+++ b/package.json\n@@ -97,13 +97,13 @@\n       \"name\": \"non-secure nanoid\",\n       \"import\": \"{ nanoid }\",\n       \"path\": \"non-secure/index.js\",\n-      \"limit\": \"90 B\"\n+      \"limit\": \"93 B\"\n     },\n     {\n       \"name\": \"non-secure customAlphabet\",\n       \"import\": \"{ customAlphabet }\",\n       \"path\": \"non-secure/index.js\",\n-      \"limit\": \"53 B\"\n+      \"limit\": \"55 B\"\n     }\n   ],\n   \"engines\": {\ndiff --git a/test/non-secure.test.js b/test/non-secure.test.js\nindex cea05d1a..9b19c7d2 100644\n--- a/test/non-secure.test.js\n+++ b/test/non-secure.test.js\n@@ -116,3 +116,13 @@ describe('non secure', () => {\n     })\n   })\n })\n+\n+test('does not hang on negative size (nanoid)', () => {\n+  equal(nanoid(-1), '')\n+  equal(nanoid(-100), '')\n+})\n+\n+test('does not hang on negative size (customAlphabet)', () => {\n+  equal(customAlphabet('abcdef')(-1), '')\n+  equal(customAlphabet('abcdef', -5)(), '')\n+})\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: fix(non-secure): clamp a negative size instead of looping forever"
+    ],
+    "expectedDecision": "refuse",
+    "expectedFindingCategories": [
+      "module_boundary",
+      "paired_file"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-586",
+    "family": "expected_repair",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#586",
+      "baseRef": "main",
+      "headRef": "v5.1.8",
+      "note": "Imported from https://github.com/ai/nanoid/pull/586. merged_at=2026-04-15T14:06:56Z changed_files=3"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-586",
+      "title": "Release 5.1.8 version",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/586\nTitle: Release 5.1.8 version\nAuthority: release maintenance update is approved.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: release maintenance update is approved."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/CHANGELOG.md b/CHANGELOG.md\nindex 407fad15..1b29895e 100644\n--- a/CHANGELOG.md\n+++ b/CHANGELOG.md\n@@ -2,6 +2,10 @@\n \n This project adheres to [Semantic Versioning](http://semver.org/).\n \n+## 5.1.8\n+\n+- Made `cusatomAlphabet` 75% faster (by @saripovdenis).\n+\n ## 5.1.7\n \n - Added `--version` to CLI (by @mahmoodhamdi).\ndiff --git a/jsr.json b/jsr.json\nindex d6567840..58c44476 100644\n--- a/jsr.json\n+++ b/jsr.json\n@@ -1,6 +1,6 @@\n {\n   \"name\": \"@sitnik/nanoid\",\n-  \"version\": \"5.1.7\",\n+  \"version\": \"5.1.8\",\n   \"license\": \"MIT\",\n   \"exports\": {\n     \".\": \"./index.browser.js\",\ndiff --git a/package.json b/package.json\nindex 9f51ba39..5f042c13 100644\n--- a/package.json\n+++ b/package.json\n@@ -1,6 +1,6 @@\n {\n   \"name\": \"nanoid\",\n-  \"version\": \"5.1.7\",\n+  \"version\": \"5.1.8\",\n   \"description\": \"A tiny (118 bytes), secure URL-friendly unique string ID generator\",\n   \"keywords\": [\n     \"id\",\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Release 5.1.8 version"
+    ],
+    "expectedDecision": "remask_required",
+    "expectedFindingCategories": [
+      "paired_file"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-585",
+    "family": "expected_repair",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#585",
+      "baseRef": "main",
+      "headRef": "comment",
+      "note": "Imported from https://github.com/ai/nanoid/pull/585. merged_at=2026-04-15T13:59:44Z changed_files=1"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-585",
+      "title": "Fix comment 80 columsn limit",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/585\nTitle: Fix comment 80 columsn limit\nAuthority: core approved this imported PR draft.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex 60c6345f..a9780e15 100644\n--- a/index.js\n+++ b/index.js\n@@ -25,7 +25,8 @@ function fillPool(bytes) {\n }\n \n export function random(bytes) {\n-  // `|=` convert `bytes` to number to prevent `valueOf` abusing and pool pollution\n+  // `|=` convert `bytes` to number to prevent `valueOf` abusing\n+  // and pool pollution\n   fillPool((bytes |= 0))\n   return pool.subarray(poolOffset - bytes, poolOffset)\n }\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix comment 80 columsn limit"
+    ],
+    "expectedDecision": "remask_required",
+    "expectedFindingCategories": [
+      "paired_file",
+      "test"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-582",
+    "family": "expected_block",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#582",
+      "baseRef": "main",
+      "headRef": "perf-customalphabet-v2",
+      "note": "Imported from https://github.com/ai/nanoid/pull/582. merged_at=2026-04-15T13:37:02Z changed_files=4"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-582",
+      "title": "Use full byte range in customAlphabet (+ ~75% ops / sec optimisation)",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/582\nTitle: Use full byte range in customAlphabet (+ ~75% ops / sec optimisation)\nAuthority: performance approved this imported PR draft.\nBody: ## What\r\n\r\nOptimize `customAlphabet()` by replacing the old next-power-of-two mask + rejection scheme with an unbiased threshold over the full `0..255` byte range in both the Node and browser implementations.\r\n\r\nKeep the bitmask fast path for power-of-two alphabets, add zero-size empty-alphabet coverage, update deterministic `customRandom()` expectations, and raise the `customAlphabet` size budget from `178 B` to `183 B`.\r\n\r\n## Why\r\n\r\n`customAlphabet()` is built on top of `customRandom()`. The previous implementation always rounded the alphabet length up to the next power of two, built a `mask`, and then rejected masked values that landed outside the alphabet range.\r\n\r\nThat works well for power-of-two alphabets, but it wastes a lot of bytes for awkward alphabet sizes, especially sizes just above a power of two. For example, with a 17-character alphabet, the old code masked into `0..31` and could only use `17` of those `32` outcomes. The new logic can use `255` of `256` byte values.\r\n\r\nThis change computes `max = 256 - (256 % alphabet.length)`, accepts only bytes below `max`, and maps accepted bytes with `% alphabet.length`. When `max === 256`, it keeps the bitmask fast path.\r\n\r\nThe biggest wins are for reject-heavy alphabet sizes. Accepted-byte rate examples:\r\n\r\n- `17` chars: `53.1%` -> `99.6%`\r\n- `21` chars: `65.6%` -> `98.4%`\r\n- `33` chars: `51.6%` -> `90.2%`\r\n- `70` chars: `54.7%` -> `82.0%`\r\n\r\nThis is not a universal win for every possible alphabet. Power-of-two sizes and already-efficient sizes such as `16`, `31`, `32`, `63`, `64`, `100`, `129`, and `200` stay roughly the same.\r\n\r\nIn a local `tinybench` run on this machine for the repo’s benchmark case, `customAlphabet('1234567890abcdef-', 10)`, throughput improved from `5,237,968 ops/sec` to `9,103,488 ops/sec` (`+73.80%`).\r\n\r\n## Changes\r\n\r\n```diff\r\n- let mask = ...\r\n- let step = Math.ceil((1.6 * mask * defaultSize) / alphabet.length)\r\n+ let max = 256 - (256 % alphabet.length)\r\n+ let step = Math.ceil((1.6 * 25",
+      "authorityFacts": [
+        "Authority: performance approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.browser.js b/index.browser.js\nindex b0e1a331..0175d944 100644\n--- a/index.browser.js\n+++ b/index.browser.js\n@@ -10,28 +10,43 @@ export { urlAlphabet } from './url-alphabet/index.js'\n export let random = bytes => crypto.getRandomValues(new Uint8Array(bytes))\n \n export let customRandom = (alphabet, defaultSize, getRandom) => {\n-  // First, a bitmask is necessary to generate the ID. The bitmask makes bytes\n-  // values closer to the alphabet size. The bitmask calculates the closest\n-  // `2^31 - 1` number, which exceeds the alphabet size.\n-  // For example, the bitmask for the alphabet size 30 is 31 (00011111).\n-  // `Math.clz32` is not used, because it is not available in browsers.\n-  let mask = (2 << Math.log2(alphabet.length - 1)) - 1\n-  // Though, the bitmask solution is not perfect since the bytes exceeding\n-  // the alphabet size are refused. Therefore, to reliably generate the ID,\n-  // the random bytes redundancy has to be satisfied.\n+  // Random bytes are 0-255 and already have full entropy.\n+  // `% alphabet.length` can waste that entropy by making some symbols more likely.\n+  // `safeByteCutoff` is the exclusive upper bound for unbiased bytes.\n+  // Bytes below it are safe. Bytes at or above it are rejected.\n+  //\n+  // Example: with 17 symbols, `safeByteCutoff` is 255.\n+  // Bytes 0-254 preserve entropy evenly: each symbol gets 15 source bytes.\n+  // Byte 255 would map to `0` again, making one symbol slightly more likely.\n+  // So we reject 255.\n+  let safeByteCutoff = 256 - (256 % alphabet.length)\n+  // Note: secure random calls are expensive because system calls for entropy collection take time.\n+  // To avoid extra calls, extra bytes are requested in advance to cover rejections.\n+  //\n+  // `step` determines how many random bytes to request.\n+  // It depends on ID size and the share of safe bytes (`safeByteCutoff / 256`).\n+  // `1.6` is a magic number chosen from benchmarks.\n+  let step = Math.ceil((1.6 * 256 * defaultSize) / safeByteCutoff)\n \n-  // Note: every hardware random generator call is performance expensive,\n-  // because the system call for entropy collection takes a lot of time.\n-  // So, to avoid additional system calls, extra bytes are requested in advance.\n+  // Power-of-two alphabets can use `& mask` instead of modulo.\n+  if (safeByteCutoff === 256) {\n+    let mask = alphabet.length - 1\n \n-  // Next, a step determines how many random bytes to generate.\n-  // The number of random bytes gets decided upon the ID size, mask,\n-  // alphabet size, and magic number 1.6 (using 1.6 peaks at performance\n-  // according to benchmarks).\n-\n-  // `-~f => Math.ceil(f)` if f is a float\n-  // `-~i => i + 1` if i is an integer\n-  let step = -~((1.6 * mask * defaultSize) / alphabet.length)\n+    return (size = defaultSize) => {\n+      if (!size) return ''\n+      let id = ''\n+      while (true) {\n+        let bytes = getRandom(step)\n+        // A compact alternative for `for (var i = 0; i < step; i++)`.\n+        let j = step\n+        while (j--) {\n+          // Here, `& mask` is equivalent to `% alphabet.length`, but faster\n+          id += alphabet[bytes[j] & mask]\n+          if (id.length >= size) return id\n+        }\n+      }\n+    }\n+  }\n \n   return (size = defaultSize) => {\n     if (!size) return ''\n@@ -41,11 +56,12 @@ export let customRandom = (alphabet, defaultSize, getRandom) => {\n       // A compact alternative for `for (var i = 0; i < step; i++)`.\n       let j = step\n       while (j--) {\n-        let next = alphabet[bytes[j] & mask]\n-        // Adding `continue` refuses a random byte that exceeds the alphabet size.\n-        if (!next) continue\n-        id += next\n-        if (id.length >= size) return id\n+        // Reject bytes >= `safeByteCutoff` to avoid modulo bias\n+        // and give each symbol an equal chance.\n+        if (bytes[j] < safeByteCutoff) {\n+          id += alphabet[bytes[j] % alphabet.length]\n+          if (id.length >= size) return id\n+        }\n       }\n     }\n   }\ndiff --git a/index.js b/index.js\nindex fcf34527..beed2e98 100644\n--- a/index.js\n+++ b/index.js\n@@ -31,24 +31,43 @@ export function random(bytes) {\n }\n \n export function customRandom(alphabet, defaultSize, getRandom) {\n-  // First, a bitmask is necessary to generate the ID. The bitmask makes bytes\n-  // values closer to the alphabet size. The bitmask calculates the closest\n-  // `2^31 - 1` number, which exceeds the alphabet size.\n-  // For example, the bitmask for the alphabet size 30 is 31 (00011111).\n-  let mask = (2 << (31 - Math.clz32((alphabet.length - 1) | 1))) - 1\n-  // Though, the bitmask solution is not perfect since the bytes exceeding\n-  // the alphabet size are refused. Therefore, to reliably generate the ID,\n-  // the random bytes redundancy has to be satisfied.\n+  // Random bytes are 0-255 and already have full entropy.\n+  // `% alphabet.length` can waste that entropy by making some symbols more likely.\n+  // `safeByteCutoff` is the exclusive upper bound for unbiased bytes.\n+  // Bytes below it are safe. Bytes at or above it are rejected.\n+  //\n+  // Example: with 17 symbols, `safeByteCutoff` is 255.\n+  // Bytes 0-254 preserve entropy evenly: each symbol gets 15 source bytes.\n+  // Byte 255 would map to `0` again, making one symbol slightly more likely.\n+  // So we reject 255.\n+  let safeByteCutoff = 256 - (256 % alphabet.length)\n+  // Note: secure random calls are expensive because system calls for entropy collection take time.\n+  // To avoid extra calls, extra bytes are requested in advance to cover rejections.\n+  //\n+  // `step` determines how many random bytes to request.\n+  // It depends on ID size and the share of safe bytes (`safeByteCutoff / 256`).\n+  // `1.6` is a magic number chosen from benchmarks.\n+  let step = Math.ceil((1.6 * 256 * defaultSize) / safeByteCutoff)\n \n-  // Note: every hardware random generator call is performance expensive,\n-  // because the system call for entropy collection takes a lot of time.\n-  // So, to avoid additional system calls, extra bytes are requested in advance.\n+  // Power-of-two alphabets can use `& mask` instead of modulo.\n+  if (safeByteCutoff === 256) {\n+    let mask = alphabet.length - 1\n \n-  // Next, a step determines how many random bytes to generate.\n-  // The number of random bytes gets decided upon the ID size, mask,\n-  // alphabet size, and magic number 1.6 (using 1.6 peaks at performance\n-  // according to benchmarks).\n-  let step = Math.ceil((1.6 * mask * defaultSize) / alphabet.length)\n+    return (size = defaultSize) => {\n+      if (!size) return ''\n+      let id = ''\n+      while (true) {\n+        let bytes = getRandom(step)\n+        // A compact alternative for `for (let i = 0; i < step; i++)`.\n+        let i = step\n+        while (i--) {\n+          // Here, `& mask` is equivalent to `% alphabet.length`, but faster\n+          id += alphabet[bytes[i] & mask]\n+          if (id.length >= size) return id\n+        }\n+      }\n+    }\n+  }\n \n   return (size = defaultSize) => {\n     if (!size) return ''\n@@ -58,11 +77,12 @@ export function customRandom(alphabet, defaultSize, getRandom) {\n       // A compact alternative for `for (let i = 0; i < step; i++)`.\n       let i = step\n       while (i--) {\n-        let next = alphabet[bytes[i] & mask]\n-        // Adding `continue` refuses a random byte that exceeds the alphabet size.\n-        if (!next) continue\n-        id += next\n-        if (id.length >= size) return id\n+        // Reject bytes >= `safeByteCutoff` to avoid modulo bias\n+        // and give each symbol an equal chance.\n+        if (bytes[i] < safeByteCutoff) {\n+          id += alphabet[bytes[i] % alphabet.length]\n+          if (id.length >= size) return id\n+        }\n       }\n     }\n   }\ndiff --git a/package.json b/package.json\nindex d68856e1..44a175ec 100644\n--- a/package.json\n+++ b/package.json\n@@ -88,7 +88,7 @@\n     {\n       \"name\": \"customAlphabet\",\n       \"import\": \"{ customAlphabet }\",\n-      \"limit\": \"178 B\"\n+      \"limit\": \"193 B\"\n     },\n     {\n       \"name\": \"urlAlphabet\",\ndiff --git a/test/index.test.js b/test/index.test.js\nindex b0ad6ada..3765dfe6 100644\n--- a/test/index.test.js\n+++ b/test/index.test.js\n@@ -141,6 +141,8 @@ for (let type of ['node', 'browser']) {\n     test(`${type} / customAlphabet / is ready for 0 size`, () => {\n       equal(customAlphabet('abc')(0), '')\n       equal(customAlphabet('abc', 0)(0), '')\n+      equal(customAlphabet('')(0), '')\n+      equal(customAlphabet('', 0)(0), '')\n     })\n \n     test(`${type} / customAlphabet / avoids pool pollution, infinite loop`, () => {\n@@ -163,13 +165,14 @@ for (let type of ['node', 'browser']) {\n       }\n       let nanoid4 = customRandom('abcde', 4, fakeRandom)\n       let nanoid18 = customRandom('abcde', 18, fakeRandom)\n-      equal(nanoid4(), 'adca')\n-      equal(nanoid18(), 'cbadcbadcbadcbadcc')\n+      equal(nanoid4(), 'cccc')\n+      equal(nanoid18(), 'acccccdcbacccccdcb')\n     })\n \n     test(`${type} / customRandom / is ready for 0 size`, () => {\n       let nanoid0 = customRandom('abc', 5, size => new Uint8Array(size))\n       equal(nanoid0(0), '')\n+      equal(customRandom('', 5, size => new Uint8Array(size))(0), '')\n     })\n \n     test(`${type} / urlAlphabet / is string`, () => {\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Use full byte range in customAlphabet (+ ~75% ops / sec optimisation)"
+    ],
+    "expectedDecision": "refuse",
+    "expectedFindingCategories": [
+      "module_boundary",
+      "ownership",
+      "paired_file"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-581",
+    "family": "expected_repair",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#581",
+      "baseRef": "main",
+      "headRef": "reuse-var-in-browser",
+      "note": "Imported from https://github.com/ai/nanoid/pull/581. merged_at=2026-04-12T11:39:03Z changed_files=2"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-581",
+      "title": "Re-use var in the price of extra 4 bytes of JS bundle size",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/581\nTitle: Re-use var in the price of extra 4 bytes of JS bundle size\nAuthority: core approved this imported PR draft.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.browser.js b/index.browser.js\nindex 016c591f..b0e1a331 100644\n--- a/index.browser.js\n+++ b/index.browser.js\n@@ -41,9 +41,10 @@ export let customRandom = (alphabet, defaultSize, getRandom) => {\n       // A compact alternative for `for (var i = 0; i < step; i++)`.\n       let j = step\n       while (j--) {\n+        let next = alphabet[bytes[j] & mask]\n         // Adding `continue` refuses a random byte that exceeds the alphabet size.\n-        if (!alphabet[bytes[j] & mask]) continue\n-        id += alphabet[bytes[j] & mask]\n+        if (!next) continue\n+        id += next\n         if (id.length >= size) return id\n       }\n     }\ndiff --git a/package.json b/package.json\nindex 585cbecf..d68856e1 100644\n--- a/package.json\n+++ b/package.json\n@@ -88,7 +88,7 @@\n     {\n       \"name\": \"customAlphabet\",\n       \"import\": \"{ customAlphabet }\",\n-      \"limit\": \"174 B\"\n+      \"limit\": \"178 B\"\n     },\n     {\n       \"name\": \"urlAlphabet\",\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Re-use var in the price of extra 4 bytes of JS bundle size"
+    ],
+    "expectedDecision": "remask_required",
+    "expectedFindingCategories": [
+      "paired_file"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-580",
+    "family": "expected_repair",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#580",
+      "baseRef": "main",
+      "headRef": "reuse-var",
+      "note": "Imported from https://github.com/ai/nanoid/pull/580. merged_at=2026-04-12T11:32:46Z changed_files=1"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-580",
+      "title": "Do not calculate expression twice in Node.js where size is not important",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/580\nTitle: Do not calculate expression twice in Node.js where size is not important\nAuthority: core approved this imported PR draft.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex f2492589..fcf34527 100644\n--- a/index.js\n+++ b/index.js\n@@ -58,9 +58,10 @@ export function customRandom(alphabet, defaultSize, getRandom) {\n       // A compact alternative for `for (let i = 0; i < step; i++)`.\n       let i = step\n       while (i--) {\n+        let next = alphabet[bytes[i] & mask]\n         // Adding `continue` refuses a random byte that exceeds the alphabet size.\n-        if (!alphabet[bytes[i] & mask]) continue\n-        id += alphabet[bytes[i] & mask]\n+        if (!next) continue\n+        id += next\n         if (id.length >= size) return id\n       }\n     }\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Do not calculate expression twice in Node.js where size is not important"
+    ],
+    "expectedDecision": "remask_required",
+    "expectedFindingCategories": [
+      "paired_file",
+      "test"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-575",
+    "family": "expected_repair",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#575",
+      "baseRef": "main",
+      "headRef": "fix-browser-zero-size",
+      "note": "Imported from https://github.com/ai/nanoid/pull/575. merged_at=2026-04-11T17:38:57Z changed_files=3"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-575",
+      "title": "Fix 0-size browser customAlphabet",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/575\nTitle: Fix 0-size browser customAlphabet\nAuthority: core approved this imported PR draft.\nBody: ## What\r\n\r\nFix the browser `customRandom()` path so `size = 0` returns an empty string. Since `customAlphabet()` is built on top of `customRandom()`, this also fixes `customAlphabet(...)(0)` in the browser build.\r\n\r\n## Why\r\n\r\nThe Node implementation already handles zero-size requests, but the browser implementation did not. It still entered the generation loop and appended a character before checking the target length, so calls like `customAlphabet('abc')(0)` could return a 1-character ID instead of `''`.\r\n\r\n## Changes\r\n\r\n```diff\r\nreturn (size = defaultSize) => {\r\n+  if (!size) return ''\r\n   let id = ''\r\n   while (true) {\r\n```\r\n\r\nAdd regression tests for zero-size behavior in `customAlphabet()` and `customRandom()`:\r\n\r\n```diff\r\n+equal(customAlphabet('abc')(0), '')\r\n+equal(customAlphabet('abc', 0)(0), '')\r\n+\r\n+let nanoid0 = customRandom('abc', 5, size => new Uint8Array(size))\r\n+equal(nanoid0(0), '')\r\n```\r\n\r\nRaise the `customAlphabet` size budget to match the new bundled size:\r\n\r\n```diff\r\n-\"limit\": \"165 B\"\r\n+\"limit\": \"173 B\"\r\n```\r\n\r\n## Size Impact\r\n\r\n`customAlphabet` grows by `8 B` in the bundled, minified, brotlied size check, from `165 B` to `173 B`.",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.browser.js b/index.browser.js\nindex a7a62aa3..569be8ec 100644\n--- a/index.browser.js\n+++ b/index.browser.js\n@@ -34,6 +34,7 @@ export let customRandom = (alphabet, defaultSize, getRandom) => {\n   let step = -~((1.6 * mask * defaultSize) / alphabet.length)\n \n   return (size = defaultSize) => {\n+    if (!size) return ''\n     let id = ''\n     while (true) {\n       let bytes = getRandom(step)\ndiff --git a/package.json b/package.json\nindex 3230caa6..b467fc62 100644\n--- a/package.json\n+++ b/package.json\n@@ -88,7 +88,7 @@\n     {\n       \"name\": \"customAlphabet\",\n       \"import\": \"{ customAlphabet }\",\n-      \"limit\": \"165 B\"\n+      \"limit\": \"173 B\"\n     },\n     {\n       \"name\": \"urlAlphabet\",\ndiff --git a/test/index.test.js b/test/index.test.js\nindex 4e5c64bc..b0ad6ada 100644\n--- a/test/index.test.js\n+++ b/test/index.test.js\n@@ -138,6 +138,11 @@ for (let type of ['node', 'browser']) {\n       equal(nanoidA(10), 'aaaaaaaaaa')\n     })\n \n+    test(`${type} / customAlphabet / is ready for 0 size`, () => {\n+      equal(customAlphabet('abc')(0), '')\n+      equal(customAlphabet('abc', 0)(0), '')\n+    })\n+\n     test(`${type} / customAlphabet / avoids pool pollution, infinite loop`, () => {\n       let ALPHABET = 'abcdefghijklmnopqrstuvwxyz'\n       let nanoid2 = customAlphabet(ALPHABET)\n@@ -162,6 +167,11 @@ for (let type of ['node', 'browser']) {\n       equal(nanoid18(), 'cbadcbadcbadcbadcc')\n     })\n \n+    test(`${type} / customRandom / is ready for 0 size`, () => {\n+      let nanoid0 = customRandom('abc', 5, size => new Uint8Array(size))\n+      equal(nanoid0(0), '')\n+    })\n+\n     test(`${type} / urlAlphabet / is string`, () => {\n       equal(typeof urlAlphabet, 'string')\n     })\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix 0-size browser customAlphabet"
+    ],
+    "expectedDecision": "remask_required",
+    "expectedFindingCategories": [
+      "paired_file"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-570",
+    "family": "expected_pass",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#570",
+      "baseRef": "main",
+      "headRef": "docs/fix-translation-discrepancies",
+      "note": "Imported from https://github.com/ai/nanoid/pull/570. merged_at=2026-03-15T20:41:27Z changed_files=6"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-570",
+      "title": "Fix outdated size and links in README translations",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/570\nTitle: Fix outdated size and links in README translations\nAuthority: docs approved this imported PR draft.\nBody: Two factual discrepancies across all README translations:\n\n**1. Size comparison (130 → 118 bytes)**\nAll 6 translations still claimed \"130 bytes\" in the UUID comparison section while the main README was updated to \"118 bytes\" in #566.\n\n**2. React `useId` docs link**\n5 translations linked to the legacy `reactjs.org/docs/hooks-reference.html#useid` — updated to `react.dev/reference/react/useId` to match the main README.\n\n**Files:** README.ar.md, README.ja.md, README.ko.md, README.ru.md, README.zh-CN.md, README.id-ID.md",
+      "authorityFacts": [
+        "Authority: docs approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/README.ar.md b/README.ar.md\nindex a581bfd5..8a432e07 100644\n--- a/README.ar.md\n+++ b/README.ar.md\n@@ -80,7 +80,7 @@ Nano ID قابل للمقارنة مع UUID v4 (المبني على العشوا\n 1. يستخدم Nano ID أبجدية أكبر، لذا يتم ضغط عدد مماثل من البتّات العشوائية\n    في 21 رمزًا فقط بدلاً من 36.\n 2. كود Nano ID أصغر بـ **4 مرات** من حزمة `uuid/v4`:\n-   130 بايت مقابل 423.\n+   118 بايت مقابل 423.\n \n \n ## اختبار الأداء\n@@ -429,7 +429,7 @@ const todoItems = todos.map((text, index) =>\n labels وحقول الإدخال، يُنصح باستخدام [`useId`].\n تمت إضافة هذا الـ hook في React 18.\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\ndiff --git a/README.id-ID.md b/README.id-ID.md\nindex b7b901a8..e624cbda 100644\n--- a/README.id-ID.md\n+++ b/README.id-ID.md\n@@ -60,7 +60,7 @@ Nano ID dapat dibandingkan dengan UUID v4 (yang berbasis acak / _randomly genera\n Ada dua buah perbedaan antara Nano ID dan UUID v4:\n \n 1. Nano ID menggunakan alfabet yang lebih lebar, karenanya jumlah bita acak dapat 'dikemas' dalam 21 simbol, bukan 36 simbol.\n-2. Kode sumber Nano ID **empat kali lebih kecil** ketimbang `uuid/v4`: 130 bytes dibanding 423 bytes.\n+2. Kode sumber Nano ID **empat kali lebih kecil** ketimbang `uuid/v4`: 118 bytes dibanding 423 bytes.\n \n \n ## Benchmark\ndiff --git a/README.ja.md b/README.ja.md\nindex f1f0ac4c..5fcb4d4c 100644\n--- a/README.ja.md\n+++ b/README.ja.md\n@@ -73,7 +73,7 @@ Nano IDとUUID v4の主な違いは2つあります：\n 1. Nano IDはより大きなアルファベットを使用するため、同様のランダムビット数が\n    36文字ではなく21文字に詰め込まれています。\n 2. Nano IDのコードはuuid/v4パッケージより**4倍小さい**です：\n-   423バイトではなく130バイトです。\n+   423バイトではなく118バイトです。\n \n \n ## ベンチマーク\n@@ -339,7 +339,7 @@ const todoItems = todos.map((text, index) =>\n ラベルと入力フィールドのように要素を関連付けるためだけにランダムなIDが必要な場合は、[`useId`]が推奨されます。\n このフックはReact 18で追加されました。\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\ndiff --git a/README.ko.md b/README.ko.md\nindex 7fe09145..2df7afc9 100644\n--- a/README.ko.md\n+++ b/README.ko.md\n@@ -72,7 +72,7 @@ Nano ID와 UUID v4에는 두 가지의 주요한 차이점이 있습니다:\n \n 1. Nano ID는 대문자를 사용합니다. 그래서 유사한 개수의 랜덤 값을 36개가 아닌 21개의 문자로 나타낼 수 있습니다.\n 2. Nano ID 코드는 `uuid/v4` 패키지보다 **4분의 1 사이즈**입니다:\n-   UUIDv4는 423 bytes, Nano ID는 130 bytes 입니다.\n+   UUIDv4는 423 bytes, Nano ID는 118 bytes 입니다.\n \n \n ## 벤치마크\n@@ -343,7 +343,7 @@ const todoItems = todos.map((text, index) =>\n 랜덤한 아이디를 생성하여 HTML 요소간의 연결 (label과 input 등)에 사용하는 경우에는\n React 18에서 추가된 [`useId`] 를 추천합니다.\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\ndiff --git a/README.ru.md b/README.ru.md\nindex f82f94d7..e9a118fd 100644\n--- a/README.ru.md\n+++ b/README.ru.md\n@@ -79,7 +79,7 @@ Nano ID похож на UUID v4 (случайный).\n 1. Nano ID использует более широкий алфавит, и сравнимое количество\n    битов случайности будут упакованы в более короткую строку\n    (21 символ, против 36 у UUID).\n-2. Код Nano ID **в 4 раз меньше**, чем у `uuid/v4` — 130 байт против 423.\n+2. Код Nano ID **в 4 раз меньше**, чем у `uuid/v4` — 118 байт против 423.\n \n \n ## Сравнение производительности\n@@ -340,7 +340,7 @@ function Todos({ todos }) {\n Для связи `<input>` и `<label>` лучше использовать [`useId`],\n который был добавлен в React 18.\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\ndiff --git a/README.zh-CN.md b/README.zh-CN.md\nindex 8774baa2..8f9929b5 100644\n--- a/README.zh-CN.md\n+++ b/README.zh-CN.md\n@@ -66,7 +66,7 @@ Nano ID 和 UUID v4之间有两个主要区别:\n \n 1. Nano ID 使用更大的字母表，所以类似数量的随机位\n    被包装在21个符号中，而不是36个。\n-2. Nano ID 代码比 `uuid/v4` 包少 **4倍**: 130字节而不是423字节.\n+2. Nano ID 代码比 `uuid/v4` 包少 **4倍**: 118字节而不是423字节.\n \n \n ## 基准值\n@@ -294,7 +294,7 @@ const todoItems = todos.map((text, index) =>\n \n 如果您只需要随机 ID 来将元素（如标签和输入字段）链接在一起，建议使用 [`useId`]。该钩子在 React 18 中添加。\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix outdated size and links in README translations"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "ai-nanoid-pr-568",
+    "family": "expected_pass",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#568",
+      "baseRef": "main",
+      "headRef": "docs/update-collision-calculator-url",
+      "note": "Imported from https://github.com/ai/nanoid/pull/568. merged_at=2026-03-15T17:57:48Z changed_files=6"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-568",
+      "title": "Update collision calculator URL in README translations",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/568\nTitle: Update collision calculator URL in README translations\nAuthority: docs approved this imported PR draft.\nBody: All 6 README translations were pointing to the old collision calculator at `alex7kom.github.io/nano-nanoid-cc`. The main README already uses the updated `zelark.github.io/nano-id-cc` — this brings the translations in sync.\n\n**Files updated:** README.ar.md, README.ja.md, README.ko.md, README.ru.md, README.zh-CN.md, README.id-ID.md",
+      "authorityFacts": [
+        "Authority: docs approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/README.ar.md b/README.ar.md\nindex 483af2e3..a581bfd5 100644\n--- a/README.ar.md\n+++ b/README.ar.md\n@@ -324,7 +324,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[احتمالية تكرار المُعرِّف]: https://alex7kom.github.io/nano-nanoid-cc/\n+[احتمالية تكرار المُعرِّف]: https://zelark.github.io/nano-id-cc/\n [`nanoid-dictionary`]:      https://github.com/CyberAP/nanoid-dictionary\n \n <div dir=\"rtl\">\ndiff --git a/README.id-ID.md b/README.id-ID.md\nindex 600578ff..b7b901a8 100644\n--- a/README.id-ID.md\n+++ b/README.id-ID.md\n@@ -173,7 +173,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid() //=> \"4f90d13a42\"\n ```\n \n-Ketika menggunakan fungsi ini, jangan lupa untuk memeriksa keamanan alfabet dan ukuran ID dalam [ID collision probability calculator](https://alex7kom.github.io/nano-nanoid-cc/). Untuk lebih banyak alfabet, dapat menggunakan [`nanoid-dictionary`](https://github.com/CyberAP/nanoid-dictionary).\n+Ketika menggunakan fungsi ini, jangan lupa untuk memeriksa keamanan alfabet dan ukuran ID dalam [ID collision probability calculator](https://zelark.github.io/nano-id-cc/). Untuk lebih banyak alfabet, dapat menggunakan [`nanoid-dictionary`](https://github.com/CyberAP/nanoid-dictionary).\n \n Alfabet harus terbentuk dari 256 simbol atau lebih kecil. Selain itu, keamanan algoritma generasi yang berada di dalam library ini tidak dijamin aman.\n \ndiff --git a/README.ja.md b/README.ja.md\nindex f25ba897..f1f0ac4c 100644\n--- a/README.ja.md\n+++ b/README.ja.md\n@@ -262,7 +262,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[ID衝突確率]: https://alex7kom.github.io/nano-nanoid-cc/\n+[ID衝突確率]: https://zelark.github.io/nano-id-cc/\n [nanoid-dictionary]:      https://github.com/CyberAP/nanoid-dictionary\n \n \ndiff --git a/README.ko.md b/README.ko.md\nindex cb527104..7fe09145 100644\n--- a/README.ko.md\n+++ b/README.ko.md\n@@ -264,7 +264,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[아이디 충돌 확률]: https://alex7kom.github.io/nano-nanoid-cc/\n+[아이디 충돌 확률]: https://zelark.github.io/nano-id-cc/\n [`nanoid-dictionary`]:      https://github.com/CyberAP/nanoid-dictionary\n \n \ndiff --git a/README.ru.md b/README.ru.md\nindex 1aea421d..f82f94d7 100644\n--- a/README.ru.md\n+++ b/README.ru.md\n@@ -281,7 +281,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[на нашем калькуляторе]: https://alex7kom.github.io/nano-nanoid-cc/\n+[на нашем калькуляторе]: https://zelark.github.io/nano-id-cc/\n [`nanoid-dictionary`]: https://github.com/CyberAP/nanoid-dictionary\n \n \ndiff --git a/README.zh-CN.md b/README.zh-CN.md\nindex 793f4544..8774baa2 100644\n--- a/README.zh-CN.md\n+++ b/README.zh-CN.md\n@@ -172,7 +172,7 @@ nanoid(10) //=> \"IRFa-VaY2b\"\n 您也可以使用 [自定义字母表](#自定义字母或大小)\n 或者是 [自定义生成器](#自定义随机字节生成器).\n \n-[ID 碰撞概率]: https://alex7kom.github.io/nano-nanoid-cc/\n+[ID 碰撞概率]: https://zelark.github.io/nano-id-cc/\n \n \n ### 不安全\n@@ -215,7 +215,7 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[ID collision probability]: https://alex7kom.github.io/nano-nanoid-cc/\n+[ID collision probability]: https://zelark.github.io/nano-id-cc/\n [`nanoid-dictionary`]:      https://github.com/CyberAP/nanoid-dictionary\n \n \n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Update collision calculator URL in README translations"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "ai-nanoid-pr-567",
+    "family": "expected_block",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#567",
+      "baseRef": "main",
+      "headRef": "fix/jsdoc-import-paths",
+      "note": "Imported from https://github.com/ai/nanoid/pull/567. merged_at=2026-03-15T17:56:59Z changed_files=1"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-567",
+      "title": "Fix incorrect import paths in JSDoc examples",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/567\nTitle: Fix incorrect import paths in JSDoc examples\nAuthority: docs approved this imported PR draft.\nBody: Two incorrect import paths in `index.d.ts` JSDoc examples:\n\n1. **`customAlphabet`** (line 42): Used `require('nanoid')` — should be ESM `import` since nanoid v5 is ESM-only\n2. **`customRandom`** (line 59): Referenced `nanoid/format` which doesn't exist as an export — the correct path is `nanoid`\n\nThese show up in editor tooltips and auto-generated docs, so incorrect paths could confuse users.",
+      "authorityFacts": [
+        "Authority: docs approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex 8123f4f8..790977c4 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -39,7 +39,7 @@ export function nanoid<Type extends string>(size?: number): Type\n  * @returns A random string generator.\n  *\n  * ```js\n- * const { customAlphabet } = require('nanoid')\n+ * import { customAlphabet } from 'nanoid'\n  * const nanoid = customAlphabet('0123456789абвгдеё', 5)\n  * nanoid() //=> \"8ё56а\"\n  * ```\n@@ -56,7 +56,7 @@ export function customAlphabet<Type extends string>(\n  * will not be secure.\n  *\n  * ```js\n- * import { customRandom } from 'nanoid/format'\n+ * import { customRandom } from 'nanoid'\n  *\n  * const nanoid = customRandom('abcdef', 5, size => {\n  *   const random = []\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix incorrect import paths in JSDoc examples"
+    ],
+    "expectedDecision": "refuse",
+    "expectedFindingCategories": [
+      "ownership"
+    ]
+  },
+  {
+    "id": "ai-nanoid-pr-566",
+    "family": "expected_pass",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#566",
+      "baseRef": "main",
+      "headRef": "docs/fix-readme-issues",
+      "note": "Imported from https://github.com/ai/nanoid/pull/566. merged_at=2026-03-15T18:06:06Z changed_files=1"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-566",
+      "title": "Fix outdated info and links in README",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/566\nTitle: Fix outdated info and links in README\nAuthority: docs approved this imported PR draft.\nBody: A few corrections in the main README:\n\n- **Size comparison**: Updated \"130 bytes\" to \"118 bytes\" to match the actual size-limit config and the headline claim\n- **Duplicate link reference**: Removed the second `[ID collision probability]` definition (line 277) which pointed to the old `alex7kom.github.io` URL — the correct `zelark.github.io` definition on line 229 already covers it\n- **ESM import**: Changed `require('nanoid')` to `import ... from 'nanoid'` in the Custom Random Bytes Generator section since nanoid v5 is ESM-only\n- **React docs link**: Updated `useId` link from legacy `reactjs.org` to `react.dev`",
+      "authorityFacts": [
+        "Authority: docs approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/README.md b/README.md\nindex 32112693..5d93621c 100644\n--- a/README.md\n+++ b/README.md\n@@ -74,7 +74,7 @@ There are two main differences between Nano ID and UUID v4:\n 1. Nano ID uses a bigger alphabet, so a similar number of random bits\n    are packed in just 21 symbols instead of 36.\n 2. Nano ID code is **4 times smaller** than `uuid/v4` package:\n-   130 bytes instead of 423.\n+   118 bytes instead of 423.\n \n \n ## Benchmark\n@@ -274,7 +274,6 @@ const nanoid = customAlphabet('1234567890abcdef', 10)\n model.id = nanoid(5) //=> \"f01a2\"\n ```\n \n-[ID collision probability]: https://alex7kom.github.io/nano-nanoid-cc/\n [`nanoid-dictionary`]:      https://github.com/CyberAP/nanoid-dictionary\n \n \n@@ -303,7 +302,7 @@ If you want to use the same URL-friendly symbols with `customRandom`,\n you can get the default alphabet using the `urlAlphabet`.\n \n ```js\n-const { customRandom, urlAlphabet } = require('nanoid')\n+import { customRandom, urlAlphabet } from 'nanoid'\n const nanoid = customRandom(urlAlphabet, 10, random)\n ```\n \n@@ -359,7 +358,7 @@ In case you just need random IDs to link elements like labels\n and input fields together, [`useId`] is recommended.\n That hook was added in React 18.\n \n-[`useId`]: https://reactjs.org/docs/hooks-reference.html#useid\n+[`useId`]: https://react.dev/reference/react/useId\n \n \n ### React Native\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix outdated info and links in README"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "ai-nanoid-pr-588",
+    "family": "expected_pass",
+    "source": {
+      "repository": "ai/nanoid",
+      "pullRequest": "#588",
+      "baseRef": "main",
+      "headRef": "dependabot/npm_and_yarn/fast-uri-3.1.2",
+      "note": "Imported from https://github.com/ai/nanoid/pull/588. merged_at=2026-05-09T09:34:29Z changed_files=1"
+    },
+    "task": {
+      "id": "ai-nanoid-pr-588",
+      "title": "Bump fast-uri from 3.1.0 to 3.1.2",
+      "description": "Imported GitHub PR: https://github.com/ai/nanoid/pull/588\nTitle: Bump fast-uri from 3.1.0 to 3.1.2\nAuthority: release maintenance update is approved.\nBody: Bumps [fast-uri](https://github.com/fastify/fast-uri) from 3.1.0 to 3.1.2.\n<details>\n<summary>Release notes</summary>\n<p><em>Sourced from <a href=\"https://github.com/fastify/fast-uri/releases\">fast-uri's releases</a>.</em></p>\n<blockquote>\n<h2>v3.1.2</h2>\n<h2>⚠️ Security Release</h2>\n<ul>\n<li>Fix for <a href=\"https://github.com/fastify/fast-uri/security/advisories/GHSA-v39h-62p7-jpjc\">https://github.com/fastify/fast-uri/security/advisories/GHSA-v39h-62p7-jpjc</a></li>\n</ul>\n<h2>What's Changed</h2>\n<ul>\n<li>Handle malformed fragment decoding as a parse error by <a href=\"https://github.com/mcollina\"><code>@​mcollina</code></a> in <a href=\"https://redirect.github.com/fastify/fast-uri/pull/171\">fastify/fast-uri#171</a></li>\n</ul>\n<p><strong>Full Changelog</strong>: <a href=\"https://github.com/fastify/fast-uri/compare/v3.1.1...v3.1.2\">https://github.com/fastify/fast-uri/compare/v3.1.1...v3.1.2</a></p>\n<h2>v3.1.1</h2>\n<h2>⚠️ Security Release</h2>\n<ul>\n<li>Fix for <a href=\"https://github.com/fastify/fast-uri/security/advisories/GHSA-q3j6-qgpj-74h6\">https://github.com/fastify/fast-uri/security/advisories/GHSA-q3j6-qgpj-74h6</a></li>\n</ul>\n<h2>What's Changed</h2>\n<ul>\n<li>build(deps-dev): bump tsd from 0.32.0 to 0.33.0 by <a href=\"https://github.com/dependabot\"><code>@​dependabot</code></a>[bot] in <a href=\"https://redirect.github.com/fastify/fast-uri/pull/148\">fastify/fast-uri#148</a></li>\n<li>build(deps): bump actions/checkout from 4 to 5 by <a href=\"https://github.com/dependabot\"><code>@​dependabot</code></a>[bot] in <a href=\"https://redirect.github.com/fastify/fast-uri/pull/149\">fastify/fast-uri#149</a></li>\n<li>chore(.npmrc): ignore scripts by <a href=\"https://github.com/Fdawgs\"><code>@​Fdawgs</code></a> in <a href=\"https://redirect.github.com/fastify/fast-uri/pull/150\">fastify/fast-uri#150</a></li>\n<li>build(deps-dev): remove <code>@​fastify/pre-commit</code> by <a href=\"https://github.com/Fdawgs\"><code>@​Fdawgs</code></a> in <a href=\"https://redirect.github.com/fastif",
+      "authorityFacts": [
+        "Authority: release maintenance update is approved."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.browser.js",
+        "index.d.ts",
+        "nanoid.js",
+        "bin/**",
+        "non-secure/**",
+        "url-alphabet/**",
+        "test/**",
+        "README.md",
+        "README.*.md",
+        "CHANGELOG.md",
+        "SECURITY.md",
+        "package.json",
+        "pnpm-lock.yaml",
+        "jsr.json"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc",
+        ".github/**"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.browser.js": "core-team",
+        "index.d.ts": "types-team",
+        "bin/**": "cli-team",
+        "non-secure/**": "non-secure-team",
+        "url-alphabet/**": "alphabet-team",
+        "README*": "docs-team",
+        "SECURITY.md": "security-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime"
+        ],
+        "types-team": [
+          "types",
+          "typescript"
+        ],
+        "cli-team": [
+          "cli",
+          "developer-tools"
+        ],
+        "non-secure-team": [
+          "non-secure",
+          "performance"
+        ],
+        "alphabet-team": [
+          "alphabet",
+          "url alphabet"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation"
+        ],
+        "security-team": [
+          "security"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "jsr.json",
+          "reason": "package metadata changes must keep JSR metadata aligned"
+        },
+        {
+          "source": "package.json",
+          "requires": "pnpm-lock.yaml",
+          "reason": "dependency metadata changes must keep pnpm lockfile aligned"
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "runtime API surface changes should keep TypeScript declarations aligned"
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test/index.test.js",
+          "reason": "core runtime changes should update core tests"
+        },
+        {
+          "source": "bin/**",
+          "test": "test/bin.test.js",
+          "reason": "CLI changes should update CLI tests"
+        },
+        {
+          "source": "non-secure/**",
+          "test": "test/non-secure.test.js",
+          "reason": "non-secure module changes should update non-secure tests"
+        },
+        {
+          "source": "url-alphabet/**",
+          "test": "test/index.test.js",
+          "reason": "alphabet changes should keep public API tests represented"
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "test/**",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "bin/**",
+          "allowedWith": [
+            "test/bin.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "CLI changes should not cross unrelated module boundaries without explicit authority"
+        },
+        {
+          "source": "non-secure/**",
+          "allowedWith": [
+            "test/non-secure.test.js",
+            "README.md"
+          ],
+          "authority": "cross-module approved",
+          "reason": "non-secure changes should stay inside non-secure scope unless explicitly approved"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\nindex 94972d15..432e75dd 100644\n--- a/pnpm-lock.yaml\n+++ b/pnpm-lock.yaml\n@@ -232,28 +232,24 @@ packages:\n     engines: {node: '>= 10'}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@napi-rs/uuid-linux-arm64-musl@0.2.2':\n     resolution: {integrity: sha512-RNuGOpfJ/MvEkUbvHxzkA8JkKZ4Qz2xrbGt7vre0fVlPAgxlNcp9XdhjoMuGV+t0tS3hw9dM6yinnd80kVhvMg==}\n     engines: {node: '>= 10'}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [musl]\n \n   '@napi-rs/uuid-linux-x64-gnu@0.2.2':\n     resolution: {integrity: sha512-0/7FRAWNQmV2XwmBYV+LcWZ8rMqKNv0q7EtetNQJ1YE3ILLEYM18xKN3GBMBX7ywnSyfejfUUIJ9Gd9Gpm4U0g==}\n     engines: {node: '>= 10'}\n     cpu: [x64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@napi-rs/uuid-linux-x64-musl@0.2.2':\n     resolution: {integrity: sha512-vvcwluZ085vh2ZR1CZpmyE2L4vPNVpwV4SsysJE0Pe05dui/1C1xWZ5IwXqWeh0GM1NVeEPtVxl+O5YUlNAlzw==}\n     engines: {node: '>= 10'}\n     cpu: [x64]\n     os: [linux]\n-    libc: [musl]\n \n   '@napi-rs/uuid-win32-arm64-msvc@0.2.2':\n     resolution: {integrity: sha512-VwK9xXz9Q408hfdx8oM3qPt65TAvYtkvUQnkmDVB9K/QSlxuNpNPJwbSFeP1/MBqI/eRle5E4DpjjCMVNoJ7Ng==}\n@@ -363,56 +359,48 @@ packages:\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@oxlint/binding-linux-arm64-musl@1.62.0':\n     resolution: {integrity: sha512-8eCy3FCDuWUM5hWujAv6heMvfZPbcCOU3SdQUAkixZLu5bSzOkNfirJiLGoQFO943xceOKkiQRMQNzH++jM3WA==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [musl]\n \n   '@oxlint/binding-linux-ppc64-gnu@1.62.0':\n     resolution: {integrity: sha512-NjQ7K7tpTPDe9J+yq8p/s/J0E7lRCkK2uDBDqvT4XIT6f4Z0tlnr59OBg/WcrmVHER1AbrcfyxhGTXgcG8ytWg==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [ppc64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@oxlint/binding-linux-riscv64-gnu@1.62.0':\n     resolution: {integrity: sha512-oKZed9gmSwze29dEt3/Wnsv6l/Ygw/FUst+8Kfpv2SGeS/glEoTGZAMQw37SVyzFV76UTHJN2snGgxK2t2+8ow==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [riscv64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@oxlint/binding-linux-riscv64-musl@1.62.0':\n     resolution: {integrity: sha512-gBjBxQ+9lGpAYq+ELqw0w8QXsBnkZclFc7GRX2r0LnEVn3ZTEqeIKpKcGjucmp76Q53bvJD0i4qBWBhcfhSfGA==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [riscv64]\n     os: [linux]\n-    libc: [musl]\n \n   '@oxlint/binding-linux-s390x-gnu@1.62.0':\n     resolution: {integrity: sha512-Ew2Kxs9EQ9/mbAIJ2hvocMC0wsOu6YKzStI2eFBDt+Td5O8seVC/oxgRIHqCcl5sf5ratA1nozQBAuv7tphkHg==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [s390x]\n     os: [linux]\n-    libc: [glibc]\n \n   '@oxlint/binding-linux-x64-gnu@1.62.0':\n     resolution: {integrity: sha512-5z25jcAA0gfKyVwz71A0VXgaPlocPoTAxhlv/hgoK6tlCrfoNuw7haWbDHvGMfjXhdic4EqVXGRv5XsTqFnbRQ==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [x64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@oxlint/binding-linux-x64-musl@1.62.0':\n     resolution: {integrity: sha512-IWpHmMB6ZDllPvqWDkG6AmXrN7JF5e/c4g/0PuURsmlK+vHoYZPB70rr4u1bn3I4LsKCSpqqfveyx6UCOC8wdg==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [x64]\n     os: [linux]\n-    libc: [musl]\n \n   '@oxlint/binding-openharmony-arm64@1.62.0':\n     resolution: {integrity: sha512-fjlSxxrD5pA594vkyikCS9MnPRjQawW6/BLgyTYkO+73wwPlYjkcZ7LSd974l0Q2zkHQmu4DPvJFLYA7o8xrxQ==}\n@@ -473,42 +461,36 @@ packages:\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@rolldown/binding-linux-arm64-musl@1.0.0-rc.17':\n     resolution: {integrity: sha512-b/CgbwAJpmrRLp02RPfhbudf5tZnN9nsPWK82znefso832etkem8H7FSZwxrOI9djcdTP7U6YfNhbRnh7djErg==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [musl]\n \n   '@rolldown/binding-linux-ppc64-gnu@1.0.0-rc.17':\n     resolution: {integrity: sha512-4EII1iNGRUN5WwGbF/kOh/EIkoDN9HsupgLQoXfY+D1oyJm7/F4t5PYU5n8SWZgG0FEwakyM8pGgwcBYruGTlA==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [ppc64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@rolldown/binding-linux-s390x-gnu@1.0.0-rc.17':\n     resolution: {integrity: sha512-AH8oq3XqQo4IibpVXvPeLDI5pzkpYn0WiZAfT05kFzoJ6tQNzwRdDYQ45M8I/gslbodRZwW8uxLhbSBbkv96rA==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [s390x]\n     os: [linux]\n-    libc: [glibc]\n \n   '@rolldown/binding-linux-x64-gnu@1.0.0-rc.17':\n     resolution: {integrity: sha512-cLnjV3xfo7KslbU41Z7z8BH/E1y5mzUYzAqih1d1MDaIGZRCMqTijqLv76/P7fyHuvUcfGsIpqCdddbxLLK9rA==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [x64]\n     os: [linux]\n-    libc: [glibc]\n \n   '@rolldown/binding-linux-x64-musl@1.0.0-rc.17':\n     resolution: {integrity: sha512-0phclDw1spsL7dUB37sIARuis2tAgomCJXAHZlpt8PXZ4Ba0dRP1e+66lsRqrfhISeN9bEGNjQs+T/Fbd7oYGw==}\n     engines: {node: ^20.19.0 || >=22.12.0}\n     cpu: [x64]\n     os: [linux]\n-    libc: [musl]\n \n   '@rolldown/binding-openharmony-arm64@1.0.0-rc.17':\n     resolution: {integrity: sha512-0ag/hEgXOwgw4t8QyQvUCxvEg+V0KBcA6YuOx9g0r02MprutRF5dyljgm3EmR02O292UX7UeS6HzWHAl6KgyhA==}\n@@ -845,28 +827,24 @@ packages:\n     engines: {node: '>= 12.0.0'}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [glibc]\n \n   lightningcss-linux-arm64-musl@1.32.0:\n     resolution: {integrity: sha512-UpQkoenr4UJEzgVIYpI80lDFvRmPVg6oqboNHfoH4CQIfNA+HOrZ7Mo7KZP02dC6LjghPQJeBsvXhJod/wnIBg==}\n     engines: {node: '>= 12.0.0'}\n     cpu: [arm64]\n     os: [linux]\n-    libc: [musl]\n \n   lightningcss-linux-x64-gnu@1.32.0:\n     resolution: {integrity: sha512-V7Qr52IhZmdKPVr+Vtw8o+WLsQJYCTd8loIfpDaMRWGUZfBOYEJeyJIkqGIDMZPwPx24pUMfwSxxI8phr/MbOA==}\n     engines: {node: '>= 12.0.0'}\n     cpu: [x64]\n     os: [linux]\n-    libc: [glibc]\n \n   lightningcss-linux-x64-musl@1.32.0:\n     resolution: {integrity: sha512-bYcLp+Vb0awsiXg/80uCRezCYHNg1/l3mt0gzHnWV9XP1W5sKa5/TCdGWaR/zBM2PeF/HbsQv/j2URNOiVuxWg==}\n     engines: {node: '>= 12.0.0'}\n     cpu: [x64]\n     os: [linux]\n-    libc: [musl]\n \n   lightningcss-win32-arm64-msvc@1.32.0:\n     resolution: {integrity: sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw==}\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Bump fast-uri from 3.1.0 to 3.1.2"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  }
+]
