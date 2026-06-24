@@ -25,6 +25,7 @@
     "product:real-pr-pilot": "node dist/apps/cli/src/product-real-pr-pilot.js",
     "product:github-pr-import": "node dist/apps/cli/src/product-github-pr-import.js",
     "product:github-pr-pilot": "node dist/apps/cli/src/product-real-pr-pilot.js --input examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json",
+    "product:pr-calibration": "node dist/apps/cli/src/product-pr-calibration.js",
     "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",

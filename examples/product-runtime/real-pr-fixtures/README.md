@@ -22,4 +22,16 @@ npm run product:github-pr-import -- \
 npm run product:github-pr-pilot -- \
   --out-dir /tmp/bounded-imported-pr-pilot \
   --fail-on-regression
+
+npm run product:pr-calibration -- \
+  --out-dir /tmp/bounded-imported-pr-calibration \
+  --fail-on-runtime-drift
+```
+
+If a reviewer has checked a case, add an override file shaped like
+`reviewer-label-overrides.example.json` and run:
+
+```bash
+npm run product:pr-calibration -- \
+  --overrides examples/product-runtime/real-pr-fixtures/reviewer-label-overrides.example.json
 ```

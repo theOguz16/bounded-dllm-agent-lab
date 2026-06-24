@@ -106,3 +106,25 @@ The importer does not create scientific ground truth. It creates a draft by
 running the current deterministic runtime and marking the labels as
 `DRAFT_LABEL` in reviewer notes. A human reviewer must still verify the
 expected decision and finding categories.
+
+## Calibrating Imported Fixtures
+
+After importing, run:
+
+```bash
+npm run product:pr-calibration -- \
+  --input examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json \
+  --out-dir reports/product-runtime
+```
+
+The calibration report separates three states:
+
+| Status | Meaning |
+| --- | --- |
+| `needs_human_review` | The fixture is deterministic but still has runtime-draft labels. |
+| `runtime_drift` | The expected label no longer matches current runtime behavior. |
+| `reviewed_ready` | A human override removed the draft label and the runtime still matches it. |
+
+Use `examples/product-runtime/real-pr-fixtures/reviewer-label-overrides.example.json`
+as the shape for human-reviewed labels. Do not copy expected labels into task
+descriptions; that would leak the answer into the benchmark.

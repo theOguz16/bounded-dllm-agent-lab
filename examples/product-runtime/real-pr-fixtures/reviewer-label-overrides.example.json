@@ -1,0 +1,16 @@
+[
+  {
+    "id": "ai-nanoid-pr-600",
+    "expectedDecision": "refuse",
+    "expectedFindingCategories": [
+      "module_boundary",
+      "paired_file"
+    ],
+    "humanReviewedBy": "example-reviewer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Reviewer confirms the runtime-draft label for the imported PR.",
+      "This example demonstrates the override shape; replace it with a real reviewer identity and reviewed date before publication."
+    ]
+  }
+]

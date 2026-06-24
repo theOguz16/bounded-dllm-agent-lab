@@ -90,7 +90,32 @@ Read this as:
 - missed blockers: unsafe under-warning,
 - finding gaps: right decision but incomplete explanation.
 
-## 5. Interpret Readiness
+## 5. Calibrate Imported Labels
+
+Before treating imported PRs as external validation, run calibration:
+
+```bash
+npm run product:pr-calibration -- \
+  --input examples/product-runtime/real-pr-fixtures/nanoid-github-prs.draft.json \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift
+```
+
+Read this as:
+
+- `needs_human_review`: runtime-draft label still needs a human reviewer,
+- `runtime_drift`: expected label no longer matches runtime output,
+- `reviewed_ready`: label has been human-reviewed and still matches runtime output.
+
+For human-reviewed cases, create an override file:
+
+```bash
+npm run product:pr-calibration -- \
+  --overrides examples/product-runtime/real-pr-fixtures/reviewer-label-overrides.example.json \
+  --out-dir reports/product-runtime
+```
+
+## 6. Interpret Readiness
 
 Readiness combines:
 
@@ -102,7 +127,7 @@ Readiness combines:
 
 This is not a security guarantee. It is a pilot-health signal.
 
-## 6. Promote Carefully
+## 7. Promote Carefully
 
 Recommended rollout:
 
