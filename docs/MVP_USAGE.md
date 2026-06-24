@@ -141,6 +141,7 @@ Real-PR pilot köprüsü:
 
 ```bash
 npm run product:real-pr-pilot -- \
+  --suite nanoid \
   --out-dir reports/product-runtime \
   --fail-on-regression
 ```

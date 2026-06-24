@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { parseUnifiedDiff, reviewPatch, type ReviewDecision } from "../../../packages/product-runtime/src/index.js";
 import { validatePolicy } from "./product-policy-utils.js";
 import { computeProductReadiness, formatReadiness } from "./product-readiness.js";
-import { realPrPilotCases, type RealPrPilotCase } from "./product-real-pr-pilot-fixtures.js";
+import { nanoidRealPrPilotCases, realPrPilotCases, type RealPrPilotCase } from "./product-real-pr-pilot-fixtures.js";
 
 type RealPrPilotResult = {
   id: string;
@@ -28,7 +28,8 @@ if (args.help === "true" || args.h === "true") {
   process.exit(0);
 }
 
-const cases = args.input ? JSON.parse(await readFile(args.input, "utf8")) as RealPrPilotCase[] : realPrPilotCases;
+const suite = args.suite ?? "nanoid";
+const cases = args.input ? JSON.parse(await readFile(args.input, "utf8")) as RealPrPilotCase[] : selectBuiltInCases(suite);
 const outDir = args["out-dir"] ?? "reports/product-runtime";
 const createdAt = new Date().toISOString();
 const results = cases.map(runCase);
@@ -52,7 +53,8 @@ const reportSummary = {
 };
 const artifact = {
   ok: readiness.blockers.length === 0,
-  suiteName: "mvp4-real-pr-pilot",
+  suiteName: suite === "nanoid" ? "mvp5-nanoid-real-pr-pilot" : "mvp4-real-pr-pilot",
+  suite,
   createdAt,
   summary: reportSummary,
   results
@@ -105,6 +107,12 @@ function runCase(testCase: RealPrPilotCase): RealPrPilotResult {
     reviewerNotes: testCase.reviewerNotes,
     riskLevel: review.riskLevel
   };
+}
+
+function selectBuiltInCases(suite: string): RealPrPilotCase[] {
+  if (suite === "nanoid") return nanoidRealPrPilotCases;
+  if (suite === "sample") return realPrPilotCases;
+  throw new Error(`Unknown --suite value: ${suite}`);
 }
 
 function createMarkdown(
@@ -205,10 +213,12 @@ function printHelp(): void {
 
 Usage:
   npm run product:real-pr-pilot
+  npm run product:real-pr-pilot -- --suite sample
   npm run product:real-pr-pilot -- --input real-pr-cases.json --out-dir reports/product-runtime
 
 Options:
   --input <path>             JSON array of real-PR pilot cases. Defaults to built-in samples.
+  --suite <value>            Built-in suite: nanoid, sample. Default: nanoid
   --out-dir <path>           Output directory. Default: reports/product-runtime
   --fail-on-regression       Exit non-zero if readiness blockers exist.
   --help                     Show this help.

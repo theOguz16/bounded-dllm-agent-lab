@@ -241,6 +241,7 @@ The product MVP documentation is available at:
 - [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
 - [`docs/VERIFIER_ADAPTER_CONTRACT.md`](docs/VERIFIER_ADAPTER_CONTRACT.md)
 - [`docs/EXTERNAL_REPO_ADOPTION.md`](docs/EXTERNAL_REPO_ADOPTION.md)
+- [`docs/REAL_PR_FIXTURE_AUTHORING.md`](docs/REAL_PR_FIXTURE_AUTHORING.md)
 
 Useful product checks:
 
