@@ -9,13 +9,18 @@ import {
   addAgentClaim,
   analyzeRepositoryFiles,
   createCostTokenBenchmarkReport,
+  createDllmStyleExperimentReport,
+  createMockRoleAdapter,
+  createSyntheticWorkspacePacket,
   deserializeSharedWorkspace,
   evaluateMergeSafety,
   parseUnifiedDiff,
   reviewPatch,
   runMockOrchestration,
   serializeSharedWorkspace,
+  validateRoleAdapterOutput,
   type AgentClaim,
+  type RoleAdapterOutput,
   type RepoPolicy,
   type VerifierAdapterOutput
 } from "../../packages/product-runtime/src/index.js";
@@ -349,6 +354,58 @@ const intelligenceWorkspaceReview = reviewPatch({
 
 assert.equal(intelligenceWorkspaceReview.workspace.repoFacts.intelligence?.packageManagers[0], "npm");
 assert.equal(intelligenceWorkspaceReview.workspace.repoFacts.intelligence?.likelyPublicApiFiles.includes("packages/billing/src/index.ts"), true);
+
+const coderAdapter = createMockRoleAdapter("coder");
+const verifierAdapter = createMockRoleAdapter("verifier");
+const remaskAdapter = createMockRoleAdapter("remask");
+const adapterOrchestration = runMockOrchestration({
+  task: productTask,
+  policy: productPolicy,
+  roleAdapters: {
+    coder: coderAdapter,
+    verifier: verifierAdapter,
+    remask: remaskAdapter
+  },
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+
+assert.equal(adapterOrchestration.workspace.claims.some((claim) => claim.id.endsWith("coder-adapter-claim")), true);
+assert.equal(adapterOrchestration.workspace.claims.some((claim) => claim.id.endsWith("verifier-adapter-claim")), true);
+assert.equal(adapterOrchestration.workspace.claims.some((claim) => claim.id.endsWith("remask-adapter-claim")), true);
+
+const invalidAdapterOutput: RoleAdapterOutput = {
+  adapterName: "",
+  role: "coder",
+  mode: "mock",
+  confidence: 2,
+  summary: "",
+  claims: [],
+  verifierFindings: []
+};
+const invalidAdapterValidation = validateRoleAdapterOutput(invalidAdapterOutput, "coder");
+assert.equal(invalidAdapterValidation.ok, false);
+assert.equal(invalidAdapterValidation.errors.length > 0, true);
+
+const verifierPacket = createSyntheticWorkspacePacket(remaskReview.workspace, "verifier", "narrow");
+const broadVerifierPacket = createSyntheticWorkspacePacket(remaskReview.workspace, "verifier", "broad");
+assert.equal(verifierPacket.maskedFields.includes("verifierResult"), true);
+assert.equal(broadVerifierPacket.tokenEstimate >= verifierPacket.tokenEstimate, true);
+
+const dllmReport = createDllmStyleExperimentReport([
+  {
+    id: "dllm-remask-fixture",
+    expectedDecision: "remask_required",
+    input: {
+      task: productTask,
+      policy: productPolicy,
+      diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+    }
+  }
+]);
+
+assert.equal(dllmReport.measurements.length, 6);
+assert.equal(dllmReport.summaries.some((summary) => summary.role === "remask" && summary.contextWidth === "narrow"), true);
+assert.equal(dllmReport.markdownReport.includes("dLLM-Style Adapter Experiment v1"), true);
 
 const rejectReview = reviewPatch({
   task: productTask,

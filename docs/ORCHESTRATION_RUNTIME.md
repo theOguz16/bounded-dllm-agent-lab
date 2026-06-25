@@ -148,6 +148,8 @@ docs/MVP_USAGE.md
 - merge safety findings and conflict records,
 - cost/token benchmark flow summaries,
 - repo intelligence package manager, file classification, generated/build, paired-file and test-mapping suggestions,
+- model adapter role outputs and adapter validation,
+- dLLM-style synthetic workspace packet experiment summaries,
 - verifier/remask/merge decision records,
 - trace.
 
@@ -202,6 +204,9 @@ working memory görür.
 - Direct large-context, bounded workspace, workspace+verifier ve workspace+verifier+remask akışları için cost/token benchmark raporu üretir.
 - Repo Intelligence v1 ile package manager, source/test/docs/config/generated/build sınıflandırması, likely public API files, paired files, test mappings ve suggested policy draft üretir.
 - `repoFiles` verildiğinde Workspace Builder bu repo intelligence sonucunu workspace repo facts içine bağlar.
+- Coder, verifier ve remask rolleri için modelden bağımsız adapter contract sağlar.
+- Mock/local/OpenAI-compatible/dLLM-style adapter çıktısını validate edip workspace'e claim/proposal olarak yazar.
+- dLLM-style verifier/remask araştırması için narrow/broad synthetic workspace packet ve experiment report contract üretir.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

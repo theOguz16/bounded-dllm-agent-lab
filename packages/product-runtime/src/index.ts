@@ -369,6 +369,7 @@ export type ReviewInput = {
   repoFiles?: string[];
   repoIntelligence?: RepoIntelligenceReport;
   contextBudgets?: Partial<Record<AgentRoleView, number>>;
+  roleAdapters?: Partial<Record<ModelAdapterRole, RoleAdapter>>;
   workspace?: SharedWorkspaceSnapshot;
   verifierAdapterOutput?: VerifierAdapterOutput;
 };
@@ -402,6 +403,90 @@ export type VerifierAdapter = {
   name: string;
   mode: VerifierAdapterOutput["mode"];
   verify(input: VerifierAdapterInput): Promise<VerifierAdapterOutput>;
+};
+
+export type ModelAdapterRole = "coder" | "verifier" | "remask";
+export type ModelAdapterMode = "mock" | "local" | "openai_compatible" | "llm" | "dllm" | "deterministic";
+
+export type RoleAdapterInput = {
+  role: ModelAdapterRole;
+  task: TaskSpec;
+  diff: PatchDiff;
+  policy: RepoPolicy;
+  workspace: SharedWorkspaceSnapshot;
+  roleView: BoundedRoleView;
+};
+
+export type RoleAdapterOutput = {
+  adapterName: string;
+  role: ModelAdapterRole;
+  mode: ModelAdapterMode;
+  confidence: number;
+  summary: string;
+  claims: AgentClaim[];
+  patchPlan?: PatchPlan;
+  verifierFindings?: VerifierAdapterFinding[];
+  remaskRegions?: RemaskRegion[];
+  rawOutput?: string;
+};
+
+export type RoleAdapterValidationResult = {
+  ok: boolean;
+  errors: string[];
+};
+
+export type RoleAdapter = {
+  name: string;
+  role: ModelAdapterRole;
+  mode: ModelAdapterMode;
+  execute(input: RoleAdapterInput): RoleAdapterOutput;
+};
+
+export type SyntheticWorkspacePacket = {
+  id: string;
+  role: "direct_patch" | "verifier" | "remask";
+  contextWidth: "narrow" | "broad";
+  workspaceId: string;
+  visibleFields: string[];
+  maskedFields: string[];
+  lockedFields: string[];
+  prompt: string;
+  tokenEstimate: number;
+};
+
+export type DllmStyleExperimentRole = SyntheticWorkspacePacket["role"];
+export type DllmStyleContextWidth = SyntheticWorkspacePacket["contextWidth"];
+
+export type DllmStyleExperimentFixture = {
+  id: string;
+  input: ReviewInput;
+  expectedDecision: ReviewDecision;
+};
+
+export type DllmStyleExperimentMeasurement = {
+  fixtureId: string;
+  role: DllmStyleExperimentRole;
+  contextWidth: DllmStyleContextWidth;
+  tokenEstimate: number;
+  decision: ReviewDecision;
+  scopeDrift: 0 | 1;
+  repairSuccess: 0 | 1;
+  costDeltaTokens: number;
+};
+
+export type DllmStyleExperimentReport = {
+  id: string;
+  createdAt: string;
+  measurements: DllmStyleExperimentMeasurement[];
+  summaries: Array<{
+    role: DllmStyleExperimentRole;
+    contextWidth: DllmStyleContextWidth;
+    averageTokens: number;
+    scopeDriftRate: number;
+    repairSuccessRate: number;
+    averageCostDeltaTokens: number;
+  }>;
+  markdownReport: string;
 };
 
 export type ReviewOutput = {
@@ -773,6 +858,66 @@ export function createCostTokenBenchmarkReport(fixtures: CostBenchmarkFixture[])
   };
 }
 
+export function createSyntheticWorkspacePacket(
+  workspace: SharedWorkspaceSnapshot,
+  role: DllmStyleExperimentRole,
+  contextWidth: DllmStyleContextWidth
+): SyntheticWorkspacePacket {
+  const visibleFields = role === "direct_patch"
+    ? ["task", "scope", "patchPlan"]
+    : role === "verifier"
+      ? ["task", "diff", "policy", "authority", "repoFacts"]
+      : ["verifierResult", "remaskRequest", "patchPlan", "scope"];
+  const broadExtras = contextWidth === "broad" ? ["diff.raw", "claims", "events", "roleViews"] : [];
+  const maskedFields = role === "direct_patch" ? ["patchPlan"] : role === "verifier" ? ["verifierResult"] : ["remaskRequest"];
+  const lockedFields = ["task", "scope.forbidden", "policy.forbidden_paths"];
+  const packet = {
+    role,
+    contextWidth,
+    workspaceId: workspace.id,
+    visibleFields: [...visibleFields, ...broadExtras],
+    maskedFields,
+    lockedFields,
+    prompt: `${role} ${contextWidth} synthetic workspace packet for ${workspace.task.title}.`
+  };
+
+  return {
+    id: `${workspace.id}-${role}-${contextWidth}-packet`,
+    ...packet,
+    tokenEstimate: estimateTextTokens(packet)
+  };
+}
+
+export function createDllmStyleExperimentReport(fixtures: DllmStyleExperimentFixture[]): DllmStyleExperimentReport {
+  const roles: DllmStyleExperimentRole[] = ["direct_patch", "verifier", "remask"];
+  const widths: DllmStyleContextWidth[] = ["narrow", "broad"];
+  const measurements = fixtures.flatMap((fixture) => roles.flatMap((role) =>
+    widths.map((contextWidth) => measureDllmStyleExperiment(fixture, role, contextWidth))
+  ));
+  const summaries = roles.flatMap((role) => widths.map((contextWidth) => {
+    const rows = measurements.filter((measurement) => measurement.role === role && measurement.contextWidth === contextWidth);
+    return {
+      role,
+      contextWidth,
+      averageTokens: average(rows.map((row) => row.tokenEstimate)),
+      scopeDriftRate: average(rows.map((row) => row.scopeDrift)),
+      repairSuccessRate: average(rows.map((row) => row.repairSuccess)),
+      averageCostDeltaTokens: average(rows.map((row) => row.costDeltaTokens))
+    };
+  }));
+  const reportWithoutMarkdown = {
+    id: "dllm-style-adapter-experiment-v1",
+    createdAt: new Date().toISOString(),
+    measurements,
+    summaries
+  };
+
+  return {
+    ...reportWithoutMarkdown,
+    markdownReport: dllmStyleExperimentToMarkdown(reportWithoutMarkdown)
+  };
+}
+
 export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspaceSnapshot {
   const id = `workspace-${slugify(input.task.id || input.task.title)}`;
   const roleViews = createRoleViews(input, id);
@@ -997,6 +1142,75 @@ export function deserializeSharedWorkspace(raw: string): SharedWorkspaceSnapshot
   return parsed;
 }
 
+export function validateRoleAdapterOutput(output: RoleAdapterOutput, expectedRole: ModelAdapterRole): RoleAdapterValidationResult {
+  const errors: string[] = [];
+  if (output.role !== expectedRole) errors.push(`Expected role ${expectedRole}, got ${output.role}.`);
+  if (!output.adapterName.trim()) errors.push("adapterName is required.");
+  if (output.confidence < 0 || output.confidence > 1) errors.push("confidence must be between 0 and 1.");
+  if (!output.summary.trim()) errors.push("summary is required.");
+  if (!Array.isArray(output.claims)) errors.push("claims must be an array.");
+  if (output.patchPlan && expectedRole !== "coder") errors.push("Only coder adapters can return patchPlan.");
+  if (output.verifierFindings && expectedRole !== "verifier") errors.push("Only verifier adapters can return verifierFindings.");
+  if (output.remaskRegions && expectedRole !== "remask") errors.push("Only remask adapters can return remaskRegions.");
+  return { ok: errors.length === 0, errors };
+}
+
+export function createMockRoleAdapter(role: ModelAdapterRole, mode: ModelAdapterMode = "mock"): RoleAdapter {
+  return {
+    name: `mock-${role}-adapter`,
+    role,
+    mode,
+    execute(input) {
+      const claim: AgentClaim = {
+        id: `${input.workspace.id}-${role}-adapter-claim`,
+        actor: role,
+        target: role === "verifier" ? "verifier_result" : role === "remask" ? "remask_request" : "patch_plan",
+        summary: `Mock ${role} adapter wrote a bounded workspace proposal.`,
+        status: "accepted",
+        evidence: input.diff.changedFiles
+      };
+      return {
+        adapterName: `mock-${role}-adapter`,
+        role,
+        mode,
+        confidence: 0.9,
+        summary: `Mock ${role} adapter output.`,
+        claims: [claim],
+        patchPlan: role === "coder" ? input.workspace.patchPlan : undefined,
+        verifierFindings: role === "verifier" ? [] : undefined,
+        remaskRegions: role === "remask" ? input.workspace.remaskRequest?.regions ?? [] : undefined
+      };
+    }
+  };
+}
+
+function executeRoleAdapterIfPresent(
+  input: ReviewInput,
+  workspace: SharedWorkspaceSnapshot,
+  role: ModelAdapterRole
+): RoleAdapterOutput | undefined {
+  const adapter = input.roleAdapters?.[role];
+  if (!adapter) return undefined;
+  const output = adapter.execute({
+    role,
+    task: input.task,
+    diff: input.diff,
+    policy: input.policy,
+    workspace,
+    roleView: workspace.roleViews[role]
+  });
+  const validation = validateRoleAdapterOutput(output, role);
+  if (!validation.ok) {
+    throw new Error(`Invalid ${role} adapter output: ${validation.errors.join("; ")}`);
+  }
+  return output;
+}
+
+function applyRoleAdapterOutput(workspace: SharedWorkspaceSnapshot, output: RoleAdapterOutput): SharedWorkspaceSnapshot {
+  const withPatchPlan = output.patchPlan ? recordPatchPlan(workspace, output.patchPlan, "coder") : workspace;
+  return output.claims.reduce((nextWorkspace, claim) => addAgentClaim(nextWorkspace, claim), withPatchPlan);
+}
+
 function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> {
   return {
     planner: {
@@ -1020,8 +1234,17 @@ function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> 
     },
     coder: {
       role: "coder",
-      execute({ workspace, step }) {
+      execute({ input, workspace, step }) {
         assertWritePermission(step, "patchPlan");
+        const adapterOutput = executeRoleAdapterIfPresent(input, workspace, "coder");
+        if (adapterOutput) {
+          const adapterWorkspace = applyRoleAdapterOutput(workspace, adapterOutput);
+          const nextWorkspace = appendStepCompleted(adapterWorkspace, step, `Coder adapter ${adapterOutput.adapterName} recorded a patch proposal.`);
+          return {
+            workspace: nextWorkspace,
+            result: createStepResult(step.id, step.actor, "completed", `Coder adapter ${adapterOutput.adapterName} recorded a patch proposal.`, adapterOutput.claims.map((claim) => claim.id), [])
+          };
+        }
         const patchPlan: PatchPlan = {
           ...workspace.patchPlan,
           summary: workspace.patchPlan.files.length
@@ -1051,13 +1274,28 @@ function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> 
       role: "verifier",
       execute({ input, workspace, step }) {
         assertWritePermission(step, "verifierResult");
-        const findings = createDeterministicFindings(input);
+        const adapterOutput = executeRoleAdapterIfPresent(input, workspace, "verifier");
+        const adapterFindings = adapterOutput?.verifierFindings?.map((finding) => createFinding(
+          finding.category,
+          finding.severity,
+          finding.message,
+          finding.files,
+          finding.suggestedAction,
+          {
+            ...(finding.metadata ?? {}),
+            adapterName: adapterOutput.adapterName,
+            adapterMode: adapterOutput.mode,
+            adapterConfidence: String(adapterOutput.confidence)
+          }
+        )) ?? [];
+        const workspaceWithAdapterClaims = adapterOutput ? applyRoleAdapterOutput(workspace, adapterOutput) : workspace;
+        const findings = [...createDeterministicFindings(input), ...adapterFindings];
         const decision = decide(findings, input.diff);
-        const nextWorkspace = appendStepCompleted(recordVerifierResult(workspace, {
+        const nextWorkspace = appendStepCompleted(recordVerifierResult(workspaceWithAdapterClaims, {
           decision,
           findings,
           checkedFiles: input.diff.changedFiles
-        }), step, `Verifier decision is ${decision}.`);
+        }), step, adapterOutput ? `Verifier adapter ${adapterOutput.adapterName} contributed; decision is ${decision}.` : `Verifier decision is ${decision}.`);
         return {
           workspace: nextWorkspace,
           result: createStepResult(step.id, step.actor, "completed", `Verifier decision is ${decision}.`, [], [])
@@ -1066,10 +1304,12 @@ function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> 
     },
     remask: {
       role: "remask",
-      execute({ workspace, step }) {
+      execute({ input, workspace, step }) {
         assertWritePermission(step, "remaskRequest");
-        const regions = workspace.remaskRequest?.regions ?? createRemaskRegions(workspace.verifierResult?.findings ?? []);
-        const withRequest = recordRemaskRequest(workspace, {
+        const adapterOutput = executeRoleAdapterIfPresent(input, workspace, "remask");
+        const workspaceWithAdapterClaims = adapterOutput ? applyRoleAdapterOutput(workspace, adapterOutput) : workspace;
+        const regions = adapterOutput?.remaskRegions ?? workspaceWithAdapterClaims.remaskRequest?.regions ?? createRemaskRegions(workspaceWithAdapterClaims.verifierResult?.findings ?? []);
+        const withRequest = recordRemaskRequest(workspaceWithAdapterClaims, {
           required: regions.length > 0,
           regions
         });
@@ -1143,6 +1383,68 @@ function measureFlowCost(fixture: CostBenchmarkFixture, flow: CostBenchmarkFlow)
     missedBlocker: blockerExpected && !blockerFound ? 1 : 0,
     falseBlocker: !blockerExpected && blockerFound ? 1 : 0
   };
+}
+
+function measureDllmStyleExperiment(
+  fixture: DllmStyleExperimentFixture,
+  role: DllmStyleExperimentRole,
+  contextWidth: DllmStyleContextWidth
+): DllmStyleExperimentMeasurement {
+  const review = reviewPatch(fixture.input);
+  const packet = createSyntheticWorkspacePacket(review.workspace, role, contextWidth);
+  const decision = role === "direct_patch" ? directBaselineDecision(fixture.input) : review.decision;
+  const repairSuccess = role === "remask" && review.remaskRegions.length > 0 && decision === fixture.expectedDecision ? 1 : 0;
+  const scopeDrift = decision === "approve" && fixture.expectedDecision !== "approve" ? 1 : 0;
+  const broadBaseline = createSyntheticWorkspacePacket(review.workspace, role, "broad").tokenEstimate;
+
+  return {
+    fixtureId: fixture.id,
+    role,
+    contextWidth,
+    tokenEstimate: packet.tokenEstimate,
+    decision,
+    scopeDrift,
+    repairSuccess,
+    costDeltaTokens: packet.tokenEstimate - broadBaseline
+  };
+}
+
+function dllmStyleExperimentToMarkdown(input: Omit<DllmStyleExperimentReport, "markdownReport">): string {
+  return [
+    "# dLLM-Style Adapter Experiment v1",
+    "",
+    `- Created at: ${input.createdAt}`,
+    "",
+    "## Summary",
+    "",
+    table(
+      ["Role", "Context", "Avg Tokens", "Scope Drift", "Repair Success", "Avg Cost Delta"],
+      input.summaries.map((summary) => [
+        summary.role,
+        summary.contextWidth,
+        summary.averageTokens.toString(),
+        percentDecimal(summary.scopeDriftRate),
+        percentDecimal(summary.repairSuccessRate),
+        summary.averageCostDeltaTokens.toString()
+      ])
+    ),
+    "",
+    "## Measurements",
+    "",
+    table(
+      ["Fixture", "Role", "Context", "Tokens", "Decision", "Scope Drift", "Repair Success", "Cost Delta"],
+      input.measurements.map((measurement) => [
+        measurement.fixtureId,
+        measurement.role,
+        measurement.contextWidth,
+        measurement.tokenEstimate.toString(),
+        measurement.decision,
+        measurement.scopeDrift.toString(),
+        measurement.repairSuccess.toString(),
+        measurement.costDeltaTokens.toString()
+      ])
+    )
+  ].join("\n");
 }
 
 function detectPackageManagers(files: string[]): string[] {
