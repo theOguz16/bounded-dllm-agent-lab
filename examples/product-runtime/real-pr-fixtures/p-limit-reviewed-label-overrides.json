@@ -1,0 +1,122 @@
+[
+  {
+    "id": "sindresorhus-p-limit-pr-98",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR extends the public map API over iterables; implementation, declarations, type tests, runtime tests and README move together."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-93",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR is a core performance simplification inside the allowed runtime surface."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-88",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR adds the limitFunction API with matching implementation and type surface."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-83",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR removes AsyncResource binding without crossing forbidden repository scope."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-79",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR changes concurrency behavior in the core API and stays inside the configured module boundary."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-71",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR fixes AsyncResource propagation within allowed runtime and test files."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-50",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR is a minor core refactor with no forbidden path or ownership conflict."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-47",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR improves queue performance and updates package metadata; no extra test requirement is expected for this dependency-backed refactor."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-35",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR fixes invalid concurrency handling inside the core runtime surface."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-30",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR corrects the type definition and stays within the TypeScript declaration boundary."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-28",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR changes asynchronous scheduling behavior with matching core scope."
+    ]
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-20",
+    "expectedDecision": "approve",
+    "expectedFindingCategories": [],
+    "humanReviewedBy": "bounded-agent-maintainer",
+    "reviewedAt": "2026-06-24",
+    "reviewerNotes": [
+      "Merged upstream PR adds queue clearing support inside the accepted runtime API surface."
+    ]
+  }
+]

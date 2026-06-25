@@ -49,3 +49,33 @@ The committed `nanoid-reviewed-label-overrides.json` file is the first
 human-reviewed NanoID external validation label set. It should be read as a
 small positive-control external set: these PRs were merged upstream, and the
 calibrated NanoID policy should not produce false blockers for them.
+
+MVP-9 adds `p-limit-github-prs.draft.json` and
+`p-limit-reviewed-label-overrides.json` as the second external repository set.
+Run it with:
+
+```bash
+npm run product:p-limit-pr-pilot -- \
+  --out-dir /tmp/bounded-p-limit-pr-pilot \
+  --fail-on-regression
+
+npm run product:p-limit-reviewed-calibration -- \
+  --out-dir /tmp/bounded-p-limit-reviewed-calibration \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:p-limit-label-comparison -- \
+  --out-dir /tmp/bounded-p-limit-label-comparison \
+  --fail-on-unreviewed
+```
+
+Then run the cross-repo gate:
+
+```bash
+npm run product:cross-repo-validation -- \
+  --out-dir /tmp/bounded-cross-repo-validation \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+```
+
+This keeps the product runtime honest across more than one OSS repository.

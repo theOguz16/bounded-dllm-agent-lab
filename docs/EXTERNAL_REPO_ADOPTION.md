@@ -133,6 +133,40 @@ set: these are real merged upstream PRs, so the calibrated policy should avoid
 false blockers. Synthetic and built-in pilot suites still cover blocker and
 repair cases.
 
+MVP-9 adds a second reviewed external repository set for `sindresorhus/p-limit`.
+This is intentionally still a positive-control set over merged upstream PRs,
+but it checks whether the runtime policy approach can survive a different
+repository structure:
+
+```bash
+npm run product:p-limit-pr-pilot -- \
+  --out-dir reports/product-runtime \
+  --fail-on-regression
+
+npm run product:p-limit-reviewed-calibration -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:p-limit-label-comparison -- \
+  --out-dir reports/product-runtime \
+  --fail-on-unreviewed
+```
+
+Use the cross-repo validation gate after both repositories have reviewed label
+files:
+
+```bash
+npm run product:cross-repo-validation -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+```
+
+Read this as an external validation health check, not a broad correctness
+proof. It answers a narrower question: "Do reviewed PR labels from multiple
+repositories remain stable under the current runtime?"
+
 ## 6. Interpret Readiness
 
 Readiness combines:

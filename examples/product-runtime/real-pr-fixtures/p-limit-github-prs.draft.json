@@ -1,0 +1,1742 @@
+[
+  {
+    "id": "sindresorhus-p-limit-pr-98",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#98",
+      "baseRef": "main",
+      "headRef": "iterables",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/98. merged_at=2025-10-19T15:16:26Z changed_files=5"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-98",
+      "title": "Enhance `map` method to accept iterables",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/98\nTitle: Enhance `map` method to accept iterables\nAuthority: core approved this imported PR draft.\nBody: This pull request updates the `map` method to accept any iterable, not just arrays. It also adds tests to ensure correct behavior with different types of iterables and updates type definitions to reflect the new functionality.\r\n\r\n**Enhancements to iterable support:**\r\n\r\n* Updated the implementation of `map` in `index.js` to use `Array.from`, allowing it to accept any iterable, not just arrays.\r\n\r\n**Testing improvements:**\r\n\r\n* Added tests in `test.js` to verify that `map` works correctly with `Set` and array iterators, ensuring that results are as expected for these iterable types.\r\n\r\n**Type definition updates:**\r\n\r\n* Updated `index.test-d.ts` to confirm that the type definitions for `limit.map` correctly support generic iterables.",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex b79d16d..1feccde 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -24,16 +24,16 @@ export type LimitFunction = {\n \tclearQueue: () => void;\n \n \t/**\n-\tProcess an array of inputs with limited concurrency.\n+\tProcess an iterable of inputs with limited concurrency.\n \n \tThe mapper function receives the item value and its index.\n \n-\t@param array - An array containing an argument for the given function.\n+\t@param iterable - An iterable containing an argument for the given function.\n \t@param mapperFunction - Promise-returning/async function.\n \t@returns A Promise that returns an array of results.\n \t*/\n \tmap: <Input, ReturnType> (\n-\t\tarray: readonly Input[],\n+\t\titerable: Iterable<Input>,\n \t\tmapperFunction: (input: Input, index: number) => PromiseLike<ReturnType> | ReturnType\n \t) => Promise<ReturnType[]>;\n \ndiff --git a/index.js b/index.js\nindex 11f4ec5..b8a4bdf 100644\n--- a/index.js\n+++ b/index.js\n@@ -82,8 +82,8 @@ export default function pLimit(concurrency) {\n \t\t\t},\n \t\t},\n \t\tmap: {\n-\t\t\tasync value(array, function_) {\n-\t\t\t\tconst promises = array.map((value, index) => this(function_, value, index));\n+\t\t\tasync value(iterable, function_) {\n+\t\t\t\tconst promises = Array.from(iterable, (value, index) => this(function_, value, index));\n \t\t\t\treturn Promise.all(promises);\n \t\t\t},\n \t\t},\ndiff --git a/index.test-d.ts b/index.test-d.ts\nindex 79e0e4e..3d5ec75 100644\n--- a/index.test-d.ts\n+++ b/index.test-d.ts\n@@ -24,3 +24,7 @@ const lf = limitFunction(async (_a: string) => 'ok', {concurrency: 1});\n expectType<Promise<string>>(lf('input'));\n \n expectError(limitFunction((_a: string) => 'x', {concurrency: 1}));\n+\n+// LimitFunction.map accepts iterables\n+expectType<Promise<string[]>>(limit.map(new Set(['a', 'b', 'c']), async x => x + x));\n+expectType<Promise<number[]>>(limit.map([1, 2, 3].values(), async x => x * 2));\ndiff --git a/readme.md b/readme.md\nindex 73d5527..377b5dc 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -57,13 +57,13 @@ Any arguments to pass through to `fn`.\n \n Support for passing arguments on to the `fn` is provided in order to be able to avoid creating unnecessary closures. You probably don't need this optimization unless you're pushing a *lot* of functions.\n \n-### limit.map(array, mapperFunction)\n+### limit.map(iterable, mapperFunction)\n \n-Process an array of inputs with limited concurrency.\n+Process an iterable of inputs with limited concurrency.\n \n The mapper function receives the item value and its index.\n \n-Returns a promise equivalent to `Promise.all(array.map((item, index) => limit(mapperFunction, item, index)))`.\n+Returns a promise equivalent to `Promise.all(Array.from(iterable, (item, index) => limit(mapperFunction, item, index)))`.\n \n This is a convenience function for processing inputs that arrive in batches. For more complex use cases, see [p-map](https://github.com/sindresorhus/p-map).\n \ndiff --git a/test.js b/test.js\nindex 8cc8a41..51af163 100644\n--- a/test.js\n+++ b/test.js\n@@ -190,6 +190,24 @@ test('map passes index and preserves order with concurrency', async t => {\n \tt.deepEqual(results, [10, 11, 12, 13, 14]);\n });\n \n+test('map accepts an iterable (set)', async t => {\n+\tconst limit = pLimit(2);\n+\tconst inputs = new Set([1, 2, 3, 4]);\n+\n+\tconst results = await limit.map(inputs, input => input * 2); // eslint-disable-line unicorn/no-array-method-this-argument\n+\n+\tt.deepEqual(results, [2, 4, 6, 8]);\n+});\n+\n+test('map accepts an iterable (array iterator)', async t => {\n+\tconst limit = pLimit(2);\n+\tconst inputs = [1, 2, 3, 4].values();\n+\n+\tconst results = await limit.map(inputs, input => input * 2); // eslint-disable-line unicorn/no-array-method-this-argument\n+\n+\tt.deepEqual(results, [2, 4, 6, 8]);\n+});\n+\n test('throws on invalid concurrency argument', t => {\n \tt.throws(() => {\n \t\tpLimit(0);\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Enhance `map` method to accept iterables"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-93",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#93",
+      "baseRef": "main",
+      "headRef": "faster",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/93. merged_at=2025-08-14T14:51:00Z changed_files=2"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-93",
+      "title": "Performance: Remove awkward logic around activeCount ",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/93\nTitle: Performance: Remove awkward logic around activeCount \nAuthority: performance approved this imported PR draft.\nBody: Tighten up how and when tasks are started.\r\n\r\nThis commit removes an extraneous microtick and the need to explain why it exists by incrementing and decrementing activeCount on the same side of a resolve() boundary.\r\n\r\nTest added to prove that I haven't broken the system behavior by removing this extra closure and await.\r\n\r\nThis change does alter the behavior of activeCount to increment when the queued promise is resolved instead of when the function has fired. But from this stand",
+      "authorityFacts": [
+        "Authority: performance approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex 22b1e87..85dc50a 100644\n--- a/index.js\n+++ b/index.js\n@@ -8,15 +8,13 @@ export default function pLimit(concurrency) {\n \n \tconst resumeNext = () => {\n \t\tif (activeCount < concurrency && queue.size > 0) {\n-\t\t\tqueue.dequeue()();\n-\t\t\t// Since `pendingCount` has been decreased by one, increase `activeCount` by one.\n \t\t\tactiveCount++;\n+\t\t\tqueue.dequeue()();\n \t\t}\n \t};\n \n \tconst next = () => {\n \t\tactiveCount--;\n-\n \t\tresumeNext();\n \t};\n \n@@ -41,17 +39,9 @@ export default function pLimit(concurrency) {\n \t\t\trun.bind(undefined, function_, resolve, arguments_),\n \t\t);\n \n-\t\t(async () => {\n-\t\t\t// This function needs to wait until the next microtask before comparing\n-\t\t\t// `activeCount` to `concurrency`, because `activeCount` is updated asynchronously\n-\t\t\t// after the `internalResolve` function is dequeued and called. The comparison in the if-statement\n-\t\t\t// needs to happen asynchronously as well to get an up-to-date value for `activeCount`.\n-\t\t\tawait Promise.resolve();\n-\n-\t\t\tif (activeCount < concurrency) {\n-\t\t\t\tresumeNext();\n-\t\t\t}\n-\t\t})();\n+\t\tif (activeCount < concurrency) {\n+\t\t\tresumeNext();\n+\t\t}\n \t};\n \n \tconst generator = (function_, ...arguments_) => new Promise(resolve => {\ndiff --git a/test.js b/test.js\nindex 373d67b..e94884d 100644\n--- a/test.js\n+++ b/test.js\n@@ -110,16 +110,29 @@ test('does not ignore errors', async t => {\n \tawait t.throwsAsync(Promise.all(promises), {is: error});\n });\n \n+test('runs all tasks asynchronously', async t => {\n+\tconst limit = pLimit(3);\n+\n+\tlet value = 1;\n+\n+\tconst one = limit(() => 1);\n+\tconst two = limit(() => value);\n+\n+\tt.is(limit.activeCount, 2);\n+\n+\tvalue = 2;\n+\n+\tconst result = await Promise.all([one, two]);\n+\n+\tt.deepEqual(result, [1, 2]);\n+});\n+\n test('activeCount and pendingCount properties', async t => {\n \tconst limit = pLimit(5);\n \tt.is(limit.activeCount, 0);\n \tt.is(limit.pendingCount, 0);\n \n \tconst runningPromise1 = limit(() => delay(1000));\n-\tt.is(limit.activeCount, 0);\n-\tt.is(limit.pendingCount, 1);\n-\n-\tawait Promise.resolve();\n \tt.is(limit.activeCount, 1);\n \tt.is(limit.pendingCount, 0);\n \n@@ -130,7 +143,6 @@ test('activeCount and pendingCount properties', async t => {\n \tconst immediatePromises = Array.from({length: 5}, () => limit(() => delay(1000)));\n \tconst delayedPromises = Array.from({length: 3}, () => limit(() => delay(1000)));\n \n-\tawait Promise.resolve();\n \tt.is(limit.activeCount, 5);\n \tt.is(limit.pendingCount, 3);\n \n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Performance: Remove awkward logic around activeCount "
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-88",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#88",
+      "baseRef": "main",
+      "headRef": "feat/limit-func",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/88. merged_at=2024-12-19T15:35:28Z changed_files=4"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-88",
+      "title": "Limit function",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/88\nTitle: Limit function\nAuthority: core approved this imported PR draft.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex 038ba41..34b1be2 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -41,3 +41,41 @@ Run multiple promise-returning & async functions with limited concurrency.\n @returns A `limit` function.\n */\n export default function pLimit(concurrency: number): LimitFunction;\n+\n+export type Options = {\n+\t/**\n+\tConcurrency limit.\n+\n+ \tMinimum: `1`.\n+\t*/\n+\treadonly concurrency: number;\n+};\n+\n+/**\n+Returns a function with limited concurrency.\n+\n+The returned function manages its own concurrent executions, allowing you to call it multiple times without exceeding the specified concurrency limit.\n+\n+Ideal for scenarios where you need to control the number of simultaneous executions of a single function, rather than managing concurrency across multiple functions.\n+\n+@param function_ - Promise-returning/async function.\n+@return Function with limited concurrency.\n+\n+@example\n+```\n+import {limitFunction} from 'p-limit';\n+\n+const limitedFunction = limitFunction(async () => {\n+\treturn doSomething();\n+}, {concurrency: 1});\n+\n+const input = Array.from({length: 10}, limitedFunction);\n+\n+// Only one promise is run at once.\n+await Promise.all(input);\n+```\n+*/\n+export function limitFunction<Arguments extends unknown[], ReturnType>(\n+\tfunction_: (...arguments_: Arguments) => PromiseLike<ReturnType> | ReturnType,\n+\toption: Options\n+): (...arguments_: Arguments) => Promise<ReturnType>;\ndiff --git a/index.js b/index.js\nindex 484ad3e..22b1e87 100644\n--- a/index.js\n+++ b/index.js\n@@ -90,6 +90,13 @@ export default function pLimit(concurrency) {\n \treturn generator;\n }\n \n+export function limitFunction(function_, option) {\n+\tconst {concurrency} = option;\n+\tconst limit = pLimit(concurrency);\n+\n+\treturn (...arguments_) => limit(() => function_(...arguments_));\n+}\n+\n function validateConcurrency(concurrency) {\n \tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n \t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\ndiff --git a/readme.md b/readme.md\nindex df0af3f..c285926 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -30,7 +30,7 @@ console.log(result);\n \n ## API\n \n-### pLimit(concurrency)\n+### pLimit(concurrency) <sup>default export</sup>\n \n Returns a `limit` function.\n \n@@ -77,6 +77,44 @@ Note: This does not cancel promises that are already running.\n \n Get or set the concurrency limit.\n \n+### limitFunction(fn, options) <sup>named export</sup>\n+\n+Returns a function with limited concurrency.\n+\n+The returned function manages its own concurrent executions, allowing you to call it multiple times without exceeding the specified concurrency limit.\n+\n+Ideal for scenarios where you need to control the number of simultaneous executions of a single function, rather than managing concurrency across multiple functions.\n+\n+```js\n+import {limitFunction} from 'p-limit';\n+\n+const limitedFunction = limitFunction(async () => {\n+\treturn doSomething();\n+}, {concurrency: 1});\n+\n+const input = Array.from({length: 10}, limitedFunction);\n+\n+// Only one promise is run at once.\n+await Promise.all(input);\n+```\n+\n+#### fn\n+\n+Type: `Function`\n+\n+Promise-returning/async function.\n+\n+#### options\n+\n+Type: `object`\n+\n+#### concurrency\n+\n+Type: `number`\\\n+Minimum: `1`\n+\n+Concurrency limit.\n+\n ## FAQ\n \n ### How is this different from the [`p-queue`](https://github.com/sindresorhus/p-queue) package?\ndiff --git a/test.js b/test.js\nindex 08bb306..373d67b 100644\n--- a/test.js\n+++ b/test.js\n@@ -4,7 +4,7 @@ import delay from 'delay';\n import inRange from 'in-range';\n import timeSpan from 'time-span';\n import randomInt from 'random-int';\n-import pLimit from './index.js';\n+import pLimit, {limitFunction} from './index.js';\n \n test('concurrency: 1', async t => {\n \tconst input = [\n@@ -217,3 +217,19 @@ test('change concurrency to bigger value', async t => {\n \tawait Promise.all(promises);\n \tt.deepEqual(log, [1, 2, 3, 4, 4, 4, 4, 4, 4, 4]);\n });\n+\n+test('limitFunction()', async t => {\n+\tconst concurrency = 5;\n+\tlet running = 0;\n+\n+\tconst limitedFunction = limitFunction(async () => {\n+\t\trunning++;\n+\t\tt.true(running <= concurrency);\n+\t\tawait delay(randomInt(30, 200));\n+\t\trunning--;\n+\t}, {concurrency});\n+\n+\tconst input = Array.from({length: 100}, limitedFunction);\n+\n+\tawait Promise.all(input);\n+});\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Limit function"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-83",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#83",
+      "baseRef": "main",
+      "headRef": "main",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/83. merged_at=2024-07-04T11:52:03Z changed_files=4"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-83",
+      "title": "Avoid AsyncResource.bind",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/83\nTitle: Avoid AsyncResource.bind\nAuthority: core approved this imported PR draft.\nBody: Change to `new Promise(r => queue.enqueue(r)).then(...)` so that the asynchronous context is not switched, making `AsyncResource.bind` unnecessary.\r\n\r\nSince `AsyncResource.bind` is no longer needed, the time required to call the limit function will be reduced.\r\n\r\nHowever, because of the change in the way Promise is used, the timing of changes such as `limit.activeCount` will be slower than before the change, which may be fatal if the usage situation is severe.\r\n\r\n## Performance\r\n\r\nBefore:\r\n\r\n```cmd\r\n>node sample.js\r\n>node sample.js\r\nqueuing: 0.0100483000010252\r\navg: 0.0036830892265141907\r\n>node sample.js\r\nqueuing: 0.01016361999809742\r\navg: 0.0034371111732547956\r\n>node sample.js\r\nqueuing: 0.010111030000448227\r\navg: 0.003734002007524611\r\n```\r\n\r\nAfter:\r\n\r\n```cmd\r\n>node sample.js\r\nqueuing: 0.004205410000681877\r\navg: 0.002716399300301685\r\n>node sample.js\r\nqueuing: 0.004278499999642372\r\navg: 0.0024704816498034216\r\n>node sample.js\r\nqueuing: 0.00385004999935627\r\navg: 0.00261593758760986\r\n```\r\n\r\nSource Code:\r\n\r\n```sample.js\r\nimport pLimit from './index.js';\r\n\r\nconst limit = pLimit(30);\r\n\r\nlet end;\r\nconst queuingStart = performance.now();\r\nconst promises = Array.from({length: 10000}, (_, id) => limit(async () => {\r\n  const lap = end !== undefined ? performance.now() - end : undefined;\r\n  // console.log(id, 'start', limit.activeCount, limit.pendingCount);\r\n  await new Promise(r => setTimeout(r));\r\n  // console.log(id, 'end', limit.activeCount, limit.pendingCount);\r\n  end = performance.now();\r\n  return lap;\r\n}));\r\nconst queuing = (performance.now() - queuingStart) / promises.length;\r\nconsole.log('queuing:', queuing);\r\nPromise.all(promises).then((_laps) => {\r\n  /** @type {number[]} */\r\n  const laps = _laps.filter(e => e !== undefined);\r\n  const avg = laps.reduce((a, b) => a + b) / laps.length;\r\n  console.log('avg:', avg)\r\n})\r\n```",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/async-hooks-stub.js b/async-hooks-stub.js\ndeleted file mode 100644\nindex 913c7c6..0000000\n--- a/async-hooks-stub.js\n+++ /dev/null\n@@ -1,15 +0,0 @@\n-export const AsyncResource = {\n-\tbind(fn, _type, thisArg) {\n-\t\treturn fn.bind(thisArg);\n-\t},\n-};\n-\n-export class AsyncLocalStorage {\n-\tgetStore() {\n-\t\treturn undefined;\n-\t}\n-\n-\trun(_store, callback) {\n-\t\treturn callback();\n-\t}\n-}\ndiff --git a/index.js b/index.js\nindex 4a5a0f0..d2c48b5 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,5 +1,4 @@\n import Queue from 'yocto-queue';\n-import {AsyncResource} from '#async_hooks';\n \n export default function pLimit(concurrency) {\n \tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n@@ -9,17 +8,21 @@ export default function pLimit(concurrency) {\n \tconst queue = new Queue();\n \tlet activeCount = 0;\n \n-\tconst next = () => {\n-\t\tactiveCount--;\n-\n+\tconst resumeNext = () => {\n \t\tif (queue.size > 0) {\n \t\t\tqueue.dequeue()();\n+\t\t\t// Since `pendingCount` has been decreased by one, increase `activeCount` by one.\n+\t\t\tactiveCount++;\n \t\t}\n \t};\n \n-\tconst run = async (function_, resolve, arguments_) => {\n-\t\tactiveCount++;\n+\tconst next = () => {\n+\t\tactiveCount--;\n+\n+\t\tresumeNext();\n+\t};\n \n+\tconst run = async (function_, resolve, arguments_) => {\n \t\tconst result = (async () => function_(...arguments_))();\n \n \t\tresolve(result);\n@@ -32,19 +35,23 @@ export default function pLimit(concurrency) {\n \t};\n \n \tconst enqueue = (function_, resolve, arguments_) => {\n-\t\tqueue.enqueue(\n-\t\t\tAsyncResource.bind(run.bind(undefined, function_, resolve, arguments_)),\n+\t\t// Queue `internalResolve` instead of the `run` function\n+\t\t// to preserve asynchronous context.\n+\t\tnew Promise(internalResolve => {\n+\t\t\tqueue.enqueue(internalResolve);\n+\t\t}).then(\n+\t\t\trun.bind(undefined, function_, resolve, arguments_),\n \t\t);\n \n \t\t(async () => {\n \t\t\t// This function needs to wait until the next microtask before comparing\n \t\t\t// `activeCount` to `concurrency`, because `activeCount` is updated asynchronously\n-\t\t\t// when the run function is dequeued and called. The comparison in the if-statement\n+\t\t\t// after the `internalResolve` function is dequeued and called. The comparison in the if-statement\n \t\t\t// needs to happen asynchronously as well to get an up-to-date value for `activeCount`.\n \t\t\tawait Promise.resolve();\n \n-\t\t\tif (activeCount < concurrency && queue.size > 0) {\n-\t\t\t\tqueue.dequeue()();\n+\t\t\tif (activeCount < concurrency) {\n+\t\t\t\tresumeNext();\n \t\t\t}\n \t\t})();\n \t};\ndiff --git a/package.json b/package.json\nindex 6d5a9b7..9515027 100644\n--- a/package.json\n+++ b/package.json\n@@ -15,12 +15,6 @@\n \t\t\"types\": \"./index.d.ts\",\n \t\t\"default\": \"./index.js\"\n \t},\n-\t\"imports\": {\n-\t\t\"#async_hooks\": {\n-\t\t\t\"node\": \"async_hooks\",\n-\t\t\t\"default\": \"./async-hooks-stub.js\"\n-\t\t}\n-\t},\n \t\"engines\": {\n \t\t\"node\": \">=18\"\n \t},\ndiff --git a/test.js b/test.js\nindex 6477920..39cef54 100644\n--- a/test.js\n+++ b/test.js\n@@ -1,10 +1,10 @@\n+import {AsyncLocalStorage} from 'node:async_hooks';\n import test from 'ava';\n import delay from 'delay';\n import inRange from 'in-range';\n import timeSpan from 'time-span';\n import randomInt from 'random-int';\n import pLimit from './index.js';\n-import {AsyncLocalStorage} from '#async_hooks';\n \n test('concurrency: 1', async t => {\n \tconst input = [\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Avoid AsyncResource.bind"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-79",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#79",
+      "baseRef": "main",
+      "headRef": "change-limit",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/79. merged_at=2024-07-08T12:02:18Z changed_files=4"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-79",
+      "title": "Allow changing concurrency limit",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/79\nTitle: Allow changing concurrency limit\nAuthority: core approved this imported PR draft.\nBody: (empty)",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex 9351750..038ba41 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -9,6 +9,11 @@ export type LimitFunction = {\n \t*/\n \treadonly pendingCount: number;\n \n+\t/**\n+\tGet or set the concurrency limit.\n+\t*/\n+\tconcurrency: number;\n+\n \t/**\n \tDiscard pending promises that are waiting to run.\n \ndiff --git a/index.js b/index.js\nindex d2c48b5..484ad3e 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,15 +1,13 @@\n import Queue from 'yocto-queue';\n \n export default function pLimit(concurrency) {\n-\tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n-\t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n-\t}\n+\tvalidateConcurrency(concurrency);\n \n \tconst queue = new Queue();\n \tlet activeCount = 0;\n \n \tconst resumeNext = () => {\n-\t\tif (queue.size > 0) {\n+\t\tif (activeCount < concurrency && queue.size > 0) {\n \t\t\tqueue.dequeue()();\n \t\t\t// Since `pendingCount` has been decreased by one, increase `activeCount` by one.\n \t\t\tactiveCount++;\n@@ -72,7 +70,28 @@ export default function pLimit(concurrency) {\n \t\t\t\tqueue.clear();\n \t\t\t},\n \t\t},\n+\t\tconcurrency: {\n+\t\t\tget: () => concurrency,\n+\n+\t\t\tset(newConcurrency) {\n+\t\t\t\tvalidateConcurrency(newConcurrency);\n+\t\t\t\tconcurrency = newConcurrency;\n+\n+\t\t\t\tqueueMicrotask(() => {\n+\t\t\t\t\t// eslint-disable-next-line no-unmodified-loop-condition\n+\t\t\t\t\twhile (activeCount < concurrency && queue.size > 0) {\n+\t\t\t\t\t\tresumeNext();\n+\t\t\t\t\t}\n+\t\t\t\t});\n+\t\t\t},\n+\t\t},\n \t});\n \n \treturn generator;\n }\n+\n+function validateConcurrency(concurrency) {\n+\tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n+\t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n+\t}\n+}\ndiff --git a/readme.md b/readme.md\nindex 4e890f8..1d73ae1 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -74,6 +74,10 @@ This might be useful if you want to teardown the queue at the end of your progra\n \n Note: This does not cancel promises that are already running.\n \n+### limit.concurrency\n+\n+Get or set the concurrency limit.\n+\n ## FAQ\n \n ### How is this different from the [`p-queue`](https://github.com/sindresorhus/p-queue) package?\ndiff --git a/test.js b/test.js\nindex 39cef54..08bb306 100644\n--- a/test.js\n+++ b/test.js\n@@ -177,3 +177,43 @@ test('throws on invalid concurrency argument', t => {\n \t\tpLimit(true);\n \t});\n });\n+\n+test('change concurrency to smaller value', async t => {\n+\tconst limit = pLimit(4);\n+\tlet running = 0;\n+\tconst log = [];\n+\tconst promises = Array.from({length: 10}).map(() =>\n+\t\tlimit(async () => {\n+\t\t\t++running;\n+\t\t\tlog.push(running);\n+\t\t\tawait delay(50);\n+\t\t\t--running;\n+\t\t}),\n+\t);\n+\tawait delay(0);\n+\tt.is(running, 4);\n+\n+\tlimit.concurrency = 2;\n+\tawait Promise.all(promises);\n+\tt.deepEqual(log, [1, 2, 3, 4, 2, 2, 2, 2, 2, 2]);\n+});\n+\n+test('change concurrency to bigger value', async t => {\n+\tconst limit = pLimit(2);\n+\tlet running = 0;\n+\tconst log = [];\n+\tconst promises = Array.from({length: 10}).map(() =>\n+\t\tlimit(async () => {\n+\t\t\t++running;\n+\t\t\tlog.push(running);\n+\t\t\tawait delay(50);\n+\t\t\t--running;\n+\t\t}),\n+\t);\n+\tawait delay(0);\n+\tt.is(running, 2);\n+\n+\tlimit.concurrency = 4;\n+\tawait Promise.all(promises);\n+\tt.deepEqual(log, [1, 2, 3, 4, 4, 4, 4, 4, 4, 4]);\n+});\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Allow changing concurrency limit"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-71",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#71",
+      "baseRef": "main",
+      "headRef": "asyncresource-bind",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/71. merged_at=2023-11-01T06:13:46Z changed_files=4"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-71",
+      "title": "Fix AsyncResource propagation issue",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/71\nTitle: Fix AsyncResource propagation issue\nAuthority: core approved this imported PR draft.\nBody: Fixes: [#200](https://github.com/sindresorhus/p-queue/issues/200)\r\n",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/async-hooks-stub.js b/async-hooks-stub.js\nnew file mode 100644\nindex 0000000..913c7c6\n--- /dev/null\n+++ b/async-hooks-stub.js\n@@ -0,0 +1,15 @@\n+export const AsyncResource = {\n+\tbind(fn, _type, thisArg) {\n+\t\treturn fn.bind(thisArg);\n+\t},\n+};\n+\n+export class AsyncLocalStorage {\n+\tgetStore() {\n+\t\treturn undefined;\n+\t}\n+\n+\trun(_store, callback) {\n+\t\treturn callback();\n+\t}\n+}\ndiff --git a/index.js b/index.js\nindex b54b99b..c5ebcc9 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,4 +1,5 @@\n import Queue from 'yocto-queue';\n+import {AsyncResource} from '#async_hooks';\n \n export default function pLimit(concurrency) {\n \tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n@@ -31,7 +32,9 @@ export default function pLimit(concurrency) {\n \t};\n \n \tconst enqueue = (fn, resolve, args) => {\n-\t\tqueue.enqueue(run.bind(undefined, fn, resolve, args));\n+\t\tqueue.enqueue(\n+\t\t\tAsyncResource.bind(run.bind(undefined, fn, resolve, args)),\n+\t\t);\n \n \t\t(async () => {\n \t\t\t// This function needs to wait until the next microtask before comparing\ndiff --git a/package.json b/package.json\nindex 2e41e6e..22aba98 100644\n--- a/package.json\n+++ b/package.json\n@@ -12,6 +12,12 @@\n \t},\n \t\"type\": \"module\",\n \t\"exports\": \"./index.js\",\n+\t\"imports\": {\n+\t\t\"#async_hooks\": {\n+\t\t\t\"node\": \"async_hooks\",\n+\t\t\t\"default\": \"./async-hooks-stub.js\"\n+\t\t}\n+\t},\n \t\"engines\": {\n \t\t\"node\": \"^12.20.0 || ^14.13.1 || >=16.0.0\"\n \t},\n@@ -20,7 +26,8 @@\n \t},\n \t\"files\": [\n \t\t\"index.js\",\n-\t\t\"index.d.ts\"\n+\t\t\"index.d.ts\",\n+\t\t\"async-hooks-stub.js\"\n \t],\n \t\"keywords\": [\n \t\t\"promise\",\ndiff --git a/test.js b/test.js\nindex fd61a97..c1bcee3 100644\n--- a/test.js\n+++ b/test.js\n@@ -3,6 +3,7 @@ import delay from 'delay';\n import inRange from 'in-range';\n import timeSpan from 'time-span';\n import randomInt from 'random-int';\n+import {AsyncLocalStorage} from '#async_hooks';\n import pLimit from './index.js';\n \n test('concurrency: 1', async t => {\n@@ -40,6 +41,23 @@ test('concurrency: 4', async t => {\n \tawait Promise.all(input);\n });\n \n+test('propagates async execution context properly', async t => {\n+\tconst concurrency = 2;\n+\tconst limit = pLimit(concurrency);\n+\tconst store = new AsyncLocalStorage();\n+\n+\tconst checkId = async id => {\n+\t\tawait Promise.resolve();\n+\t\tt.is(id, store.getStore()?.id);\n+\t};\n+\n+\tconst startContext = async id => store.run({id}, () => limit(checkId, id));\n+\n+\tawait Promise.all(\n+\t\tArray.from({length: 100}, (_, id) => startContext(id)),\n+\t);\n+});\n+\n test('non-promise returning function', async t => {\n \tawait t.notThrowsAsync(async () => {\n \t\tconst limit = pLimit(1);\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix AsyncResource propagation issue"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-50",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#50",
+      "baseRef": "main",
+      "headRef": "main",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/50. merged_at=2021-02-23T06:21:35Z changed_files=1"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-50",
+      "title": "Minor refactor",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/50\nTitle: Minor refactor\nAuthority: performance approved this imported PR draft.\nBody: Minor change, tests passed.\r\n\r\nI don't know if the spread has any performance implications (if any I'm sure it would be tiny), but given that the `enqueue` and `run` methods are private, I figure it probably couldn't hurt?\r\n\r\nFeel free to reject.",
+      "authorityFacts": [
+        "Authority: performance approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex c2ae52d..0fd024b 100644\n--- a/index.js\n+++ b/index.js\n@@ -17,7 +17,7 @@ const pLimit = concurrency => {\n \t\t}\n \t};\n \n-\tconst run = async (fn, resolve, ...args) => {\n+\tconst run = async (fn, resolve, args) => {\n \t\tactiveCount++;\n \n \t\tconst result = (async () => fn(...args))();\n@@ -31,8 +31,8 @@ const pLimit = concurrency => {\n \t\tnext();\n \t};\n \n-\tconst enqueue = (fn, resolve, ...args) => {\n-\t\tqueue.enqueue(run.bind(null, fn, resolve, ...args));\n+\tconst enqueue = (fn, resolve, args) => {\n+\t\tqueue.enqueue(run.bind(null, fn, resolve, args));\n \n \t\t(async () => {\n \t\t\t// This function needs to wait until the next microtask before comparing\n@@ -48,7 +48,7 @@ const pLimit = concurrency => {\n \t};\n \n \tconst generator = (fn, ...args) => new Promise(resolve => {\n-\t\tenqueue(fn, resolve, ...args);\n+\t\tenqueue(fn, resolve, args);\n \t});\n \n \tObject.defineProperties(generator, {\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Minor refactor"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-47",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#47",
+      "baseRef": "master",
+      "headRef": "performance",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/47. merged_at=2020-11-25T07:28:52Z changed_files=2"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-47",
+      "title": "Improve performance",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/47\nTitle: Improve performance\nAuthority: performance approved this imported PR draft.\nBody: By using a queue data structure.\r\n\r\nCloses #46",
+      "authorityFacts": [
+        "Authority: performance approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex 5c0be97..0ddb323 100644\n--- a/index.js\n+++ b/index.js\n@@ -1,19 +1,20 @@\n 'use strict';\n const pTry = require('p-try');\n+const Queue = require('yocto-queue');\n \n const pLimit = concurrency => {\n \tif (!((Number.isInteger(concurrency) || concurrency === Infinity) && concurrency > 0)) {\n \t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n \t}\n \n-\tconst queue = [];\n+\tconst queue = new Queue();\n \tlet activeCount = 0;\n \n \tconst next = () => {\n \t\tactiveCount--;\n \n-\t\tif (queue.length > 0) {\n-\t\t\tqueue.shift()();\n+\t\tif (queue.size > 0) {\n+\t\t\tqueue.dequeue()();\n \t\t}\n \t};\n \n@@ -33,7 +34,7 @@ const pLimit = concurrency => {\n \t};\n \n \tconst enqueue = (fn, resolve, ...args) => {\n-\t\tqueue.push(run.bind(null, fn, resolve, ...args));\n+\t\tqueue.enqueue(run.bind(null, fn, resolve, ...args));\n \n \t\t(async () => {\n \t\t\t// This function needs to wait until the next microtask before comparing\n@@ -42,8 +43,8 @@ const pLimit = concurrency => {\n \t\t\t// needs to happen asynchronously as well to get an up-to-date value for `activeCount`.\n \t\t\tawait Promise.resolve();\n \n-\t\t\tif (activeCount < concurrency && queue.length > 0) {\n-\t\t\t\tqueue.shift()();\n+\t\t\tif (activeCount < concurrency && queue.size > 0) {\n+\t\t\t\tqueue.dequeue()();\n \t\t\t}\n \t\t})();\n \t};\n@@ -54,11 +55,11 @@ const pLimit = concurrency => {\n \t\t\tget: () => activeCount\n \t\t},\n \t\tpendingCount: {\n-\t\t\tget: () => queue.length\n+\t\t\tget: () => queue.size\n \t\t},\n \t\tclearQueue: {\n \t\t\tvalue: () => {\n-\t\t\t\tqueue.length = 0;\n+\t\t\t\tqueue.clear();\n \t\t\t}\n \t\t}\n \t});\ndiff --git a/package.json b/package.json\nindex 578e64c..099a66f 100644\n--- a/package.json\n+++ b/package.json\n@@ -38,7 +38,8 @@\n \t\t\"bluebird\"\n \t],\n \t\"dependencies\": {\n-\t\t\"p-try\": \"^2.0.0\"\n+\t\t\"p-try\": \"^2.0.0\",\n+\t\t\"yocto-queue\": \"^0.1.0\"\n \t},\n \t\"devDependencies\": {\n \t\t\"ava\": \"^2.4.0\",\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Improve performance"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-35",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#35",
+      "baseRef": "master",
+      "headRef": "fix/invalid-concurrency",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/35. merged_at=2020-07-12T13:35:19Z changed_files=2"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-35",
+      "title": "Fix error on invalid concurrency",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/35\nTitle: Fix error on invalid concurrency\nAuthority: core approved this imported PR draft.\nBody: Else, passing in an invalid concurrency (in my case, because I wanted to see if `-1` meant \"unlimited\") produces a confusing error message: both a `limit is not a function` at the point of use, and an `UnhandledPromiseRejectionWarning` from node itself.\r\n\r\nAn example:\r\n\r\n```\r\nconst limit = pLimit(userSuppliedValue || someDefault);\r\n\r\n...\r\n.map(val => limit(() => doSomething()))\r\n//               ^ TypeError: limit is not a function\r\n...\r\n```",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex 997c648..5c0be97 100644\n--- a/index.js\n+++ b/index.js\n@@ -3,7 +3,7 @@ const pTry = require('p-try');\n \n const pLimit = concurrency => {\n \tif (!((Number.isInteger(concurrency) || concurrency === Infinity) && concurrency > 0)) {\n-\t\treturn Promise.reject(new TypeError('Expected `concurrency` to be a number from 1 and up'));\n+\t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n \t}\n \n \tconst queue = [];\ndiff --git a/test.js b/test.js\nindex 8306c12..21976b8 100644\n--- a/test.js\n+++ b/test.js\n@@ -138,10 +138,24 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n-test('throws on invalid concurrency argument', async t => {\n-\tawait t.throwsAsync(pLimit(0));\n-\tawait t.throwsAsync(pLimit(-1));\n-\tawait t.throwsAsync(pLimit(1.2));\n-\tawait t.throwsAsync(pLimit(undefined));\n-\tawait t.throwsAsync(pLimit(true));\n+test('throws on invalid concurrency argument', t => {\n+\tt.throws(() => {\n+\t\tpLimit(0);\n+\t});\n+\n+\tt.throws(() => {\n+\t\tpLimit(-1);\n+\t});\n+\n+\tt.throws(() => {\n+\t\tpLimit(1.2);\n+\t});\n+\n+\tt.throws(() => {\n+\t\tpLimit(undefined);\n+\t});\n+\n+\tt.throws(() => {\n+\t\tpLimit(true);\n+\t});\n });\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix error on invalid concurrency"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-30",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#30",
+      "baseRef": "master",
+      "headRef": "patch-1",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/30. merged_at=2020-06-06T16:18:38Z changed_files=1"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-30",
+      "title": "Fix type definition",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/30\nTitle: Fix type definition\nAuthority: core approved this imported PR draft.\nBody: close #29",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex f8a4564..ff40731 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -1,32 +1,34 @@\n-export interface Limit {\n-\t/**\n-\t@param fn - Promise-returning/async function.\n-\t@param arguments - Any arguments to pass through to `fn`. Support for passing arguments on to the `fn` is provided in order to be able to avoid creating unnecessary closures. You probably don't need this optimization unless you're pushing a lot of functions.\n-\t@returns The promise returned by calling `fn(...arguments)`.\n-\t*/\n-\t<Arguments extends unknown[], ReturnType>(\n-\t\tfn: (...arguments: Arguments) => PromiseLike<ReturnType> | ReturnType,\n-\t\t...arguments: Arguments\n-\t): Promise<ReturnType>;\n-\n-\t/**\n-\tThe number of promises that are currently running.\n-\t*/\n-\treadonly activeCount: number;\n-\n-\t/**\n-\tThe number of promises that are waiting to run (i.e. their internal `fn` was not called yet).\n-\t*/\n-\treadonly pendingCount: number;\n-\n-\t/**\n-\tDiscard pending promises that are waiting to run.\n-\n-\tThis might be useful if you want to teardown the queue at the end of your program's lifecycle or discard any function calls referencing an intermediary state of your app.\n-\n-\tNote: This does not cancel promises that are already running.\n-\t*/\n-\tclearQueue: () => void;\n+declare namespace pLimit {\n+\tinterface Limit {\n+\t\t/**\n+\t\t@param fn - Promise-returning/async function.\n+\t\t@param arguments - Any arguments to pass through to `fn`. Support for passing arguments on to the `fn` is provided in order to be able to avoid creating unnecessary closures. You probably don't need this optimization unless you're pushing a lot of functions.\n+\t\t@returns The promise returned by calling `fn(...arguments)`.\n+\t\t*/\n+\t\t<Arguments extends unknown[], ReturnType>(\n+\t\t\tfn: (...arguments: Arguments) => PromiseLike<ReturnType> | ReturnType,\n+\t\t\t...arguments: Arguments\n+\t\t): Promise<ReturnType>;\n+\n+\t\t/**\n+\t\tThe number of promises that are currently running.\n+\t\t*/\n+\t\treadonly activeCount: number;\n+\n+\t\t/**\n+\t\tThe number of promises that are waiting to run (i.e. their internal `fn` was not called yet).\n+\t\t*/\n+\t\treadonly pendingCount: number;\n+\n+\t\t/**\n+\t\tDiscard pending promises that are waiting to run.\n+\n+\t\tThis might be useful if you want to teardown the queue at the end of your program's lifecycle or discard any function calls referencing an intermediary state of your app.\n+\n+\t\tNote: This does not cancel promises that are already running.\n+\t\t*/\n+\t\tclearQueue: () => void;\n+\t}\n }\n \n /**\n@@ -35,4 +37,6 @@ Run multiple promise-returning & async functions with limited concurrency.\n @param concurrency - Concurrency limit. Minimum: `1`.\n @returns A `limit` function.\n */\n-export default function pLimit(concurrency: number): Limit;\n+declare function pLimit(concurrency: number): pLimit.Limit;\n+\n+export = pLimit;\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Fix type definition"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-28",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#28",
+      "baseRef": "master",
+      "headRef": "always-run-limit-fns-asynchronously",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/28. merged_at=2020-05-18T06:57:35Z changed_files=2"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-28",
+      "title": "Always run limited functions asynchronously",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/28\nTitle: Always run limited functions asynchronously\nAuthority: core approved this imported PR draft.\nBody: This modifies the generator function returned from plimit to always\r\nrun functions passed to limit asynchronously.\r\n\r\nThis is done by modifying the enqueue method to always push the function\r\nprovided to the generator function onto the queue and then scheduling a\r\nfunction to run asynchronously to dequeue and run that function.\r\n\r\nI thought using using `Promise.resolve().then()` was a nice way to\r\nschedule that dequeuing function asynchronously because it wasn't too\r\nnode-specific or browser-specific, but I'm happy to do something else\r\nlike preferring `process.nextTick` and then falling back to `setTimeout`\r\nif `process.nextTick` isn't available.\r\n\r\nCloses #22 ",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.js b/index.js\nindex 6a72a4c..413082e 100644\n--- a/index.js\n+++ b/index.js\n@@ -28,11 +28,19 @@ const pLimit = concurrency => {\n \t};\n \n \tconst enqueue = (fn, resolve, ...args) => {\n-\t\tif (activeCount < concurrency) {\n-\t\t\trun(fn, resolve, ...args);\n-\t\t} else {\n-\t\t\tqueue.push(run.bind(null, fn, resolve, ...args));\n-\t\t}\n+\t\tqueue.push(run.bind(null, fn, resolve, ...args));\n+\n+\t\t(async () => {\n+\t\t\t// This function needs to wait until the next microtask before comparing\n+\t\t\t// `activeCount` to `concurrency`, because `activeCount` is updated asynchronously\n+\t\t\t// when the run function is dequeued and called. The comparison in the if-statement\n+\t\t\t// needs to happen asynchronously as well to get an up-to-date value for `activeCount`.\n+\t\t\tawait Promise.resolve();\n+\n+\t\t\tif (activeCount < concurrency && queue.length > 0) {\n+\t\t\t\tqueue.shift()();\n+\t\t\t}\n+\t\t})();\n \t};\n \n \tconst generator = (fn, ...args) => new Promise(resolve => enqueue(fn, resolve, ...args));\ndiff --git a/test.js b/test.js\nindex e06d7d4..28a4dd9 100644\n--- a/test.js\n+++ b/test.js\n@@ -98,6 +98,10 @@ test('activeCount and pendingCount properties', async t => {\n \tt.is(limit.pendingCount, 0);\n \n \tconst runningPromise1 = limit(() => delay(1000));\n+\tt.is(limit.activeCount, 0);\n+\tt.is(limit.pendingCount, 1);\n+\n+\tawait Promise.resolve();\n \tt.is(limit.activeCount, 1);\n \tt.is(limit.pendingCount, 0);\n \n@@ -108,6 +112,7 @@ test('activeCount and pendingCount properties', async t => {\n \tconst immediatePromises = Array.from({length: 5}, () => limit(() => delay(1000)));\n \tconst delayedPromises = Array.from({length: 3}, () => limit(() => delay(1000)));\n \n+\tawait Promise.resolve();\n \tt.is(limit.activeCount, 5);\n \tt.is(limit.pendingCount, 3);\n \n@@ -121,12 +126,13 @@ test('activeCount and pendingCount properties', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n-test('clearQueue', t => {\n+test('clearQueue', async t => {\n \tconst limit = pLimit(1);\n \n \tArray.from({length: 1}, () => limit(() => delay(1000)));\n \tArray.from({length: 3}, () => limit(() => delay(1000)));\n \n+\tawait Promise.resolve();\n \tt.is(limit.pendingCount, 3);\n \tlimit.clearQueue();\n \tt.is(limit.pendingCount, 0);\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Always run limited functions asynchronously"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  },
+  {
+    "id": "sindresorhus-p-limit-pr-20",
+    "family": "expected_pass",
+    "source": {
+      "repository": "sindresorhus/p-limit",
+      "pullRequest": "#20",
+      "baseRef": "master",
+      "headRef": "clear-queue",
+      "note": "Imported from https://github.com/sindresorhus/p-limit/pull/20. merged_at=2020-04-05T15:37:34Z changed_files=5"
+    },
+    "task": {
+      "id": "sindresorhus-p-limit-pr-20",
+      "title": "Add support for clearing the queue",
+      "description": "Imported GitHub PR: https://github.com/sindresorhus/p-limit/pull/20\nTitle: Add support for clearing the queue\nAuthority: core approved this imported PR draft.\nBody: Closes #18\r\n\r\nIssue had been sitting for a little bit, so I decided to try my hand at it. Sorry in advance for any glaring mistakes!",
+      "authorityFacts": [
+        "Authority: core approved this imported PR draft."
+      ]
+    },
+    "policy": {
+      "allowed_paths": [
+        "index.js",
+        "index.d.ts",
+        "index.test-d.ts",
+        "async-hooks-stub.js",
+        "test.js",
+        "benchmark.js",
+        "readme.md",
+        "package.json",
+        "package-lock.json",
+        ".github/**",
+        "license"
+      ],
+      "forbidden_paths": [
+        "dist/**",
+        "coverage/**",
+        ".env",
+        ".npmrc"
+      ],
+      "ownership": {
+        "index.js": "core-team",
+        "index.d.ts": "types-team",
+        "test.js": "core-team",
+        "benchmark.js": "performance-team",
+        "readme.md": "docs-team",
+        "package.json": "release-team",
+        "package-lock.json": "release-team"
+      },
+      "owner_aliases": {
+        "core-team": [
+          "core",
+          "runtime",
+          "performance"
+        ],
+        "types-team": [
+          "types",
+          "typescript",
+          "core"
+        ],
+        "performance-team": [
+          "performance",
+          "benchmark"
+        ],
+        "docs-team": [
+          "docs",
+          "documentation",
+          "readme",
+          "core"
+        ],
+        "release-team": [
+          "release",
+          "dependency",
+          "dependencies",
+          "maintenance",
+          "core",
+          "performance"
+        ]
+      },
+      "paired_files": [
+        {
+          "source": "package.json",
+          "requires": "package-lock.json",
+          "reason": "dependency metadata changes must keep npm lockfile aligned",
+          "changed_when_contains": [
+            "dependencies",
+            "devDependencies",
+            "optionalDependencies",
+            "peerDependencies"
+          ]
+        },
+        {
+          "source": "index.js",
+          "requires": "index.d.ts",
+          "reason": "public API shape changes should keep TypeScript declarations aligned",
+          "changed_when_contains": [
+            "limitFunction",
+            ".map",
+            "concurrency:"
+          ]
+        }
+      ],
+      "sensitive_patterns": [
+        "SECRET",
+        "API_KEY",
+        "NPM_TOKEN",
+        "PRIVATE_KEY"
+      ],
+      "required_tests": [],
+      "required_test_mappings": [
+        {
+          "source": "index.js",
+          "test": "test.js",
+          "reason": "runtime behavior changes should update p-limit tests",
+          "changed_when_contains": [
+            "throw new",
+            ".map"
+          ]
+        }
+      ],
+      "module_boundaries": [
+        {
+          "source": "index.js",
+          "allowedWith": [
+            "index.d.ts",
+            "index.test-d.ts",
+            "async-hooks-stub.js",
+            "test.js",
+            "benchmark.js",
+            "readme.md",
+            "package.json"
+          ],
+          "authority": "cross-module approved",
+          "reason": "core runtime changes should not cross unrelated boundaries without explicit authority"
+        }
+      ],
+      "missing_authority_rules": []
+    },
+    "diff": "diff --git a/index.d.ts b/index.d.ts\nindex 22094f1..6bbfad4 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -18,6 +18,15 @@ export interface Limit {\n \tThe number of promises that are waiting to run (i.e. their internal `fn` was not called yet).\n \t*/\n \treadonly pendingCount: number;\n+\n+\t/**\n+\tDiscard pending promises that are waiting to run.\n+\n+\tThis might be useful if you want to teardown the queue at the end of your program's lifecycle or discard any function calls referencing an intermediary state of your app.\n+\n+\tNote: This does not cancel promises that are already running.\n+\t*/\n+\tclearQueue(): void;\n }\n \n /**\ndiff --git a/index.js b/index.js\nindex e8ed405..6a72a4c 100644\n--- a/index.js\n+++ b/index.js\n@@ -42,6 +42,11 @@ const pLimit = concurrency => {\n \t\t},\n \t\tpendingCount: {\n \t\t\tget: () => queue.length\n+\t\t},\n+\t\tclearQueue: {\n+\t\t\tvalue: () => {\n+\t\t\t\tqueue.length = 0;\n+\t\t\t}\n \t\t}\n \t});\n \ndiff --git a/index.test-d.ts b/index.test-d.ts\nindex ec32c64..c043f3c 100644\n--- a/index.test-d.ts\n+++ b/index.test-d.ts\n@@ -16,3 +16,5 @@ expectType<Promise<string>>(limit((a: string, b: number) => Promise.resolve(''),\n \n expectType<number>(limit.activeCount);\n expectType<number>(limit.pendingCount);\n+\n+expectType<void>(limit.clearQueue());\ndiff --git a/readme.md b/readme.md\nindex 35b52d5..64aa476 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -66,6 +66,14 @@ The number of promises that are currently running.\n \n The number of promises that are waiting to run (i.e. their internal `fn` was not called yet).\n \n+### limit.clearQueue()\n+\n+Discard pending promises that are waiting to run.\n+\n+This might be useful if you want to teardown the queue at the end of your program's lifecycle or discard any function calls referencing an intermediary state of your app.\n+\n+Note: This does not cancel promises that are already running.\n+\n ## FAQ\n \n ### How is this different from the [`p-queue`](https://github.com/sindresorhus/p-queue) package?\ndiff --git a/test.js b/test.js\nindex 3dd19e8..e06d7d4 100644\n--- a/test.js\n+++ b/test.js\n@@ -121,6 +121,17 @@ test('activeCount and pendingCount properties', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n+test('clearQueue', t => {\n+\tconst limit = pLimit(1);\n+\n+\tArray.from({length: 1}, () => limit(() => delay(1000)));\n+\tArray.from({length: 3}, () => limit(() => delay(1000)));\n+\n+\tt.is(limit.pendingCount, 3);\n+\tlimit.clearQueue();\n+\tt.is(limit.pendingCount, 0);\n+});\n+\n test('throws on invalid concurrency argument', async t => {\n \tawait t.throwsAsync(pLimit(0));\n \tawait t.throwsAsync(pLimit(-1));\n",
+    "reviewerNotes": [
+      "DRAFT_LABEL: generated by product-github-pr-import using label-mode=runtime-draft.",
+      "A human reviewer must verify expectedDecision and expectedFindingCategories before using this as external validation.",
+      "PR title: Add support for clearing the queue"
+    ],
+    "expectedDecision": "approve",
+    "expectedFindingCategories": []
+  }
+]

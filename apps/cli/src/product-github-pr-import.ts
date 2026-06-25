@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseUnifiedDiff, reviewPatch, type Finding, type ReviewDecision } from "../../../packages/product-runtime/src/index.js";
-import { nanoidPilotPolicy, type RealPrPilotCase } from "./product-real-pr-pilot-fixtures.js";
+import { nanoidPilotPolicy, pLimitPilotPolicy, type RealPrPilotCase } from "./product-real-pr-pilot-fixtures.js";
 
 type GitHubPullRequest = {
   number: number;
@@ -103,8 +103,13 @@ function inferAuthority(pullRequest: GitHubPullRequest): string {
   // Buradaki authority çıkarımı bilinçli olarak basit tutulur. Amaç PR'ı
   // mükemmel anlamak değil, reviewer'ın düzeltebileceği ilk taslak bağlamı kurmak.
   if (text.includes("non-secure")) return "Authority: non-secure approved this imported PR draft.";
+  if (text.includes("map method") || text.includes("iterable") || text.includes("limit function") || text.includes("concurrency limit") || text.includes("clear the queue")) {
+    return "Authority: core approved this imported PR draft.";
+  }
   if (text.includes("benchmark")) return "Authority: performance approved this imported PR draft.";
+  if (text.includes("performance") || text.includes("faster") || text.includes("optimi")) return "Authority: performance approved this imported PR draft.";
   if (text.includes("release") || text.includes("version")) return "Authority: release maintenance update is approved.";
+  if (text.includes("dependency") || text.includes("dependencies") || text.includes("bump ")) return "Authority: dependency maintenance update is approved.";
   if (text.includes("types") || text.includes("typescript") || text.includes("jsdoc")) return "Authority: types approved this imported PR draft.";
   if (text.includes("readme") || text.includes("docs") || text.includes("translation")) return "Authority: docs approved this imported PR draft.";
   if (text.includes("cli") || text.includes("bin")) return "Authority: developer-tools approved this imported PR draft.";
@@ -126,6 +131,7 @@ function toFamily(decision: ReviewDecision): RealPrPilotCase["family"] {
 
 function selectPolicy(value: string) {
   if (value === "nanoid") return nanoidPilotPolicy;
+  if (value === "p-limit") return pLimitPilotPolicy;
   throw new Error(`Unknown --policy value: ${value}`);
 }
 
@@ -199,7 +205,7 @@ Options:
   --repo <owner/name>          GitHub repository. Default: ai/nanoid
   --prs <numbers>             Comma-separated PR numbers. Required.
   --out <path>                Output JSON fixture path.
-  --policy <name>             Policy profile: nanoid. Default: nanoid
+  --policy <name>             Policy profile: nanoid, p-limit. Default: nanoid
   --label-mode <value>        runtime-draft or fixed ReviewDecision. Default: runtime-draft
   --help                      Show this help.
 `);

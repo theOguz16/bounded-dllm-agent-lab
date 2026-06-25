@@ -133,6 +133,77 @@ export const nanoidPilotPolicy: RepoPolicy = {
   missing_authority_rules: []
 };
 
+export const pLimitPilotPolicy: RepoPolicy = {
+  allowed_paths: [
+    "index.js",
+    "index.d.ts",
+    "index.test-d.ts",
+    "async-hooks-stub.js",
+    "test.js",
+    "benchmark.js",
+    "readme.md",
+    "package.json",
+    "package-lock.json",
+    ".github/**",
+    "license"
+  ],
+  forbidden_paths: [
+    "dist/**",
+    "coverage/**",
+    ".env",
+    ".npmrc"
+  ],
+  ownership: {
+    "index.js": "core-team",
+    "index.d.ts": "types-team",
+    "test.js": "core-team",
+    "benchmark.js": "performance-team",
+    "readme.md": "docs-team",
+    "package.json": "release-team",
+    "package-lock.json": "release-team"
+  },
+  owner_aliases: {
+    "core-team": ["core", "runtime", "performance"],
+    "types-team": ["types", "typescript", "core"],
+    "performance-team": ["performance", "benchmark"],
+    "docs-team": ["docs", "documentation", "readme", "core"],
+    "release-team": ["release", "dependency", "dependencies", "maintenance", "core", "performance"]
+  },
+  paired_files: [
+    {
+      source: "package.json",
+      requires: "package-lock.json",
+      reason: "dependency metadata changes must keep npm lockfile aligned",
+      changed_when_contains: ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]
+    },
+    {
+      source: "index.js",
+      requires: "index.d.ts",
+      reason: "public API shape changes should keep TypeScript declarations aligned",
+      changed_when_contains: ["limitFunction", ".map", "concurrency:"]
+    }
+  ],
+  sensitive_patterns: ["SECRET", "API_KEY", "NPM_TOKEN", "PRIVATE_KEY"],
+  required_tests: [],
+  required_test_mappings: [
+    {
+      source: "index.js",
+      test: "test.js",
+      reason: "runtime behavior changes should update p-limit tests",
+      changed_when_contains: ["throw new", ".map"]
+    }
+  ],
+  module_boundaries: [
+    {
+      source: "index.js",
+      allowedWith: ["index.d.ts", "index.test-d.ts", "async-hooks-stub.js", "test.js", "benchmark.js", "readme.md", "package.json"],
+      authority: "cross-module approved",
+      reason: "core runtime changes should not cross unrelated boundaries without explicit authority"
+    }
+  ],
+  missing_authority_rules: []
+};
+
 export const realPrPilotCases: RealPrPilotCase[] = [
   {
     id: "real-pr-sample-001-release-metadata",

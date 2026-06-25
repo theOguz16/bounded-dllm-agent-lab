@@ -69,6 +69,18 @@ jobs:
       - name: Product draft vs reviewed labels
         run: npm run product:pr-label-comparison -- --out-dir /tmp/bounded-agent-ci/pr-label-comparison --fail-on-unreviewed
 
+      - name: Product p-limit imported PR pilot
+        run: npm run product:p-limit-pr-pilot -- --out-dir /tmp/bounded-agent-ci/p-limit-pr-pilot --fail-on-regression
+
+      - name: Product p-limit reviewed PR calibration
+        run: npm run product:p-limit-reviewed-calibration -- --out-dir /tmp/bounded-agent-ci/p-limit-reviewed-pr-calibration --fail-on-runtime-drift --fail-on-unreviewed
+
+      - name: Product p-limit draft vs reviewed labels
+        run: npm run product:p-limit-label-comparison -- --out-dir /tmp/bounded-agent-ci/p-limit-pr-label-comparison --fail-on-unreviewed
+
+      - name: Product cross-repo external validation
+        run: npm run product:cross-repo-validation -- --out-dir /tmp/bounded-agent-ci/cross-repo-validation --fail-on-runtime-drift --fail-on-unreviewed
+
       - name: Demo eval
         # Bu adım gerçek model kalitesini ölçmez; mock pipeline'ın fixture, evaluator,
         # report ve manifest üretimini kırmadan çalıştığını doğrular.

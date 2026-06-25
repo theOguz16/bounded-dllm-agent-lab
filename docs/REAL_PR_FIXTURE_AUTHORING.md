@@ -153,3 +153,35 @@ npm run product:pr-label-comparison -- \
 This set is intentionally a positive-control set over merged NanoID PRs. It
 does not replace blocker/reject/remask benchmarks; it checks whether the
 calibrated external-repo policy creates false blockers on real accepted PRs.
+
+## Reviewed p-limit External Set
+
+MVP-9 adds a second reviewed external set:
+
+```text
+examples/product-runtime/real-pr-fixtures/p-limit-github-prs.draft.json
+examples/product-runtime/real-pr-fixtures/p-limit-reviewed-label-overrides.json
+```
+
+Run it with:
+
+```bash
+npm run product:p-limit-reviewed-calibration -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+
+npm run product:p-limit-label-comparison -- \
+  --out-dir reports/product-runtime \
+  --fail-on-unreviewed
+```
+
+The p-limit set guards against overfitting external validation to NanoID alone.
+Both sets can be checked together with:
+
+```bash
+npm run product:cross-repo-validation -- \
+  --out-dir reports/product-runtime \
+  --fail-on-runtime-drift \
+  --fail-on-unreviewed
+```
