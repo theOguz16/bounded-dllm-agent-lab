@@ -236,7 +236,8 @@ for a policy-bound shared-workspace runtime over task + diff + policy flows:
 ```text
 task + diff + policy
   -> SharedWorkspace v1
-  -> bounded role views
+  -> Context Composer v1
+  -> bounded role views with included/excluded facts and token budget reports
   -> verifier findings
   -> verifier-triggered remask request when needed
   -> merge decision

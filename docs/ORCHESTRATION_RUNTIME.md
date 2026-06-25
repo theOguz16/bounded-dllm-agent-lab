@@ -32,7 +32,8 @@ Runtime şu sorulara cevap verir:
 ```text
 task + diff + policy
   -> SharedWorkspace v1
-  -> role-specific bounded views
+  -> Context Composer v1
+  -> role-specific bounded working memory views
   -> verifier findings
   -> verifier/remask/merge workspace events
   -> approve | refuse | reject | remask_required | human_review_required
@@ -134,6 +135,8 @@ docs/MVP_USAGE.md
 - findings,
 - remask regions,
 - role-specific bounded views,
+- included/excluded context facts,
+- view token estimate, budget utilization and context sufficiency risk,
 - SharedWorkspace v1 events,
 - verifier/remask/merge decision records,
 - trace.
@@ -179,7 +182,9 @@ working memory görür.
 - task/diff/policy input alır.
 - Task, scope, authority, repo facts ve patch intent içeren SharedWorkspace v1 üretir.
 - Workspace event/mutation kaydı tutar.
-- Role-specific bounded view üretir.
+- Planner, coder, verifier, tester ve remask için role-specific bounded working memory view üretir.
+- Context Composer v1 ile included/excluded facts, provenance, token estimate, budget utilization ve context sufficiency risk raporlar.
+- Role bazlı context budget override kabul eder.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

@@ -179,11 +179,25 @@ assert.equal(remaskReview.workspace.version, 1);
 assert.deepEqual(remaskReview.workspace.scope.changedFiles, ["package.json"]);
 assert.deepEqual(remaskReview.workspace.authority.facts, ["release metadata update is approved"]);
 assert.equal(remaskReview.workspace.repoFacts.pairedFiles.length, 1);
+assert.deepEqual(remaskReview.workspace.repoFacts.staleFacts, []);
 assert.equal(remaskReview.workspace.patchPlan.files.length, 1);
 assert.equal(remaskReview.workspace.verifierResult?.decision, "remask_required");
 assert.equal(remaskReview.workspace.remaskRequest?.required, true);
 assert.equal(remaskReview.workspace.mergeDecision?.decision, "remask_required");
 assert.equal(remaskReview.workspace.events.some((event) => event.action === "verifier_result_recorded"), true);
+assert.equal(remaskReview.workspace.roleViews.planner.provenance.composerVersion, "context-composer-v1");
+assert.equal(remaskReview.workspace.roleViews.planner.provenance.workspaceId, remaskReview.workspace.id);
+assert.equal(remaskReview.workspace.roleViews.coder.includedFacts.some((fact) => fact.field === "patchPlan"), true);
+assert.equal(remaskReview.workspace.roleViews.coder.excludedFacts.some((fact) => fact.field === "repoFacts.sensitivePatterns"), true);
+assert.equal(remaskReview.workspace.roleViews.verifier.visibleFields.includes("policy"), true);
+assert.equal(remaskReview.workspace.roleViews.tester.visibleFields.includes("repoFacts.requiredTestMappings"), true);
+assert.equal(remaskReview.workspace.roleViews.remask.includedFacts.some((fact) => fact.field === "remaskRequest"), true);
+assert.notDeepEqual(
+  remaskReview.workspace.roleViews.planner.includedFacts.map((fact) => fact.field),
+  remaskReview.workspace.roleViews.verifier.includedFacts.map((fact) => fact.field)
+);
+assert.equal(remaskReview.workspace.roleViews.planner.estimatedTokens > 0, true);
+assert.equal(remaskReview.workspace.roleViews.planner.budgetUtilization > 0, true);
 
 const plannerClaim: AgentClaim = {
   id: "claim-plan-release-metadata",
@@ -197,6 +211,19 @@ const claimedWorkspace = addAgentClaim(remaskReview.workspace, plannerClaim);
 const roundTrippedWorkspace = deserializeSharedWorkspace(serializeSharedWorkspace(claimedWorkspace));
 assert.equal(roundTrippedWorkspace.claims[0].id, plannerClaim.id);
 assert.equal(roundTrippedWorkspace.events.some((event) => event.action === "claim_added"), true);
+
+const tightBudgetReview = reviewPatch({
+  task: productTask,
+  policy: productPolicy,
+  contextBudgets: {
+    planner: 10
+  },
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+
+assert.equal(tightBudgetReview.workspace.roleViews.planner.tokenBudget, 10);
+assert.equal(tightBudgetReview.workspace.roleViews.planner.contextSufficiencyRisk, "high");
+assert.equal(tightBudgetReview.workspace.roleViews.planner.composerReport.budgetTokens, 10);
 
 const rejectReview = reviewPatch({
   task: productTask,

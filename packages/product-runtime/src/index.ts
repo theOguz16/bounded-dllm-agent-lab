@@ -9,6 +9,7 @@ export type RiskLevel = "low" | "medium" | "high";
 export type FindingSeverity = "info" | "warning" | "error";
 export type AgentRoleView = "planner" | "coder" | "verifier" | "tester" | "remask";
 export type WorkspaceActor = AgentRoleView | "workspace_builder" | "context_composer" | "verifier_adapter" | "merge" | "system";
+export type ContextSufficiencyRisk = "low" | "medium" | "high";
 
 export type TaskSpec = {
   id: string;
@@ -75,6 +76,7 @@ export type WorkspaceRepoFacts = {
   requiredTestMappings: RequiredTestMappingRule[];
   moduleBoundaries: ModuleBoundaryRule[];
   sensitivePatterns: string[];
+  staleFacts: string[];
 };
 
 export type WorkspaceClaimStatus = "proposed" | "accepted" | "rejected";
@@ -145,6 +147,33 @@ export type WorkspaceEvent = {
   relatedIds: string[];
 };
 
+export type ContextFactSelection = {
+  field: string;
+  reason: string;
+};
+
+export type ContextFactExclusion = {
+  field: string;
+  reason: string;
+};
+
+export type ViewProvenance = {
+  workspaceId: string;
+  sourceFields: string[];
+  composerVersion: "context-composer-v1";
+};
+
+export type ContextComposerReport = {
+  role: AgentRoleView;
+  budgetTokens: number;
+  estimatedTokens: number;
+  budgetUtilization: number;
+  includedFacts: ContextFactSelection[];
+  excludedFacts: ContextFactExclusion[];
+  provenance: ViewProvenance;
+  contextSufficiencyRisk: ContextSufficiencyRisk;
+};
+
 export type SharedWorkspaceSnapshot = {
   id: string;
   version: 1;
@@ -170,6 +199,13 @@ export type BoundedRoleView = {
   visibleFields: string[];
   writableFields: string[];
   tokenBudget: number;
+  estimatedTokens: number;
+  budgetUtilization: number;
+  includedFacts: ContextFactSelection[];
+  excludedFacts: ContextFactExclusion[];
+  provenance: ViewProvenance;
+  contextSufficiencyRisk: ContextSufficiencyRisk;
+  composerReport: ContextComposerReport;
   summary: string;
 };
 
@@ -232,6 +268,7 @@ export type ReviewInput = {
   task: TaskSpec;
   diff: PatchDiff;
   policy: RepoPolicy;
+  contextBudgets?: Partial<Record<AgentRoleView, number>>;
   workspace?: SharedWorkspaceSnapshot;
   verifierAdapterOutput?: VerifierAdapterOutput;
 };
@@ -359,7 +396,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
 
 export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspaceSnapshot {
   const id = `workspace-${slugify(input.task.id || input.task.title)}`;
-  const roleViews = createRoleViews(input);
+  const roleViews = createRoleViews(input, id);
   const scope: WorkspaceScope = {
     allowed: input.policy.allowed_paths,
     forbidden: input.policy.forbidden_paths,
@@ -376,7 +413,8 @@ export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspa
     requiredTests: input.policy.required_tests ?? [],
     requiredTestMappings: input.policy.required_test_mappings ?? [],
     moduleBoundaries: input.policy.module_boundaries ?? [],
-    sensitivePatterns: input.policy.sensitive_patterns ?? []
+    sensitivePatterns: input.policy.sensitive_patterns ?? [],
+    staleFacts: []
   };
   const patchPlan: PatchPlan = {
     summary: input.diff.changedFiles.length
@@ -553,8 +591,12 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
   const roleRows = Object.values(output.workspace.roleViews).map((view) => [
     view.role,
     view.tokenBudget.toString(),
+    view.estimatedTokens.toString(),
+    `${Math.round(view.budgetUtilization * 100)}%`,
+    view.contextSufficiencyRisk,
     view.visibleFields.join(", "),
-    view.writableFields.join(", ")
+    view.writableFields.join(", "),
+    view.excludedFacts.map((fact) => fact.field).join(", ")
   ]);
 
   return [
@@ -619,7 +661,7 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
     "",
     "## Role-Specific Bounded Views",
     "",
-    table(["Role", "Token Budget", "Visible Fields", "Writable Fields"], roleRows),
+    table(["Role", "Budget", "Estimated", "Utilization", "Risk", "Visible Fields", "Writable Fields", "Excluded Facts"], roleRows),
     "",
     "## Trace",
     "",
@@ -627,48 +669,224 @@ export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport"
   ].join("\n");
 }
 
-function createRoleViews(input: ReviewInput): Record<AgentRoleView, BoundedRoleView> {
+function createRoleViews(input: ReviewInput, workspaceId: string): Record<AgentRoleView, BoundedRoleView> {
   const changedFileSummary = input.diff.changedFiles.length
     ? `Changed files: ${input.diff.changedFiles.join(", ")}`
     : "No changed files were detected.";
 
   return {
-    planner: {
+    planner: composeRoleView({
+      input,
+      workspaceId,
       role: "planner",
-      visibleFields: ["task", "policy.allowed_paths", "policy.forbidden_paths"],
-      writableFields: ["plan", "risk_notes"],
-      tokenBudget: 1_500,
-      summary: `Plan the bounded task: ${input.task.title}`
-    },
-    coder: {
+      visibleFields: ["task", "scope.allowed", "scope.forbidden", "authority.missingRules", "policy.module_boundaries"],
+      writableFields: ["claims", "patchPlan.summary"],
+      defaultBudget: 1_500,
+      summary: `Plan the bounded task: ${input.task.title}`,
+      includedFacts: [
+        includeFact("task", "Planner needs the task intent and business goal."),
+        includeFact("scope.allowed", "Planner must shape work inside allowed paths."),
+        includeFact("scope.forbidden", "Planner must keep forbidden scope visible as a hard boundary."),
+        includeFact("authority.missingRules", "Planner must know when the task lacks product, owner, platform or compliance authority."),
+        includeFact("policy.module_boundaries", "Planner needs cross-module risk notes before patch planning.")
+      ],
+      excludedFacts: [
+        excludeFact("diff.raw", "Planner receives changed-file summary instead of full raw diff to avoid implementation-level noise."),
+        excludeFact("repoFacts.sensitivePatterns", "Sensitive pattern rules are reserved for verifier view in v1."),
+        excludeFact("repoFacts.staleFacts", "Stale facts are excluded from planning context by policy.")
+      ]
+    }),
+    coder: composeRoleView({
+      input,
+      workspaceId,
       role: "coder",
-      visibleFields: ["task", "allowed_paths", "relevant_diff"],
-      writableFields: ["patch_plan"],
-      tokenBudget: 4_000,
-      summary: `Implement only inside allowed scope. ${changedFileSummary}`
-    },
-    verifier: {
+      visibleFields: ["task", "scope.allowed", "scope.forbidden", "repoFacts.changedFiles", "patchPlan"],
+      writableFields: ["claims", "patchPlan", "patchDraft"],
+      defaultBudget: 4_000,
+      summary: `Implement only inside allowed scope. ${changedFileSummary}`,
+      includedFacts: [
+        includeFact("task", "Coder needs the requested change and authority summary."),
+        includeFact("scope.allowed", "Coder must know the writable file boundary."),
+        includeFact("scope.forbidden", "Coder must avoid forbidden paths without seeing unrelated repo state."),
+        includeFact("repoFacts.changedFiles", "Coder gets the minimal changed-file set instead of the full repo."),
+        includeFact("patchPlan", "Coder writes and refines the bounded patch plan.")
+      ],
+      excludedFacts: [
+        excludeFact("repoFacts.sensitivePatterns", "Sensitive pattern definitions are not sent to coder view; verifier checks them after proposal."),
+        excludeFact("policy.owner_aliases", "Owner alias expansion is verifier/runtime authority context, not implementation context."),
+        excludeFact("repoFacts.staleFacts", "Stale facts are excluded so coder does not implement from outdated context.")
+      ]
+    }),
+    verifier: composeRoleView({
+      input,
+      workspaceId,
       role: "verifier",
-      visibleFields: ["task", "diff", "policy", "authorityFacts", "module_boundaries"],
-      writableFields: ["verifier_decision", "findings"],
-      tokenBudget: 2_500,
-      summary: "Check scope, authority, sensitive boundaries and paired-file consistency."
-    },
-    tester: {
+      visibleFields: ["task", "diff", "policy", "authority", "repoFacts", "claims"],
+      writableFields: ["verifierResult", "findings", "remaskRequest"],
+      defaultBudget: 2_500,
+      summary: "Check scope, authority, sensitive boundaries and paired-file consistency.",
+      includedFacts: [
+        includeFact("task", "Verifier needs task intent for scope and authority checks."),
+        includeFact("diff", "Verifier needs the proposed patch surface."),
+        includeFact("policy", "Verifier enforces allowed, forbidden, ownership, module, paired-file, test and sensitive rules."),
+        includeFact("authority", "Verifier decides refusal when required authority is absent."),
+        includeFact("repoFacts", "Verifier sees repo policy facts needed for deterministic boundary checks.")
+      ],
+      excludedFacts: [
+        excludeFact("patchDraft.fullModelReasoning", "Verifier should inspect patch facts, not private model chain-of-thought."),
+        excludeFact("repoFacts.staleFacts", "Stale facts are excluded from verifier evidence unless a later stale-fact adapter explicitly reintroduces them.")
+      ]
+    }),
+    tester: composeRoleView({
+      input,
+      workspaceId,
       role: "tester",
-      visibleFields: ["changed_files", "required_tests"],
-      writableFields: ["test_signal"],
-      tokenBudget: 1_200,
-      summary: "Verify whether required tests are represented for the changed scope."
-    },
-    remask: {
+      visibleFields: ["repoFacts.changedFiles", "repoFacts.requiredTests", "repoFacts.requiredTestMappings", "diff.changedFiles"],
+      writableFields: ["claims", "testSignal"],
+      defaultBudget: 1_200,
+      summary: "Verify whether required tests are represented for the changed scope.",
+      includedFacts: [
+        includeFact("repoFacts.changedFiles", "Tester maps changed files to required test signals."),
+        includeFact("repoFacts.requiredTests", "Tester checks global required test signals."),
+        includeFact("repoFacts.requiredTestMappings", "Tester checks source-to-test mapping rules."),
+        includeFact("diff.changedFiles", "Tester only needs file-level diff presence for v1.")
+      ],
+      excludedFacts: [
+        excludeFact("diff.raw", "Tester v1 does not need full raw hunks for configured test-signal checks."),
+        excludeFact("repoFacts.sensitivePatterns", "Sensitive boundary checks belong to verifier view."),
+        excludeFact("repoFacts.staleFacts", "Stale facts are unrelated to test signal selection.")
+      ]
+    }),
+    remask: composeRoleView({
+      input,
+      workspaceId,
       role: "remask",
-      visibleFields: ["verifier_failure", "failed_region", "repair_files"],
-      writableFields: ["repair_patch"],
-      tokenBudget: 1_500,
-      summary: "Repair only verifier-marked safe local failed regions."
+      visibleFields: ["verifierResult", "remaskRequest", "patchPlan", "scope.allowed", "scope.forbidden"],
+      writableFields: ["claims", "repairProposal", "patchDraft"],
+      defaultBudget: 1_500,
+      summary: "Repair only verifier-marked safe local failed regions.",
+      includedFacts: [
+        includeFact("verifierResult", "Remask starts only from verifier-marked failure."),
+        includeFact("remaskRequest", "Remask must stay inside the local failed region."),
+        includeFact("patchPlan", "Remask preserves the original bounded patch intent."),
+        includeFact("scope.allowed", "Remask can only repair allowed files."),
+        includeFact("scope.forbidden", "Remask must not broaden into forbidden scope.")
+      ],
+      excludedFacts: [
+        excludeFact("diff.raw.fullPatch", "Remask receives failed-region context, not a full patch rewrite prompt."),
+        excludeFact("repoFacts.sensitivePatterns", "Sensitive pattern definitions remain verifier-owned."),
+        excludeFact("repoFacts.staleFacts", "Stale facts are excluded from repair context.")
+      ]
+    })
+  };
+}
+
+function composeRoleView(input: {
+  input: ReviewInput;
+  workspaceId: string;
+  role: AgentRoleView;
+  visibleFields: string[];
+  writableFields: string[];
+  defaultBudget: number;
+  summary: string;
+  includedFacts: ContextFactSelection[];
+  excludedFacts: ContextFactExclusion[];
+}): BoundedRoleView {
+  const tokenBudget = input.input.contextBudgets?.[input.role] ?? input.defaultBudget;
+  const sourceFields = Array.from(new Set(input.includedFacts.map((fact) => fact.field)));
+  const estimatedTokens = estimateRoleViewTokens(input);
+  const budgetUtilization = roundRatio(estimatedTokens / tokenBudget);
+  const contextSufficiencyRisk = estimateContextSufficiencyRisk({
+    changedFileCount: input.input.diff.changedFiles.length,
+    budgetUtilization,
+    missingAuthorityRuleCount: input.input.policy.missing_authority_rules?.length ?? 0,
+    role: input.role
+  });
+  const provenance: ViewProvenance = {
+    workspaceId: input.workspaceId,
+    sourceFields,
+    composerVersion: "context-composer-v1"
+  };
+  const composerReport: ContextComposerReport = {
+    role: input.role,
+    budgetTokens: tokenBudget,
+    estimatedTokens,
+    budgetUtilization,
+    includedFacts: input.includedFacts,
+    excludedFacts: input.excludedFacts,
+    provenance,
+    contextSufficiencyRisk
+  };
+
+  return {
+    role: input.role,
+    visibleFields: input.visibleFields,
+    writableFields: input.writableFields,
+    tokenBudget,
+    estimatedTokens,
+    budgetUtilization,
+    includedFacts: input.includedFacts,
+    excludedFacts: input.excludedFacts,
+    provenance,
+    contextSufficiencyRisk,
+    composerReport,
+    summary: input.summary
+  };
+}
+
+function includeFact(field: string, reason: string): ContextFactSelection {
+  return { field, reason };
+}
+
+function excludeFact(field: string, reason: string): ContextFactExclusion {
+  return { field, reason };
+}
+
+function estimateRoleViewTokens(input: {
+  input: ReviewInput;
+  role: AgentRoleView;
+  visibleFields: string[];
+  writableFields: string[];
+  summary: string;
+  includedFacts: ContextFactSelection[];
+  excludedFacts: ContextFactExclusion[];
+}): number {
+  const payload = {
+    role: input.role,
+    summary: input.summary,
+    visibleFields: input.visibleFields,
+    writableFields: input.writableFields,
+    includedFacts: input.includedFacts,
+    task: input.input.task,
+    changedFiles: input.input.diff.changedFiles,
+    policySignals: {
+      allowed_paths: input.input.policy.allowed_paths,
+      forbidden_paths: input.input.policy.forbidden_paths,
+      ownership: input.input.policy.ownership,
+      paired_files: input.input.policy.paired_files,
+      required_tests: input.input.policy.required_tests,
+      required_test_mappings: input.input.policy.required_test_mappings,
+      module_boundaries: input.input.policy.module_boundaries
     }
   };
+
+  return Math.max(1, Math.ceil(JSON.stringify(payload).length / 4));
+}
+
+function estimateContextSufficiencyRisk(input: {
+  changedFileCount: number;
+  budgetUtilization: number;
+  missingAuthorityRuleCount: number;
+  role: AgentRoleView;
+}): ContextSufficiencyRisk {
+  if (input.budgetUtilization > 1 || input.changedFileCount === 0) return "high";
+  if (input.budgetUtilization > 0.85) return "medium";
+  if (input.role !== "verifier" && input.missingAuthorityRuleCount > 0) return "medium";
+  return "low";
+}
+
+function roundRatio(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function appendWorkspaceEvent(workspace: SharedWorkspaceSnapshot, event: WorkspaceEvent): SharedWorkspaceSnapshot {
