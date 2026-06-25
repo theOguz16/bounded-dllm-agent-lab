@@ -489,6 +489,47 @@ export type DllmStyleExperimentReport = {
   markdownReport: string;
 };
 
+export type ProductRuntimeArtifactV1 = {
+  schemaVersion: "product-runtime-artifact/v1";
+  decision: ReviewDecision;
+  riskLevel: RiskLevel;
+  metrics: ReviewMetrics;
+  findingCount: number;
+  remaskRegionCount: number;
+  repairProposalCount: number;
+  workspaceId: string;
+  traceEventCount: number;
+};
+
+export type TeamMetricArtifact = Pick<ReviewOutput, "decision" | "riskLevel" | "metrics" | "findings" | "remaskRegions" | "workspace"> & {
+  createdAt?: string;
+};
+
+export type TeamMetricsReport = {
+  schemaVersion: "team-metrics/v1";
+  createdAt: string;
+  artifactCount: number;
+  aiPatchCount: number;
+  boundaryGuessCount: number;
+  falseBlockerCount: number;
+  missedBlockerCount: number;
+  remaskRequiredCount: number;
+  remaskSuccessCount: number;
+  averageTokenBudget: number;
+  averageRoleViewSize: number;
+  scopeDriftCount: number;
+  ownershipMissCount: number;
+  moduleBoundaryFindingCount: number;
+  riskTrend: Array<{ bucket: string; low: number; medium: number; high: number }>;
+  costTrend: Array<{ bucket: string; averageTokenBudget: number; averageRoleViewSize: number }>;
+  policyConsoleModel: {
+    ownership: Record<string, string>;
+    allowedPaths: string[];
+    pairedFiles: PairedFileRule[];
+  };
+  markdownReport: string;
+};
+
 export type ReviewOutput = {
   decision: ReviewDecision;
   riskLevel: RiskLevel;
@@ -915,6 +956,55 @@ export function createDllmStyleExperimentReport(fixtures: DllmStyleExperimentFix
   return {
     ...reportWithoutMarkdown,
     markdownReport: dllmStyleExperimentToMarkdown(reportWithoutMarkdown)
+  };
+}
+
+export function createProductRuntimeArtifactV1(review: ReviewOutput): ProductRuntimeArtifactV1 {
+  return {
+    schemaVersion: "product-runtime-artifact/v1",
+    decision: review.decision,
+    riskLevel: review.riskLevel,
+    metrics: review.metrics,
+    findingCount: review.findings.length,
+    remaskRegionCount: review.remaskRegions.length,
+    repairProposalCount: review.repairProposals.length,
+    workspaceId: review.workspace.id,
+    traceEventCount: review.trace.length
+  };
+}
+
+export function createTeamMetricsReport(artifacts: TeamMetricArtifact[]): TeamMetricsReport {
+  const createdAt = new Date().toISOString();
+  const allFindings = artifacts.flatMap((artifact) => artifact.findings);
+  const roleViews = artifacts.flatMap((artifact) => Object.values(artifact.workspace.roleViews));
+  const tokenBudgets = roleViews.map((view) => view.tokenBudget);
+  const roleViewSizes = roleViews.map((view) => view.estimatedTokens);
+  const riskTrend = createRiskTrend(artifacts);
+  const costTrend = createCostTrend(artifacts);
+  const policyConsoleModel = createPolicyConsoleModel(artifacts);
+  const reportWithoutMarkdown = {
+    schemaVersion: "team-metrics/v1" as const,
+    createdAt,
+    artifactCount: artifacts.length,
+    aiPatchCount: artifacts.length,
+    boundaryGuessCount: artifacts.filter((artifact) => artifact.decision === "refuse" || artifact.decision === "human_review_required").length,
+    falseBlockerCount: 0,
+    missedBlockerCount: 0,
+    remaskRequiredCount: artifacts.filter((artifact) => artifact.decision === "remask_required").length,
+    remaskSuccessCount: artifacts.filter((artifact) => artifact.remaskRegions.length > 0 && artifact.decision !== "reject").length,
+    averageTokenBudget: average(tokenBudgets),
+    averageRoleViewSize: average(roleViewSizes),
+    scopeDriftCount: artifacts.filter((artifact) => artifact.metrics.scopeSafety === 0).length,
+    ownershipMissCount: allFindings.filter((finding) => finding.category === "ownership").length,
+    moduleBoundaryFindingCount: allFindings.filter((finding) => finding.category === "module_boundary").length,
+    riskTrend,
+    costTrend,
+    policyConsoleModel
+  };
+
+  return {
+    ...reportWithoutMarkdown,
+    markdownReport: teamMetricsToMarkdown(reportWithoutMarkdown)
   };
 }
 
@@ -1443,6 +1533,82 @@ function dllmStyleExperimentToMarkdown(input: Omit<DllmStyleExperimentReport, "m
         measurement.repairSuccess.toString(),
         measurement.costDeltaTokens.toString()
       ])
+    )
+  ].join("\n");
+}
+
+function createRiskTrend(artifacts: TeamMetricArtifact[]): Array<{ bucket: string; low: number; medium: number; high: number }> {
+  const buckets = new Map<string, { bucket: string; low: number; medium: number; high: number }>();
+  artifacts.forEach((artifact, index) => {
+    const bucket = artifact.createdAt?.slice(0, 10) || `run-${index + 1}`;
+    const row = buckets.get(bucket) ?? { bucket, low: 0, medium: 0, high: 0 };
+    row[artifact.riskLevel] += 1;
+    buckets.set(bucket, row);
+  });
+  return Array.from(buckets.values());
+}
+
+function createCostTrend(artifacts: TeamMetricArtifact[]): Array<{ bucket: string; averageTokenBudget: number; averageRoleViewSize: number }> {
+  const buckets = new Map<string, TeamMetricArtifact[]>();
+  artifacts.forEach((artifact, index) => {
+    const bucket = artifact.createdAt?.slice(0, 10) || `run-${index + 1}`;
+    buckets.set(bucket, [...(buckets.get(bucket) ?? []), artifact]);
+  });
+  return Array.from(buckets.entries()).map(([bucket, rows]) => {
+    const views = rows.flatMap((row) => Object.values(row.workspace.roleViews));
+    return {
+      bucket,
+      averageTokenBudget: average(views.map((view) => view.tokenBudget)),
+      averageRoleViewSize: average(views.map((view) => view.estimatedTokens))
+    };
+  });
+}
+
+function createPolicyConsoleModel(artifacts: TeamMetricArtifact[]): TeamMetricsReport["policyConsoleModel"] {
+  return {
+    ownership: Object.assign({}, ...artifacts.map((artifact) => artifact.workspace.policy.ownership ?? {})),
+    allowedPaths: Array.from(new Set(artifacts.flatMap((artifact) => artifact.workspace.policy.allowed_paths))).sort(),
+    pairedFiles: artifacts.flatMap((artifact) => artifact.workspace.policy.paired_files ?? [])
+  };
+}
+
+function teamMetricsToMarkdown(input: Omit<TeamMetricsReport, "markdownReport">): string {
+  return [
+    "# Team Metrics v1",
+    "",
+    `- Artifact count: ${input.artifactCount}`,
+    `- AI patch count: ${input.aiPatchCount}`,
+    `- Remask required: ${input.remaskRequiredCount}`,
+    `- Scope drift: ${input.scopeDriftCount}`,
+    `- Ownership misses: ${input.ownershipMissCount}`,
+    `- Module boundary findings: ${input.moduleBoundaryFindingCount}`,
+    "",
+    "## Summary",
+    "",
+    table(
+      ["Metric", "Value"],
+      [
+        ["Boundary guess count", input.boundaryGuessCount.toString()],
+        ["False blocker count", input.falseBlockerCount.toString()],
+        ["Missed blocker count", input.missedBlockerCount.toString()],
+        ["Remask success count", input.remaskSuccessCount.toString()],
+        ["Average token budget", input.averageTokenBudget.toString()],
+        ["Average role view size", input.averageRoleViewSize.toString()]
+      ]
+    ),
+    "",
+    "## Risk Trend",
+    "",
+    table(
+      ["Bucket", "Low", "Medium", "High"],
+      input.riskTrend.map((row) => [row.bucket, row.low.toString(), row.medium.toString(), row.high.toString()])
+    ),
+    "",
+    "## Cost Trend",
+    "",
+    table(
+      ["Bucket", "Average Token Budget", "Average Role View Size"],
+      input.costTrend.map((row) => [row.bucket, row.averageTokenBudget.toString(), row.averageRoleViewSize.toString()])
     )
   ].join("\n");
 }

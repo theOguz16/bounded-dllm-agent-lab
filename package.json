@@ -36,6 +36,7 @@
     "product:mixed-external-validation": "node dist/apps/cli/src/product-mixed-external-validation.js",
     "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
+    "product:team-metrics": "node dist/apps/cli/src/product-team-metrics.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",

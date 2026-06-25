@@ -150,6 +150,8 @@ docs/MVP_USAGE.md
 - repo intelligence package manager, file classification, generated/build, paired-file and test-mapping suggestions,
 - model adapter role outputs and adapter validation,
 - dLLM-style synthetic workspace packet experiment summaries,
+- stable product artifact summary schema,
+- team-level dashboard metrics JSON/Markdown,
 - verifier/remask/merge decision records,
 - trace.
 
@@ -207,6 +209,9 @@ working memory görür.
 - Coder, verifier ve remask rolleri için modelden bağımsız adapter contract sağlar.
 - Mock/local/OpenAI-compatible/dLLM-style adapter çıktısını validate edip workspace'e claim/proposal olarak yazar.
 - dLLM-style verifier/remask araştırması için narrow/broad synthetic workspace packet ve experiment report contract üretir.
+- `product-runtime-artifact/v1` stabil özet schema'sı sağlar.
+- `team-metrics/v1` ile AI patch count, remask, scope drift, ownership, module boundary, risk trend ve cost trend raporlar.
+- `product:team-metrics` CLI komutuyla review artifact klasöründen dashboard-ready JSON/Markdown üretir.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

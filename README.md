@@ -254,6 +254,8 @@ The product MVP documentation is available at:
 - [`docs/VERIFIER_ADAPTER_CONTRACT.md`](docs/VERIFIER_ADAPTER_CONTRACT.md)
 - [`docs/EXTERNAL_REPO_ADOPTION.md`](docs/EXTERNAL_REPO_ADOPTION.md)
 - [`docs/REAL_PR_FIXTURE_AUTHORING.md`](docs/REAL_PR_FIXTURE_AUTHORING.md)
+- [`docs/PRODUCT_ARTIFACT_SCHEMA.md`](docs/PRODUCT_ARTIFACT_SCHEMA.md)
+- [`docs/SDK_API_DRAFT.md`](docs/SDK_API_DRAFT.md)
 
 Useful product checks:
 
@@ -263,6 +265,7 @@ npm run product:pilot -- --out-dir /tmp/bounded-mvp1-pilot --fail-on-regression
 npm run product:pilot-v2 -- --out-dir /tmp/bounded-mvp2-pilot --fail-on-regression
 npm run product:pilot-v3 -- --out-dir /tmp/bounded-mvp3-pilot --fail-on-regression
 npm run product:real-pr-pilot -- --out-dir /tmp/bounded-real-pr-pilot --fail-on-regression
+npm run product:team-metrics -- --dir reports/product-runtime
 ```
 
 The second phase hybrid architecture is documented in

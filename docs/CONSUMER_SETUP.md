@@ -4,6 +4,14 @@ Bu rehber, Bounded Agent Runtime MVP'sini başka bir GitHub reposunda denemek
 içindir. Amaç yeni bir IDE kurmak değil; PR diff'lerini `task + diff + policy`
 üzerinden bounded review'a sokmaktır.
 
+## 10-15 Dakikalık Artifact-Only Kurulum
+
+1. Starter policy üret.
+2. Consumer repo içinde `bounded-agent.policy.yml` dosyasını daralt.
+3. GitHub Action örneğini ekle.
+4. İlk PR'da artifact-only modda çalıştır.
+5. `product-report-index` ve `team-metrics` artifact'lerini oku.
+
 ## 1. Policy Dosyası Oluştur
 
 Bu repoda:
@@ -85,6 +93,16 @@ Action şu output'ları verir:
 
 Artifact-only mod güvenli varsayılandır. Yani workflow artifact üretir ama PR'a
 otomatik yorum yazmaz.
+
+Team-level metrik raporu üretmek için:
+
+```bash
+npm run product:team-metrics -- \
+  --dir reports/product-runtime \
+  --out-dir reports/product-runtime
+```
+
+Bu komut `team-metrics.json` ve `team-metrics.md` üretir.
 
 ## 4. Opsiyonel PR Comment Posting
 

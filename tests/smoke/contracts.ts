@@ -11,7 +11,9 @@ import {
   createCostTokenBenchmarkReport,
   createDllmStyleExperimentReport,
   createMockRoleAdapter,
+  createProductRuntimeArtifactV1,
   createSyntheticWorkspacePacket,
+  createTeamMetricsReport,
   deserializeSharedWorkspace,
   evaluateMergeSafety,
   parseUnifiedDiff,
@@ -407,6 +409,11 @@ assert.equal(dllmReport.measurements.length, 6);
 assert.equal(dllmReport.summaries.some((summary) => summary.role === "remask" && summary.contextWidth === "narrow"), true);
 assert.equal(dllmReport.markdownReport.includes("dLLM-Style Adapter Experiment v1"), true);
 
+const stableArtifact = createProductRuntimeArtifactV1(remaskReview);
+assert.equal(stableArtifact.schemaVersion, "product-runtime-artifact/v1");
+assert.equal(stableArtifact.decision, "remask_required");
+assert.equal(stableArtifact.workspaceId, remaskReview.workspace.id);
+
 const rejectReview = reviewPatch({
   task: productTask,
   policy: productPolicy,
@@ -428,6 +435,22 @@ assert.equal(approveReview.decision, "approve");
 assert.equal(approveReview.riskLevel, "low");
 assert.equal(approveReview.metrics.scopeSafety, 1);
 assert.equal(approveReview.metrics.traceCompleteness, 1);
+
+const teamMetrics = createTeamMetricsReport([
+  { ...approveReview, createdAt: "2026-06-25T10:00:00.000Z" },
+  { ...remaskReview, createdAt: "2026-06-25T10:05:00.000Z" },
+  { ...rejectReview, createdAt: "2026-06-26T10:00:00.000Z" }
+]);
+
+assert.equal(teamMetrics.schemaVersion, "team-metrics/v1");
+assert.equal(teamMetrics.artifactCount, 3);
+assert.equal(teamMetrics.aiPatchCount, 3);
+assert.equal(teamMetrics.remaskRequiredCount, 1);
+assert.equal(teamMetrics.scopeDriftCount, 1);
+assert.equal(teamMetrics.riskTrend.length, 2);
+assert.equal(teamMetrics.costTrend.length, 2);
+assert.equal(teamMetrics.policyConsoleModel.allowedPaths.includes("package.json"), true);
+assert.equal(teamMetrics.markdownReport.includes("Team Metrics v1"), true);
 
 const conditionalPairedPolicy: RepoPolicy = {
   ...productPolicy,
