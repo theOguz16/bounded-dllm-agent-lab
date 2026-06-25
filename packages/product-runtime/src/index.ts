@@ -8,7 +8,7 @@ export type ReviewDecision =
 export type RiskLevel = "low" | "medium" | "high";
 export type FindingSeverity = "info" | "warning" | "error";
 export type AgentRoleView = "planner" | "coder" | "verifier" | "tester" | "remask";
-export type WorkspaceActor = AgentRoleView | "workspace_builder" | "context_composer" | "verifier_adapter" | "merge" | "system";
+export type WorkspaceActor = AgentRoleView | "workspace_builder" | "context_composer" | "verifier_adapter" | "orchestrator" | "merge" | "system";
 export type ContextSufficiencyRisk = "low" | "medium" | "high";
 
 export type TaskSpec = {
@@ -139,6 +139,10 @@ export type WorkspaceEvent = {
     | "role_views_created"
     | "claim_added"
     | "conflict_recorded"
+    | "flow_started"
+    | "step_completed"
+    | "step_failed"
+    | "patch_plan_recorded"
     | "verifier_result_recorded"
     | "remask_request_recorded"
     | "merge_decision_recorded";
@@ -317,6 +321,74 @@ export type ReviewOutput = {
   markdownReport: string;
 };
 
+export type OrchestrationStepId =
+  | "workspace:create"
+  | "planner:claim"
+  | "coder:patch_plan"
+  | "verifier:decision"
+  | "remask:optional"
+  | "merge:final";
+
+export type OrchestrationStepStatus = "completed" | "skipped" | "failed";
+
+export type WorkspacePermission = {
+  role: WorkspaceActor;
+  read: string[];
+  write: string[];
+};
+
+export type OrchestrationStepDefinition = {
+  id: OrchestrationStepId;
+  actor: WorkspaceActor;
+  required: boolean;
+  permission: WorkspacePermission;
+};
+
+export type OrchestrationFlowDefinition = {
+  id: "mock-bounded-workspace-flow-v1";
+  description: string;
+  steps: OrchestrationStepDefinition[];
+};
+
+export type OrchestrationStepResult = {
+  stepId: OrchestrationStepId;
+  actor: WorkspaceActor;
+  status: OrchestrationStepStatus;
+  summary: string;
+  claimIds: string[];
+  eventIds: string[];
+  error?: string;
+};
+
+export type RoleExecutionContext = {
+  input: ReviewInput;
+  workspace: SharedWorkspaceSnapshot;
+  step: OrchestrationStepDefinition;
+};
+
+export type RoleExecutionResult = {
+  workspace: SharedWorkspaceSnapshot;
+  result: OrchestrationStepResult;
+};
+
+export type MockRoleAgent = {
+  role: WorkspaceActor;
+  execute(context: RoleExecutionContext): RoleExecutionResult;
+};
+
+export type OrchestrationOutput = {
+  flow: OrchestrationFlowDefinition;
+  decision: ReviewDecision;
+  riskLevel: RiskLevel;
+  findings: Finding[];
+  remaskRegions: RemaskRegion[];
+  repairProposals: RepairProposal[];
+  steps: OrchestrationStepResult[];
+  workspace: SharedWorkspaceSnapshot;
+  trace: ProductTraceEvent[];
+  markdownTrace: string;
+};
+
 export function parseUnifiedDiff(raw: string): PatchDiff {
   const changedFiles = Array.from(new Set(
     raw
@@ -391,6 +463,138 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     trace,
     workspace: finalWorkspace,
     markdownReport
+  };
+}
+
+export function createMockOrchestrationFlowDefinition(): OrchestrationFlowDefinition {
+  return {
+    id: "mock-bounded-workspace-flow-v1",
+    description: "Deterministic bounded workspace orchestration flow for Sprint 3.",
+    steps: [
+      {
+        id: "workspace:create",
+        actor: "workspace_builder",
+        required: true,
+        permission: { role: "workspace_builder", read: ["task", "diff", "policy"], write: ["workspace"] }
+      },
+      {
+        id: "planner:claim",
+        actor: "planner",
+        required: true,
+        permission: { role: "planner", read: ["task", "scope", "authority", "policy"], write: ["claims", "patchPlan.summary"] }
+      },
+      {
+        id: "coder:patch_plan",
+        actor: "coder",
+        required: true,
+        permission: { role: "coder", read: ["task", "scope", "repoFacts.changedFiles", "patchPlan"], write: ["claims", "patchPlan"] }
+      },
+      {
+        id: "verifier:decision",
+        actor: "verifier",
+        required: true,
+        permission: { role: "verifier", read: ["task", "diff", "policy", "authority", "repoFacts", "claims"], write: ["verifierResult"] }
+      },
+      {
+        id: "remask:optional",
+        actor: "remask",
+        required: false,
+        permission: { role: "remask", read: ["verifierResult", "remaskRequest", "patchPlan", "scope"], write: ["claims", "remaskRequest"] }
+      },
+      {
+        id: "merge:final",
+        actor: "merge",
+        required: true,
+        permission: { role: "merge", read: ["claims", "verifierResult", "remaskRequest"], write: ["mergeDecision"] }
+      }
+    ]
+  };
+}
+
+export function runMockOrchestration(input: ReviewInput): OrchestrationOutput {
+  const flow = createMockOrchestrationFlowDefinition();
+  const agents = createMockRoleAgents();
+  let workspace = createSharedWorkspaceSnapshot(input);
+  let findings: Finding[] = [];
+  let remaskRegions: RemaskRegion[] = [];
+  let repairProposals: RepairProposal[] = [];
+  let decision: ReviewDecision = "human_review_required";
+  let riskLevel: RiskLevel = "medium";
+  const steps: OrchestrationStepResult[] = [];
+
+  workspace = appendWorkspaceEvent(workspace, {
+    id: `${workspace.id}-event-flow-started`,
+    actor: "orchestrator",
+    action: "flow_started",
+    target: "workspace",
+    summary: `${flow.id} started.`,
+    relatedIds: []
+  });
+  steps.push(createStepResult("workspace:create", "workspace_builder", "completed", "SharedWorkspace v1 was created.", [], [lastEventId(workspace)]));
+
+  for (const step of flow.steps.slice(1)) {
+    const eventCountBefore = workspace.events.length;
+
+    try {
+      if (step.id === "remask:optional" && createRemaskRegions(workspace.verifierResult?.findings ?? []).length === 0) {
+        workspace = appendWorkspaceEvent(workspace, {
+          id: `${workspace.id}-event-remask-skipped-${workspace.events.length + 1}`,
+          actor: "remask",
+          action: "step_completed",
+          target: "remask_request",
+          summary: "Remask step skipped because verifier did not request a local repair.",
+          relatedIds: []
+        });
+        steps.push(createStepResult(step.id, step.actor, "skipped", "Verifier did not request remask.", [], createdEventIds(workspace, eventCountBefore)));
+        continue;
+      }
+
+      const agent = agents[step.actor];
+      if (!agent) throw new Error(`No mock agent registered for ${step.actor}.`);
+      const execution = agent.execute({ input, workspace, step });
+      workspace = execution.workspace;
+      steps.push({
+        ...execution.result,
+        eventIds: createdEventIds(workspace, eventCountBefore)
+      });
+    } catch (error) {
+      const message = formatError(error);
+      workspace = appendWorkspaceEvent(workspace, {
+        id: `${workspace.id}-event-failed-${slugify(step.id)}-${workspace.events.length + 1}`,
+        actor: step.actor,
+        action: "step_failed",
+        target: "workspace",
+        summary: message,
+        relatedIds: []
+      });
+      steps.push(createStepResult(step.id, step.actor, "failed", message, [], createdEventIds(workspace, eventCountBefore), message));
+      if (step.required) break;
+    }
+
+    if (step.id === "verifier:decision" && workspace.verifierResult) {
+      findings = workspace.verifierResult.findings;
+      remaskRegions = createRemaskRegions(findings);
+      repairProposals = createRepairProposals(findings);
+      decision = workspace.verifierResult.decision;
+      riskLevel = toRiskLevel(decision, findings);
+    }
+    if (step.id === "merge:final" && workspace.mergeDecision) {
+      decision = workspace.mergeDecision.decision;
+      riskLevel = workspace.mergeDecision.riskLevel;
+    }
+  }
+
+  return {
+    flow,
+    decision,
+    riskLevel,
+    findings,
+    remaskRegions,
+    repairProposals,
+    steps,
+    workspace,
+    trace: workspace.trace,
+    markdownTrace: createOrchestrationMarkdownTrace(flow, steps, workspace)
   };
 }
 
@@ -562,6 +766,20 @@ export function recordMergeDecision(
   });
 }
 
+export function recordPatchPlan(workspace: SharedWorkspaceSnapshot, patchPlan: PatchPlan, actor: AgentRoleView): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    patchPlan
+  }, {
+    id: `${workspace.id}-event-patch-plan-${workspace.events.length + 1}`,
+    actor,
+    action: "patch_plan_recorded",
+    target: "patch_plan",
+    summary: patchPlan.summary,
+    relatedIds: []
+  });
+}
+
 export function serializeSharedWorkspace(workspace: SharedWorkspaceSnapshot): string {
   return `${JSON.stringify(workspace, null, 2)}\n`;
 }
@@ -572,6 +790,208 @@ export function deserializeSharedWorkspace(raw: string): SharedWorkspaceSnapshot
     throw new Error("Invalid SharedWorkspace v1 payload.");
   }
   return parsed;
+}
+
+function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> {
+  return {
+    planner: {
+      role: "planner",
+      execute({ workspace, step }) {
+        assertWritePermission(step, "claims");
+        const claim: AgentClaim = {
+          id: `${workspace.id}-planner-claim`,
+          actor: "planner",
+          target: "patch_plan",
+          summary: `Plan task inside allowed scope: ${workspace.scope.allowed.join(", ") || "(none)"}.`,
+          status: "accepted",
+          evidence: ["task", "scope.allowed", "scope.forbidden"]
+        };
+        const nextWorkspace = appendStepCompleted(addAgentClaim(workspace, claim), step, "Planner claim was written.");
+        return {
+          workspace: nextWorkspace,
+          result: createStepResult(step.id, step.actor, "completed", "Planner claim was written.", [claim.id], [])
+        };
+      }
+    },
+    coder: {
+      role: "coder",
+      execute({ workspace, step }) {
+        assertWritePermission(step, "patchPlan");
+        const patchPlan: PatchPlan = {
+          ...workspace.patchPlan,
+          summary: workspace.patchPlan.files.length
+            ? `Mock coder patch plan stays inside ${workspace.patchPlan.files.join(", ")}.`
+            : "Mock coder cannot create a patch plan without changed files.",
+          allowedEditRegions: workspace.scope.allowed,
+          forbiddenEditRegions: workspace.scope.forbidden
+        };
+        const claim: AgentClaim = {
+          id: `${workspace.id}-coder-claim`,
+          actor: "coder",
+          target: "patch_plan",
+          summary: patchPlan.summary,
+          status: "accepted",
+          evidence: patchPlan.files
+        };
+        const withPlan = recordPatchPlan(workspace, patchPlan, "coder");
+        const withClaim = addAgentClaim(withPlan, claim);
+        const nextWorkspace = appendStepCompleted(withClaim, step, "Coder patch plan was recorded.");
+        return {
+          workspace: nextWorkspace,
+          result: createStepResult(step.id, step.actor, "completed", "Coder patch plan was recorded.", [claim.id], [])
+        };
+      }
+    },
+    verifier: {
+      role: "verifier",
+      execute({ input, workspace, step }) {
+        assertWritePermission(step, "verifierResult");
+        const findings = createDeterministicFindings(input);
+        const decision = decide(findings, input.diff);
+        const nextWorkspace = appendStepCompleted(recordVerifierResult(workspace, {
+          decision,
+          findings,
+          checkedFiles: input.diff.changedFiles
+        }), step, `Verifier decision is ${decision}.`);
+        return {
+          workspace: nextWorkspace,
+          result: createStepResult(step.id, step.actor, "completed", `Verifier decision is ${decision}.`, [], [])
+        };
+      }
+    },
+    remask: {
+      role: "remask",
+      execute({ workspace, step }) {
+        assertWritePermission(step, "remaskRequest");
+        const regions = workspace.remaskRequest?.regions ?? createRemaskRegions(workspace.verifierResult?.findings ?? []);
+        const withRequest = recordRemaskRequest(workspace, {
+          required: regions.length > 0,
+          regions
+        });
+        const claim: AgentClaim = {
+          id: `${workspace.id}-remask-claim`,
+          actor: "remask",
+          target: "remask_request",
+          summary: regions.length
+            ? `Repair only verifier-marked region(s): ${regions.map((region) => region.id).join(", ")}.`
+            : "No remask region was required.",
+          status: "accepted",
+          evidence: regions.map((region) => region.id)
+        };
+        const withClaim = regions.length ? addAgentClaim(withRequest, claim) : withRequest;
+        const nextWorkspace = appendStepCompleted(withClaim, step, regions.length ? "Remask request was claimed." : "Remask was not required.");
+        return {
+          workspace: nextWorkspace,
+          result: createStepResult(step.id, step.actor, regions.length ? "completed" : "skipped", nextWorkspace.trace.at(-1)?.summary ?? "Remask step completed.", regions.length ? [claim.id] : [], [])
+        };
+      }
+    },
+    merge: {
+      role: "merge",
+      execute({ workspace, step }) {
+        assertWritePermission(step, "mergeDecision");
+        const decision = workspace.verifierResult?.decision ?? "human_review_required";
+        const riskLevel = toRiskLevel(decision, workspace.verifierResult?.findings ?? []);
+        const nextWorkspace = appendStepCompleted(recordMergeDecision(workspace, {
+          decision,
+          riskLevel,
+          reason: explainDecision(decision)
+        }), step, `Final merge decision is ${decision}.`);
+        return {
+          workspace: nextWorkspace,
+          result: createStepResult(step.id, step.actor, "completed", `Final merge decision is ${decision}.`, [], [])
+        };
+      }
+    }
+  };
+}
+
+function createDeterministicFindings(input: ReviewInput): Finding[] {
+  return [
+    ...findScopeFindings(input),
+    ...findAuthorityFindings(input),
+    ...findOwnershipFindings(input),
+    ...findModuleBoundaryFindings(input),
+    ...findSensitiveBoundaryFindings(input),
+    ...findPairedFileFindings(input),
+    ...findTestFindings(input),
+    ...normalizeVerifierAdapterFindings(input.verifierAdapterOutput)
+  ];
+}
+
+function appendStepCompleted(
+  workspace: SharedWorkspaceSnapshot,
+  step: OrchestrationStepDefinition,
+  summary: string
+): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent(workspace, {
+    id: `${workspace.id}-event-step-${slugify(step.id)}-${workspace.events.length + 1}`,
+    actor: step.actor,
+    action: "step_completed",
+    target: "workspace",
+    summary,
+    relatedIds: []
+  });
+}
+
+function assertWritePermission(step: OrchestrationStepDefinition, field: string): void {
+  if (!step.permission.write.includes(field)) {
+    throw new Error(`${step.id} cannot write ${field}.`);
+  }
+}
+
+function createStepResult(
+  stepId: OrchestrationStepId,
+  actor: WorkspaceActor,
+  status: OrchestrationStepStatus,
+  summary: string,
+  claimIds: string[],
+  eventIds: string[],
+  error?: string
+): OrchestrationStepResult {
+  return { stepId, actor, status, summary, claimIds, eventIds, error };
+}
+
+function createdEventIds(workspace: SharedWorkspaceSnapshot, startIndex: number): string[] {
+  return workspace.events.slice(startIndex).map((event) => event.id);
+}
+
+function lastEventId(workspace: SharedWorkspaceSnapshot): string {
+  return workspace.events.at(-1)?.id ?? "";
+}
+
+function createOrchestrationMarkdownTrace(
+  flow: OrchestrationFlowDefinition,
+  steps: OrchestrationStepResult[],
+  workspace: SharedWorkspaceSnapshot
+): string {
+  return [
+    `# ${flow.id}`,
+    "",
+    flow.description,
+    "",
+    "## Steps",
+    "",
+    table(
+      ["Step", "Actor", "Status", "Summary"],
+      steps.map((step) => [step.stepId, step.actor, step.status, step.summary])
+    ),
+    "",
+    "## Workspace",
+    "",
+    `- Workspace: ${workspace.id}`,
+    `- Claims: ${workspace.claims.length}`,
+    `- Events: ${workspace.events.length}`,
+    `- Decision: ${workspace.mergeDecision?.decision ?? "(none)"}`,
+    "",
+    "## Trace",
+    "",
+    workspace.trace.map((event) => `- ${event.actor}: ${event.action} - ${event.summary}`).join("\n")
+  ].join("\n");
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport">): string {

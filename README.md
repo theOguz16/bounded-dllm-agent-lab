@@ -238,6 +238,7 @@ task + diff + policy
   -> SharedWorkspace v1
   -> Context Composer v1
   -> bounded role views with included/excluded facts and token budget reports
+  -> Agent Orchestrator v1 mock flow
   -> verifier findings
   -> verifier-triggered remask request when needed
   -> merge decision

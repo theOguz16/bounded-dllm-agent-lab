@@ -34,8 +34,13 @@ task + diff + policy
   -> SharedWorkspace v1
   -> Context Composer v1
   -> role-specific bounded working memory views
-  -> verifier findings
-  -> verifier/remask/merge workspace events
+  -> Agent Orchestrator v1 mock flow
+      workspace:create
+      planner:claim
+      coder:patch_plan
+      verifier:decision
+      remask:optional
+      merge:final
   -> approve | refuse | reject | remask_required | human_review_required
   -> JSON + Markdown report
 ```
@@ -138,6 +143,8 @@ docs/MVP_USAGE.md
 - included/excluded context facts,
 - view token estimate, budget utilization and context sufficiency risk,
 - SharedWorkspace v1 events,
+- orchestration step results,
+- mock flow trace,
 - verifier/remask/merge decision records,
 - trace.
 
@@ -185,6 +192,9 @@ working memory görür.
 - Planner, coder, verifier, tester ve remask için role-specific bounded working memory view üretir.
 - Context Composer v1 ile included/excluded facts, provenance, token estimate, budget utilization ve context sufficiency risk raporlar.
 - Role bazlı context budget override kabul eder.
+- Deterministic Agent Orchestrator v1 mock flow çalıştırabilir.
+- Flow definition, role execution contract, workspace read/write permission ve step result schema sağlar.
+- Planner/coder/verifier/remask/merge mock agentlarını aynı workspace üzerinde sıralı çalıştırır.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

@@ -10,6 +10,7 @@ import {
   deserializeSharedWorkspace,
   parseUnifiedDiff,
   reviewPatch,
+  runMockOrchestration,
   serializeSharedWorkspace,
   type AgentClaim,
   type RepoPolicy,
@@ -224,6 +225,40 @@ const tightBudgetReview = reviewPatch({
 assert.equal(tightBudgetReview.workspace.roleViews.planner.tokenBudget, 10);
 assert.equal(tightBudgetReview.workspace.roleViews.planner.contextSufficiencyRisk, "high");
 assert.equal(tightBudgetReview.workspace.roleViews.planner.composerReport.budgetTokens, 10);
+
+const orchestration = runMockOrchestration({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+
+assert.deepEqual(orchestration.steps.map((step) => step.stepId), [
+  "workspace:create",
+  "planner:claim",
+  "coder:patch_plan",
+  "verifier:decision",
+  "remask:optional",
+  "merge:final"
+]);
+assert.equal(orchestration.steps.every((step) => step.status !== "failed"), true);
+assert.equal(orchestration.workspace.claims.some((claim) => claim.actor === "planner"), true);
+assert.equal(orchestration.workspace.claims.some((claim) => claim.actor === "coder"), true);
+assert.equal(orchestration.workspace.claims.some((claim) => claim.actor === "remask"), true);
+assert.equal(orchestration.workspace.events.some((event) => event.action === "flow_started"), true);
+assert.equal(orchestration.workspace.events.some((event) => event.action === "patch_plan_recorded"), true);
+assert.equal(orchestration.workspace.remaskRequest?.required, true);
+assert.equal(orchestration.workspace.mergeDecision?.decision, "remask_required");
+assert.equal(orchestration.decision, "remask_required");
+assert.equal(orchestration.markdownTrace.includes("mock-bounded-workspace-flow-v1"), true);
+
+const approveOrchestration = runMockOrchestration({
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\ndiff --git a/jsr.json b/jsr.json\n--- a/jsr.json\n+++ b/jsr.json\n")
+});
+
+assert.equal(approveOrchestration.decision, "approve");
+assert.equal(approveOrchestration.steps.find((step) => step.stepId === "remask:optional")?.status, "skipped");
 
 const rejectReview = reviewPatch({
   task: productTask,
