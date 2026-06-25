@@ -1,6 +1,14 @@
 # Bounded dLLM Agent Lab
 
-Bounded dLLM Agent Lab is an open-source research project for a new agentic coding architecture: agents that work under narrow context, use synthetic context enrichment, reason through shared semantic workspaces, and rely on diffusion-style refinement instead of ordinary left-to-right LLM generation.
+Bounded dLLM Agent Lab is an open-source research project and early product runtime for a new agentic coding architecture: agents that work under narrow context, use synthetic context enrichment, reason through shared semantic workspaces, and can be verified or repaired through bounded refinement loops instead of unbounded long-context prompting.
+
+The product direction is not "a PR reviewer with extra safety checks." The product direction is:
+
+```text
+Bounded-context shared-workspace agent orchestration runtime for enterprise software teams.
+```
+
+PR review, GitHub Actions, and patch validation are the first practical surfaces for that runtime. The core product is the layer that manages context, authority, workspace state, role-specific bounded working memory, verifier feedback, remask requests, merge decisions, trace, and cost signals.
 
 The project is not trying to train a new large language model from scratch. The project is trying to answer a more focused research question:
 
@@ -222,14 +230,16 @@ The first milestone figures are available at
 
 The research lab is now being translated into a bounded agent orchestration
 runtime. The current MVP surface is not a replacement for Cursor, Codex, or
-Windsurf. It is a policy-bound review/runtime layer for task + diff + policy
-flows:
+Windsurf, and it is not the whole product. It is the first integration surface
+for a policy-bound shared-workspace runtime over task + diff + policy flows:
 
 ```text
 task + diff + policy
-  -> shared semantic workspace
+  -> SharedWorkspace v1
   -> bounded role views
   -> verifier findings
+  -> verifier-triggered remask request when needed
+  -> merge decision
   -> approve / refuse / reject / remask_required / human_review_required
   -> JSON + Markdown + PR comment artifact
 ```
@@ -313,8 +323,10 @@ Each system will receive the same task family and produce a structured result. T
 
 ### Product MVP
 
-The current product MVP is a deterministic bounded-agent review runtime. It
-does not call a model. It reviews `task + diff + policy` and returns one of:
+The current product MVP is a deterministic bounded-agent orchestration runtime
+surface. It does not call a model. It builds a shared workspace from
+`task + diff + policy`, composes bounded role views, verifies configured
+boundaries, records verifier/remask/merge events, and returns one of:
 
 ```text
 approve | refuse | reject | remask_required | human_review_required
@@ -401,10 +413,11 @@ npm run worker:smoke
 This repository now contains two connected tracks:
 
 - a reproducible research lab for bounded-context/dLLM-style agent experiments,
-- a first product MVP for deterministic bounded-agent review of task + diff +
-  policy inputs.
+- a first product MVP for deterministic bounded-agent orchestration over task +
+  diff + policy inputs.
 
 The MVP is not a full IDE, not a Cursor/Codex replacement, and not a claim that
-dLLMs are universally better. It is the first working product surface for the
-architecture we validated in the research phase: context, authority, workspace,
-verifier, remask, trace and policy orchestration.
+dLLMs are universally better. PR review is only the first surface. The durable
+product core is the architecture validated in the research phase: context,
+authority, shared workspace, role-specific bounded working memory, verifier,
+remask, merge decision, trace and policy orchestration.

@@ -11,22 +11,30 @@ remask kararlarını modelden bağımsız şekilde yönetmektir.
 Bounded-context agent orchestration runtime for enterprise software teams.
 ```
 
+Bu ürün bir PR reviewer değildir. PR review ve GitHub Action yüzeyi, runtime'ın
+ilk pratik entegrasyon yüzeyidir. Çekirdek ürün; context, authority, shared
+workspace, bounded working memory, verifier/remask feedback loop, merge decision
+ve trace orchestration katmanıdır.
+
 Runtime şu sorulara cevap verir:
 
+- Agent hangi role-specific bounded working memory view'ini almalı?
 - Agent hangi dosyaları görebilir?
 - Agent hangi dosyalara dokunabilir?
 - Eksik ürün/platform/compliance kararı varsa durmalı mı?
 - Patch forbidden scope veya sensitive boundary ihlali yapıyor mu?
 - Patch güvenli ama eksikse hangi lokal bölge remask edilmeli?
+- Verifier sonucu, remask request'i ve final merge kararı workspace'e nasıl yazılmalı?
 - Son karar nasıl trace edilecek?
 
 ## First Runtime Loop
 
 ```text
 task + diff + policy
-  -> shared workspace snapshot
+  -> SharedWorkspace v1
   -> role-specific bounded views
   -> verifier findings
+  -> verifier/remask/merge workspace events
   -> approve | refuse | reject | remask_required | human_review_required
   -> JSON + Markdown report
 ```
@@ -126,6 +134,8 @@ docs/MVP_USAGE.md
 - findings,
 - remask regions,
 - role-specific bounded views,
+- SharedWorkspace v1 events,
+- verifier/remask/merge decision records,
 - trace.
 
 ## PR Comment Publishing
@@ -166,12 +176,16 @@ working memory görür.
 
 İlk ürün çekirdeği şunları yapar:
 
-- PR/diff/task/policy input alır.
+- task/diff/policy input alır.
+- Task, scope, authority, repo facts ve patch intent içeren SharedWorkspace v1 üretir.
+- Workspace event/mutation kaydı tutar.
 - Role-specific bounded view üretir.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.
 - Paired-file eksiklerinde remask region üretir.
+- Verifier result, remask request ve merge decision kayıtlarını workspace'e yazar.
+- Workspace JSON serialization/deserialization contract'ı sağlar.
 - Markdown ve JSON rapor üretir.
 
 İlk ürün çekirdeği şunları yapmaz:
@@ -181,3 +195,4 @@ working memory görür.
 - Her patch’i remask etmez.
 - İnsan review yerine geçmez.
 - dLLM veya belirli bir model provider gerektirmez.
+- PR reviewer olarak daralmaz; PR yüzeyi yalnızca ilk kullanım alanıdır.

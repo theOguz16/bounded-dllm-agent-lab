@@ -5,7 +5,16 @@ import { createComparisonArtifact, createRunManifest, validateRunManifest } from
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
-import { parseUnifiedDiff, reviewPatch, type RepoPolicy, type VerifierAdapterOutput } from "../../packages/product-runtime/src/index.js";
+import {
+  addAgentClaim,
+  deserializeSharedWorkspace,
+  parseUnifiedDiff,
+  reviewPatch,
+  serializeSharedWorkspace,
+  type AgentClaim,
+  type RepoPolicy,
+  type VerifierAdapterOutput
+} from "../../packages/product-runtime/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
@@ -166,6 +175,28 @@ assert.equal(remaskReview.workspace.roleViews.verifier.role, "verifier");
 assert.equal(remaskReview.metrics.remaskNeed, 1);
 assert.equal(remaskReview.metrics.pairedFileCompleteness, 0);
 assert.equal(remaskReview.metrics.ownershipSafety, 1);
+assert.equal(remaskReview.workspace.version, 1);
+assert.deepEqual(remaskReview.workspace.scope.changedFiles, ["package.json"]);
+assert.deepEqual(remaskReview.workspace.authority.facts, ["release metadata update is approved"]);
+assert.equal(remaskReview.workspace.repoFacts.pairedFiles.length, 1);
+assert.equal(remaskReview.workspace.patchPlan.files.length, 1);
+assert.equal(remaskReview.workspace.verifierResult?.decision, "remask_required");
+assert.equal(remaskReview.workspace.remaskRequest?.required, true);
+assert.equal(remaskReview.workspace.mergeDecision?.decision, "remask_required");
+assert.equal(remaskReview.workspace.events.some((event) => event.action === "verifier_result_recorded"), true);
+
+const plannerClaim: AgentClaim = {
+  id: "claim-plan-release-metadata",
+  actor: "planner",
+  target: "patch_plan",
+  summary: "Release metadata update should stay limited to package metadata files.",
+  status: "proposed",
+  evidence: ["package.json"]
+};
+const claimedWorkspace = addAgentClaim(remaskReview.workspace, plannerClaim);
+const roundTrippedWorkspace = deserializeSharedWorkspace(serializeSharedWorkspace(claimedWorkspace));
+assert.equal(roundTrippedWorkspace.claims[0].id, plannerClaim.id);
+assert.equal(roundTrippedWorkspace.events.some((event) => event.action === "claim_added"), true);
 
 const rejectReview = reviewPatch({
   task: productTask,

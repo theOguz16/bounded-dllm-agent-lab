@@ -45,7 +45,7 @@ The product version would target software teams that need safe agentic coding.
 Possible positioning:
 
 ```text
-Scope-safe AI change runtime for software teams.
+Bounded-context shared-workspace agent orchestration runtime for software teams.
 ```
 
 The product would help teams:
@@ -61,13 +61,14 @@ The product would help teams:
 
 The first product should not be a full IDE or a Cursor replacement.
 
-The narrow MVP should be:
+It also should not be positioned as only a PR reviewer. The narrow first surface
+should be:
 
 ```text
-AI patch boundary reviewer for enterprise teams.
+AI patch/PR validation surface for a bounded agent orchestration runtime.
 ```
 
-It reviews patches produced by AI coding agents and answers:
+That surface reviews patches produced by AI coding agents and answers:
 
 - Is this patch inside the requested module scope?
 - Did it infer a missing product, platform, compliance, or owner decision?
@@ -80,7 +81,8 @@ The product should be model-agnostic:
 
 ```text
 Bring your own coder model.
-The system provides workspace, policy, verification, trace, and remask control.
+The runtime provides workspace, bounded working memory, policy, verification,
+trace, remask and merge-decision control.
 ```
 
 This keeps the product realistic. The research may continue testing dLLM-style
@@ -101,10 +103,10 @@ partial failure:
 | Patch is in scope but misses a required paired file, type, schema, test, or metadata region | Remask |
 | Patch output contract is invalid | Retry or fail closed, depending on policy |
 
-The core product loop is:
+The first product surface loop is:
 
 ```text
-patch -> verifier -> approve | refuse | reject | remask failed region
+task + patch + policy -> shared workspace -> verifier -> approve | refuse | reject | remask failed region
 ```
 
 This matters for cost and quality. Always-on remask increases latency and model
@@ -122,11 +124,15 @@ The MVP should not try to:
 - require a specific model provider,
 - solve every security or compliance problem.
 
-The MVP should do one thing well:
+The MVP surface should do one thing well:
 
 ```text
 Detect and explain risky AI patch behavior before it reaches merge.
 ```
+
+The product core behind that surface should do a broader job: manage what each
+agent can see, what it can write, which shared state it updates, when verifier
+feedback opens local remask, and how the final merge decision is traced.
 
 ## Why This Could Matter
 

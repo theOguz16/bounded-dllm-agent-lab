@@ -8,6 +8,7 @@ export type ReviewDecision =
 export type RiskLevel = "low" | "medium" | "high";
 export type FindingSeverity = "info" | "warning" | "error";
 export type AgentRoleView = "planner" | "coder" | "verifier" | "tester" | "remask";
+export type WorkspaceActor = AgentRoleView | "workspace_builder" | "context_composer" | "verifier_adapter" | "merge" | "system";
 
 export type TaskSpec = {
   id: string;
@@ -55,12 +56,112 @@ export type RepoPolicy = {
   missing_authority_rules?: string[];
 };
 
+export type WorkspaceScope = {
+  allowed: string[];
+  forbidden: string[];
+  changedFiles: string[];
+};
+
+export type WorkspaceAuthority = {
+  facts: string[];
+  missingRules: string[];
+};
+
+export type WorkspaceRepoFacts = {
+  changedFiles: string[];
+  ownership: Record<string, string>;
+  pairedFiles: PairedFileRule[];
+  requiredTests: string[];
+  requiredTestMappings: RequiredTestMappingRule[];
+  moduleBoundaries: ModuleBoundaryRule[];
+  sensitivePatterns: string[];
+};
+
+export type WorkspaceClaimStatus = "proposed" | "accepted" | "rejected";
+
+export type AgentClaim = {
+  id: string;
+  actor: AgentRoleView;
+  target:
+    | "task"
+    | "scope"
+    | "authority"
+    | "repo_facts"
+    | "patch_plan"
+    | "verifier_result"
+    | "remask_request"
+    | "merge_decision";
+  summary: string;
+  status: WorkspaceClaimStatus;
+  evidence: string[];
+};
+
+export type PatchPlan = {
+  summary: string;
+  files: string[];
+  allowedEditRegions: string[];
+  forbiddenEditRegions: string[];
+  requiredSignals: string[];
+};
+
+export type WorkspaceVerifierResult = {
+  decision: ReviewDecision;
+  findings: Finding[];
+  checkedFiles: string[];
+};
+
+export type WorkspaceRemaskRequest = {
+  required: boolean;
+  regions: RemaskRegion[];
+};
+
+export type WorkspaceMergeDecision = {
+  decision: ReviewDecision;
+  riskLevel: RiskLevel;
+  reason: string;
+};
+
+export type WorkspaceConflictRecord = {
+  id: string;
+  kind: "claim_conflict" | "authority_conflict" | "scope_conflict" | "patch_conflict";
+  summary: string;
+  claimIds: string[];
+  severity: RiskLevel;
+};
+
+export type WorkspaceEvent = {
+  id: string;
+  actor: WorkspaceActor;
+  action:
+    | "workspace_created"
+    | "role_views_created"
+    | "claim_added"
+    | "conflict_recorded"
+    | "verifier_result_recorded"
+    | "remask_request_recorded"
+    | "merge_decision_recorded";
+  summary: string;
+  target?: AgentClaim["target"] | "workspace";
+  relatedIds: string[];
+};
+
 export type SharedWorkspaceSnapshot = {
   id: string;
+  version: 1;
   task: TaskSpec;
+  scope: WorkspaceScope;
+  authority: WorkspaceAuthority;
   policy: RepoPolicy;
+  repoFacts: WorkspaceRepoFacts;
   diff: PatchDiff;
   roleViews: Record<AgentRoleView, BoundedRoleView>;
+  claims: AgentClaim[];
+  conflicts: WorkspaceConflictRecord[];
+  patchPlan: PatchPlan;
+  verifierResult?: WorkspaceVerifierResult;
+  remaskRequest?: WorkspaceRemaskRequest;
+  mergeDecision?: WorkspaceMergeDecision;
+  events: WorkspaceEvent[];
   trace: ProductTraceEvent[];
 };
 
@@ -109,7 +210,7 @@ export type RepairProposal = {
 
 export type ProductTraceEvent = {
   id: string;
-  actor: "workspace_builder" | "context_composer" | "verifier" | "verifier_adapter" | "remask_planner" | "system";
+  actor: WorkspaceActor | "remask_planner";
   action: string;
   summary: string;
 };
@@ -215,15 +316,21 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   const riskLevel = toRiskLevel(decision, findings);
   const metrics = createMetrics(input, findings, workspace);
   const decisionPriority = createDecisionPriority(findings, input.diff);
-  const trace = [
-    ...workspace.trace,
-    {
-      id: `${workspace.id}-trace-verifier`,
-      actor: "verifier" as const,
-      action: "review_completed",
-      summary: `Verifier decision is ${decision}.`
-    }
-  ];
+  const workspaceWithVerifier = recordVerifierResult(workspace, {
+    decision,
+    findings,
+    checkedFiles: input.diff.changedFiles
+  });
+  const workspaceWithRemask = recordRemaskRequest(workspaceWithVerifier, {
+    required: remaskRegions.length > 0,
+    regions: remaskRegions
+  });
+  const finalWorkspace = recordMergeDecision(workspaceWithRemask, {
+    decision,
+    riskLevel,
+    reason: explainDecision(decision)
+  });
+  const trace = finalWorkspace.trace;
   const markdownReport = createMarkdownReport({
     decision,
     riskLevel,
@@ -233,7 +340,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     remaskRegions,
     repairProposals,
     trace,
-    workspace
+    workspace: finalWorkspace
   });
 
   return {
@@ -245,7 +352,7 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
     remaskRegions,
     repairProposals,
     trace,
-    workspace: { ...workspace, trace },
+    workspace: finalWorkspace,
     markdownReport
   };
 }
@@ -253,13 +360,69 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
 export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspaceSnapshot {
   const id = `workspace-${slugify(input.task.id || input.task.title)}`;
   const roleViews = createRoleViews(input);
+  const scope: WorkspaceScope = {
+    allowed: input.policy.allowed_paths,
+    forbidden: input.policy.forbidden_paths,
+    changedFiles: input.diff.changedFiles
+  };
+  const authority: WorkspaceAuthority = {
+    facts: input.task.authorityFacts ?? [],
+    missingRules: input.policy.missing_authority_rules ?? []
+  };
+  const repoFacts: WorkspaceRepoFacts = {
+    changedFiles: input.diff.changedFiles,
+    ownership: input.policy.ownership ?? {},
+    pairedFiles: input.policy.paired_files ?? [],
+    requiredTests: input.policy.required_tests ?? [],
+    requiredTestMappings: input.policy.required_test_mappings ?? [],
+    moduleBoundaries: input.policy.module_boundaries ?? [],
+    sensitivePatterns: input.policy.sensitive_patterns ?? []
+  };
+  const patchPlan: PatchPlan = {
+    summary: input.diff.changedFiles.length
+      ? `Review proposed changes in ${input.diff.changedFiles.join(", ")}.`
+      : "No changed files were detected; automatic patch planning is blocked.",
+    files: input.diff.changedFiles,
+    allowedEditRegions: input.policy.allowed_paths,
+    forbiddenEditRegions: input.policy.forbidden_paths,
+    requiredSignals: [
+      ...(input.policy.required_tests ?? []),
+      ...(input.policy.required_test_mappings ?? []).map((rule) => rule.test)
+    ]
+  };
+  const events: WorkspaceEvent[] = [
+    {
+      id: `${id}-event-created`,
+      actor: "workspace_builder",
+      action: "workspace_created",
+      target: "workspace",
+      summary: "Task, scope, authority, repo facts, policy and patch intent were converted into SharedWorkspace v1.",
+      relatedIds: []
+    },
+    {
+      id: `${id}-event-role-views`,
+      actor: "context_composer",
+      action: "role_views_created",
+      target: "workspace",
+      summary: "Role-specific bounded working memory views were created from the shared workspace.",
+      relatedIds: []
+    }
+  ];
 
   return {
     id,
+    version: 1,
     task: input.task,
+    scope,
+    authority,
     policy: input.policy,
+    repoFacts,
     diff: input.diff,
     roleViews,
+    claims: [],
+    conflicts: [],
+    patchPlan,
+    events,
     trace: [
       {
         id: `${id}-trace-created`,
@@ -275,6 +438,102 @@ export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspa
       }
     ]
   };
+}
+
+export function addAgentClaim(workspace: SharedWorkspaceSnapshot, claim: AgentClaim): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    claims: [...workspace.claims, claim]
+  }, {
+    id: `${workspace.id}-event-claim-${claim.id}`,
+    actor: claim.actor,
+    action: "claim_added",
+    target: claim.target,
+    summary: claim.summary,
+    relatedIds: [claim.id]
+  });
+}
+
+export function addWorkspaceConflict(
+  workspace: SharedWorkspaceSnapshot,
+  conflict: WorkspaceConflictRecord
+): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    conflicts: [...workspace.conflicts, conflict]
+  }, {
+    id: `${workspace.id}-event-conflict-${conflict.id}`,
+    actor: "merge",
+    action: "conflict_recorded",
+    target: "workspace",
+    summary: conflict.summary,
+    relatedIds: conflict.claimIds
+  });
+}
+
+export function recordVerifierResult(
+  workspace: SharedWorkspaceSnapshot,
+  verifierResult: WorkspaceVerifierResult
+): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    verifierResult
+  }, {
+    id: `${workspace.id}-event-verifier-${workspace.events.length + 1}`,
+    actor: "verifier",
+    action: "verifier_result_recorded",
+    target: "verifier_result",
+    summary: `Verifier decision is ${verifierResult.decision}.`,
+    relatedIds: verifierResult.findings.map((finding) => finding.id)
+  });
+}
+
+export function recordRemaskRequest(
+  workspace: SharedWorkspaceSnapshot,
+  remaskRequest: WorkspaceRemaskRequest
+): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    remaskRequest
+  }, {
+    id: `${workspace.id}-event-remask-${workspace.events.length + 1}`,
+    actor: "remask",
+    action: "remask_request_recorded",
+    target: "remask_request",
+    summary: remaskRequest.required
+      ? `Verifier requested ${remaskRequest.regions.length} local remask region(s).`
+      : "Verifier did not request remask.",
+    relatedIds: remaskRequest.regions.map((region) => region.id)
+  });
+}
+
+export function recordMergeDecision(
+  workspace: SharedWorkspaceSnapshot,
+  mergeDecision: WorkspaceMergeDecision
+): SharedWorkspaceSnapshot {
+  return appendWorkspaceEvent({
+    ...workspace,
+    mergeDecision
+  }, {
+    id: `${workspace.id}-event-merge-${workspace.events.length + 1}`,
+    actor: "merge",
+    action: "merge_decision_recorded",
+    target: "merge_decision",
+    summary: `Final workspace decision is ${mergeDecision.decision}.`,
+    relatedIds: []
+  });
+}
+
+export function serializeSharedWorkspace(workspace: SharedWorkspaceSnapshot): string {
+  return `${JSON.stringify(workspace, null, 2)}\n`;
+}
+
+export function deserializeSharedWorkspace(raw: string): SharedWorkspaceSnapshot {
+  const parsed = JSON.parse(raw) as SharedWorkspaceSnapshot;
+  if (!parsed.id || parsed.version !== 1 || !parsed.task || !parsed.scope || !parsed.repoFacts || !Array.isArray(parsed.events)) {
+    throw new Error("Invalid SharedWorkspace v1 payload.");
+  }
+  return parsed;
 }
 
 export function createMarkdownReport(output: Omit<ReviewOutput, "markdownReport">): string {
@@ -409,6 +668,21 @@ function createRoleViews(input: ReviewInput): Record<AgentRoleView, BoundedRoleV
       tokenBudget: 1_500,
       summary: "Repair only verifier-marked safe local failed regions."
     }
+  };
+}
+
+function appendWorkspaceEvent(workspace: SharedWorkspaceSnapshot, event: WorkspaceEvent): SharedWorkspaceSnapshot {
+  const traceEvent: ProductTraceEvent = {
+    id: event.id.replace("-event-", "-trace-"),
+    actor: event.actor,
+    action: event.action,
+    summary: event.summary
+  };
+
+  return {
+    ...workspace,
+    events: [...workspace.events, event],
+    trace: [...workspace.trace, traceEvent]
   };
 }
 

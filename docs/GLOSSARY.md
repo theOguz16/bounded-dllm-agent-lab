@@ -20,6 +20,22 @@ The process of turning raw data into a more useful context packet. Instead of se
 
 A structured state object shared by all agent roles. It contains task context, claims, masks, conflicts, risks, verifier feedback, and final decisions.
 
+## Bounded Working Memory
+
+A task-bound, ephemeral, policy-bound role view generated from the shared workspace. It gives an agent the minimum context needed for its role instead of the whole repo or all chat history.
+
+## Context Composer
+
+The runtime layer that selects which workspace fields a role receives, which facts are excluded, and how much token budget the role view uses.
+
+## Remask Request
+
+A verifier-triggered request to reopen only a local failed workspace or patch region. Remask is not a default second pass for every patch.
+
+## Merge Decision
+
+The runtime's final decision after verifier, remask, policy and conflict signals are written to the workspace.
+
 ## Masking Policy
 
 Rules that decide which parts of the workspace should be generated or regenerated.

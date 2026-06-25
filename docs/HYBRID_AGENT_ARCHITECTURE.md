@@ -109,13 +109,14 @@ pass rate?
 
 The product should not initially be a full IDE or a Cursor replacement.
 
-The narrower MVP is:
+The product should also not be narrowed to a PR reviewer. The target product is:
 
 ```text
-AI patch boundary reviewer for enterprise teams.
+Bounded-context shared-workspace agent orchestration runtime for enterprise teams.
 ```
 
-It reviews AI-generated PRs or patches for:
+The first practical surface is AI patch and PR validation. That surface reviews
+AI-generated PRs or patches for:
 
 - scope drift,
 - missing authority,
@@ -127,7 +128,9 @@ It reviews AI-generated PRs or patches for:
 
 The system can be model-agnostic. dLLM-style workers remain a research backend
 for verifier/remask roles, while the MVP can use strong autoregressive coder
-models plus deterministic rules.
+models plus deterministic rules. In all cases, model outputs are proposals or
+claims written back to the shared workspace; the runtime keeps authority,
+verifier, remask and merge control.
 
 ## Success Criteria For Phase 2
 
