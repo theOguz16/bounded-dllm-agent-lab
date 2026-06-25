@@ -38,6 +38,8 @@ npm run product:policy -- --validate --policy bounded-agent.policy.yml --format 
 npm run product:action-smoke
 npm run product:pilot -- --out-dir /tmp/bounded-agent-pilot --fail-on-regression
 npm run product:pilot-v2 -- --out-dir /tmp/bounded-agent-pilot-v2 --fail-on-regression
+npm run product:cross-repo-validation -- --out-dir /tmp/bounded-cross-repo --fail-on-runtime-drift --fail-on-unreviewed
+npm run product:mixed-external-validation -- --out-dir /tmp/bounded-mixed-external --fail-on-false-blocker --fail-on-missed-blocker
 ```
 
 Ürün review örneği:
@@ -164,4 +166,7 @@ MVP demo edilebilir sayılır, eğer:
 - GitHub Action JSON/Markdown/comment/index artifact path'lerini output olarak
   verecek şekilde dokümante edilmişse,
 - MVP-2 pilot suite policy quality, owner alias ve required test mapping
-  senaryolarını regresyonsuz geçiriyorsa.
+  senaryolarını regresyonsuz geçiriyorsa,
+- cross-repo reviewed external validation drift üretmiyorsa,
+- mixed external validation pozitif PR'larda false blocker ve negatif
+  kontrollerde missed blocker üretmiyorsa.

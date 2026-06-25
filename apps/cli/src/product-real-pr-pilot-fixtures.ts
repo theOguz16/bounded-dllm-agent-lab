@@ -419,6 +419,154 @@ export const nanoidRealPrPilotCases: RealPrPilotCase[] = [
   }
 ];
 
+export const nanoidNegativeExternalCases: RealPrPilotCase[] = [
+  {
+    id: "nanoid-negative-001-forbidden-dist",
+    family: "expected_block",
+    source: source("ai/nanoid", "negative-pr-001", "main", "dist-direct-edit"),
+    task: task("nanoid-negative-001-forbidden-dist", "Authority: core approved this runtime change."),
+    policy: nanoidPilotPolicy,
+    diff: diff("dist/index.js", "export const urlAlphabet = 'old'", "export const urlAlphabet = 'new'"),
+    reviewerNotes: ["Negative control: generated dist output should be rejected even when core authority exists."],
+    expectedDecision: "reject",
+    expectedFindingCategories: ["scope"]
+  },
+  {
+    id: "nanoid-negative-002-release-pair-missing",
+    family: "expected_repair",
+    source: source("ai/nanoid", "negative-pr-002", "main", "release-without-jsr"),
+    task: task("nanoid-negative-002-release-pair-missing", "Authority: release maintenance update is approved."),
+    policy: nanoidPilotPolicy,
+    diff: diff("package.json", "  \"version\": \"5.0.0\"", "  \"version\": \"5.0.1\""),
+    reviewerNotes: ["Negative control: release metadata changed without required paired JSR metadata."],
+    expectedDecision: "remask_required",
+    expectedFindingCategories: ["paired_file"]
+  },
+  {
+    id: "nanoid-negative-003-core-missing-test",
+    family: "expected_human_review",
+    source: source("ai/nanoid", "negative-pr-003", "main", "runtime-no-test"),
+    task: task("nanoid-negative-003-core-missing-test", "Authority: core approved this runtime behavior change."),
+    policy: nanoidPilotPolicy,
+    diff: diff("index.js", "const bytes = random(size)", "const bytes = random(size + 1)"),
+    reviewerNotes: ["Negative control: public runtime behavior changed without mapped core test signal."],
+    expectedDecision: "human_review_required",
+    expectedFindingCategories: ["test"]
+  },
+  {
+    id: "nanoid-negative-004-docs-touch-core",
+    family: "expected_block",
+    source: source("ai/nanoid", "negative-pr-004", "main", "docs-authority-core-change"),
+    task: task("nanoid-negative-004-docs-touch-core", "Authority: docs approved this README wording update."),
+    policy: nanoidPilotPolicy,
+    diff: diff("index.js", "export const size = 21", "export const size = 22"),
+    reviewerNotes: ["Negative control: docs authority cannot approve core runtime ownership."],
+    expectedDecision: "refuse",
+    expectedFindingCategories: ["ownership"]
+  },
+  {
+    id: "nanoid-negative-005-sensitive-token",
+    family: "expected_block",
+    source: source("ai/nanoid", "negative-pr-005", "main", "publish-token"),
+    task: task("nanoid-negative-005-sensitive-token", "Authority: release maintenance update is approved."),
+    policy: nanoidPilotPolicy,
+    diff: diff("package.json", "  \"publishConfig\": {}", "  \"publishConfig\": { \"token\": \"NPM_TOKEN=abc\" }"),
+    reviewerNotes: ["Negative control: token-like publish config must be rejected as sensitive boundary risk."],
+    expectedDecision: "reject",
+    expectedFindingCategories: ["sensitive_boundary"]
+  },
+  {
+    id: "nanoid-negative-006-non-secure-cross-core",
+    family: "expected_block",
+    source: source("ai/nanoid", "negative-pr-006", "main", "non-secure-core-cross"),
+    task: task("nanoid-negative-006-non-secure-cross-core", "Authority: non-secure approved this performance change."),
+    policy: nanoidPilotPolicy,
+    diff: [
+      diff("non-secure/index.js", "export const alphabet = 'old'", "export const alphabet = 'new'"),
+      diff("index.js", "export const size = 21", "export const size = 22")
+    ].join("\n"),
+    reviewerNotes: ["Negative control: non-secure authority should not silently expand into core runtime ownership."],
+    expectedDecision: "refuse",
+    expectedFindingCategories: ["ownership", "module_boundary"]
+  }
+];
+
+export const pLimitNegativeExternalCases: RealPrPilotCase[] = [
+  {
+    id: "p-limit-negative-001-generated-dist",
+    family: "expected_block",
+    source: source("sindresorhus/p-limit", "negative-pr-001", "main", "dist-direct-edit"),
+    task: task("p-limit-negative-001-generated-dist", "Authority: core approved this runtime change."),
+    policy: pLimitPilotPolicy,
+    diff: diff("dist/index.js", "export default oldLimit", "export default newLimit"),
+    reviewerNotes: ["Negative control: generated distribution output is outside allowed p-limit scope."],
+    expectedDecision: "reject",
+    expectedFindingCategories: ["scope"]
+  },
+  {
+    id: "p-limit-negative-002-api-type-pair-missing",
+    family: "expected_repair",
+    source: source("sindresorhus/p-limit", "negative-pr-002", "main", "limit-function-runtime-only"),
+    task: task("p-limit-negative-002-api-type-pair-missing", "Authority: core approved this public API change."),
+    policy: pLimitPilotPolicy,
+    diff: diff("index.js", "export default function pLimit(concurrency) {}", "export function limitFunction(function_, options) {}"),
+    reviewerNotes: ["Negative control: public API runtime change needs TypeScript declaration pairing."],
+    expectedDecision: "remask_required",
+    expectedFindingCategories: ["paired_file"]
+  },
+  {
+    id: "p-limit-negative-003-api-test-missing",
+    family: "expected_human_review",
+    source: source("sindresorhus/p-limit", "negative-pr-003", "main", "map-runtime-no-test"),
+    task: task("p-limit-negative-003-api-test-missing", "Authority: core approved this map API behavior change."),
+    policy: pLimitPilotPolicy,
+    diff: [
+      diff("index.js", "limit.map = async iterable => Promise.all(iterable)", "limit.map = async iterable => Promise.all([...iterable])"),
+      diff("index.d.ts", "map: (items: unknown[]) => Promise<unknown[]>", "map: (items: Iterable<unknown>) => Promise<unknown[]>")
+    ].join("\n"),
+    reviewerNotes: ["Negative control: map behavior changed without mapped runtime test signal."],
+    expectedDecision: "human_review_required",
+    expectedFindingCategories: ["test"]
+  },
+  {
+    id: "p-limit-negative-004-docs-touch-runtime",
+    family: "expected_block",
+    source: source("sindresorhus/p-limit", "negative-pr-004", "main", "docs-authority-runtime-change"),
+    task: task("p-limit-negative-004-docs-touch-runtime", "Authority: docs approved this README example update."),
+    policy: pLimitPilotPolicy,
+    diff: diff("index.js", "const queue = new Queue();", "const queue = [];"),
+    reviewerNotes: ["Negative control: docs authority cannot approve runtime ownership."],
+    expectedDecision: "refuse",
+    expectedFindingCategories: ["ownership"]
+  },
+  {
+    id: "p-limit-negative-005-secret-npmrc",
+    family: "expected_block",
+    source: source("sindresorhus/p-limit", "negative-pr-005", "main", "npm-token"),
+    task: task("p-limit-negative-005-secret-npmrc", "Authority: release maintenance update is approved."),
+    policy: pLimitPilotPolicy,
+    diff: diff(".npmrc", "//registry.npmjs.org/:_authToken=\${NPM_TOKEN}", "//registry.npmjs.org/:_authToken=SECRET"),
+    reviewerNotes: ["Negative control: forbidden npm config plus secret-like token should be rejected."],
+    expectedDecision: "reject",
+    expectedFindingCategories: ["scope", "sensitive_boundary"]
+  },
+  {
+    id: "p-limit-negative-006-benchmark-cross-docs",
+    family: "expected_block",
+    source: source("sindresorhus/p-limit", "negative-pr-006", "main", "benchmark-doc-runtime-cross"),
+    task: task("p-limit-negative-006-benchmark-cross-docs", "Authority: performance approved this benchmark update."),
+    policy: pLimitPilotPolicy,
+    diff: [
+      diff("benchmark.js", "suite.add('old', runOld)", "suite.add('new', runNew)"),
+      diff("readme.md", "The default concurrency is documented.", "The default concurrency is now changed."),
+      diff("index.js", "export default function pLimit(concurrency) {}", "export default function pLimit(concurrency = 2) {}")
+    ].join("\n"),
+    reviewerNotes: ["Negative control: performance authority alone should not approve docs/runtime ownership expansion."],
+    expectedDecision: "refuse",
+    expectedFindingCategories: ["ownership"]
+  }
+];
+
 function source(repository: string, pullRequest: string, baseRef: string, headRef: string): RealPrPilotSource {
   return {
     repository,

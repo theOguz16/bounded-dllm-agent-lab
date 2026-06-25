@@ -33,6 +33,7 @@
     "product:p-limit-reviewed-calibration": "node dist/apps/cli/src/product-pr-calibration.js --input examples/product-runtime/real-pr-fixtures/p-limit-github-prs.draft.json --overrides examples/product-runtime/real-pr-fixtures/p-limit-reviewed-label-overrides.json",
     "product:p-limit-label-comparison": "node dist/apps/cli/src/product-pr-label-comparison.js --input examples/product-runtime/real-pr-fixtures/p-limit-github-prs.draft.json --overrides examples/product-runtime/real-pr-fixtures/p-limit-reviewed-label-overrides.json",
     "product:cross-repo-validation": "node dist/apps/cli/src/product-cross-repo-validation.js",
+    "product:mixed-external-validation": "node dist/apps/cli/src/product-mixed-external-validation.js",
     "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",

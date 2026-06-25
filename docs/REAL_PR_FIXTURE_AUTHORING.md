@@ -185,3 +185,30 @@ npm run product:cross-repo-validation -- \
   --fail-on-runtime-drift \
   --fail-on-unreviewed
 ```
+
+## Mixed Positive and Negative External Validation
+
+Positive merged PR fixtures answer:
+
+```text
+Does the runtime avoid false blockers on accepted upstream changes?
+```
+
+Negative controls answer the opposite:
+
+```text
+Does the runtime catch risky PR-shaped diffs before they pass silently?
+```
+
+Run both together:
+
+```bash
+npm run product:mixed-external-validation -- \
+  --out-dir reports/product-runtime \
+  --fail-on-false-blocker \
+  --fail-on-missed-blocker
+```
+
+The negative controls are intentionally PR-shaped rather than random fuzz. They
+cover forbidden generated output, missing paired files, missing mapped tests,
+ownership mismatch, sensitive token-like content and module boundary expansion.

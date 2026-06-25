@@ -167,7 +167,33 @@ Read this as an external validation health check, not a broad correctness
 proof. It answers a narrower question: "Do reviewed PR labels from multiple
 repositories remain stable under the current runtime?"
 
-## 6. Interpret Readiness
+## 6. Add Negative Controls
+
+Reviewed merged PRs only prove that the runtime is not over-blocking accepted
+changes. They do not prove that risky diffs are caught. MVP-10 adds mixed
+external validation:
+
+```bash
+npm run product:mixed-external-validation -- \
+  --out-dir reports/product-runtime \
+  --fail-on-false-blocker \
+  --fail-on-missed-blocker
+```
+
+This report combines:
+
+- positive reviewed merged PRs from NanoID and p-limit,
+- negative realistic risky diffs for forbidden scope, missing paired files,
+  missing tests, owner mismatch, sensitive boundaries and module boundaries.
+
+Read the two core metrics together:
+
+| Metric | Meaning |
+| --- | --- |
+| False blockers | Accepted upstream PRs that the runtime incorrectly blocks. |
+| Missed blockers | Risky negative controls that the runtime incorrectly approves. |
+
+## 7. Interpret Readiness
 
 Readiness combines:
 
@@ -179,7 +205,7 @@ Readiness combines:
 
 This is not a security guarantee. It is a pilot-health signal.
 
-## 7. Promote Carefully
+## 8. Promote Carefully
 
 Recommended rollout:
 
