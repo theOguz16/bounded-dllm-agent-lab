@@ -44,6 +44,15 @@ outputs:
   index-markdown-path:
     description: "Path to the generated product report index Markdown artifact."
     value: ${{ steps.outputs.outputs.index-markdown-path }}
+  team-metrics-json-path:
+    description: "Path to the generated team metrics JSON artifact."
+    value: ${{ steps.outputs.outputs.team-metrics-json-path }}
+  team-metrics-markdown-path:
+    description: "Path to the generated team metrics Markdown artifact."
+    value: ${{ steps.outputs.outputs.team-metrics-markdown-path }}
+  viewer-path:
+    description: "Path to the generated static HTML artifact viewer."
+    value: ${{ steps.outputs.outputs.viewer-path }}
 runs:
   using: "composite"
   steps:
@@ -107,6 +116,20 @@ runs:
         node "${{ github.action_path }}/dist/apps/cli/src/product-report-index.js" \
           --dir "$OUTPUT_DIR" \
           --out-dir "$OUTPUT_DIR"
+    - name: Generate bounded review team metrics and viewer
+      shell: bash
+      run: |
+        case "${{ inputs.output-dir }}" in
+          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        esac
+        node "${{ github.action_path }}/dist/apps/cli/src/product-team-metrics.js" \
+          --dir "$OUTPUT_DIR" \
+          --out-dir "$OUTPUT_DIR"
+        node "${{ github.action_path }}/dist/apps/cli/src/product-artifact-viewer.js" \
+          --dir "$OUTPUT_DIR" \
+          --out "$OUTPUT_DIR/index.html" \
+          --title "Bounded Agent PR Review"
     - name: Export outputs
       id: outputs
       shell: bash
@@ -126,6 +149,9 @@ runs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `comment-path=${outputDir}/pr-comment.md\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `index-json-path=${outputDir}/product-report-index.json\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `index-markdown-path=${outputDir}/product-report-index.md\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `team-metrics-json-path=${outputDir}/team-metrics.json\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `team-metrics-markdown-path=${outputDir}/team-metrics.md\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `viewer-path=${outputDir}/index.html\n`);
         ' "$SUMMARY_PATH" "$(dirname "$SUMMARY_PATH")"
     - name: Apply fail threshold
       shell: bash

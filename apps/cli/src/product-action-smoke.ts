@@ -62,9 +62,25 @@ async function runSmoke(outDir: string, marker: string): Promise<void> {
     "--out-dir",
     outDir
   ]);
+  await runCli("product-team-metrics.js", [
+    "--dir",
+    outDir,
+    "--out-dir",
+    outDir
+  ]);
+  await runCli("product-artifact-viewer.js", [
+    "--dir",
+    outDir,
+    "--out",
+    join(outDir, "index.html"),
+    "--title",
+    "Bounded Agent Action Smoke"
+  ]);
 
   const comment = await readFile(join(outDir, "pr-comment.md"), "utf8");
   const indexJson = JSON.parse(await readFile(join(outDir, "product-report-index.json"), "utf8")) as { count?: number };
+  const teamMetricsJson = JSON.parse(await readFile(join(outDir, "team-metrics.json"), "utf8")) as { artifactCount?: number };
+  const viewerHtml = await readFile(join(outDir, "index.html"), "utf8");
 
   if (review.decision !== "remask_required") {
     throw new Error(`Expected remask_required action smoke decision, got ${review.decision}`);
@@ -75,6 +91,12 @@ async function runSmoke(outDir: string, marker: string): Promise<void> {
   if (indexJson.count !== 1) {
     throw new Error(`Expected report index count=1, got ${String(indexJson.count)}`);
   }
+  if (teamMetricsJson.artifactCount !== 1) {
+    throw new Error(`Expected team metrics artifactCount=1, got ${String(teamMetricsJson.artifactCount)}`);
+  }
+  if (!viewerHtml.includes("Bounded Agent Action Smoke")) {
+    throw new Error("Artifact viewer HTML was not generated with the expected title.");
+  }
 
   console.log(JSON.stringify({
     ok: true,
@@ -82,7 +104,10 @@ async function runSmoke(outDir: string, marker: string): Promise<void> {
     decision: review.decision,
     commentPath: join(outDir, "pr-comment.md"),
     indexJsonPath: join(outDir, "product-report-index.json"),
-    indexMarkdownPath: join(outDir, "product-report-index.md")
+    indexMarkdownPath: join(outDir, "product-report-index.md"),
+    teamMetricsJsonPath: join(outDir, "team-metrics.json"),
+    teamMetricsMarkdownPath: join(outDir, "team-metrics.md"),
+    viewerPath: join(outDir, "index.html")
   }, null, 2));
 }
 

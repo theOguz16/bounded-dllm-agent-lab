@@ -37,6 +37,8 @@
     "product:pilot-insights": "node dist/apps/cli/src/product-pilot-insights.js",
     "product:report-index": "node dist/apps/cli/src/product-report-index.js",
     "product:team-metrics": "node dist/apps/cli/src/product-team-metrics.js",
+    "product:artifact-viewer": "node dist/apps/cli/src/product-artifact-viewer.js",
+    "product:demo-package": "node dist/apps/cli/src/product-demo-package.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",

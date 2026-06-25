@@ -11,9 +11,12 @@ import {
   createCostTokenBenchmarkReport,
   createDllmStyleExperimentReport,
   createMockRoleAdapter,
+  createProviderBackedRoleAdapter,
   createProductRuntimeArtifactV1,
+  createSecretSafeProviderConfigSummary,
   createSyntheticWorkspacePacket,
   createTeamMetricsReport,
+  checkSecretLeakageInArtifact,
   deserializeSharedWorkspace,
   evaluateMergeSafety,
   parseUnifiedDiff,
@@ -26,6 +29,7 @@ import {
   type RepoPolicy,
   type VerifierAdapterOutput
 } from "../../packages/product-runtime/src/index.js";
+import { renderArtifactViewerHtml } from "../../apps/web/src/index.js";
 import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
@@ -414,6 +418,38 @@ assert.equal(stableArtifact.schemaVersion, "product-runtime-artifact/v1");
 assert.equal(stableArtifact.decision, "remask_required");
 assert.equal(stableArtifact.workspaceId, remaskReview.workspace.id);
 
+const providerAdapter = createProviderBackedRoleAdapter({
+  adapterName: "openai-compatible-verifier",
+  role: "verifier",
+  mode: "openai_compatible",
+  model: "gpt-compatible-small",
+  baseUrl: "https://user:super-secret@example.com/v1",
+  apiKeyEnv: "BOUNDED_AGENT_PROVIDER_KEY",
+  dryRun: true
+});
+const providerSummary = createSecretSafeProviderConfigSummary({
+  adapterName: "openai-compatible-verifier",
+  role: "verifier",
+  mode: "openai_compatible",
+  model: "gpt-compatible-small",
+  baseUrl: "https://user:super-secret@example.com/v1",
+  apiKeyEnv: "BOUNDED_AGENT_PROVIDER_KEY",
+  dryRun: true
+});
+assert.equal(providerSummary.artifactSafe, true);
+assert.equal(providerSummary.baseUrl?.includes("super-secret"), false);
+
+const providerOrchestration = runMockOrchestration({
+  task: productTask,
+  policy: productPolicy,
+  roleAdapters: {
+    verifier: providerAdapter
+  },
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+});
+assert.equal(providerOrchestration.workspace.claims.some((claim) => claim.id.endsWith("verifier-provider-adapter-claim")), true);
+assert.equal(checkSecretLeakageInArtifact(providerSummary, ["super-secret"]).ok, true);
+
 const rejectReview = reviewPatch({
   task: productTask,
   policy: productPolicy,
@@ -451,6 +487,29 @@ assert.equal(teamMetrics.riskTrend.length, 2);
 assert.equal(teamMetrics.costTrend.length, 2);
 assert.equal(teamMetrics.policyConsoleModel.allowedPaths.includes("package.json"), true);
 assert.equal(teamMetrics.markdownReport.includes("Team Metrics v1"), true);
+
+const viewerHtml = renderArtifactViewerHtml({
+  reviews: [{ fileName: "smoke-product-review.json", review: remaskReview }],
+  reportIndex: {
+    count: 1,
+    reports: [
+      {
+        file: "smoke-product-review.json",
+        path: "reports/smoke-product-review.json",
+        decision: remaskReview.decision,
+        riskLevel: remaskReview.riskLevel,
+        changedFileCount: remaskReview.metrics.changedFileCount,
+        findingCount: remaskReview.findings.length,
+        remaskRegionCount: remaskReview.remaskRegions.length,
+        repairProposalCount: remaskReview.repairProposals.length,
+        markdownPath: "reports/smoke-product-review.md"
+      }
+    ]
+  },
+  teamMetrics
+});
+assert.equal(viewerHtml.includes("Bounded Agent Artifact Viewer"), true);
+assert.equal(viewerHtml.includes("remask_required"), true);
 
 const conditionalPairedPolicy: RepoPolicy = {
   ...productPolicy,

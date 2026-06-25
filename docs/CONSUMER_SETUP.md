@@ -90,6 +90,9 @@ Action şu output'ları verir:
 | `comment-path` | PR yorumuna hazır kısa Markdown |
 | `index-json-path` | Makine-okunur artifact index'i |
 | `index-markdown-path` | İnsan-okunur artifact index'i |
+| `team-metrics-json-path` | Makine-okunur takım metrikleri |
+| `team-metrics-markdown-path` | İnsan-okunur takım metrikleri |
+| `viewer-path` | Statik HTML artifact viewer |
 
 Artifact-only mod güvenli varsayılandır. Yani workflow artifact üretir ama PR'a
 otomatik yorum yazmaz.
@@ -103,6 +106,23 @@ npm run product:team-metrics -- \
 ```
 
 Bu komut `team-metrics.json` ve `team-metrics.md` üretir.
+
+Statik viewer üretmek için:
+
+```bash
+npm run product:artifact-viewer -- \
+  --dir reports/product-runtime \
+  --out reports/product-runtime/index.html
+```
+
+Tek komutluk yerel demo paketi için:
+
+```bash
+npm run product:demo-package
+```
+
+Bu komut review, PR comment, index, team metrics ve HTML viewer artifactlerini
+aynı dizinde üretir.
 
 ## 4. Opsiyonel PR Comment Posting
 
@@ -122,7 +142,29 @@ Yorum idempotency marker'ı:
 
 Bu marker aynı PR'da yorum tekrarını engeller.
 
-## 5. İlk Beklenen Sinyaller
+Örnek workflow `pull-requests: write` izniyle `actions/github-script` kullanır.
+Artifact-only modda bu izin gerekmez; PR yorumu yazılmayacaksa izin satırı
+çıkarılabilir.
+
+## 5. Provider Adapter Güvenliği
+
+Gerçek model adapterları opsiyoneldir. Varsayılan runtime deterministic çalışır.
+Provider-backed adapter kullanırken:
+
+- secret değerini artifact'e yazma,
+- API key'i sadece env adıyla referansla,
+- hangi workspace alanlarının provider'a gittiğini dokümanda belirt,
+- hatalı provider çıktısını workspace'e yazmadan validate et.
+
+Önerilen env isimleri:
+
+```bash
+BOUNDED_AGENT_PROVIDER_BASE_URL=https://provider.example/v1
+BOUNDED_AGENT_PROVIDER_MODEL=provider-model-name
+BOUNDED_AGENT_PROVIDER_API_KEY=...
+```
+
+## 6. İlk Beklenen Sinyaller
 
 | Decision | Ne Yapmalı |
 | --- | --- |

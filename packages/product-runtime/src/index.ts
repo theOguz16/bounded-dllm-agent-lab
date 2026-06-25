@@ -442,6 +442,32 @@ export type RoleAdapter = {
   execute(input: RoleAdapterInput): RoleAdapterOutput;
 };
 
+export type ProviderBackedRoleAdapterConfig = {
+  adapterName: string;
+  role: ModelAdapterRole;
+  mode: Extract<ModelAdapterMode, "openai_compatible" | "llm" | "dllm" | "local">;
+  model: string;
+  baseUrl?: string;
+  apiKeyEnv?: string;
+  dryRun?: boolean;
+};
+
+export type SecretSafeProviderConfigSummary = {
+  adapterName: string;
+  role: ModelAdapterRole;
+  mode: ProviderBackedRoleAdapterConfig["mode"];
+  model: string;
+  baseUrl?: string;
+  apiKeyEnv?: string;
+  sendsFields: string[];
+  artifactSafe: true;
+};
+
+export type SecretLeakageCheck = {
+  ok: boolean;
+  leakedKeys: string[];
+};
+
 export type SyntheticWorkspacePacket = {
   id: string;
   role: "direct_patch" | "verifier" | "remask";
@@ -1272,6 +1298,115 @@ export function createMockRoleAdapter(role: ModelAdapterRole, mode: ModelAdapter
       };
     }
   };
+}
+
+export function createSecretSafeProviderConfigSummary(config: ProviderBackedRoleAdapterConfig): SecretSafeProviderConfigSummary {
+  return {
+    adapterName: config.adapterName,
+    role: config.role,
+    mode: config.mode,
+    model: config.model,
+    baseUrl: config.baseUrl ? redactUrl(config.baseUrl) : undefined,
+    apiKeyEnv: config.apiKeyEnv,
+    sendsFields: [
+      "task.id",
+      "task.title",
+      "task.description",
+      "diff.changedFiles",
+      "policy.allowed_paths",
+      "policy.forbidden_paths",
+      "workspace.scope",
+      "workspace.authority",
+      "workspace.repoFacts",
+      "workspace.patchPlan"
+    ],
+    artifactSafe: true
+  };
+}
+
+export function checkSecretLeakageInArtifact(artifact: unknown, secretValues: string[]): SecretLeakageCheck {
+  const serialized = JSON.stringify(artifact);
+  const leakedKeys = secretValues
+    .filter((value) => value.trim().length > 0)
+    .filter((value) => serialized.includes(value));
+  return {
+    ok: leakedKeys.length === 0,
+    leakedKeys
+  };
+}
+
+export function createProviderBackedRoleAdapter(config: ProviderBackedRoleAdapterConfig): RoleAdapter {
+  return {
+    name: config.adapterName,
+    role: config.role,
+    mode: config.mode,
+    execute(input) {
+      const summary = createSecretSafeProviderConfigSummary(config);
+      const claim: AgentClaim = {
+        id: `${input.workspace.id}-${config.role}-provider-adapter-claim`,
+        actor: config.role,
+        target: config.role === "verifier" ? "verifier_result" : config.role === "remask" ? "remask_request" : "patch_plan",
+        summary: [
+          `${config.adapterName} prepared a provider-backed ${config.role} request.`,
+          config.dryRun === false ? "Execution is configured for a provider call." : "Dry-run mode returned a deterministic contract-shaped output."
+        ].join(" "),
+        status: "proposed",
+        evidence: input.diff.changedFiles
+      };
+      const output: RoleAdapterOutput = {
+        adapterName: config.adapterName,
+        role: config.role,
+        mode: config.mode,
+        confidence: config.dryRun === false ? 0.55 : 0.5,
+        summary: `Provider adapter ${config.adapterName} (${summary.mode}/${summary.model}) produced a secret-safe bounded output.`,
+        claims: [claim],
+        patchPlan: config.role === "coder" ? input.workspace.patchPlan : undefined,
+        verifierFindings: config.role === "verifier" ? [] : undefined,
+        remaskRegions: config.role === "remask" ? input.workspace.remaskRequest?.regions ?? [] : undefined
+      };
+      const validation = validateRoleAdapterOutput(output, config.role);
+      if (validation.ok) return output;
+      return createProviderAdapterFallbackOutput(input, config, validation.errors);
+    }
+  };
+}
+
+function createProviderAdapterFallbackOutput(
+  input: RoleAdapterInput,
+  config: ProviderBackedRoleAdapterConfig,
+  errors: string[]
+): RoleAdapterOutput {
+  return {
+    adapterName: config.adapterName || "provider-adapter",
+    role: config.role,
+    mode: config.mode,
+    confidence: 0,
+    summary: `Provider adapter output failed validation and was replaced by a safe fallback: ${errors.join("; ")}`,
+    claims: [
+      {
+        id: `${input.workspace.id}-${config.role}-provider-fallback-claim`,
+        actor: config.role,
+        target: config.role === "verifier" ? "verifier_result" : config.role === "remask" ? "remask_request" : "patch_plan",
+        summary: "Provider output was rejected before workspace mutation.",
+        status: "rejected",
+        evidence: input.diff.changedFiles
+      }
+    ],
+    patchPlan: config.role === "coder" ? input.workspace.patchPlan : undefined,
+    verifierFindings: config.role === "verifier" ? [] : undefined,
+    remaskRegions: config.role === "remask" ? [] : undefined
+  };
+}
+
+function redactUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = "";
+    url.password = "";
+    return url.toString();
+  } catch {
+    return value.replace(/:\/\/[^/@]+@/, "://");
+  }
 }
 
 function executeRoleAdapterIfPresent(
