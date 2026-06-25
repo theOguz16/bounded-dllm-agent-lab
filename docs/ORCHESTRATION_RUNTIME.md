@@ -145,6 +145,8 @@ docs/MVP_USAGE.md
 - SharedWorkspace v1 events,
 - orchestration step results,
 - mock flow trace,
+- merge safety findings and conflict records,
+- cost/token benchmark flow summaries,
 - verifier/remask/merge decision records,
 - trace.
 
@@ -195,6 +197,8 @@ working memory görür.
 - Deterministic Agent Orchestrator v1 mock flow çalıştırabilir.
 - Flow definition, role execution contract, workspace read/write permission ve step result schema sağlar.
 - Planner/coder/verifier/remask/merge mock agentlarını aynı workspace üzerinde sıralı çalıştırır.
+- Conflict-aware merge ile claim conflict, stale claim, unsafe overwrite ve patch authority ihlallerini yakalar.
+- Direct large-context, bounded workspace, workspace+verifier ve workspace+verifier+remask akışları için cost/token benchmark raporu üretir.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

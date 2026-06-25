@@ -7,7 +7,9 @@ import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "..
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import {
   addAgentClaim,
+  createCostTokenBenchmarkReport,
   deserializeSharedWorkspace,
+  evaluateMergeSafety,
   parseUnifiedDiff,
   reviewPatch,
   runMockOrchestration,
@@ -259,6 +261,58 @@ const approveOrchestration = runMockOrchestration({
 
 assert.equal(approveOrchestration.decision, "approve");
 assert.equal(approveOrchestration.steps.find((step) => step.stepId === "remask:optional")?.status, "skipped");
+
+const conflictingWorkspace = addAgentClaim(addAgentClaim(remaskReview.workspace, {
+  id: "claim-conflict-planner",
+  actor: "planner",
+  target: "patch_plan",
+  summary: "Only update package.json.",
+  status: "accepted",
+  evidence: ["package.json"],
+  writableRegions: ["package.json#version"],
+  baseEventIndex: remaskReview.workspace.events.length
+}), {
+  id: "claim-conflict-coder",
+  actor: "coder",
+  target: "patch_plan",
+  summary: "Update package.json and generated release output.",
+  status: "accepted",
+  evidence: ["package.json", "dist/release.json"],
+  writableRegions: ["package.json#version"],
+  baseEventIndex: 0
+});
+const mergeSafety = evaluateMergeSafety(conflictingWorkspace);
+assert.equal(mergeSafety.ok, false);
+assert.equal(mergeSafety.conflictCount > 0, true);
+assert.equal(mergeSafety.unsafeOverwriteCount > 0, true);
+assert.equal(mergeSafety.staleClaimCount > 0, true);
+
+const costReport = createCostTokenBenchmarkReport([
+  {
+    id: "approve-fixture",
+    expectedDecision: "approve",
+    input: {
+      task: productTask,
+      policy: productPolicy,
+      diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\ndiff --git a/jsr.json b/jsr.json\n--- a/jsr.json\n+++ b/jsr.json\n")
+    }
+  },
+  {
+    id: "remask-fixture",
+    expectedDecision: "remask_required",
+    input: {
+      task: productTask,
+      policy: productPolicy,
+      diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n")
+    }
+  }
+]);
+
+assert.deepEqual(costReport.flows, ["direct_large_context", "bounded_workspace", "workspace_verifier", "workspace_verifier_remask"]);
+assert.equal(costReport.fixtureCount, 2);
+assert.equal(costReport.measurements.length, 8);
+assert.equal(costReport.flowSummaries.some((summary) => summary.flow === "workspace_verifier_remask" && summary.totalRemaskExtraTokens > 0), true);
+assert.equal(costReport.markdownReport.includes("Cost/Token Benchmark v1"), true);
 
 const rejectReview = reviewPatch({
   task: productTask,

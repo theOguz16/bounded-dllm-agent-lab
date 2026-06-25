@@ -96,6 +96,8 @@ export type AgentClaim = {
   summary: string;
   status: WorkspaceClaimStatus;
   evidence: string[];
+  writableRegions?: string[];
+  baseEventIndex?: number;
 };
 
 export type PatchPlan = {
@@ -121,6 +123,7 @@ export type WorkspaceMergeDecision = {
   decision: ReviewDecision;
   riskLevel: RiskLevel;
   reason: string;
+  safetyReport?: MergeSafetyReport;
 };
 
 export type WorkspaceConflictRecord = {
@@ -129,6 +132,73 @@ export type WorkspaceConflictRecord = {
   summary: string;
   claimIds: string[];
   severity: RiskLevel;
+};
+
+export type MergeSafetyFinding = {
+  id: string;
+  kind: WorkspaceConflictRecord["kind"] | "stale_claim" | "unsafe_overwrite";
+  severity: RiskLevel;
+  summary: string;
+  claimIds: string[];
+  files: string[];
+};
+
+export type MergeSafetyReport = {
+  ok: boolean;
+  findings: MergeSafetyFinding[];
+  conflictCount: number;
+  staleClaimCount: number;
+  unsafeOverwriteCount: number;
+  authorityViolationCount: number;
+};
+
+export type CostBenchmarkFlow =
+  | "direct_large_context"
+  | "bounded_workspace"
+  | "workspace_verifier"
+  | "workspace_verifier_remask";
+
+export type CostBenchmarkFixture = {
+  id: string;
+  input: ReviewInput;
+  expectedDecision?: ReviewDecision;
+};
+
+export type FlowCostMeasurement = {
+  fixtureId: string;
+  flow: CostBenchmarkFlow;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  totalEstimatedTokens: number;
+  roleViewTokens: number;
+  budgetUtilization: number;
+  remaskExtraTokens: number;
+  decision: ReviewDecision;
+  taskSuccess: 0 | 1;
+  scopeDrift: 0 | 1;
+  missedBlocker: 0 | 1;
+  falseBlocker: 0 | 1;
+};
+
+export type CostTokenBenchmarkReport = {
+  id: string;
+  createdAt: string;
+  fixtureCount: number;
+  flows: CostBenchmarkFlow[];
+  measurements: FlowCostMeasurement[];
+  flowSummaries: Array<{
+    flow: CostBenchmarkFlow;
+    averageInputTokens: number;
+    averageOutputTokens: number;
+    averageTotalTokens: number;
+    averageBudgetUtilization: number;
+    totalRemaskExtraTokens: number;
+    taskSuccessRate: number;
+    scopeDriftRate: number;
+    missedBlockerRate: number;
+    falseBlockerRate: number;
+  }>;
+  markdownReport: string;
 };
 
 export type WorkspaceEvent = {
@@ -598,6 +668,43 @@ export function runMockOrchestration(input: ReviewInput): OrchestrationOutput {
   };
 }
 
+export function estimateTextTokens(value: unknown): number {
+  return Math.max(1, Math.ceil(JSON.stringify(value).length / 4));
+}
+
+export function createCostTokenBenchmarkReport(fixtures: CostBenchmarkFixture[]): CostTokenBenchmarkReport {
+  const flows: CostBenchmarkFlow[] = ["direct_large_context", "bounded_workspace", "workspace_verifier", "workspace_verifier_remask"];
+  const measurements = fixtures.flatMap((fixture) => flows.map((flow) => measureFlowCost(fixture, flow)));
+  const flowSummaries = flows.map((flow) => {
+    const rows = measurements.filter((measurement) => measurement.flow === flow);
+    return {
+      flow,
+      averageInputTokens: average(rows.map((row) => row.estimatedInputTokens)),
+      averageOutputTokens: average(rows.map((row) => row.estimatedOutputTokens)),
+      averageTotalTokens: average(rows.map((row) => row.totalEstimatedTokens)),
+      averageBudgetUtilization: average(rows.map((row) => row.budgetUtilization)),
+      totalRemaskExtraTokens: sum(rows.map((row) => row.remaskExtraTokens)),
+      taskSuccessRate: average(rows.map((row) => row.taskSuccess)),
+      scopeDriftRate: average(rows.map((row) => row.scopeDrift)),
+      missedBlockerRate: average(rows.map((row) => row.missedBlocker)),
+      falseBlockerRate: average(rows.map((row) => row.falseBlocker))
+    };
+  });
+  const reportWithoutMarkdown = {
+    id: "cost-token-benchmark-v1",
+    createdAt: new Date().toISOString(),
+    fixtureCount: fixtures.length,
+    flows,
+    measurements,
+    flowSummaries
+  };
+
+  return {
+    ...reportWithoutMarkdown,
+    markdownReport: costTokenBenchmarkToMarkdown(reportWithoutMarkdown)
+  };
+}
+
 export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspaceSnapshot {
   const id = `workspace-${slugify(input.task.id || input.task.title)}`;
   const roleViews = createRoleViews(input, id);
@@ -766,6 +873,34 @@ export function recordMergeDecision(
   });
 }
 
+export function evaluateMergeSafety(workspace: SharedWorkspaceSnapshot): MergeSafetyReport {
+  const findings = [
+    ...findConflictingClaims(workspace),
+    ...findStaleClaims(workspace),
+    ...findUnsafeOverwrites(workspace),
+    ...findPatchAuthorityViolations(workspace)
+  ];
+
+  return {
+    ok: findings.every((finding) => finding.severity !== "high"),
+    findings,
+    conflictCount: findings.filter((finding) => finding.kind === "claim_conflict").length,
+    staleClaimCount: findings.filter((finding) => finding.kind === "stale_claim").length,
+    unsafeOverwriteCount: findings.filter((finding) => finding.kind === "unsafe_overwrite").length,
+    authorityViolationCount: findings.filter((finding) => finding.kind === "scope_conflict" || finding.kind === "authority_conflict").length
+  };
+}
+
+export function recordMergeSafety(workspace: SharedWorkspaceSnapshot, report: MergeSafetyReport): SharedWorkspaceSnapshot {
+  return report.findings.reduce((nextWorkspace, finding) => addWorkspaceConflict(nextWorkspace, {
+    id: finding.id,
+    kind: finding.kind === "stale_claim" || finding.kind === "unsafe_overwrite" ? "claim_conflict" : finding.kind,
+    summary: finding.summary,
+    claimIds: finding.claimIds,
+    severity: finding.severity
+  }), workspace);
+}
+
 export function recordPatchPlan(workspace: SharedWorkspaceSnapshot, patchPlan: PatchPlan, actor: AgentRoleView): SharedWorkspaceSnapshot {
   return appendWorkspaceEvent({
     ...workspace,
@@ -890,12 +1025,16 @@ function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> 
       role: "merge",
       execute({ workspace, step }) {
         assertWritePermission(step, "mergeDecision");
-        const decision = workspace.verifierResult?.decision ?? "human_review_required";
-        const riskLevel = toRiskLevel(decision, workspace.verifierResult?.findings ?? []);
-        const nextWorkspace = appendStepCompleted(recordMergeDecision(workspace, {
+        const safetyReport = evaluateMergeSafety(workspace);
+        const workspaceWithSafety = recordMergeSafety(workspace, safetyReport);
+        const verifierDecision = workspace.verifierResult?.decision ?? "human_review_required";
+        const decision = safetyReport.ok ? verifierDecision : "human_review_required";
+        const riskLevel = safetyReport.ok ? toRiskLevel(decision, workspace.verifierResult?.findings ?? []) : "high";
+        const nextWorkspace = appendStepCompleted(recordMergeDecision(workspaceWithSafety, {
           decision,
           riskLevel,
-          reason: explainDecision(decision)
+          reason: safetyReport.ok ? explainDecision(decision) : "Merge safety found conflicting, stale or unsafe workspace writes.",
+          safetyReport
         }), step, `Final merge decision is ${decision}.`);
         return {
           workspace: nextWorkspace,
@@ -904,6 +1043,116 @@ function createMockRoleAgents(): Partial<Record<WorkspaceActor, MockRoleAgent>> 
       }
     }
   };
+}
+
+function measureFlowCost(fixture: CostBenchmarkFixture, flow: CostBenchmarkFlow): FlowCostMeasurement {
+  const review = reviewPatch(fixture.input);
+  const expectedDecision = fixture.expectedDecision ?? review.decision;
+  const decision = flow === "direct_large_context" ? directBaselineDecision(fixture.input) : review.decision;
+  const roleViewTokens = flow === "direct_large_context" ? 0 : sum(Object.values(review.workspace.roleViews).map((view) => view.estimatedTokens));
+  const remaskExtraTokens = flow === "workspace_verifier_remask" && review.remaskRegions.length
+    ? review.workspace.roleViews.remask.estimatedTokens + estimateTextTokens(review.remaskRegions)
+    : 0;
+  const estimatedInputTokens = estimateFlowInputTokens(fixture.input, review, flow);
+  const estimatedOutputTokens = estimateFlowOutputTokens(review, flow);
+  const blockerExpected = expectedDecision !== "approve";
+  const blockerFound = decision !== "approve";
+
+  return {
+    fixtureId: fixture.id,
+    flow,
+    estimatedInputTokens,
+    estimatedOutputTokens,
+    totalEstimatedTokens: estimatedInputTokens + estimatedOutputTokens + remaskExtraTokens,
+    roleViewTokens,
+    budgetUtilization: flow === "direct_large_context" ? 1 : average(Object.values(review.workspace.roleViews).map((view) => view.budgetUtilization)),
+    remaskExtraTokens,
+    decision,
+    taskSuccess: decision === expectedDecision ? 1 : 0,
+    scopeDrift: decision === "approve" && review.findings.some((finding) => finding.suggestedAction === "reject") ? 1 : 0,
+    missedBlocker: blockerExpected && !blockerFound ? 1 : 0,
+    falseBlocker: !blockerExpected && blockerFound ? 1 : 0
+  };
+}
+
+function estimateFlowInputTokens(input: ReviewInput, review: ReviewOutput, flow: CostBenchmarkFlow): number {
+  if (flow === "direct_large_context") return estimateTextTokens({ task: input.task, diff: input.diff, policy: input.policy, mode: "direct_large_context" });
+  if (flow === "bounded_workspace") return sum([
+    review.workspace.roleViews.planner.estimatedTokens,
+    review.workspace.roleViews.coder.estimatedTokens
+  ]);
+  if (flow === "workspace_verifier") return sum([
+    review.workspace.roleViews.planner.estimatedTokens,
+    review.workspace.roleViews.coder.estimatedTokens,
+    review.workspace.roleViews.verifier.estimatedTokens
+  ]);
+  return sum(Object.values(review.workspace.roleViews).map((view) => view.estimatedTokens));
+}
+
+function estimateFlowOutputTokens(review: ReviewOutput, flow: CostBenchmarkFlow): number {
+  if (flow === "direct_large_context") return 450;
+  if (flow === "bounded_workspace") return estimateTextTokens(review.workspace.patchPlan);
+  if (flow === "workspace_verifier") return estimateTextTokens({ findings: review.findings, decision: review.decision });
+  return estimateTextTokens({ findings: review.findings, remaskRegions: review.remaskRegions, decision: review.decision });
+}
+
+function directBaselineDecision(input: ReviewInput): ReviewDecision {
+  return input.diff.changedFiles.length ? "approve" : "human_review_required";
+}
+
+function costTokenBenchmarkToMarkdown(input: Omit<CostTokenBenchmarkReport, "markdownReport">): string {
+  return [
+    "# Cost/Token Benchmark v1",
+    "",
+    `- Fixtures: ${input.fixtureCount}`,
+    `- Created at: ${input.createdAt}`,
+    "",
+    "## Flow Summary",
+    "",
+    table(
+      ["Flow", "Avg Input", "Avg Output", "Avg Total", "Avg Budget", "Remask Extra", "Task Success", "Scope Drift", "Missed Blocker", "False Blocker"],
+      input.flowSummaries.map((summary) => [
+        summary.flow,
+        summary.averageInputTokens.toString(),
+        summary.averageOutputTokens.toString(),
+        summary.averageTotalTokens.toString(),
+        percentDecimal(summary.averageBudgetUtilization),
+        summary.totalRemaskExtraTokens.toString(),
+        percentDecimal(summary.taskSuccessRate),
+        percentDecimal(summary.scopeDriftRate),
+        percentDecimal(summary.missedBlockerRate),
+        percentDecimal(summary.falseBlockerRate)
+      ])
+    ),
+    "",
+    "## Measurements",
+    "",
+    table(
+      ["Fixture", "Flow", "Input", "Output", "Total", "Remask Extra", "Decision"],
+      input.measurements.map((measurement) => [
+        measurement.fixtureId,
+        measurement.flow,
+        measurement.estimatedInputTokens.toString(),
+        measurement.estimatedOutputTokens.toString(),
+        measurement.totalEstimatedTokens.toString(),
+        measurement.remaskExtraTokens.toString(),
+        measurement.decision
+      ])
+    )
+  ].join("\n");
+}
+
+function average(values: number[]): number {
+  if (!values.length) return 0;
+  return roundRatio(sum(values) / values.length);
+}
+
+function sum(values: number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function percentDecimal(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function createDeterministicFindings(input: ReviewInput): Finding[] {
@@ -917,6 +1166,104 @@ function createDeterministicFindings(input: ReviewInput): Finding[] {
     ...findTestFindings(input),
     ...normalizeVerifierAdapterFindings(input.verifierAdapterOutput)
   ];
+}
+
+function findConflictingClaims(workspace: SharedWorkspaceSnapshot): MergeSafetyFinding[] {
+  const findings: MergeSafetyFinding[] = [];
+
+  for (let leftIndex = 0; leftIndex < workspace.claims.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < workspace.claims.length; rightIndex += 1) {
+      const left = workspace.claims[leftIndex];
+      const right = workspace.claims[rightIndex];
+      if (left.target !== right.target) continue;
+      if (left.actor === right.actor) continue;
+      if (normalizeClaimText(left.summary) === normalizeClaimText(right.summary) && left.status === right.status) continue;
+      findings.push({
+        id: `merge-conflict-${slugify(left.id)}-${slugify(right.id)}`,
+        kind: "claim_conflict",
+        severity: "high",
+        summary: `Conflicting claims on ${left.target}: ${left.actor} and ${right.actor}.`,
+        claimIds: [left.id, right.id],
+        files: Array.from(new Set([...left.evidence, ...right.evidence]))
+      });
+    }
+  }
+
+  return findings;
+}
+
+function findStaleClaims(workspace: SharedWorkspaceSnapshot): MergeSafetyFinding[] {
+  return workspace.claims
+    .filter((claim) => claim.baseEventIndex !== undefined && claim.baseEventIndex < lastEventIndexForTarget(workspace, claim.target))
+    .map((claim) => ({
+      id: `merge-stale-${slugify(claim.id)}`,
+      kind: "stale_claim",
+      severity: "medium",
+      summary: `Claim ${claim.id} was based on an older workspace event index.`,
+      claimIds: [claim.id],
+      files: claim.evidence
+    }));
+}
+
+function findUnsafeOverwrites(workspace: SharedWorkspaceSnapshot): MergeSafetyFinding[] {
+  const findings: MergeSafetyFinding[] = [];
+
+  for (let leftIndex = 0; leftIndex < workspace.claims.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < workspace.claims.length; rightIndex += 1) {
+      const left = workspace.claims[leftIndex];
+      const right = workspace.claims[rightIndex];
+      if (left.actor === right.actor) continue;
+      const overlap = intersect(left.writableRegions ?? [], right.writableRegions ?? []);
+      if (!overlap.length) continue;
+      findings.push({
+        id: `merge-overwrite-${slugify(left.id)}-${slugify(right.id)}`,
+        kind: "unsafe_overwrite",
+        severity: "high",
+        summary: `Claims ${left.id} and ${right.id} both write ${overlap.join(", ")}.`,
+        claimIds: [left.id, right.id],
+        files: overlap
+      });
+    }
+  }
+
+  return findings;
+}
+
+function findPatchAuthorityViolations(workspace: SharedWorkspaceSnapshot): MergeSafetyFinding[] {
+  const violatingFiles = workspace.patchPlan.files.filter((file) =>
+    matchesAny(file, workspace.scope.forbidden) ||
+    (workspace.scope.allowed.length > 0 && !matchesAny(file, workspace.scope.allowed))
+  );
+
+  if (!violatingFiles.length) return [];
+
+  return [{
+    id: `${workspace.id}-merge-scope-conflict`,
+    kind: "scope_conflict",
+    severity: "high",
+    summary: `Patch plan includes files outside merge authority: ${violatingFiles.join(", ")}.`,
+    claimIds: workspace.claims.filter((claim) => claim.target === "patch_plan").map((claim) => claim.id),
+    files: violatingFiles
+  }];
+}
+
+function lastEventIndexForTarget(workspace: SharedWorkspaceSnapshot, target: AgentClaim["target"]): number {
+  let lastIndex = -1;
+  workspace.events.forEach((event, index) => {
+    if (event.target === target || event.relatedIds.some((id) => workspace.claims.some((claim) => claim.id === id && claim.target === target))) {
+      lastIndex = index;
+    }
+  });
+  return lastIndex;
+}
+
+function normalizeClaimText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function intersect(left: string[], right: string[]): string[] {
+  const rightSet = new Set(right);
+  return Array.from(new Set(left.filter((item) => rightSet.has(item))));
 }
 
 function appendStepCompleted(
