@@ -7,6 +7,7 @@ import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "..
 import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
 import {
   addAgentClaim,
+  analyzeRepositoryFiles,
   createCostTokenBenchmarkReport,
   deserializeSharedWorkspace,
   evaluateMergeSafety,
@@ -313,6 +314,41 @@ assert.equal(costReport.fixtureCount, 2);
 assert.equal(costReport.measurements.length, 8);
 assert.equal(costReport.flowSummaries.some((summary) => summary.flow === "workspace_verifier_remask" && summary.totalRemaskExtraTokens > 0), true);
 assert.equal(costReport.markdownReport.includes("Cost/Token Benchmark v1"), true);
+
+const repoIntelligence = analyzeRepositoryFiles([
+  "package.json",
+  "package-lock.json",
+  "tsconfig.json",
+  "packages/billing/src/index.ts",
+  "packages/billing/src/retry.ts",
+  "packages/billing/src/retry.test.ts",
+  "packages/billing/dist/index.js",
+  "packages/billing/src/__generated__/schema.ts",
+  "apps/web/src/main.tsx",
+  "docs/README.md"
+]);
+
+assert.deepEqual(repoIntelligence.packageManagers, ["npm"]);
+assert.equal(repoIntelligence.sourceFiles.includes("packages/billing/src/retry.ts"), true);
+assert.equal(repoIntelligence.testFiles.includes("packages/billing/src/retry.test.ts"), true);
+assert.equal(repoIntelligence.docsFiles.includes("docs/README.md"), true);
+assert.equal(repoIntelligence.configFiles.includes("package.json"), true);
+assert.equal(repoIntelligence.generatedFiles.includes("packages/billing/src/__generated__/schema.ts"), true);
+assert.equal(repoIntelligence.buildOutputPaths.includes("packages/billing/dist/index.js"), true);
+assert.equal(repoIntelligence.likelyPublicApiFiles.includes("packages/billing/src/index.ts"), true);
+assert.equal(repoIntelligence.likelyPairedFiles.some((rule) => rule.source === "package.json" && rule.requires === "package-lock.json"), true);
+assert.equal(repoIntelligence.likelyTestMappings.some((rule) => rule.source === "packages/billing/**"), true);
+assert.equal(repoIntelligence.suggestedPolicy.forbidden_paths.includes("packages/billing/dist/index.js"), true);
+
+const intelligenceWorkspaceReview = reviewPatch({
+  task: productTask,
+  policy: repoIntelligence.suggestedPolicy,
+  repoFiles: repoIntelligence.files.map((file) => file.path),
+  diff: parseUnifiedDiff("diff --git a/packages/billing/src/retry.ts b/packages/billing/src/retry.ts\n--- a/packages/billing/src/retry.ts\n+++ b/packages/billing/src/retry.ts\n")
+});
+
+assert.equal(intelligenceWorkspaceReview.workspace.repoFacts.intelligence?.packageManagers[0], "npm");
+assert.equal(intelligenceWorkspaceReview.workspace.repoFacts.intelligence?.likelyPublicApiFiles.includes("packages/billing/src/index.ts"), true);
 
 const rejectReview = reviewPatch({
   task: productTask,

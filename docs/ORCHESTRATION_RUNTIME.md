@@ -147,6 +147,7 @@ docs/MVP_USAGE.md
 - mock flow trace,
 - merge safety findings and conflict records,
 - cost/token benchmark flow summaries,
+- repo intelligence package manager, file classification, generated/build, paired-file and test-mapping suggestions,
 - verifier/remask/merge decision records,
 - trace.
 
@@ -199,6 +200,8 @@ working memory görür.
 - Planner/coder/verifier/remask/merge mock agentlarını aynı workspace üzerinde sıralı çalıştırır.
 - Conflict-aware merge ile claim conflict, stale claim, unsafe overwrite ve patch authority ihlallerini yakalar.
 - Direct large-context, bounded workspace, workspace+verifier ve workspace+verifier+remask akışları için cost/token benchmark raporu üretir.
+- Repo Intelligence v1 ile package manager, source/test/docs/config/generated/build sınıflandırması, likely public API files, paired files, test mappings ve suggested policy draft üretir.
+- `repoFiles` verildiğinde Workspace Builder bu repo intelligence sonucunu workspace repo facts içine bağlar.
 - Scope ve forbidden path kontrolü yapar.
 - Missing authority durumunda refusal üretir.
 - Sensitive pattern riskini yakalar.

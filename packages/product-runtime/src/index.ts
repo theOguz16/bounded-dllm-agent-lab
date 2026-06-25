@@ -77,6 +77,30 @@ export type WorkspaceRepoFacts = {
   moduleBoundaries: ModuleBoundaryRule[];
   sensitivePatterns: string[];
   staleFacts: string[];
+  intelligence?: RepoIntelligenceReport;
+};
+
+export type RepoFileKind = "source" | "test" | "docs" | "config" | "generated" | "build" | "public_api" | "unknown";
+
+export type RepoFileClassification = {
+  path: string;
+  kind: RepoFileKind;
+  reason: string;
+};
+
+export type RepoIntelligenceReport = {
+  packageManagers: string[];
+  files: RepoFileClassification[];
+  sourceFiles: string[];
+  testFiles: string[];
+  docsFiles: string[];
+  configFiles: string[];
+  generatedFiles: string[];
+  buildOutputPaths: string[];
+  likelyPairedFiles: PairedFileRule[];
+  likelyPublicApiFiles: string[];
+  likelyTestMappings: RequiredTestMappingRule[];
+  suggestedPolicy: RepoPolicy;
 };
 
 export type WorkspaceClaimStatus = "proposed" | "accepted" | "rejected";
@@ -342,6 +366,8 @@ export type ReviewInput = {
   task: TaskSpec;
   diff: PatchDiff;
   policy: RepoPolicy;
+  repoFiles?: string[];
+  repoIntelligence?: RepoIntelligenceReport;
   contextBudgets?: Partial<Record<AgentRoleView, number>>;
   workspace?: SharedWorkspaceSnapshot;
   verifierAdapterOutput?: VerifierAdapterOutput;
@@ -672,6 +698,48 @@ export function estimateTextTokens(value: unknown): number {
   return Math.max(1, Math.ceil(JSON.stringify(value).length / 4));
 }
 
+export function analyzeRepositoryFiles(files: string[]): RepoIntelligenceReport {
+  const normalizedFiles = Array.from(new Set(files.map(normalizeRepoPath).filter(Boolean))).sort();
+  const classifications = normalizedFiles.map(classifyRepoFile);
+  const sourceFiles = classifications.filter((file) => file.kind === "source" || file.kind === "public_api").map((file) => file.path);
+  const testFiles = classifications.filter((file) => file.kind === "test").map((file) => file.path);
+  const docsFiles = classifications.filter((file) => file.kind === "docs").map((file) => file.path);
+  const configFiles = classifications.filter((file) => file.kind === "config").map((file) => file.path);
+  const generatedFiles = classifications.filter((file) => file.kind === "generated").map((file) => file.path);
+  const buildOutputPaths = classifications.filter((file) => file.kind === "build").map((file) => file.path);
+  const likelyPublicApiFiles = classifications.filter((file) => file.kind === "public_api").map((file) => file.path);
+  const likelyPairedFiles = inferLikelyPairedFiles(normalizedFiles);
+  const likelyTestMappings = inferLikelyTestMappings(sourceFiles, testFiles);
+  const packageManagers = detectPackageManagers(normalizedFiles);
+  const suggestedPolicy: RepoPolicy = {
+    allowed_paths: inferAllowedPaths(sourceFiles, testFiles, docsFiles, configFiles, likelyPublicApiFiles),
+    forbidden_paths: Array.from(new Set([".env", ".env.*", "secrets/**", ...buildOutputPaths, ...generatedFiles])),
+    ownership: {},
+    owner_aliases: {},
+    paired_files: likelyPairedFiles,
+    sensitive_patterns: ["SECRET", "API_KEY", "TOKEN=", "PRIVATE_KEY"],
+    required_tests: [],
+    required_test_mappings: likelyTestMappings,
+    module_boundaries: [],
+    missing_authority_rules: ["Authority:"]
+  };
+
+  return {
+    packageManagers,
+    files: classifications,
+    sourceFiles,
+    testFiles,
+    docsFiles,
+    configFiles,
+    generatedFiles,
+    buildOutputPaths,
+    likelyPairedFiles,
+    likelyPublicApiFiles,
+    likelyTestMappings,
+    suggestedPolicy
+  };
+}
+
 export function createCostTokenBenchmarkReport(fixtures: CostBenchmarkFixture[]): CostTokenBenchmarkReport {
   const flows: CostBenchmarkFlow[] = ["direct_large_context", "bounded_workspace", "workspace_verifier", "workspace_verifier_remask"];
   const measurements = fixtures.flatMap((fixture) => flows.map((flow) => measureFlowCost(fixture, flow)));
@@ -708,6 +776,7 @@ export function createCostTokenBenchmarkReport(fixtures: CostBenchmarkFixture[])
 export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspaceSnapshot {
   const id = `workspace-${slugify(input.task.id || input.task.title)}`;
   const roleViews = createRoleViews(input, id);
+  const repoIntelligence = input.repoIntelligence ?? (input.repoFiles ? analyzeRepositoryFiles(input.repoFiles) : undefined);
   const scope: WorkspaceScope = {
     allowed: input.policy.allowed_paths,
     forbidden: input.policy.forbidden_paths,
@@ -725,7 +794,8 @@ export function createSharedWorkspaceSnapshot(input: ReviewInput): SharedWorkspa
     requiredTestMappings: input.policy.required_test_mappings ?? [],
     moduleBoundaries: input.policy.module_boundaries ?? [],
     sensitivePatterns: input.policy.sensitive_patterns ?? [],
-    staleFacts: []
+    staleFacts: [],
+    intelligence: repoIntelligence
   };
   const patchPlan: PatchPlan = {
     summary: input.diff.changedFiles.length
@@ -1075,6 +1145,130 @@ function measureFlowCost(fixture: CostBenchmarkFixture, flow: CostBenchmarkFlow)
   };
 }
 
+function detectPackageManagers(files: string[]): string[] {
+  const managers: string[] = [];
+  if (files.includes("package-lock.json")) managers.push("npm");
+  if (files.includes("pnpm-lock.yaml")) managers.push("pnpm");
+  if (files.includes("yarn.lock")) managers.push("yarn");
+  if (files.includes("bun.lockb") || files.includes("bun.lock")) managers.push("bun");
+  if (files.includes("pyproject.toml") || files.includes("poetry.lock")) managers.push("python");
+  if (files.includes("go.mod")) managers.push("go");
+  if (files.includes("Cargo.toml")) managers.push("rust");
+  return managers;
+}
+
+function classifyRepoFile(path: string): RepoFileClassification {
+  if (isGeneratedPath(path)) return { path, kind: "generated", reason: "Path matches generated artifact conventions." };
+  if (isBuildOutputPath(path)) return { path, kind: "build", reason: "Path matches build output conventions." };
+  if (isTestPath(path)) return { path, kind: "test", reason: "Path or filename matches test conventions." };
+  if (isDocsPath(path)) return { path, kind: "docs", reason: "Path is documentation-like." };
+  if (isConfigPath(path)) return { path, kind: "config", reason: "Path is configuration or package metadata." };
+  if (isPublicApiPath(path)) return { path, kind: "public_api", reason: "Path looks like a package entrypoint or public type surface." };
+  if (isSourcePath(path)) return { path, kind: "source", reason: "Path is under a source/package/app directory or has a source extension." };
+  return { path, kind: "unknown", reason: "No v1 repo intelligence classifier matched." };
+}
+
+function inferLikelyPairedFiles(files: string[]): PairedFileRule[] {
+  const rules: PairedFileRule[] = [];
+  if (files.includes("package.json") && files.includes("package-lock.json")) {
+    rules.push({
+      source: "package.json",
+      requires: "package-lock.json",
+      reason: "npm package metadata changes usually require lockfile alignment",
+      changed_when_contains: ["version", "dependencies", "devDependencies"]
+    });
+  }
+  if (files.includes("package.json") && files.includes("pnpm-lock.yaml")) {
+    rules.push({
+      source: "package.json",
+      requires: "pnpm-lock.yaml",
+      reason: "pnpm package metadata changes usually require lockfile alignment",
+      changed_when_contains: ["version", "dependencies", "devDependencies"]
+    });
+  }
+  if (files.includes("package.json") && files.includes("yarn.lock")) {
+    rules.push({
+      source: "package.json",
+      requires: "yarn.lock",
+      reason: "yarn package metadata changes usually require lockfile alignment",
+      changed_when_contains: ["version", "dependencies", "devDependencies"]
+    });
+  }
+  if (files.includes("tsconfig.json") && files.includes("package.json")) {
+    rules.push({
+      source: "tsconfig.json",
+      requires: "package.json",
+      reason: "TypeScript config changes may require script or package metadata review",
+      changed_when_contains: ["compilerOptions", "paths", "references"]
+    });
+  }
+  return rules;
+}
+
+function inferLikelyTestMappings(sourceFiles: string[], testFiles: string[]): RequiredTestMappingRule[] {
+  const mappings: RequiredTestMappingRule[] = [];
+  const roots = Array.from(new Set(sourceFiles.map((file) => topModuleRoot(file)).filter(Boolean)));
+
+  for (const root of roots) {
+    const hasTests = testFiles.some((file) => file.startsWith(`${root}/`) || file.startsWith(`tests/${root}/`));
+    if (!hasTests) continue;
+    mappings.push({
+      source: `${root}/**`,
+      test: `${root}/**/*.test.ts`,
+      reason: `${root} source changes should include nearby tests`,
+      changed_when_contains: ["export function", "export const", "class "]
+    });
+  }
+
+  return mappings;
+}
+
+function inferAllowedPaths(...groups: string[][]): string[] {
+  const roots = groups.flatMap((group) => group.map((file) => topModuleRoot(file)).filter(Boolean));
+  const allowed = Array.from(new Set(roots.map((root) => `${root}/**`)));
+  return allowed.length ? allowed : ["src/**", "packages/**", "apps/**", "docs/**"];
+}
+
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/").trim();
+}
+
+function isGeneratedPath(path: string): boolean {
+  return /(^|\/)(generated|__generated__|coverage)\//.test(path) || /\.(generated|gen)\.[cm]?[jt]sx?$/.test(path);
+}
+
+function isBuildOutputPath(path: string): boolean {
+  return /(^|\/)(dist|build|out|target|\.next|\.turbo)\//.test(path);
+}
+
+function isTestPath(path: string): boolean {
+  return /(^|\/)(test|tests|__tests__)\//.test(path) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(path);
+}
+
+function isDocsPath(path: string): boolean {
+  return path.startsWith("docs/") || path.toLowerCase().endsWith(".md") || path.toLowerCase().endsWith(".mdx");
+}
+
+function isConfigPath(path: string): boolean {
+  return /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig\.json|vite\.config\.[jt]s|next\.config\.[jt]s|eslint\.config\.[jt]s|pyproject\.toml|go\.mod|Cargo\.toml)$/.test(path);
+}
+
+function isPublicApiPath(path: string): boolean {
+  return /(^|\/)(index|main|mod)\.[cm]?[jt]sx?$/.test(path) || /\.d\.ts$/.test(path);
+}
+
+function isSourcePath(path: string): boolean {
+  return /(^|\/)(src|packages|apps|lib)\//.test(path) || /\.[cm]?[jt]sx?$/.test(path);
+}
+
+function topModuleRoot(path: string): string {
+  const parts = path.split("/");
+  if (["packages", "apps"].includes(parts[0]) && parts[1]) return `${parts[0]}/${parts[1]}`;
+  if (["src", "lib", "docs", "test", "tests"].includes(parts[0])) return parts[0];
+  if (path.includes("/")) return parts[0];
+  return "";
+}
+
 function estimateFlowInputTokens(input: ReviewInput, review: ReviewOutput, flow: CostBenchmarkFlow): number {
   if (flow === "direct_large_context") return estimateTextTokens({ task: input.task, diff: input.diff, policy: input.policy, mode: "direct_large_context" });
   if (flow === "bounded_workspace") return sum([
@@ -1177,6 +1371,9 @@ function findConflictingClaims(workspace: SharedWorkspaceSnapshot): MergeSafetyF
       const right = workspace.claims[rightIndex];
       if (left.target !== right.target) continue;
       if (left.actor === right.actor) continue;
+      const writableOverlap = intersect(left.writableRegions ?? [], right.writableRegions ?? []);
+      const hasExplicitConflictSignal = writableOverlap.length > 0 || left.status !== right.status;
+      if (!hasExplicitConflictSignal) continue;
       if (normalizeClaimText(left.summary) === normalizeClaimText(right.summary) && left.status === right.status) continue;
       findings.push({
         id: `merge-conflict-${slugify(left.id)}-${slugify(right.id)}`,
