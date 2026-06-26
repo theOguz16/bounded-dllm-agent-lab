@@ -29,9 +29,9 @@ Consumer repoda ilk düzenlenecek alanlar:
 | Alan | Neden Önemli |
 | --- | --- |
 | `allowed_paths` | Agent'ın hangi dosyalara dokunabileceğini daraltır. |
-| `forbidden_paths` | Production secret, infra veya sahip olunmayan modülleri korur. |
+| `forbidden_paths` | Production credential, infra veya sahip olunmayan modülleri korur. |
 | `paired_files` | `package.json` -> lockfile gibi birlikte değişmesi gereken dosyaları yakalar. |
-| `sensitive_patterns` | Secret-like patch text için reject sinyali üretir. |
+| `sensitive_patterns` | Credential-like patch text için reject sinyali üretir. |
 | `missing_authority_rules` | Eksik ürün/platform/compliance kararı varsa refuse üretir. |
 
 `paired_files` ve `required_test_mappings` kuralları isteğe bağlı
@@ -143,6 +143,18 @@ npm run product:external-evidence
 Bu komut NanoID ve p-limit fixtureları üzerinden real PR pilot, cross-repo
 validation ve mixed external validation raporlarını tek kanıt paketinde toplar.
 
+Pilot handoff manifesti üretmek için:
+
+```bash
+npm run product:pilot-manifest -- \
+  --dogfood-dir reports/product-runtime-dogfood \
+  --external-dir reports/product-runtime-external-evidence \
+  --out-dir reports/product-runtime-pilot
+```
+
+Bu komut pilot sırasında paylaşılacak kanıt dosyalarını ve manuel kontrolleri
+tek JSON/Markdown manifestte toplar.
+
 ## 4. Opsiyonel PR Comment Posting
 
 PR'a yorum yazmak istiyorsan kendi workflow'unda `comment-path` output'unu
@@ -170,8 +182,8 @@ Artifact-only modda bu izin gerekmez; PR yorumu yazılmayacaksa izin satırı
 Gerçek model adapterları opsiyoneldir. Varsayılan runtime deterministic çalışır.
 Provider-backed adapter kullanırken:
 
-- secret değerini artifact'e yazma,
-- API key'i sadece env adıyla referansla,
+- credential değerini artifact'e yazma,
+- provider key değerini sadece env adıyla referansla,
 - hangi workspace alanlarının provider'a gittiğini dokümanda belirt,
 - hatalı provider çıktısını workspace'e yazmadan validate et.
 
@@ -180,7 +192,7 @@ Provider-backed adapter kullanırken:
 ```bash
 BOUNDED_AGENT_PROVIDER_BASE_URL=https://provider.example/v1
 BOUNDED_AGENT_PROVIDER_MODEL=provider-model-name
-BOUNDED_AGENT_PROVIDER_API_KEY=...
+BOUNDED_AGENT_PROVIDER_TOKEN=...
 ```
 
 Live provider çağrısı default değildir. `dryRun: false` açıkça verilmediği

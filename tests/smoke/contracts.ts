@@ -576,6 +576,21 @@ assert.equal(viewerHtml.includes("Decision Brief"), true);
 assert.equal(viewerHtml.includes("Repair only verifier-marked regions."), true);
 assert.equal(viewerHtml.includes("remask_required"), true);
 
+const pilotManifestShape = {
+  schemaVersion: "pilot-handoff-manifest/v1",
+  artifacts: [
+    { name: "Dogfood validation", status: "pass" },
+    { name: "External evidence", status: "pass" }
+  ],
+  readiness: {
+    artifactOnlyRecommended: true,
+    providerLiveCallOptIn: true
+  }
+};
+assert.equal(pilotManifestShape.schemaVersion, "pilot-handoff-manifest/v1");
+assert.equal(pilotManifestShape.artifacts.every((artifact) => artifact.status === "pass"), true);
+assert.equal(pilotManifestShape.readiness.artifactOnlyRecommended, true);
+
 const conditionalPairedPolicy: RepoPolicy = {
   ...productPolicy,
   paired_files: [

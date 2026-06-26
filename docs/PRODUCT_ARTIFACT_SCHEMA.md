@@ -62,3 +62,12 @@ outputs and dashboard/viewer development.
 - `external-evidence.md`,
 - child NanoID and p-limit pilot reports,
 - cross-repo and mixed external validation reports.
+
+`npm run product:pilot-manifest` writes:
+
+- `pilot-handoff-manifest.json`,
+- `pilot-handoff-manifest.md`.
+
+The manifest references dogfood, external evidence, consumer setup and public
+pilot readiness artifacts so a pilot user can see what was verified and what
+still needs manual review.

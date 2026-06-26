@@ -41,6 +41,7 @@
     "product:demo-package": "node dist/apps/cli/src/product-demo-package.js",
     "product:dogfood-validation": "node dist/apps/cli/src/product-dogfood-validation.js",
     "product:external-evidence": "node dist/apps/cli/src/product-external-evidence.js",
+    "product:pilot-manifest": "node dist/apps/cli/src/product-pilot-manifest.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",

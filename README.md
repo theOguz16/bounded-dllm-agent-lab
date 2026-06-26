@@ -257,6 +257,7 @@ The product MVP documentation is available at:
 - [`docs/PRODUCT_ARTIFACT_SCHEMA.md`](docs/PRODUCT_ARTIFACT_SCHEMA.md)
 - [`docs/SDK_API_DRAFT.md`](docs/SDK_API_DRAFT.md)
 - [`docs/PUBLIC_PILOT_READINESS.md`](docs/PUBLIC_PILOT_READINESS.md)
+- [`docs/CONSUMER_PILOT_HANDOFF.md`](docs/CONSUMER_PILOT_HANDOFF.md)
 
 Useful product checks:
 
@@ -267,6 +268,9 @@ npm run product:pilot-v2 -- --out-dir /tmp/bounded-mvp2-pilot --fail-on-regressi
 npm run product:pilot-v3 -- --out-dir /tmp/bounded-mvp3-pilot --fail-on-regression
 npm run product:real-pr-pilot -- --out-dir /tmp/bounded-real-pr-pilot --fail-on-regression
 npm run product:team-metrics -- --dir reports/product-runtime
+npm run product:dogfood-validation -- --out-dir /tmp/bounded-agent-dogfood-validation --fail-on-error
+npm run product:external-evidence -- --out-dir /tmp/bounded-agent-external-evidence --fail-on-regression
+npm run product:pilot-manifest -- --dogfood-dir /tmp/bounded-agent-dogfood-validation --external-dir /tmp/bounded-agent-external-evidence --out-dir /tmp/bounded-agent-pilot-handoff --fail-on-missing
 ```
 
 The second phase hybrid architecture is documented in

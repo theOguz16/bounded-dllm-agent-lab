@@ -19,6 +19,7 @@ Ready:
 - dogfood workflow validation,
 - NanoID and p-limit external evidence package,
 - provider adapter dry-run and opt-in OpenAI-compatible live-call path.
+- consumer pilot handoff manifest.
 
 Still manual:
 
@@ -65,6 +66,16 @@ This combines:
 - p-limit real PR pilot,
 - cross-repo reviewed validation,
 - mixed external validation with negative controls.
+
+Generate the consumer pilot handoff manifest:
+
+```bash
+npm run product:pilot-manifest -- \
+  --dogfood-dir /tmp/bounded-agent-dogfood-validation \
+  --external-dir /tmp/bounded-agent-external-evidence \
+  --out-dir /tmp/bounded-agent-pilot-handoff \
+  --fail-on-missing
+```
 
 ## Live Dogfood PR Gate
 
@@ -128,6 +139,7 @@ A public pilot is considered ready when:
 - local typecheck, build and smoke pass,
 - dogfood validation passes,
 - external evidence package passes,
+- pilot handoff manifest passes,
 - live dogfood PR check status is recorded,
 - consumer setup docs explain artifact-only and optional PR comment modes,
 - provider live-call path stays opt-in and credential-safe.
