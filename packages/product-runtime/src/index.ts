@@ -449,6 +449,8 @@ export type ProviderBackedRoleAdapterConfig = {
   model: string;
   baseUrl?: string;
   apiKeyEnv?: string;
+  apiKey?: string;
+  timeoutMs?: number;
   dryRun?: boolean;
 };
 
@@ -467,6 +469,22 @@ export type SecretLeakageCheck = {
   ok: boolean;
   leakedKeys: string[];
 };
+
+export type ProviderAdapterChatRequest = {
+  model: string;
+  temperature: 0;
+  messages: Array<{ role: "system" | "user"; content: string }>;
+};
+
+export type ProviderAdapterFetch = (
+  url: string,
+  init: {
+    method: "POST";
+    headers: Record<string, string>;
+    body: string;
+    signal?: AbortSignal;
+  }
+) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 export type SyntheticWorkspacePacket = {
   id: string;
@@ -1335,6 +1353,117 @@ export function checkSecretLeakageInArtifact(artifact: unknown, secretValues: st
   };
 }
 
+export function createProviderAdapterChatRequest(
+  config: ProviderBackedRoleAdapterConfig,
+  input: RoleAdapterInput
+): ProviderAdapterChatRequest {
+  return {
+    model: config.model,
+    temperature: 0,
+    messages: [
+      {
+        role: "system",
+        content: [
+          "You are a bounded workspace role adapter.",
+          `Role: ${config.role}.`,
+          "Use only the provided task, diff, policy and workspace fields.",
+          "Return JSON matching RoleAdapterOutput without secrets."
+        ].join(" ")
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          role: config.role,
+          task: {
+            id: input.task.id,
+            title: input.task.title,
+            description: input.task.description,
+            authorityFacts: input.task.authorityFacts ?? []
+          },
+          diff: {
+            changedFiles: input.diff.changedFiles,
+            rawPreview: input.diff.raw.slice(0, 6000)
+          },
+          policy: {
+            allowed_paths: input.policy.allowed_paths,
+            forbidden_paths: input.policy.forbidden_paths,
+            ownership: input.policy.ownership ?? {},
+            paired_files: input.policy.paired_files ?? [],
+            required_test_mappings: input.policy.required_test_mappings ?? [],
+            sensitive_patterns: input.policy.sensitive_patterns ?? []
+          },
+          workspace: {
+            id: input.workspace.id,
+            scope: input.workspace.scope,
+            authority: input.workspace.authority,
+            repoFacts: input.workspace.repoFacts,
+            patchPlan: input.workspace.patchPlan,
+            verifierResult: input.workspace.verifierResult,
+            remaskRequest: input.workspace.remaskRequest
+          }
+        })
+      }
+    ]
+  };
+}
+
+export function parseProviderRoleAdapterResponse(
+  payload: unknown,
+  expectedRole: ModelAdapterRole,
+  fallbackInput: RoleAdapterInput,
+  config: ProviderBackedRoleAdapterConfig
+): RoleAdapterOutput {
+  const content = extractProviderContent(payload);
+  const parsed = JSON.parse(extractJsonObject(content)) as Partial<RoleAdapterOutput>;
+  const output: RoleAdapterOutput = {
+    adapterName: String(parsed.adapterName ?? config.adapterName),
+    role: expectedRole,
+    mode: config.mode,
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.4,
+    summary: String(parsed.summary ?? "Provider adapter returned a bounded role output."),
+    claims: Array.isArray(parsed.claims) ? parsed.claims as AgentClaim[] : [],
+    patchPlan: expectedRole === "coder" ? parsed.patchPlan : undefined,
+    verifierFindings: expectedRole === "verifier" && Array.isArray(parsed.verifierFindings) ? parsed.verifierFindings : undefined,
+    remaskRegions: expectedRole === "remask" && Array.isArray(parsed.remaskRegions) ? parsed.remaskRegions : undefined,
+    rawOutput: content.slice(0, 2000)
+  };
+  const validation = validateRoleAdapterOutput(output, expectedRole);
+  return validation.ok ? output : createProviderAdapterFallbackOutput(fallbackInput, config, validation.errors);
+}
+
+export async function executeOpenAiCompatibleRoleAdapter(
+  config: ProviderBackedRoleAdapterConfig,
+  input: RoleAdapterInput,
+  fetchImpl: ProviderAdapterFetch = fetch as ProviderAdapterFetch
+): Promise<RoleAdapterOutput> {
+  if (config.dryRun !== false) {
+    return createProviderBackedRoleAdapter(config).execute(input);
+  }
+
+  try {
+    const baseUrl = config.baseUrl ?? "http://127.0.0.1:8000/v1";
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+    const timeout = controller ? setTimeout(() => controller.abort(), config.timeoutMs ?? 30_000) : undefined;
+    const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {})
+      },
+      body: JSON.stringify(createProviderAdapterChatRequest(config, input)),
+      signal: controller?.signal
+    });
+    if (timeout) clearTimeout(timeout);
+    const payload = await response.json();
+    if (!response.ok) {
+      return createProviderAdapterFallbackOutput(input, config, [`Provider HTTP ${response.status}`]);
+    }
+    return parseProviderRoleAdapterResponse(payload, config.role, input, config);
+  } catch (error) {
+    return createProviderAdapterFallbackOutput(input, config, [error instanceof Error ? error.message : String(error)]);
+  }
+}
+
 export function createProviderBackedRoleAdapter(config: ProviderBackedRoleAdapterConfig): RoleAdapter {
   return {
     name: config.adapterName,
@@ -1369,6 +1498,23 @@ export function createProviderBackedRoleAdapter(config: ProviderBackedRoleAdapte
       return createProviderAdapterFallbackOutput(input, config, validation.errors);
     }
   };
+}
+
+function extractProviderContent(payload: unknown): string {
+  if (typeof payload === "string") return payload;
+  if (!payload || typeof payload !== "object") throw new Error("Provider response is not an object.");
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || choices.length === 0) throw new Error("Provider response has no choices.");
+  const first = choices[0] as { message?: { content?: unknown } };
+  if (typeof first.message?.content !== "string") throw new Error("Provider response message content is missing.");
+  return first.message.content;
+}
+
+function extractJsonObject(content: string): string {
+  const start = content.indexOf("{");
+  const end = content.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) throw new Error("Provider response did not contain a JSON object.");
+  return content.slice(start, end + 1);
 }
 
 function createProviderAdapterFallbackOutput(

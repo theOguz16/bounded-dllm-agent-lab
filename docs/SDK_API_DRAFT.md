@@ -12,7 +12,9 @@ import {
   analyzeRepositoryFiles,
   createTeamMetricsReport,
   createProviderBackedRoleAdapter,
-  createSecretSafeProviderConfigSummary
+  createSecretSafeProviderConfigSummary,
+  createProviderAdapterChatRequest,
+  executeOpenAiCompatibleRoleAdapter
 } from "@bounded-dllm-agent-lab/product-runtime";
 ```
 
@@ -27,6 +29,8 @@ Primary entry points:
 | `createTeamMetricsReport(artifacts)` | Aggregate review artifacts into team metrics. |
 | `createProviderBackedRoleAdapter(config)` | Create a provider-backed role adapter with validated output and safe fallback behavior. |
 | `createSecretSafeProviderConfigSummary(config)` | Document provider config without leaking API keys or credentials. |
+| `createProviderAdapterChatRequest(config, input)` | Build the OpenAI-compatible request body without serializing API keys. |
+| `executeOpenAiCompatibleRoleAdapter(config, input, fetchImpl?)` | Execute an opt-in live provider call and return validated output or safe fallback. |
 
 ## Adapter Contract
 
@@ -44,6 +48,10 @@ store the env var name, model and redacted base URL, but never the API key value
 The runtime validates `RoleAdapterOutput` before claims, patch plans, verifier
 findings or remask regions are written back to the workspace.
 
+Live calls are opt-in with `dryRun: false`. The default path stays deterministic
+so CI, smoke tests and artifact generation remain reproducible without provider
+credentials.
+
 ## CLI Surface
 
 | Command | Use |
@@ -51,6 +59,8 @@ findings or remask regions are written back to the workspace.
 | `npm run product:demo-package` | Generate a complete local demo package. |
 | `npm run product:artifact-viewer` | Render review/index/team metrics artifacts to static HTML. |
 | `npm run product:action-smoke` | Validate the GitHub Action artifact contract locally. |
+| `npm run product:dogfood-validation` | Validate the repository dogfood workflow and action artifact contract. |
+| `npm run product:external-evidence` | Build a combined NanoID/p-limit external evidence package. |
 
 ## API Surface Draft
 

@@ -46,3 +46,19 @@ The stable summary includes:
 
 The demo package is the reference fixture for consumer setup, GitHub Action
 outputs and dashboard/viewer development.
+
+## Evidence Packages
+
+`npm run product:dogfood-validation` writes:
+
+- `dogfood-validation.json`,
+- `dogfood-validation.md`,
+- action smoke artifacts including `pr-comment.md`, `team-metrics.md` and
+  `index.html`.
+
+`npm run product:external-evidence` writes:
+
+- `external-evidence.json`,
+- `external-evidence.md`,
+- child NanoID and p-limit pilot reports,
+- cross-repo and mixed external validation reports.

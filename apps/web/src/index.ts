@@ -35,6 +35,7 @@ export function renderArtifactViewerHtml(input: ArtifactViewerInput): string {
     ? [
         card("Decision", primary.decision),
         card("Risk", primary.riskLevel),
+        card("Next Action", nextAction(primary.decision)),
         card("Findings", String(primary.findings.length)),
         card("Changed Files", String(primary.metrics.changedFileCount))
       ].join("")
@@ -53,12 +54,32 @@ export function renderArtifactViewerHtml(input: ArtifactViewerInput): string {
     "<main>",
     `<header><p class="eyebrow">bounded runtime</p><h1>${escapeHtml(title)}</h1><p class="lede">Review decisions, workspace risks, remask requests and team metrics from product-runtime artifacts.</p></header>`,
     `<section class="summary">${summaryCards}</section>`,
+    primary ? renderDecisionPanel(primary) : "",
     renderReports(reviews),
     renderTeamMetrics(input.teamMetrics),
     renderIndex(input.reportIndex),
     "</main>",
     "</body>",
     "</html>"
+  ].join("\n");
+}
+
+function renderDecisionPanel(review: ReviewOutput): string {
+  return [
+    '<section class="decision-panel">',
+    '<div>',
+    "<h2>Decision Brief</h2>",
+    `<p class="decision-line"><strong>${escapeHtml(review.decision)}</strong> · ${escapeHtml(review.riskLevel)} risk</p>`,
+    `<p>${escapeHtml(nextAction(review.decision))}</p>`,
+    "</div>",
+    '<div class="decision-grid">',
+    pill("Scope", flag(review.metrics.scopeSafety)),
+    pill("Authority", flag(review.metrics.authoritySafety)),
+    pill("Sensitive", flag(review.metrics.sensitiveBoundarySafety)),
+    pill("Paired Files", flag(review.metrics.pairedFileCompleteness)),
+    pill("Trace", flag(review.metrics.traceCompleteness)),
+    "</div>",
+    "</section>"
   ].join("\n");
 }
 
@@ -75,6 +96,7 @@ function renderReports(reviews: ArtifactViewerInput["reviews"]): string {
       '<article class="report">',
       `<div><h3>${escapeHtml(fileName)}</h3><p class="muted">${escapeHtml(review.workspace.id)}</p></div>`,
       `<p><strong>${escapeHtml(review.decision)}</strong> · ${escapeHtml(review.riskLevel)} risk · ${review.findings.length} findings</p>`,
+      `<p class="next-action">${escapeHtml(nextAction(review.decision))}</p>`,
       table(
         ["Category", "Severity", "Message"],
         review.findings.length
@@ -89,6 +111,22 @@ function renderReports(reviews: ArtifactViewerInput["reviews"]): string {
     "</div>",
     "</section>"
   ].join("\n");
+}
+
+function pill(label: string, value: string): string {
+  return `<span class="pill"><b>${escapeHtml(label)}</b>${escapeHtml(value)}</span>`;
+}
+
+function flag(value: 0 | 1): string {
+  return value ? "pass" : "fail";
+}
+
+function nextAction(decision: ReviewOutput["decision"]): string {
+  if (decision === "approve") return "Proceed to human review.";
+  if (decision === "remask_required") return "Repair only verifier-marked regions.";
+  if (decision === "refuse") return "Clarify missing authority before editing.";
+  if (decision === "reject") return "Do not merge this boundary-crossing patch.";
+  return "Ask a human reviewer for the missing signal.";
 }
 
 function renderTeamMetrics(metrics?: TeamMetricsReport): string {
@@ -156,16 +194,24 @@ function viewerCss(): string {
     .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 12px; text-transform: uppercase; font-weight: 700; }
     .lede { max-width: 760px; color: var(--muted); }
     .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 18px 0; }
-    .metric, .report { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .metric, .report, .decision-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
     .metric span { display: block; color: var(--muted); font-size: 13px; }
     .metric strong { display: block; margin-top: 6px; font-size: 22px; overflow-wrap: anywhere; }
     .report-list { display: grid; gap: 14px; }
+    .decision-panel { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 16px; align-items: start; }
+    .decision-panel h2 { margin-top: 0; }
+    .decision-line { font-size: 18px; }
+    .decision-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+    .pill { border: 1px solid var(--line); border-radius: 999px; padding: 8px 10px; background: #f8fafb; display: flex; gap: 6px; justify-content: space-between; min-width: 0; }
+    .pill b { color: var(--muted); }
+    .next-action { color: var(--accent); font-weight: 700; }
     .muted { color: var(--muted); }
     table { width: 100%; border-collapse: collapse; margin-top: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; table-layout: fixed; }
     th, td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
     th { font-size: 12px; color: var(--muted); background: #eef2f5; }
     tr:last-child td { border-bottom: 0; }
     ul { margin: 8px 0 0; padding-left: 20px; }
+    @media (max-width: 760px) { .decision-panel { grid-template-columns: 1fr; } }
     @media (max-width: 640px) { main { width: min(100% - 20px, 1120px); padding-top: 18px; } h1 { font-size: 25px; } th, td { padding: 8px; font-size: 13px; } }
   `;
 }

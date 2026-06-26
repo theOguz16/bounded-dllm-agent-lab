@@ -17,8 +17,11 @@ import {
   createSyntheticWorkspacePacket,
   createTeamMetricsReport,
   checkSecretLeakageInArtifact,
+  createProviderAdapterChatRequest,
   deserializeSharedWorkspace,
   evaluateMergeSafety,
+  executeOpenAiCompatibleRoleAdapter,
+  parseProviderRoleAdapterResponse,
   parseUnifiedDiff,
   reviewPatch,
   runMockOrchestration,
@@ -450,6 +453,66 @@ const providerOrchestration = runMockOrchestration({
 assert.equal(providerOrchestration.workspace.claims.some((claim) => claim.id.endsWith("verifier-provider-adapter-claim")), true);
 assert.equal(checkSecretLeakageInArtifact(providerSummary, ["super-secret"]).ok, true);
 
+const providerInput = {
+  role: "verifier" as const,
+  task: productTask,
+  policy: productPolicy,
+  diff: parseUnifiedDiff("diff --git a/package.json b/package.json\n--- a/package.json\n+++ b/package.json\n@@\n-  \"version\": \"1.0.0\"\n+  \"version\": \"1.0.1\"\n"),
+  workspace: remaskReview.workspace,
+  roleView: remaskReview.workspace.roleViews.verifier
+};
+const providerRequest = createProviderAdapterChatRequest({
+  adapterName: "openai-compatible-verifier",
+  role: "verifier",
+  mode: "openai_compatible",
+  model: "gpt-compatible-small",
+  apiKey: "do-not-serialize",
+  dryRun: false
+}, providerInput);
+assert.equal(JSON.stringify(providerRequest).includes("do-not-serialize"), false);
+assert.equal(providerRequest.messages.length, 2);
+
+const parsedProviderOutput = parseProviderRoleAdapterResponse({
+  choices: [
+    {
+      message: {
+        content: JSON.stringify({
+          adapterName: "openai-compatible-verifier",
+          role: "verifier",
+          mode: "openai_compatible",
+          confidence: 0.7,
+          summary: "Provider checked bounded workspace.",
+          claims: [],
+          verifierFindings: []
+        })
+      }
+    }
+  ]
+}, "verifier", providerInput, {
+  adapterName: "openai-compatible-verifier",
+  role: "verifier",
+  mode: "openai_compatible",
+  model: "gpt-compatible-small",
+  dryRun: false
+});
+assert.equal(parsedProviderOutput.adapterName, "openai-compatible-verifier");
+
+const failedProviderOutput = await executeOpenAiCompatibleRoleAdapter({
+  adapterName: "openai-compatible-verifier",
+  role: "verifier",
+  mode: "openai_compatible",
+  model: "gpt-compatible-small",
+  dryRun: false
+}, providerInput, async () => ({
+  ok: false,
+  status: 500,
+  async json() {
+    return { error: "provider_down" };
+  }
+}));
+assert.equal(failedProviderOutput.confidence, 0);
+assert.equal(failedProviderOutput.claims[0].status, "rejected");
+
 const rejectReview = reviewPatch({
   task: productTask,
   policy: productPolicy,
@@ -509,6 +572,8 @@ const viewerHtml = renderArtifactViewerHtml({
   teamMetrics
 });
 assert.equal(viewerHtml.includes("Bounded Agent Artifact Viewer"), true);
+assert.equal(viewerHtml.includes("Decision Brief"), true);
+assert.equal(viewerHtml.includes("Repair only verifier-marked regions."), true);
 assert.equal(viewerHtml.includes("remask_required"), true);
 
 const conditionalPairedPolicy: RepoPolicy = {

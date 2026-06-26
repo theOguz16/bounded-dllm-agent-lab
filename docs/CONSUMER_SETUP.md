@@ -124,6 +124,25 @@ npm run product:demo-package
 Bu komut review, PR comment, index, team metrics ve HTML viewer artifactlerini
 aynı dizinde üretir.
 
+Kendi repo dogfood action kontratını doğrulamak için:
+
+```bash
+npm run product:dogfood-validation
+```
+
+Bu komut local action smoke üretir ve `.github/workflows/bounded-review.yml`
+ile `action.yml` dosyalarının comment, team metrics ve viewer outputlarını aynı
+contract üzerinden kullandığını kontrol eder.
+
+Dış repo pilot kanıt paketini üretmek için:
+
+```bash
+npm run product:external-evidence
+```
+
+Bu komut NanoID ve p-limit fixtureları üzerinden real PR pilot, cross-repo
+validation ve mixed external validation raporlarını tek kanıt paketinde toplar.
+
 ## 4. Opsiyonel PR Comment Posting
 
 PR'a yorum yazmak istiyorsan kendi workflow'unda `comment-path` output'unu
@@ -163,6 +182,12 @@ BOUNDED_AGENT_PROVIDER_BASE_URL=https://provider.example/v1
 BOUNDED_AGENT_PROVIDER_MODEL=provider-model-name
 BOUNDED_AGENT_PROVIDER_API_KEY=...
 ```
+
+Live provider çağrısı default değildir. `dryRun: false` açıkça verilmediği
+sürece adapter contract-shaped deterministic çıktı üretir. Live çağrıda OpenAI
+compatible `/chat/completions` formatı kullanılır; response JSON validate
+edilmeden workspace'e yazılmaz. Timeout, HTTP hata veya schema dışı cevap güvenli
+fallback claim üretir.
 
 ## 6. İlk Beklenen Sinyaller
 

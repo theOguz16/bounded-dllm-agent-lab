@@ -88,6 +88,8 @@ jobs:
           echo "Markdown: ${{ steps.bounded-review.outputs.markdown-path }}"
           echo "Comment: ${{ steps.bounded-review.outputs.comment-path }}"
           echo "Index: ${{ steps.bounded-review.outputs.index-markdown-path }}"
+          echo "Team metrics: ${{ steps.bounded-review.outputs.team-metrics-markdown-path }}"
+          echo "Viewer: ${{ steps.bounded-review.outputs.viewer-path }}"
 
       - uses: actions/upload-artifact@v4
         with:
