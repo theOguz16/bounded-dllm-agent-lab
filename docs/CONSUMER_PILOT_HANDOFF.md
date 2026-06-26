@@ -40,6 +40,10 @@ The generated `consumer-smoke-kit.json` includes the GitHub commands for
 creating a private smoke repo, opening a small docs PR and triggering the
 bounded review Action.
 
+The generated smoke workflow uses `fail-on: never` on purpose. The first
+consumer run is an artifact/comment verification, not a merge gate. After the
+team tunes `bounded-agent.policy.yml`, change it to `high` or `medium`.
+
 ## Evidence To Share Back
 
 Ask the pilot user to share:

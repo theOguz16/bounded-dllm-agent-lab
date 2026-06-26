@@ -76,6 +76,24 @@ The actual GitHub repo/PR step requires GitHub write access. In this environment
 the local kit can be generated, while remote repo creation depends on available
 GitHub execution quota and credentials.
 
+The external consumer smoke was also run in a separate private repository:
+
+```text
+Repo: theOguz16/bounded-agent-consumer-smoke
+PR #1: Consumer smoke pilot note
+```
+
+Observed result:
+
+- GitHub Action review check: pass,
+- `index.html` viewer artifact: produced,
+- `pr-comment.md` artifact: produced,
+- marker-based PR comment: posted.
+
+The smoke workflow is intentionally non-blocking (`fail-on: never`) so the first
+consumer run can always produce inspectable artifacts and a comment. Teams can
+raise the threshold to `high` after policy tuning.
+
 ## 4. Provider Adapter Gate
 
 The provider adapter path is opt-in. The live-test command reports credential
