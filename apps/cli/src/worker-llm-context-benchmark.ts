@@ -80,7 +80,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
     expectedResult: fixture.case.expectedResult,
     requiredTerms: fixture.case.requiredTerms,
     forbiddenTerms: fixture.case.forbiddenTerms,
-    finalResult: result.workspace.finalResult ?? ""
+    finalResult: result.workspace.finalResult?.summary ?? ""
   });
   await writeCheckpoint({
     runId,

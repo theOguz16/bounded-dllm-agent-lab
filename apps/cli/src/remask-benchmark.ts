@@ -110,7 +110,7 @@ async function runMode(
       expectedResult: fixture.case.expectedResult,
       requiredTerms: fixture.case.requiredTerms,
       forbiddenTerms: fixture.case.forbiddenTerms,
-      finalResult: result.workspace.finalResult ?? ""
+      finalResult: result.workspace.finalResult?.summary ?? ""
     });
   }
 
@@ -191,7 +191,11 @@ class SinglePassStaleEngine implements ModelEngine {
     // Bu baseline bilerek ilk/stale cevabı final yapar. Amaç kötü model yazmak değil;
     // refinement recovery koşusunda ikinci pass'in gerçekten skoru değiştirdiğini
     // ölçebileceğimiz kontrollü bir alt sınır oluşturmaktır.
-    refined = setFinalResult(refined, stale?.content ?? "insufficient_context", "implementer", createdAt);
+    refined = setFinalResult(refined, {
+      summary: stale?.content ?? "insufficient_context",
+      createdBy: "implementer",
+      createdAt
+    });
 
     return {
       workspace: refined,
@@ -256,7 +260,11 @@ class RemaskRecoveryEngine implements ModelEngine {
       failedRegions,
       createdAt
     });
-    refined = setFinalResult(refined, selected?.content ?? "insufficient_context", "implementer", createdAt);
+    refined = setFinalResult(refined, {
+      summary: selected?.content ?? "insufficient_context",
+      createdBy: "implementer",
+      createdAt
+    });
 
     return {
       workspace: refined,

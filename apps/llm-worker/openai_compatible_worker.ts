@@ -208,7 +208,11 @@ function applyDecision(workspace: SharedSemanticWorkspace, decision: LlmDecision
   // Burada finalResult modeli normalize etmeden yazıyoruz. Dream worker'daki
   // bounded protocol raylarıyla farkı özellikle koruyoruz; baseline gerçek model
   // kararının scope, leakage ve evidence davranışını göstermeli.
-  return setFinalResult(refined, decision.finalResult, "implementer", createdAt);
+  return setFinalResult(refined, {
+    summary: decision.finalResult,
+    createdBy: "implementer",
+    createdAt
+  });
 }
 
 function parseDecision(content: string): LlmDecision {

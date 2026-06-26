@@ -70,7 +70,11 @@ function createRawFactOnlyRunner(): AblationModeRunner {
       // ayrımı yapmaz. Böylece "model veya sistem hiçbir boundary katmanı olmadan ne kadar
       // drift/leakage üretir?" sorusuna kontrollü bir alt sınır verir.
       return {
-        workspace: setFinalResult(workspace, finalResult, "implementer", createdAt),
+        workspace: setFinalResult(workspace, {
+          summary: finalResult,
+          createdBy: "implementer",
+          createdAt
+        }),
         engineName: "ablation-raw-fact-only"
       };
     }
@@ -106,7 +110,11 @@ function createBoundedContextRunner(): AblationModeRunner {
       // verifier yazmaz. Eğer task başarısı artıp evidence/trace zayıf kalıyorsa,
       // "dar context yardımcı oldu ama sonuç henüz akademik olarak izlenebilir değil"
       // diyebiliriz.
-      refined = setFinalResult(refined, boundaryStatus === "insufficient_context" ? "insufficient_context" : selected.content, "boundary", createdAt);
+      refined = setFinalResult(refined, {
+        summary: boundaryStatus === "insufficient_context" ? "insufficient_context" : selected.content,
+        createdBy: "boundary",
+        createdAt
+      });
 
       return {
         workspace: refined,
@@ -212,7 +220,11 @@ class AblationGroundedEngine implements ModelEngine {
       failedRegions: [],
       createdAt
     });
-    refined = setFinalResult(refined, finalResult, "implementer", createdAt);
+    setFinalResult(refined, {
+      summary: finalResult,
+      createdBy: "implementer",
+      createdAt
+    });
 
     return {
       workspace: refined,

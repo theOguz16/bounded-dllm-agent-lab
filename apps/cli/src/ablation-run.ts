@@ -59,7 +59,7 @@ for (const modeId of selectedModeIds) {
       expectedResult: fixture.case.expectedResult,
       requiredTerms: fixture.case.requiredTerms,
       forbiddenTerms: fixture.case.forbiddenTerms,
-      finalResult: result.workspace.finalResult ?? ""
+      finalResult: result.workspace.finalResult?.summary ?? ""
     });
   }
 

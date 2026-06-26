@@ -47,7 +47,7 @@ export class HttpDllmWorkerEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
     const request = createRefineRequest({
-      requestId: `${workspace.id}-${workspace.version}`,
+      requestId: `${workspace.id}-${workspace.revision}`,
       view: this.view,
       workspace
     });
@@ -96,7 +96,7 @@ export class HttpLlmWorkerEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
     const request = createRefineRequest({
-      requestId: `${workspace.id}-${workspace.version}`,
+      requestId: `${workspace.id}-${workspace.revision}`,
       view: this.view,
       workspace
     });
@@ -194,7 +194,11 @@ export class MockDllmEngine implements ModelEngine {
       failedRegions: [],
       createdAt
     });
-    refined = setFinalResult(refined, finalResult, "implementer", createdAt);
+    setFinalResult(refined, {
+      summary: finalResult,
+      createdBy: "implementer",
+      createdAt
+    });
 
     return {
       workspace: refined,
