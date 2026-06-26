@@ -106,6 +106,23 @@ Anlatılacak şey:
 
 - Action'ın beklenen artifact zinciri lokal doğrulanıyor.
 - Review JSON, Markdown, PR comment ve report index üretiliyor.
+- Team metrics ve static HTML viewer artifactleri de üretiliyor.
+
+## 7. Public Pilot Evidence
+
+```bash
+npm run product:dogfood-validation -- \
+  --out-dir /tmp/bounded-agent-dogfood-validation
+
+npm run product:external-evidence -- \
+  --out-dir /tmp/bounded-agent-external-evidence
+```
+
+Anlatılacak şey:
+
+- Dogfood validation kendi workflow/action contract'ını kontrol eder.
+- External evidence NanoID ve p-limit gerçek PR fixturelarını tek raporda toplar.
+- Public pilot readiness dokümanı kalan manuel kontrolleri dürüstçe ayırır.
 
 ## Kısa Sonuç Cümlesi
 
@@ -118,10 +135,11 @@ seviyesine taşır.
 ## Dürüst Sınırlar
 
 - Production-ready SaaS değildir.
-- Dashboard yoktur.
+- Static artifact viewer vardır; hosted dashboard yoktur.
 - IDE adapter yoktur.
 - Gerçek repo graph inference yoktur.
-- dLLM verifier adapter henüz ürün runtime'a bağlanmamıştır.
+- Provider adapter live-call yolu opt-in'dir; credential seçimi pilot sahibine
+  bırakılır.
 - İnsan review yerine geçmez.
 
 ## Sonraki Demo İçin En Mantıklı Adım

@@ -256,6 +256,7 @@ The product MVP documentation is available at:
 - [`docs/REAL_PR_FIXTURE_AUTHORING.md`](docs/REAL_PR_FIXTURE_AUTHORING.md)
 - [`docs/PRODUCT_ARTIFACT_SCHEMA.md`](docs/PRODUCT_ARTIFACT_SCHEMA.md)
 - [`docs/SDK_API_DRAFT.md`](docs/SDK_API_DRAFT.md)
+- [`docs/PUBLIC_PILOT_READINESS.md`](docs/PUBLIC_PILOT_READINESS.md)
 
 Useful product checks:
 
