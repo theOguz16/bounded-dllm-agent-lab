@@ -42,6 +42,8 @@
     "product:dogfood-validation": "node dist/apps/cli/src/product-dogfood-validation.js",
     "product:external-evidence": "node dist/apps/cli/src/product-external-evidence.js",
     "product:pilot-manifest": "node dist/apps/cli/src/product-pilot-manifest.js",
+    "product:provider-live-test": "node dist/apps/cli/src/product-provider-live-test.js",
+    "product:consumer-smoke-kit": "node dist/apps/cli/src/product-consumer-smoke-kit.js",
     "oss:prepare": "node dist/apps/cli/src/prepare-oss-repo.js",
     "code:benchmark": "node dist/apps/cli/src/code-patch-benchmark.js",
     "code:model-benchmark": "node dist/apps/cli/src/code-model-patch-benchmark.js",

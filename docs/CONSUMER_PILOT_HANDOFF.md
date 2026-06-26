@@ -29,6 +29,17 @@ Do not use this as an automatic merge gate on day one.
    - `team-metrics.md`,
    - `index.html`.
 
+To generate a tiny standalone consumer smoke repository skeleton:
+
+```bash
+npm run product:consumer-smoke-kit -- \
+  --out-dir /tmp/bounded-agent-consumer-smoke-kit
+```
+
+The generated `consumer-smoke-kit.json` includes the GitHub commands for
+creating a private smoke repo, opening a small docs PR and triggering the
+bounded review Action.
+
 ## Evidence To Share Back
 
 Ask the pilot user to share:
@@ -62,6 +73,8 @@ The manifest writes:
 
 - `pilot-handoff-manifest.json`,
 - `pilot-handoff-manifest.md`.
+
+The product proof narrative is available in `docs/PRODUCT_PROOF.md`.
 
 ## First PR Recommendation
 
@@ -99,6 +112,16 @@ Only enable live provider calls after:
 - credential handling is approved by the pilot owner.
 
 Live provider calls must stay opt-in with `dryRun: false`.
+
+Use this command before enabling a real provider in a pilot:
+
+```bash
+npm run product:provider-live-test -- \
+  --out-dir /tmp/bounded-agent-provider-test
+```
+
+Run with `--live` only after the pilot owner has provided credentials through
+environment variables.
 
 ## Pilot Exit Criteria
 

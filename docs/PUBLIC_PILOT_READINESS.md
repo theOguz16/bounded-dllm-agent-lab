@@ -20,6 +20,7 @@ Ready:
 - NanoID and p-limit external evidence package,
 - provider adapter dry-run and opt-in OpenAI-compatible live-call path.
 - consumer pilot handoff manifest.
+- product proof narrative.
 
 Still manual:
 
@@ -76,6 +77,22 @@ npm run product:pilot-manifest -- \
   --out-dir /tmp/bounded-agent-pilot-handoff \
   --fail-on-missing
 ```
+
+Generate a standalone consumer smoke repo skeleton:
+
+```bash
+npm run product:consumer-smoke-kit -- \
+  --out-dir /tmp/bounded-agent-consumer-smoke-kit
+```
+
+Run the provider live-test gate:
+
+```bash
+npm run product:provider-live-test -- \
+  --out-dir /tmp/bounded-agent-provider-test
+```
+
+Use `--live` only when provider credentials are intentionally available.
 
 ## Live Dogfood PR Gate
 
