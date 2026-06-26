@@ -2,7 +2,37 @@
 
 The runtime core is usable without a model provider.
 
+## Stability Notes
+
+The SDK surface is split into three maturity levels:
+
+| Level | Meaning |
+| --- | --- |
+| `stable` | Safe for consumer setup and artifact-based workflows. |
+| `experimental` | Available for local experiments, but the contract can change. |
+| `planned` | API shape is documented, but no hosted route is guaranteed yet. |
+
+Current stable SDK entries:
+
+- `reviewPatch(input)`
+- `parseUnifiedDiff(input)`
+- `createTeamMetricsReport(artifacts)`
+- `createProductRuntimeArtifactV1(review)`
+
+Current experimental SDK entries:
+
+- `runMockOrchestration(input)`
+- `analyzeRepositoryFiles(files)`
+- `createCostTokenBenchmarkReport(fixtures)`
+- `createProviderBackedRoleAdapter(config)`
+- `executeOpenAiCompatibleRoleAdapter(config, input, fetchImpl?)`
+
+Planned HTTP routes should mirror the SDK only after the runtime contracts are
+stable.
+
 ## Core SDK
+
+
 
 ```ts
 import {

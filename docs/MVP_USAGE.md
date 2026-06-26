@@ -1,5 +1,13 @@
 # MVP Usage: Bounded Agent Runtime
 
+This document describes the first practical product surface, not the full target
+runtime.
+
+The full target is a bounded-context shared-workspace orchestration runtime.
+This MVP starts with deterministic `task + diff + policy` review so the policy,
+verifier, artifact and CI contracts can be tested before model-driven agent
+flows are added.
+
 Bu MVP, kurumsal agentic coding için tam orkestrasyon platformunun ilk küçük
 ürün yüzeyidir. Bir IDE değildir; bir model router değildir. İlk işi, task +
 diff + policy girdisini okuyup patch'in scope, authority, sensitive boundary ve
@@ -9,33 +17,33 @@ paired-file risklerini deterministik olarak değerlendirmektir.
 
 İlk hedef kullanıcılar:
 
-- AI coding kullanan engineering ekipleri,
-- PR review yükünü azaltmak isteyen tech lead'ler,
-- kurum içi AI coding policy standardı kurmak isteyen platform/DevEx ekipleri,
-- kendi coding agent'ına verifier/remask katmanı bağlamak isteyen agent tool
+* AI coding kullanan engineering ekipleri,
+* PR review yükünü azaltmak isteyen tech lead'ler,
+* kurum içi AI coding policy standardı kurmak isteyen platform/DevEx ekipleri,
+* kendi coding agent'ına verifier/remask katmanı bağlamak isteyen agent tool
   geliştiricileri.
 
 ## Ne Yapar?
 
 Runtime şu kararları üretir:
 
-| Decision | Anlamı |
-| --- | --- |
-| `approve` | Patch scope ve policy açısından geçebilir. |
-| `refuse` | Eksik authority/karar var; agent tahmin yürütmemeli. |
-| `reject` | Forbidden path, unsafe scope veya sensitive risk var. |
-| `remask_required` | Patch scope içinde ama lokal/paired-file repair gerekiyor. |
-| `human_review_required` | Otomatik karar için yeterli sinyal yok. |
+| Decision                | Anlamı                                                     |
+| ----------------------- | ---------------------------------------------------------- |
+| `approve`               | Patch scope ve policy açısından geçebilir.                 |
+| `refuse`                | Eksik authority/karar var; agent tahmin yürütmemeli.       |
+| `reject`                | Forbidden path, unsafe scope veya sensitive risk var.      |
+| `remask_required`       | Patch scope içinde ama lokal/paired-file repair gerekiyor. |
+| `human_review_required` | Otomatik karar için yeterli sinyal yok.                    |
 
 Ek olarak JSON ve Markdown raporda şunları verir:
 
-- summary metrics,
-- role-specific bounded views,
-- verifier findings,
-- remask regions,
-- trace events,
-- comment-ready PR summary,
-- report index for CI artifacts.
+* summary metrics,
+* role-specific bounded views,
+* verifier findings,
+* remask regions,
+* trace events,
+* comment-ready PR summary,
+* report index for CI artifacts.
 
 ## CLI
 
@@ -223,13 +231,13 @@ jobs:
 
 Composite action şu artifact'leri üretir:
 
-| Output | Anlamı |
-| --- | --- |
-| `json-path` | Makine-okunur review sonucu |
-| `markdown-path` | İnsan-okunur review raporu |
-| `comment-path` | PR yorumuna hazır kısa Markdown |
-| `index-json-path` | Ürün runtime rapor index'i |
-| `index-markdown-path` | İnsan-okunur rapor index'i |
+| Output                | Anlamı                          |
+| --------------------- | ------------------------------- |
+| `json-path`           | Makine-okunur review sonucu     |
+| `markdown-path`       | İnsan-okunur review raporu      |
+| `comment-path`        | PR yorumuna hazır kısa Markdown |
+| `index-json-path`     | Ürün runtime rapor index'i      |
+| `index-markdown-path` | İnsan-okunur rapor index'i      |
 
 Bu repo kendi kendini dogfood etmek için ayrıca şu workflow'u içerir:
 
@@ -292,35 +300,40 @@ bounded-agent.policy.yml
 
 Hazır örnekler:
 
-| Diff | Beklenen Karar |
-| --- | --- |
-| `examples/product-runtime/diffs/approve.diff` | `approve` |
-| `examples/product-runtime/diffs/remask-required.diff` | `remask_required` |
-| `examples/product-runtime/diffs/reject-forbidden.diff` | `reject` |
-| `examples/product-runtime/diffs/refuse-missing-authority.diff` | `refuse` |
-| `examples/product-runtime/diffs/human-review-empty.diff` | `human_review_required` |
+| Diff                                                           | Beklenen Karar          |
+| -------------------------------------------------------------- | ----------------------- |
+| `examples/product-runtime/diffs/approve.diff`                  | `approve`               |
+| `examples/product-runtime/diffs/remask-required.diff`          | `remask_required`       |
+| `examples/product-runtime/diffs/reject-forbidden.diff`         | `reject`                |
+| `examples/product-runtime/diffs/refuse-missing-authority.diff` | `refuse`                |
+| `examples/product-runtime/diffs/human-review-empty.diff`       | `human_review_required` |
 
 Repo dogfood örnekleri:
 
-| Diff | Beklenen Karar |
-| --- | --- |
-| `examples/product-runtime/diffs/repo-docs-approve.diff` | `approve` |
-| `examples/product-runtime/diffs/repo-package-remask.diff` | `remask_required` |
-| `examples/product-runtime/diffs/repo-sensitive-reject.diff` | `reject` |
+| Diff                                                        | Beklenen Karar    |
+| ----------------------------------------------------------- | ----------------- |
+| `examples/product-runtime/diffs/repo-docs-approve.diff`     | `approve`         |
+| `examples/product-runtime/diffs/repo-package-remask.diff`   | `remask_required` |
+| `examples/product-runtime/diffs/repo-sensitive-reject.diff` | `reject`          |
 
 ## Ne Yapmaz?
 
 MVP şunları özellikle yapmaz:
 
-- IDE yerine geçmez.
-- Cursor/Codex/Windsurf alternatifi değildir.
-- Patch'i otomatik üretmez.
-- Her patch'i otomatik remask etmez.
-- Belirli bir model veya API key gerektirmez.
-- İnsan review yerine geçmez.
+* IDE yerine geçmez.
+* Cursor/Codex/Windsurf alternatifi değildir.
+* Patch'i otomatik üretmez.
+* Her patch'i otomatik remask etmez.
+* Belirli bir model veya API key gerektirmez.
+* İnsan review yerine geçmez.
+* Tam shared-workspace multi-agent orchestration platformunun tamamı değildir.
 
 Bu MVP'nin amacı daha dar ve ölçülebilirdir:
 
 ```text
 AI patch'lerde context, authority, scope ve repair kararlarını görünür yapmak.
 ```
+
+Bu yüzey ileride shared semantic workspace, bounded working memory, context
+composer, agent orchestrator, conflict-aware merge ve model adapter katmanlarıyla
+genişletilecek runtime'ın ilk doğrulanabilir entegrasyon noktasıdır.

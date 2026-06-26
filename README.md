@@ -228,37 +228,61 @@ The first milestone figures are available at
 
 ## Product Runtime Status
 
-The research lab is now being translated into a bounded agent orchestration
-runtime. The current MVP surface is not a replacement for Cursor, Codex, or
-Windsurf, and it is not the whole product. It is the first integration surface
-for a policy-bound shared-workspace runtime over task + diff + policy flows:
+The research lab is being translated into a bounded-context agent orchestration
+runtime.
+
+The current MVP is not a replacement for Cursor, Codex or Windsurf. It is also
+not the whole long-term product. It is the first practical integration surface
+for a policy-bound shared-workspace runtime over `task + diff + policy` flows.
+
+Current implemented surface:
 
 ```text
 task + diff + policy
-  -> SharedWorkspace v1
-  -> Context Composer v1
-  -> bounded role views with included/excluded facts and token budget reports
-  -> Agent Orchestrator v1 mock flow
+  -> deterministic policy and boundary review
   -> verifier findings
   -> verifier-triggered remask request when needed
   -> merge decision
   -> approve / refuse / reject / remask_required / human_review_required
-  -> JSON + Markdown + PR comment artifact
+  -> JSON + Markdown + PR comment artifacts
+```
+
+Current scaffolded runtime direction:
+
+```text
+task / ticket / PR / issue
+  -> SharedWorkspace
+  -> Context Composer
+  -> role-specific bounded working memory views
+  -> Agent Orchestrator
+  -> verifier/remask feedback loop
+  -> conflict-aware merge
+  -> final patch or decision
+  -> trace + cost/token report
+```
+
+The important distinction is:
+
+```text
+PR review is the first surface.
+Bounded-context shared-workspace orchestration is the product direction.
 ```
 
 The product MVP documentation is available at:
 
-- [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md)
-- [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md)
-- [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
-- [`docs/VERIFIER_ADAPTER_CONTRACT.md`](docs/VERIFIER_ADAPTER_CONTRACT.md)
-- [`docs/EXTERNAL_REPO_ADOPTION.md`](docs/EXTERNAL_REPO_ADOPTION.md)
-- [`docs/REAL_PR_FIXTURE_AUTHORING.md`](docs/REAL_PR_FIXTURE_AUTHORING.md)
-- [`docs/PRODUCT_ARTIFACT_SCHEMA.md`](docs/PRODUCT_ARTIFACT_SCHEMA.md)
-- [`docs/SDK_API_DRAFT.md`](docs/SDK_API_DRAFT.md)
-- [`docs/PUBLIC_PILOT_READINESS.md`](docs/PUBLIC_PILOT_READINESS.md)
-- [`docs/CONSUMER_PILOT_HANDOFF.md`](docs/CONSUMER_PILOT_HANDOFF.md)
-- [`docs/PRODUCT_PROOF.md`](docs/PRODUCT_PROOF.md)
+* [`docs/MVP_USAGE.md`](docs/MVP_USAGE.md)
+* [`docs/MVP_READINESS.md`](docs/MVP_READINESS.md)
+* [`docs/DEMO_PACKAGE.md`](docs/DEMO_PACKAGE.md)
+* [`docs/VERIFIER_ADAPTER_CONTRACT.md`](docs/VERIFIER_ADAPTER_CONTRACT.md)
+* [`docs/EXTERNAL_REPO_ADOPTION.md`](docs/EXTERNAL_REPO_ADOPTION.md)
+* [`docs/REAL_PR_FIXTURE_AUTHORING.md`](docs/REAL_PR_FIXTURE_AUTHORING.md)
+* [`docs/PRODUCT_ARTIFACT_SCHEMA.md`](docs/PRODUCT_ARTIFACT_SCHEMA.md)
+* [`docs/SDK_API_DRAFT.md`](docs/SDK_API_DRAFT.md)
+* [`docs/PUBLIC_PILOT_READINESS.md`](docs/PUBLIC_PILOT_READINESS.md)
+* [`docs/CONSUMER_PILOT_HANDOFF.md`](docs/CONSUMER_PILOT_HANDOFF.md)
+* [`docs/PRODUCT_PROOF.md`](docs/PRODUCT_PROOF.md)
+* [`docs/ORCHESTRATION_RUNTIME.md`](docs/ORCHESTRATION_RUNTIME.md)
+* [`docs/STATUS_MATRIX.md`](docs/STATUS_MATRIX.md)
 
 Useful product checks:
 
@@ -274,35 +298,6 @@ npm run product:external-evidence -- --out-dir /tmp/bounded-agent-external-evide
 npm run product:pilot-manifest -- --dogfood-dir /tmp/bounded-agent-dogfood-validation --external-dir /tmp/bounded-agent-external-evidence --out-dir /tmp/bounded-agent-pilot-handoff --fail-on-missing
 npm run product:provider-live-test -- --out-dir /tmp/bounded-agent-provider-test
 npm run product:consumer-smoke-kit -- --out-dir /tmp/bounded-agent-consumer-smoke-kit
-```
-
-The second phase hybrid architecture is documented in
-[`docs/HYBRID_AGENT_ARCHITECTURE.md`](docs/HYBRID_AGENT_ARCHITECTURE.md).
-
-The product runtime direction is documented in
-[`docs/ORCHESTRATION_RUNTIME.md`](docs/ORCHESTRATION_RUNTIME.md). It adds the
-first deterministic CLI surface for reviewing task + diff + policy inputs:
-
-```bash
-npm run product:review -- --task task.md --diff patch.diff --policy policy.yml
-```
-
-The MVP usage guide, example inputs, and GitHub Action workflow are documented in
-[`docs/MVP_USAGE.md`](docs/MVP_USAGE.md).
-
-The consumer repository setup guide is available at
-[`docs/CONSUMER_SETUP.md`](docs/CONSUMER_SETUP.md).
-
-The MVP demo/readiness checklist is available at
-[`docs/MVP_READINESS.md`](docs/MVP_READINESS.md).
-
-The MVP-1 pilot report is available at
-[`docs/MVP1_PILOT_REPORT.md`](docs/MVP1_PILOT_REPORT.md).
-
-Generate visual benchmark figures with:
-
-```bash
-npm run reports:research-figures
 ```
 
 ## Development Philosophy

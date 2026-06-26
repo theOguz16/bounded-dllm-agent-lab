@@ -191,40 +191,100 @@ working memory görür.
 
 ## Current Scope
 
-İlk ürün çekirdeği şunları yapar:
+This section separates what is already implemented from what is scaffolded or
+planned. The product direction is a bounded-context shared-workspace agent
+orchestration runtime, but the current production-ready surface is still smaller
+than the full target architecture.
 
-- task/diff/policy input alır.
-- Task, scope, authority, repo facts ve patch intent içeren SharedWorkspace v1 üretir.
-- Workspace event/mutation kaydı tutar.
-- Planner, coder, verifier, tester ve remask için role-specific bounded working memory view üretir.
-- Context Composer v1 ile included/excluded facts, provenance, token estimate, budget utilization ve context sufficiency risk raporlar.
-- Role bazlı context budget override kabul eder.
-- Deterministic Agent Orchestrator v1 mock flow çalıştırabilir.
-- Flow definition, role execution contract, workspace read/write permission ve step result schema sağlar.
-- Planner/coder/verifier/remask/merge mock agentlarını aynı workspace üzerinde sıralı çalıştırır.
-- Conflict-aware merge ile claim conflict, stale claim, unsafe overwrite ve patch authority ihlallerini yakalar.
-- Direct large-context, bounded workspace, workspace+verifier ve workspace+verifier+remask akışları için cost/token benchmark raporu üretir.
-- Repo Intelligence v1 ile package manager, source/test/docs/config/generated/build sınıflandırması, likely public API files, paired files, test mappings ve suggested policy draft üretir.
-- `repoFiles` verildiğinde Workspace Builder bu repo intelligence sonucunu workspace repo facts içine bağlar.
-- Coder, verifier ve remask rolleri için modelden bağımsız adapter contract sağlar.
-- Mock/local/OpenAI-compatible/dLLM-style adapter çıktısını validate edip workspace'e claim/proposal olarak yazar.
-- dLLM-style verifier/remask araştırması için narrow/broad synthetic workspace packet ve experiment report contract üretir.
-- `product-runtime-artifact/v1` stabil özet schema'sı sağlar.
-- `team-metrics/v1` ile AI patch count, remask, scope drift, ownership, module boundary, risk trend ve cost trend raporlar.
-- `product:team-metrics` CLI komutuyla review artifact klasöründen dashboard-ready JSON/Markdown üretir.
-- Scope ve forbidden path kontrolü yapar.
-- Missing authority durumunda refusal üretir.
-- Sensitive pattern riskini yakalar.
-- Paired-file eksiklerinde remask region üretir.
-- Verifier result, remask request ve merge decision kayıtlarını workspace'e yazar.
-- Workspace JSON serialization/deserialization contract'ı sağlar.
-- Markdown ve JSON rapor üretir.
+<!--
+Maintainer note:
+Do not list roadmap goals as current product capabilities. If the runtime only
+has a schema, mock command, or artifact field for a module, mark it as
+"scaffolded" until it is exercised by a stable flow and regression tests.
+-->
 
-İlk ürün çekirdeği şunları yapmaz:
+### Implemented Now
 
-- IDE yerine geçmez.
-- Kod patch’i otomatik üretmez.
-- Her patch’i remask etmez.
-- İnsan review yerine geçmez.
-- dLLM veya belirli bir model provider gerektirmez.
-- PR reviewer olarak daralmaz; PR yüzeyi yalnızca ilk kullanım alanıdır.
+The current product runtime can:
+
+* accept `task + diff + policy` input,
+* parse changed files and diff hunks,
+* evaluate configured scope and policy boundaries,
+* check allowed paths and forbidden paths,
+* detect missing authority signals,
+* detect sensitive pattern risks,
+* detect paired-file and required-test gaps,
+* produce one of these decisions:
+
+```text
+approve | refuse | reject | remask_required | human_review_required
+```
+
+* generate JSON and Markdown review artifacts,
+* generate a PR-comment-ready Markdown summary,
+* generate report index artifacts,
+* run in CLI and GitHub Action surfaces,
+* run without model provider credentials,
+* keep provider-backed model calls opt-in,
+* keep PR comment publishing disabled by default unless explicitly enabled.
+
+This implemented layer is the first integration surface of the runtime. It is
+not the full long-term product.
+
+### Scaffolded Now
+
+The repository also contains early contracts, artifacts, or mock paths for:
+
+* `SharedWorkspace v1`,
+* workspace event and mutation records,
+* role-specific bounded working memory views,
+* included/excluded context fact reports,
+* context token estimate and budget utilization fields,
+* deterministic mock orchestration flow,
+* planner/coder/verifier/remask-style step outputs,
+* conflict and merge safety records,
+* cost/token benchmark summaries,
+* repo intelligence and starter policy suggestions,
+* provider-backed role adapter contracts,
+* stable `product-runtime-artifact/v1` summary,
+* team metrics artifacts.
+
+These pieces should be treated as active product scaffolding. They are important,
+but they should not be presented as a complete autonomous orchestration platform
+yet.
+
+### Planned Next
+
+The next product phases should turn the scaffolding into the actual runtime
+center:
+
+1. Promote `SharedWorkspace` from review artifact snapshot to central runtime
+   state model.
+2. Stabilize planner, coder, verifier, tester and remask bounded working memory
+   contracts.
+3. Make Context Composer a standalone policy-aware context selection module.
+4. Add a deterministic multi-step Agent Orchestrator over the workspace.
+5. Add explicit conflict-aware merge behavior for agent claims and patch
+   proposals.
+6. Restrict remask repair to verifier-triggered failed regions.
+7. Standardize direct large-context vs bounded workspace cost/token comparison.
+8. Expand repo intelligence into starter policy generation.
+9. Stabilize model adapter contracts without letting models own final decisions.
+10. Research dLLM-style verifier/remask roles after the runtime contracts are
+    stable.
+
+### Non-Goals
+
+The current runtime does not:
+
+* replace an IDE,
+* replace Cursor, Codex or Windsurf,
+* automatically generate production patches,
+* automatically merge code,
+* replace human review,
+* require a dLLM or a specific model provider,
+* treat PR review as the whole product.
+
+PR review is the first surface. The durable product core is context, authority,
+workspace, bounded working memory, verifier/remask, merge decision, trace and
+cost orchestration.

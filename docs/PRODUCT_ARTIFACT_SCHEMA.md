@@ -32,6 +32,18 @@ The stable summary includes:
 - workspace id,
 - trace event count.
 
+## Artifact Stability
+
+`ReviewOutput` is intentionally verbose and may evolve as the orchestration
+runtime grows.
+
+Consumers should prefer `product-runtime-artifact/v1` when they need a small and
+stable integration contract.
+
+Dashboard and SDK consumers should not depend on every nested workspace field
+inside `ReviewOutput` unless that field is explicitly promoted to a stable
+schema version.
+
 ## Demo Package
 
 `npm run product:demo-package` writes a complete local package to

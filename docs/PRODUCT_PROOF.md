@@ -3,8 +3,12 @@
 Bounded Agent Runtime is valuable when it turns agent risk into inspectable
 artifacts before a human reviewer spends attention.
 
+This proof validates the policy/verifier/artifact layer of the runtime. It does
+not yet prove the complete shared-workspace multi-agent orchestration vision.
+
 The current proof is not a broad production claim. It is a controlled evidence
 stack:
+
 
 ## 1. Live Dogfood PR
 
