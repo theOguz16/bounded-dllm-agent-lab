@@ -40,6 +40,8 @@ npm run product:pilot -- --out-dir /tmp/bounded-agent-pilot --fail-on-regression
 npm run product:pilot-v2 -- --out-dir /tmp/bounded-agent-pilot-v2 --fail-on-regression
 npm run product:cross-repo-validation -- --out-dir /tmp/bounded-cross-repo --fail-on-runtime-drift --fail-on-unreviewed
 npm run product:mixed-external-validation -- --out-dir /tmp/bounded-mixed-external --fail-on-false-blocker --fail-on-missed-blocker
+npm run product:dogfood-validation -- --out-dir /tmp/bounded-agent-dogfood-validation --fail-on-error
+npm run product:external-evidence -- --out-dir /tmp/bounded-agent-external-evidence --fail-on-regression
 ```
 
 Ürün review örneği:
@@ -151,6 +153,9 @@ Kısa anlatım:
 - GitHub comment posting repo variable ile açılır; fork PR izinleri ayrıca
   değerlendirilmelidir.
 - Dashboard, SDK ve IDE adapter sonraki fazdır.
+- Static artifact viewer ve SDK/API draft vardır; IDE adapter sonraki fazdır.
+- Provider adapter live-call yolu opt-in'dir ve gerçek credential seçimi pilot
+  sahibinin kontrolündedir.
 
 ## Readiness Kararı
 
@@ -169,4 +174,7 @@ MVP demo edilebilir sayılır, eğer:
   senaryolarını regresyonsuz geçiriyorsa,
 - cross-repo reviewed external validation drift üretmiyorsa,
 - mixed external validation pozitif PR'larda false blocker ve negatif
-  kontrollerde missed blocker üretmiyorsa.
+  kontrollerde missed blocker üretmiyorsa,
+- dogfood validation workflow/action artifact contract'ını doğruluyorsa,
+- external evidence package NanoID ve p-limit pilotlarını tek raporda
+  geçirebiliyorsa.
