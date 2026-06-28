@@ -60,20 +60,11 @@ if (!fixture) {
   );
 }
 
-/**
- * Gerçek repo taraması.
- * node_modules, dist, reports, benchmarks/repos gibi gürültüler repo-intelligence
- * default ignore listesinde dışarıda kalır.
- */
 const repoResult = await analyzeRepository({
   rootDir: process.cwd(),
   maxFiles: 1000
 });
 
-/**
- * Fixture packet hâlâ task/scope/authority için kullanılıyor.
- * Ama repoFacts artık gerçek repo intelligence sonucundan geliyor.
- */
 const baseWorkspace = createWorkspaceFromPacket(fixture.packet, {
   id: `repo-context-composer-smoke-${fixture.case.id}`
 });
@@ -155,11 +146,6 @@ function validateResult(): string[] {
     }
   }
 
-  /**
-   * En az bir role view içinde repoFacts context'i görünmeli.
-   * Bu, repo intelligence -> workspace -> context composer bağlantısının
-   * gerçekten kurulduğunu doğrular.
-   */
   const hasRepoFactsInRoleContext = views.some((view) => {
     const context = view.context as Record<string, unknown>;
     return Boolean(context.repoFacts);
@@ -169,9 +155,6 @@ function validateResult(): string[] {
     failures.push("Expected at least one composed role view to include repoFacts context.");
   }
 
-  /**
-   * Coder ve planner stale fact'i active authority gibi görmemeli.
-   */
   const planner = views.find((view) => view.role === "planner");
   const coder = views.find((view) => view.role === "coder");
 
