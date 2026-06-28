@@ -73,6 +73,7 @@
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
     "worker:llm-openai": "node dist/apps/llm-worker/openai_compatible_worker.js",
     "oracle:audit": "node dist/apps/cli/src/oracle-audit.js",
+    "cost:benchmark": "node dist/apps/cli/src/cost-benchmark.js",
     "merge:smoke": "node dist/apps/cli/src/conflict-aware-merge-smoke.js",
     "merge:report": "node dist/apps/cli/src/conflict-aware-merge-report.js",
     "orchestrator:smoke": "node dist/apps/cli/src/orchestrator-smoke.js",
