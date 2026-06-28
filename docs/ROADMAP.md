@@ -590,307 +590,281 @@ dLLM ilk sürüm için zorunlu dependency olmamalıdır. dLLM/dLLM-style modelle
 ileri fazda verifier, remask planner veya masked repair adapter olarak
 araştırılmalıdır.
 
-## Yakın Dönem Yol Haritası
+## Yakın Dönem Yol Haritası — Güncel Durum
 
-### Faz A: Vizyon Düzeltme ve Kanonik Dokümantasyon
+Bu roadmap ilk yazıldığında ürünün merkezi hedefi shared semantic workspace tabanlı bounded agent orchestration runtime olarak belirlenmişti. O noktadan sonra çekirdek runtime tarafında önemli ilerleme kaydedildi.
 
-Amaç:
-
-Ürünün PR reviewer olarak yanlış daralmasını önlemek ve shared workspace
-orchestration runtime vizyonunu kanonik hale getirmek.
-
-Yapılacaklar:
-
-- roadmap dokümanını güncelle,
-- README'deki ürün cümlesini gerekirse güçlendir,
-- `ORCHESTRATION_RUNTIME.md` içindeki "current scope" kısmını yeni vizyonla
-  uyumlu hale getir,
-- `HYBRID_AGENT_ARCHITECTURE.md` içindeki "AI patch boundary reviewer" ifadesini
-  alt kullanım alanı olarak yeniden konumlandır,
-- gelecek issue'ları PR reviewer değil orchestration runtime ekseninde aç.
-
-Başarı kriteri:
+Artık proje yalnızca policy/verifier veya PR review katmanından ibaret değildir. Aşağıdaki runtime zinciri tek komutla doğrulanabilir hale gelmiştir:
 
 ```text
-Projeye yeni bakan biri ürünün asıl hedefinin PR reviewer değil, bounded-context
-agent orchestration runtime olduğunu anlar.
+changed files
+  -> scoped repo intelligence
+  -> shared semantic workspace
+  -> bounded role context
+  -> orchestrator flow
+  -> conflict-aware merge
+  -> remask repair loop
+  -> second-pass approval
+  -> safety blocking
 ```
 
-### Faz B: Shared Workspace Core v1
+Bu zincir şu komutla doğrulanır:
 
-Amaç:
+```bash
+npm run runtime:verify
+```
 
-Workspace'i yalnızca review output içinde üretilen snapshot olmaktan çıkarıp
-ürünün ana state modeli haline getirmek.
+### Tamamlanan Çekirdek Fazlar
 
-Yapılacaklar:
+| Faz                                             | Durum      | Not                                                                                                                        |
+| ----------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Faz A: Vizyon Düzeltme                          | Tamamlandı | Ürün PR reviewer değil, bounded-context shared-workspace orchestration runtime olarak konumlandı.                          |
+| Faz B: Shared Workspace Core v1                 | Tamamlandı | Canonical `SharedSemanticWorkspace` runtime state modeli kuruldu.                                                          |
+| Faz C: Bounded Working Memory v1                | Tamamlandı | Role-specific bounded view üretimi eklendi.                                                                                |
+| Faz D: Context Composer v1                      | Tamamlandı | Role view token estimate, included/excluded facts, sufficiency ve budget utilization raporlanıyor.                         |
+| Faz E: Agent Orchestrator v1                    | Tamamlandı | Planner, coder, verifier, remask, merge, final step’lerinden oluşan mock orchestration flow çalışıyor.                     |
+| Faz F: Conflict-Aware Merge v1                  | Tamamlandı | `stale_authority`, `remask_unresolved`, unsafe merge ve required action üretimi var.                                       |
+| Faz G: Cost/Token Benchmark v1                  | Tamamlandı | Bounded context ile full workspace baseline kıyaslanabiliyor.                                                              |
+| Faz H: Repo Intelligence v1                     | Tamamlandı | Repo scan, ownership, module boundary, sensitive/stale fact çıkarımı var.                                                  |
+| Faz H.2: Changed-Files Scoped Repo Intelligence | Tamamlandı | PR/runtime changed files input’u ile repo facts daraltılıyor.                                                              |
+| Faz H.3: Repo-Aware Orchestrator                | Tamamlandı | Changed-files scoped repo intelligence orchestrator ve merge flow’a bağlandı.                                              |
+| Faz H.4: Remask Repair Loop v1                  | Tamamlandı | Repairable conflictlerde deterministic local repair ve second-pass approval simulation çalışıyor.                          |
+| Faz H.5: Remask Repair Safety Layer             | Tamamlandı | Sensitive boundary, permission violation, verifier rejection ve blocked mutation durumlarında repair loop merge’i açmıyor. |
+| Faz H.6: Runtime Verification Suite             | Tamamlandı | `runtime:verify` ile kritik runtime zinciri tek komutla doğrulanıyor.                                                      |
 
-- `SharedWorkspace` schema'sını genişlet,
-- task, policy, repo facts, claims, patch plan, verifier result, remask request
-  alanlarını ayır,
-- workspace mutation/event modelini tanımla,
-- agent claim formatı ekle,
-- conflict record formatı ekle,
-- workspace serialization/deserialization ekle.
+### Güncel Runtime Verification
 
-Başarı kriteri:
+Şu an runtime doğrulama paketi aşağıdaki scriptleri kapsar:
 
 ```text
-Bir task için workspace oluşturulabilir, agent claim'i eklenebilir, verifier
-sonucu yazılabilir ve final trace alınabilir.
+repo:changed-files-smoke
+repo:changed-context-report
+repo:orchestrator-smoke
+repo:orchestrator-report
+remask:repair-smoke
+remask:repair-report
+remask:repair-safety-smoke
+remask:repair-safety-report
 ```
 
-### Faz C: Bounded Working Memory v1
-
-Amaç:
-
-Her agent rolü için task-bound, ephemeral, policy-bound context view üretmek.
-
-Yapılacaklar:
-
-- planner view contract,
-- coder view contract,
-- verifier view contract,
-- tester view contract,
-- remask view contract,
-- view token estimate,
-- included/excluded facts listesi,
-- view provenance.
-
-Başarı kriteri:
+Bu suite şu iddiayı doğrular:
 
 ```text
-Aynı workspace'ten farklı agent rolleri için farklı bounded working memory
-view'leri deterministik üretilebilir.
+Repairable conflict varsa sistem lokal repair ile approve’a gidebilir.
+Unrepairable/safety conflict varsa sistem merge’i açmaz.
 ```
 
-### Faz D: Context Composer v1
+### Güncel Ürün Çekirdeği
 
-Amaç:
-
-Dar context üretimini ürünün merkezi yeteneği haline getirmek.
-
-Yapılacaklar:
-
-- context budget input,
-- role-specific field selection,
-- policy-aware filtering,
-- sensitive field exclusion,
-- stale fact exclusion,
-- minimal sufficient context report,
-- budget utilization metric.
-
-Başarı kriteri:
+Şu an savunulabilir teknik çekirdek şudur:
 
 ```text
-Bir role view için hangi bilgilerin seçildiği, hangilerinin dışarıda bırakıldığı
-ve bunun token maliyeti raporlanabilir.
+PR changed files
+  -> scoped repo intelligence
+  -> shared semantic workspace
+  -> bounded role context
+  -> orchestrator
+  -> verifier/remask decision
+  -> conflict-aware merge
+  -> deterministic repair loop
+  -> safety gate
 ```
 
-### Faz E: Agent Orchestrator v1
+Bu hâlâ tam ürün değildir. Özellikle model adapter ve gerçek model/RunPod worker entegrasyonu henüz sıradaki ana iştir.
 
-Amaç:
-
-Tek seferlik review runtime'dan, çok adımlı agent flow runtime'a geçmek.
-
-İlk flow:
-
-```text
-workspace:create
-  -> planner:claim
-  -> coder:patch_plan
-  -> verifier:decision
-  -> remask:optional
-  -> merge:final
-```
-
-Yapılacaklar:
-
-- flow definition formatı,
-- role execution contract,
-- workspace read/write permissions,
-- step result schema,
-- failure handling,
-- deterministic mock agentlar,
-- trace report.
-
-Başarı kriteri:
-
-```text
-Mock agentlarla uçtan uca bounded workspace orchestration flow çalışır ve
-trace üretir.
-```
-
-### Faz F: Conflict-Aware Merge v1
-
-Amaç:
-
-Birden fazla agent claim veya patch proposal yazdığında conflict yakalamak.
-
-Yapılacaklar:
-
-- claim ownership,
-- writable region tracking,
-- conflicting claim detection,
-- stale claim detection,
-- unsafe overwrite detection,
-- merge decision report.
-
-Başarı kriteri:
-
-```text
-İki agent aynı workspace bölgesinde çelişkili karar üretirse runtime bunu
-yakalar ve final merge'e sessizce sokmaz.
-```
-
-### Faz G: Cost/Token Benchmark v1
-
-Amaç:
-
-Ürün iddiasının maliyet tarafını ölçmek.
-
-Karşılaştırılacaklar:
-
-- direct large-context agent,
-- bounded workspace agent,
-- workspace + verifier,
-- workspace + verifier + remask.
-
-Ölçümler:
-
-- estimated input tokens,
-- estimated output tokens,
-- role view size,
-- total flow cost,
-- remask extra cost,
-- task success,
-- scope drift,
-- missed blocker,
-- false blocker.
-
-Başarı kriteri:
-
-```text
-Bounded workspace flow'un hangi senaryoda daha düşük context maliyetiyle
-benzer veya daha güvenli sonuç verdiği raporlanabilir.
-```
-
-### Faz H: Repo Intelligence v1
-
-Amaç:
-
-Policy'nin tamamını elle yazmak zorunda kalmadan repo hakkında ilk otomatik
-sinyalleri üretmek.
-
-Yapılacaklar:
-
-- package manager detection,
-- source/test/docs/config file classification,
-- generated/build output tahmini,
-- likely paired files,
-- likely public API files,
-- likely test mappings,
-- suggested policy draft.
-
-Başarı kriteri:
-
-```text
-Yeni bir repo için starter policy ve workspace facts otomatik önerilebilir.
-```
+## Sıradaki Ana Fazlar
 
 ### Faz I: Model Adapter Layer
 
 Amaç:
 
-Runtime'ı modelden bağımsız tutarak LLM/dLLM/dLLM-style adapterları bağlamak.
-
-İlk roller:
-
-- coder adapter,
-- verifier adapter,
-- remask adapter.
-
-İlk prensip:
-
-```text
-Model karar motorunun yerine geçmez; workspace'e claim/proposal yazar.
-Runtime merge ve verifier kararını korur.
-```
-
-Başarı kriteri:
-
-```text
-Mock model, local model veya OpenAI-compatible model aynı role contract üstünden
-çalışabilir.
-```
-
-### Faz J: dLLM-Style Verifier/Remask Araştırması
-
-Amaç:
-
-dLLM veya masked refinement fikrini ürün flow'una doğru rolde bağlamak.
-
-Araştırma soruları:
-
-- dLLM direct patch yazmada mı güçlü?
-- verifier kararlarında mı daha değerli?
-- remask failed region repair'de mi avantajlı?
-- narrow context + synthetic workspace packet ile daha az scope drift üretir mi?
-
-Başarı kriteri:
-
-```text
-dLLM/dLLM-style adapter'ın hangi role gerçekten katkı sağladığı benchmark ile
-gösterilir.
-```
-
-### Faz K: Developer Experience ve Entegrasyonlar
-
-Amaç:
-
-Runtime'ı gerçek ekiplerin deneyebileceği hale getirmek.
+Runtime’ı gerçek LLM/dLLM/OpenAI-compatible worker ile çalışabilir hale getirmek.
 
 Yapılacaklar:
 
-- CLI komutlarını sadeleştir,
-- starter config üret,
-- GitHub Action rehberini sadeleştir,
-- PR comment çıktısını developer-friendly hale getir,
-- JSON artifact schema'sını stabil hale getir,
-- SDK/API taslağı çıkar.
+* role-based model adapter contract tanımla,
+* planner adapter,
+* coder adapter,
+* verifier adapter,
+* remask adapter,
+* second-pass verifier adapter,
+* RunPod/OpenAI-compatible endpoint config,
+* timeout/retry/error handling,
+* structured JSON response validation,
+* model output’u workspace mutation’a çeviren adapter.
 
 Başarı kriteri:
 
 ```text
-Bir ekip 10-15 dakika içinde runtime'ı kendi repo'sunda artifact-only modda
-çalıştırabilir.
+Mock agent yerine gerçek model worker kullanılarak planner/coder/verifier/remask flow çalışabilir.
 ```
 
-### Faz L: Dashboard ve Team Metrics
+İlk hedef script:
+
+```bash
+npm run worker:orchestrator-smoke
+```
+
+Beklenen zincir:
+
+```text
+changed files
+  -> scoped repo intelligence
+  -> role-specific prompt
+  -> model worker response
+  -> workspace mutation
+  -> verifier decision
+  -> optional remask
+  -> second-pass verifier
+  -> merge decision
+```
+
+### Faz J: Real Remask Repair v2
 
 Amaç:
 
-Tek PR yerine takım seviyesinde agentic coding risklerini görünür yapmak.
+Deterministic repair policy yerine gerçek lokal patch/text repair üretmek.
 
-Metrikler:
+Yapılacaklar:
 
-- AI patch count,
-- boundary guess count,
-- false blocker,
-- missed blocker,
-- remask required,
-- remask success,
-- token budget,
-- role view size,
-- scope drift,
-- ownership misses,
-- module boundary findings.
+* failed region extraction,
+* stale authority yerine current/correction authority kullanımı,
+* local repair prompt contract,
+* repaired patch draft schema,
+* second-pass verifier input schema,
+* invalid repair blocking,
+* no broadening check,
+* extra file touch check.
 
 Başarı kriteri:
 
 ```text
-Team lead veya platform ekibi AI coding akışının risk ve maliyet trendini
-görebilir.
+Remask repair sadece failed region üzerinde gerçek model çıktısı üretir ve second-pass verifier bunu approve/reject edebilir.
+```
+
+### Faz K: Real Repo/PR Evaluation
+
+Amaç:
+
+Fixture dışına çıkıp gerçek repo/diff senaryolarında runtime davranışını ölçmek.
+
+Yapılacaklar:
+
+* Git diff adapter,
+* PR changed files adapter,
+* real repo smoke,
+* positive/negative control set,
+* model worker ile bounded vs direct baseline kıyası,
+* token/cost karşılaştırması,
+* safety regression suite.
+
+Başarı kriteri:
+
+```text
+Gerçek diff üzerinde bounded runtime, direct geniş-context baseline’a göre daha kontrollü ve ölçülebilir sonuç üretir.
+```
+
+### Faz L: dLLM-Style Verifier/Remask Araştırması
+
+Amaç:
+
+dLLM/diffusion-style modelleri doğrudan coder olarak değil, verifier/remask/refinement rolünde test etmek.
+
+Araştırma soruları:
+
+* dLLM direct patch üretimde mi zayıf, yoksa lokal repair’de mi güçlü?
+* masked refinement, failed region repair için avantaj sağlıyor mu?
+* narrow context ile dLLM scope drift’i azaltıyor mu?
+* LLM coder + dLLM remask/verifier hibriti anlamlı mı?
+
+Başarı kriteri:
+
+```text
+dLLM-style adapter’ın hangi role gerçek katkı verdiği RunPod testleriyle ölçülür.
+```
+
+### Faz M: Developer Experience ve SDK/API
+
+Amaç:
+
+Runtime’ı başka araçların bağlanabileceği ürün çekirdeğine dönüştürmek.
+
+Yapılacaklar:
+
+* CLI komutlarını sadeleştir,
+* starter config üret,
+* JSON artifact schema stabilizasyonu,
+* SDK/API taslağı,
+* GitHub Action yüzeyini artifact-only ve comment mode olarak netleştir,
+* policy bootstrap komutu,
+* repo onboarding komutu.
+
+Başarı kriteri:
+
+```text
+Bir ekip runtime’ı kendi reposunda 10-15 dakika içinde artifact-only modda çalıştırabilir.
+```
+
+### Faz N: Dashboard ve Team Metrics
+
+Amaç:
+
+Tek PR yerine takım seviyesinde agentic coding risklerini ve maliyetini görünür yapmak.
+
+Metrikler:
+
+* AI patch count,
+* remask required count,
+* remask success count,
+* final merge safe count,
+* blocked safety scenario count,
+* token budget,
+* role view size,
+* scope drift,
+* ownership miss,
+* module boundary finding,
+* false blocker,
+* missed blocker.
+
+Başarı kriteri:
+
+```text
+Team lead veya platform ekibi AI coding runtime’ın risk, maliyet ve kalite trendini görebilir.
+```
+
+## Güncel Teknik Öncelik Sırası
+
+Bundan sonraki teknik öncelik sırası şudur:
+
+1. Model adapter contract.
+2. RunPod/OpenAI-compatible worker integration.
+3. Worker-backed orchestrator smoke.
+4. Worker-backed verifier/remask smoke.
+5. Real remask repair v2.
+6. Second-pass verifier gerçek model entegrasyonu.
+7. Real repo/diff evaluation.
+8. Bounded vs direct model baseline benchmark.
+9. dLLM-style verifier/remask adapter araştırması.
+10. CLI/SDK/API polish.
+11. GitHub Action/GitHub App entegrasyon polish.
+12. Dashboard ve team metrics.
+
+Bu sırada README veya ürün anlatısı genişletilebilir; fakat ana öncelik artık gerçek model worker entegrasyonu ve RunPod testleridir.
+
+## Güncel Kısa Özet
+
+Proje şu aşamaya gelmiştir:
+
+```text
+Mock/deterministic runtime çekirdeği doğrulandı.
+Şimdi hedef, aynı bounded workspace orchestration zincirini gerçek model worker ile çalıştırmaktır.
+```
+
+Bu nedenle kısa vadede odak:
+
+```text
+Dokümantasyon polish değil,
+model adapter + RunPod worker integration + gerçek remask/verifier testleri.
 ```
 
 ## Teknik Öncelik Sırası

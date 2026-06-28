@@ -73,6 +73,8 @@
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
     "worker:llm-openai": "node dist/apps/llm-worker/openai_compatible_worker.js",
     "runtime:verify": "npm run typecheck && npm run build && node dist/apps/cli/src/runtime-verify.js",
+    "model:adapter-smoke": "node dist/apps/cli/src/model-adapter-smoke.js",
+    "model:worker-smoke": "node dist/apps/cli/src/model-worker-smoke.js",
     "oracle:audit": "node dist/apps/cli/src/oracle-audit.js",
     "repo:intelligence-smoke": "node dist/apps/cli/src/repo-intelligence-smoke.js",
     "repo:context-smoke": "node dist/apps/cli/src/repo-context-composer-smoke.js",
