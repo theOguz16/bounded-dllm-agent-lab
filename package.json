@@ -73,6 +73,9 @@
     "worker:dream": "python3 apps/dllm-worker/dream_worker.py",
     "worker:llm-openai": "node dist/apps/llm-worker/openai_compatible_worker.js",
     "oracle:audit": "node dist/apps/cli/src/oracle-audit.js",
+    "orchestrator:smoke": "node dist/apps/cli/src/orchestrator-smoke.js",
+    "context:composer-smoke": "node dist/apps/cli/src/context-composer-smoke.js",
+    "context:composer-report": "node dist/apps/cli/src/context-composer-report.js",
     "clean": "rm -rf dist"
   },
   "workspaces": [
