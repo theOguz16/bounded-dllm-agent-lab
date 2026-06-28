@@ -3,6 +3,16 @@ import { join, relative, sep } from "node:path";
 
 export type RepoIntelligenceOptions = {
   rootDir: string;
+
+  /**
+   * PR/runtime changed files input'u.
+   *
+   * Verilirse repo intelligence tüm source dosyalarını changedFiles saymaz.
+   * Sadece verilen dosyaları changedFiles olarak taşır ve ownership/module/sensitive
+   * gibi fact'leri ilgili module root'lara göre daraltır.
+   */
+  changedFiles?: string[];
+
   maxFiles?: number;
   maxFileBytes?: number;
   includeExtensions?: string[];
@@ -89,12 +99,6 @@ const defaultIgnoreDirectories = [
   "reports",
   ".vercel",
   ".expo",
-
-  /**
-   * Benchmark fixture repos gerçek ürün repo intelligence sinyaline karışmamalı.
-   * Aksi halde apps/api/src/index.ts gibi dosyalar benchmark altındaki
-   * nanoid/test/index.test.js ile yanlış eşleşebilir.
-   */
   "benchmarks/repos"
 ];
 
@@ -108,11 +112,15 @@ const testNameFragments = [
 ];
 
 /**
- * Repo Intelligence v1.
+ * Repo Intelligence v2.
  *
- * Bu modül gerçek repo üzerinde deterministic, lightweight repo facts üretir.
- * Amaç şimdilik tam statik analiz değil; workspace repoFacts içine taşınabilecek
- * ilk ürün sinyallerini çıkarmaktır.
+ * v1:
+ * - repo dosya ağacından lightweight repo facts üretir.
+ *
+ * v2:
+ * - changedFiles input'u varsa PR/runtime davranışına yaklaşır.
+ * - tüm source dosyalarını changedFiles gibi göstermeyi bırakır.
+ * - ownership/module/sensitive/stale fact'leri changed file module root'larına göre daraltır.
  */
 export async function analyzeRepository(
   options: RepoIntelligenceOptions
@@ -121,6 +129,7 @@ export async function analyzeRepository(
   const maxFileBytes = options.maxFileBytes ?? 64_000;
   const includeExtensions = options.includeExtensions ?? defaultIncludeExtensions;
   const ignoreDirectories = options.ignoreDirectories ?? defaultIgnoreDirectories;
+  const explicitChangedFiles = normalizeChangedFiles(options.changedFiles ?? []);
 
   const diagnostics: string[] = [];
   const scannedFiles = await collectRepoFiles({
@@ -131,22 +140,45 @@ export async function analyzeRepository(
     diagnostics
   });
 
-  const fileSet = new Set(scannedFiles);
+  const scannedFileSet = new Set(scannedFiles);
   const sourceFiles = scannedFiles.filter(isSourceFile).filter((file) => !isTestFile(file));
   const testFiles = scannedFiles.filter(isTestFile);
 
+  const effectiveChangedFiles =
+    explicitChangedFiles.length > 0 ? explicitChangedFiles : sourceFiles;
+
+  if (explicitChangedFiles.length > 0) {
+    for (const file of explicitChangedFiles) {
+      if (!scannedFileSet.has(file)) {
+        diagnostics.push(
+          `Changed file ${file} was not part of scanned files. It may be ignored, missing, generated, or outside includeExtensions.`
+        );
+      }
+    }
+  }
+
+  const relevantFiles =
+    explicitChangedFiles.length > 0
+      ? filterRelevantFilesForChangedFiles(scannedFiles, effectiveChangedFiles)
+      : scannedFiles;
+
   const contentSignals = await collectContentSignals({
     rootDir: options.rootDir,
-    files: scannedFiles,
+    files: relevantFiles,
     maxFileBytes
   });
 
-  const ownership = inferOwnership(scannedFiles);
-  const pairedFiles = inferPairedFiles(sourceFiles, testFiles, fileSet);
+  const fileSet = new Set(scannedFiles);
+  const changedSourceFiles = effectiveChangedFiles
+    .filter(isSourceFile)
+    .filter((file) => !isTestFile(file));
+
+  const ownership = inferOwnership(effectiveChangedFiles);
+  const pairedFiles = inferPairedFiles(changedSourceFiles, testFiles, fileSet);
   const requiredTestMappings = inferRequiredTestMappings(pairedFiles);
   const requiredTests = uniqueSorted(requiredTestMappings.map((item) => item.requiredTestFile));
-  const moduleBoundaries = inferModuleBoundaries(scannedFiles);
-  const sensitivePatterns = inferSensitivePatterns(scannedFiles, contentSignals);
+  const moduleBoundaries = inferModuleBoundaries(relevantFiles);
+  const sensitivePatterns = inferSensitivePatterns(relevantFiles, contentSignals);
   const staleFacts = inferStaleFacts(contentSignals);
 
   return {
@@ -155,7 +187,7 @@ export async function analyzeRepository(
     skippedFileCount: diagnostics.length,
     scannedFiles,
     facts: {
-      changedFiles: sourceFiles,
+      changedFiles: uniqueSorted(effectiveChangedFiles),
       ownership,
       pairedFiles,
       requiredTests,
@@ -197,12 +229,6 @@ async function walkDirectory(
   let entryNames: string[];
 
   try {
-    /**
-     * Burada withFileTypes kullanmıyoruz.
-     * Bazı Node type sürümlerinde readdir({ withFileTypes: true }) generic
-     * Dirent tipini yanlış inference edip Dirent<NonSharedBuffer> hatası
-     * üretebiliyor. String isimleri okuyup stat ile ayırmak daha stabil.
-     */
     entryNames = await readdir(currentDir);
   } catch (error) {
     input.diagnostics.push(
@@ -281,7 +307,7 @@ async function collectContentSignals(input: ContentSignalInput): Promise<FileCon
       });
     } catch {
       /**
-       * Repo intelligence smoke için okunamayan dosya fatal değildir.
+       * Repo intelligence için okunamayan dosya fatal değildir.
        * Dosya ağacı sinyali yine kullanılabilir.
        */
     }
@@ -314,7 +340,7 @@ function inferOwnership(files: string[]): RepoOwnershipFact[] {
   return uniqueSorted([...prefixes]).map((pathPrefix) => ({
     pathPrefix,
     owner: inferOwnerFromPathPrefix(pathPrefix),
-    reason: "Fallback owner inferred from top-level repo module path."
+    reason: "Fallback owner inferred from changed file or top-level repo module path."
   }));
 }
 
@@ -484,15 +510,9 @@ function createTestCandidates(sourceFile: string, knownTestFiles: string[]): str
 
   const withoutExtension = sourceFile.slice(0, -extension.length);
 
-  /**
-   * 1. Aynı klasördeki klasik test/spec patternleri.
-   */
   candidates.add(`${withoutExtension}.test${extension}`);
   candidates.add(`${withoutExtension}.spec${extension}`);
 
-  /**
-   * 2. src -> test/tests/__tests__ mapping.
-   */
   if (sourceFile.includes("/src/")) {
     candidates.add(sourceFile.replace("/src/", "/test/").replace(extension, `.test${extension}`));
     candidates.add(sourceFile.replace("/src/", "/tests/").replace(extension, `.test${extension}`));
@@ -503,11 +523,6 @@ function createTestCandidates(sourceFile: string, knownTestFiles: string[]): str
     candidates.add(sourceFile.replace("/src/", "/__tests__/").replace(extension, `.spec${extension}`));
   }
 
-  /**
-   * 3. Global basename match çok tehlikeli.
-   * index.ts gibi dosyalar her yerde var. Bu yüzden sadece aynı apps/* veya
-   * packages/* module root'u içindeki testleri candidate yapıyoruz.
-   */
   for (const testFile of knownTestFiles) {
     if (isLikelyTestForSource(sourceFile, testFile)) {
       candidates.add(testFile);
@@ -531,10 +546,6 @@ function isLikelyTestForSource(sourceFile: string, testFile: string): boolean {
     return false;
   }
 
-  /**
-   * Test source ile aynı module içinde olmalı.
-   * Bu, fixture repo veya başka package testlerinin yanlış eşleşmesini engeller.
-   */
   return (
     testFile.includes("/test/") ||
     testFile.includes("/tests/") ||
@@ -544,33 +555,34 @@ function isLikelyTestForSource(sourceFile: string, testFile: string): boolean {
   );
 }
 
-function getModuleRoot(file: string): string {
-  const parts = file.split("/");
+function filterRelevantFilesForChangedFiles(
+  scannedFiles: string[],
+  changedFiles: string[]
+): string[] {
+  const changedSet = new Set(changedFiles);
+  const changedModuleRoots = new Set(
+    changedFiles.map(getModuleRoot).filter((root) => root.length > 0)
+  );
 
-  if ((parts[0] === "packages" || parts[0] === "apps") && parts[1]) {
-    return `${parts[0]}/${parts[1]}`;
-  }
+  return scannedFiles.filter((file) => {
+    if (changedSet.has(file)) {
+      return true;
+    }
 
-  /**
-   * benchmarks/repos default ignore altında; ama custom ignore verilirse bile
-   * benchmark fixture'ları kendi module root'u dışına pair edilmesin.
-   */
-  if (parts[0] === "benchmarks" && parts[1]) {
-    return `${parts[0]}/${parts[1]}`;
-  }
+    const moduleRoot = getModuleRoot(file);
 
-  return parts[0] ?? "";
+    return moduleRoot.length > 0 && changedModuleRoots.has(moduleRoot);
+  });
 }
 
-function getBasenameWithoutExtension(file: string): string {
-  const basename = file.split("/").at(-1) ?? file;
-  const extension = getExtension(basename);
-
-  if (!extension) {
-    return basename;
-  }
-
-  return basename.slice(0, -extension.length);
+function normalizeChangedFiles(files: string[]): string[] {
+  return uniqueSorted(
+    files
+      .map((file) => file.trim())
+      .filter((file) => file.length > 0)
+      .map((file) => file.replace(/\\/g, "/"))
+      .map((file) => file.replace(/^\.\//, ""))
+  );
 }
 
 function compactSensitivePatterns(patterns: RepoSensitivePatternFact[]): string[] {
@@ -612,6 +624,31 @@ function isSourceFile(file: string): boolean {
 
 function isTestFile(file: string): boolean {
   return testNameFragments.some((fragment) => file.includes(fragment));
+}
+
+function getModuleRoot(file: string): string {
+  const parts = file.split("/");
+
+  if ((parts[0] === "packages" || parts[0] === "apps") && parts[1]) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+
+  if (parts[0] === "benchmarks" && parts[1]) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+
+  return parts[0] ?? "";
+}
+
+function getBasenameWithoutExtension(file: string): string {
+  const basename = file.split("/").at(-1) ?? file;
+  const extension = getExtension(basename);
+
+  if (!extension) {
+    return basename;
+  }
+
+  return basename.slice(0, -extension.length);
 }
 
 function getExtension(file: string): string {

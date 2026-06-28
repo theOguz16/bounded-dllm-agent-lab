@@ -76,6 +76,7 @@
     "repo:intelligence-smoke": "node dist/apps/cli/src/repo-intelligence-smoke.js",
     "repo:context-smoke": "node dist/apps/cli/src/repo-context-composer-smoke.js",
     "repo:context-report": "node dist/apps/cli/src/repo-context-composer-report.js",
+    "repo:changed-files-smoke": "node dist/apps/cli/src/repo-changed-files-smoke.js",
     "cost:benchmark": "node dist/apps/cli/src/cost-benchmark.js",
     "merge:smoke": "node dist/apps/cli/src/conflict-aware-merge-smoke.js",
     "merge:report": "node dist/apps/cli/src/conflict-aware-merge-report.js",
