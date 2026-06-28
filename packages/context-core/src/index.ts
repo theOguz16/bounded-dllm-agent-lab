@@ -569,23 +569,7 @@ function buildRoleContext(
   }
 
   if (includedRegions.includes("repo_facts")) {
-    context.repoFacts = {
-      changedFiles: workspace.repoFacts.changedFiles,
-      ownership: workspace.repoFacts.ownership,
-      pairedFiles: workspace.repoFacts.pairedFiles,
-      requiredTests: workspace.repoFacts.requiredTests,
-      requiredTestMappings: workspace.repoFacts.requiredTestMappings,
-      moduleBoundaries: workspace.repoFacts.moduleBoundaries,
-      sensitivePatterns: workspace.repoFacts.sensitivePatterns.map(sanitizeSensitiveContent),
-
-      /**
-       * Stale facts sadece includedFacts üzerinden role policy'ye göre girer.
-       * Burada raw staleFacts tekrar taşınmaz.
-       */
-      staleFacts: includedFacts
-        .filter((fact) => fact.kind === "stale")
-        .map((fact) => fact.content)
-    };
+    context.repoFacts = compactRepoFactsForRole(workspace, role, includedFacts);
   }
 
   if (includedRegions.includes("patch_intent")) {
@@ -633,6 +617,198 @@ function buildRoleContext(
   }
 
   return context;
+}
+
+function compactRepoFactsForRole(
+  workspace: SharedSemanticWorkspace,
+  role: WorkspaceRole,
+  includedFacts: ComposedContextFact[]
+): Record<string, unknown> {
+  const repoFacts = workspace.repoFacts;
+
+  const compactChangedFiles = limitList(
+    repoFacts.changedFiles,
+    repoFactLimitForRole(role, "changedFiles")
+  );
+
+  const compactRequiredTests = limitList(
+    repoFacts.requiredTests,
+    repoFactLimitForRole(role, "requiredTests")
+  );
+
+  const compactSensitivePatterns = limitList(
+    repoFacts.sensitivePatterns.map(sanitizeSensitiveContent),
+    repoFactLimitForRole(role, "sensitivePatterns")
+  );
+
+  const compactStaleFacts = limitList(
+    includedFacts
+      .filter((fact) => fact.kind === "stale")
+      .map((fact) => fact.content),
+    repoFactLimitForRole(role, "staleFacts")
+  );
+
+  return {
+    changedFiles: compactChangedFiles,
+
+    /**
+     * Ownership/module/test bilgileri ham full repo dump olarak verilmez.
+     * Role view için bounded sample + count verilir.
+     */
+    ownership: limitCollection(
+      repoFacts.ownership,
+      repoFactLimitForRole(role, "ownership")
+    ),
+    pairedFiles: limitCollection(
+      repoFacts.pairedFiles,
+      repoFactLimitForRole(role, "pairedFiles")
+    ),
+    requiredTests: compactRequiredTests,
+    requiredTestMappings: limitCollection(
+      repoFacts.requiredTestMappings,
+      repoFactLimitForRole(role, "requiredTestMappings")
+    ),
+    moduleBoundaries: limitCollection(
+      repoFacts.moduleBoundaries,
+      repoFactLimitForRole(role, "moduleBoundaries")
+    ),
+
+    /**
+     * Planner/coder sensitivePatterns raw olarak geniş görmemeli.
+     * Verifier daha fazla boundary sinyali görebilir.
+     */
+    sensitivePatterns: compactSensitivePatterns,
+    staleFacts: compactStaleFacts,
+
+    /**
+     * Full repoFacts yerine bounded context verildiğini trace etmek için metadata.
+     */
+    summary: {
+      totalChangedFiles: repoFacts.changedFiles.length,
+      totalOwnershipEntries: countCollection(repoFacts.ownership),
+      totalPairedFiles: countCollection(repoFacts.pairedFiles),
+      totalRequiredTests: repoFacts.requiredTests.length,
+      totalRequiredTestMappings: countCollection(repoFacts.requiredTestMappings),
+      totalModuleBoundaries: countCollection(repoFacts.moduleBoundaries),
+      totalSensitivePatterns: repoFacts.sensitivePatterns.length,
+      totalStaleFacts: repoFacts.staleFacts.length,
+      compaction: "role-specific-bounded-repo-facts-v1"
+    }
+  };
+}
+
+type RepoFactBucket =
+  | "changedFiles"
+  | "ownership"
+  | "pairedFiles"
+  | "requiredTests"
+  | "requiredTestMappings"
+  | "moduleBoundaries"
+  | "sensitivePatterns"
+  | "staleFacts";
+
+function repoFactLimitForRole(role: WorkspaceRole, bucket: RepoFactBucket): number {
+  if (role === "planner") {
+    return plannerRepoFactLimit(bucket);
+  }
+
+  if (role === "coder") {
+    return coderRepoFactLimit(bucket);
+  }
+
+  if (role === "verifier") {
+    return verifierRepoFactLimit(bucket);
+  }
+
+  if (role === "tester") {
+    return testerRepoFactLimit(bucket);
+  }
+
+  if (role === "system") {
+    return 50;
+  }
+
+  return 8;
+}
+
+function plannerRepoFactLimit(bucket: RepoFactBucket): number {
+  switch (bucket) {
+    case "changedFiles":
+      return 16;
+    case "ownership":
+      return 12;
+    case "moduleBoundaries":
+      return 12;
+    case "sensitivePatterns":
+      return 4;
+    case "staleFacts":
+      return 0;
+    default:
+      return 6;
+  }
+}
+
+function coderRepoFactLimit(bucket: RepoFactBucket): number {
+  switch (bucket) {
+    case "changedFiles":
+      return 20;
+    case "ownership":
+      return 10;
+    case "pairedFiles":
+      return 10;
+    case "requiredTests":
+      return 10;
+    case "requiredTestMappings":
+      return 10;
+    case "moduleBoundaries":
+      return 10;
+    case "sensitivePatterns":
+      return 3;
+    case "staleFacts":
+      return 0;
+  }
+}
+
+function verifierRepoFactLimit(bucket: RepoFactBucket): number {
+  switch (bucket) {
+    case "changedFiles":
+      return 24;
+    case "ownership":
+      return 16;
+    case "pairedFiles":
+      return 16;
+    case "requiredTests":
+      return 16;
+    case "requiredTestMappings":
+      return 16;
+    case "moduleBoundaries":
+      return 16;
+    case "sensitivePatterns":
+      return 12;
+    case "staleFacts":
+      return 12;
+  }
+}
+
+function testerRepoFactLimit(bucket: RepoFactBucket): number {
+  switch (bucket) {
+    case "changedFiles":
+      return 12;
+    case "pairedFiles":
+      return 20;
+    case "requiredTests":
+      return 20;
+    case "requiredTestMappings":
+      return 20;
+    case "moduleBoundaries":
+      return 6;
+    case "ownership":
+      return 4;
+    case "sensitivePatterns":
+      return 2;
+    case "staleFacts":
+      return 0;
+  }
 }
 
 function buildContextWarnings(
@@ -802,4 +978,48 @@ function estimateJsonTokens(value: unknown): number {
 
 function roundRatio(value: number): number {
   return Math.round(value * 10_000) / 10_000;
+}
+
+function limitList<T>(items: T[], limit: number): T[] {
+  if (limit <= 0) {
+    return [];
+  }
+
+  return items.slice(0, limit);
+}
+
+function limitCollection<T>(value: T, limit: number): T {
+  if (limit <= 0) {
+    if (Array.isArray(value)) {
+      return [] as T;
+    }
+
+    if (value && typeof value === "object") {
+      return {} as T;
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, limit) as T;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).slice(0, limit)) as T;
+  }
+
+  return value;
+}
+
+function countCollection(value: unknown): number {
+  if (Array.isArray(value)) {
+    return value.length;
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value).length;
+  }
+
+  return 0;
 }
