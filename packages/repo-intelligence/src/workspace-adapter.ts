@@ -18,6 +18,17 @@ export type RepoIntelligenceWorkspaceSummary = {
 };
 
 /**
+ * WorkspaceRepoFacts canonical shape'ine ek olarak bazı adapter/fixture'lar
+ * evidenceFacts gibi metadata alanları taşıyabilir.
+ *
+ * Bu metadata verifier/remask flow için önemlidir. Repo intelligence attach ederken
+ * bu alanları silmemeliyiz.
+ */
+type WorkspaceRepoFactsWithMetadata = SharedSemanticWorkspace["repoFacts"] & {
+  evidenceFacts?: unknown[];
+};
+
+/**
  * Repo Intelligence -> Workspace RepoFacts adapter.
  *
  * Repo Intelligence daha zengin metadata tutar:
@@ -29,11 +40,13 @@ export type RepoIntelligenceWorkspaceSummary = {
  * Özellikle WorkspaceRepoFacts.ownership tipi Record<string, string>'dir.
  */
 export function repoIntelligenceToWorkspaceRepoFacts(
-  input: RepoIntelligenceResult | RepoIntelligenceFacts
+  input: RepoIntelligenceResult | RepoIntelligenceFacts,
+  existingRepoFacts?: SharedSemanticWorkspace["repoFacts"]
 ): SharedSemanticWorkspace["repoFacts"] {
   const facts = isRepoIntelligenceResult(input) ? input.facts : input;
+  const existing = existingRepoFacts as WorkspaceRepoFactsWithMetadata | undefined;
 
-  const repoFacts = {
+  const repoFacts: WorkspaceRepoFactsWithMetadata = {
     changedFiles: uniqueSorted(facts.changedFiles),
 
     /**
@@ -52,19 +65,28 @@ export function repoIntelligenceToWorkspaceRepoFacts(
     moduleBoundaries: facts.moduleBoundaries,
     sensitivePatterns: uniqueSorted(facts.sensitivePatterns),
     staleFacts: uniqueSorted(facts.staleFacts)
-  };
+  } as unknown as WorkspaceRepoFactsWithMetadata;
 
   /**
-   * WorkspaceRepoFacts ile repo-intelligence fact tipleri birebir aynı değil.
-   * Runtime'da ihtiyaç duyulan canonical alanlar korunuyor; zengin metadata ise
-   * context composer'da bounded/compact edilerek kullanılıyor.
+   * Kritik:
+   * Fixture/workspace adapter bazı verifier evidence'larını repoFacts.evidenceFacts
+   * içinde taşıyabiliyor. Repo intelligence attach sırasında bunu silersek
+   * verifier stale/current evidence göremez ve remask_required yerine approve döner.
    */
-  return repoFacts as unknown as SharedSemanticWorkspace["repoFacts"];
+  if (existing?.evidenceFacts) {
+    repoFacts.evidenceFacts = existing.evidenceFacts;
+  }
+
+  return repoFacts as SharedSemanticWorkspace["repoFacts"];
 }
 
 /**
  * Mevcut workspace'i korur, sadece repoFacts region'ını gerçek repo intelligence
  * sonucuyla değiştirir.
+ *
+ * Önemli:
+ * - repoFacts canonical fields repo intelligence'dan gelir.
+ * - repoFacts.evidenceFacts gibi runtime/verifier metadata alanları korunur.
  */
 export function attachRepoIntelligenceToWorkspace(
   workspace: SharedSemanticWorkspace,
@@ -72,7 +94,7 @@ export function attachRepoIntelligenceToWorkspace(
 ): SharedSemanticWorkspace {
   return {
     ...workspace,
-    repoFacts: repoIntelligenceToWorkspaceRepoFacts(input)
+    repoFacts: repoIntelligenceToWorkspaceRepoFacts(input, workspace.repoFacts)
   };
 }
 
