@@ -75,6 +75,7 @@
     "worker:http-health-smoke": "node dist/apps/cli/src/worker-http-health-smoke.js",
     "worker:http-refine-smoke": "node dist/apps/cli/src/worker-http-refine-smoke.js",
     "worker:http-mock-contract-smoke": "node dist/apps/cli/src/worker-http-mock-contract-smoke.js",
+    "worker:orchestrator-smoke": "node dist/apps/cli/src/worker-backed-orchestrator-smoke.js",
     "runtime:verify": "npm run typecheck && npm run build && node dist/apps/cli/src/runtime-verify.js",
     "model:adapter-smoke": "node dist/apps/cli/src/model-adapter-smoke.js",
     "model:worker-smoke": "node dist/apps/cli/src/model-worker-smoke.js",
