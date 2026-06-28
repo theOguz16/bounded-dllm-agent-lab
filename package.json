@@ -74,6 +74,7 @@
     "worker:llm-openai": "node dist/apps/llm-worker/openai_compatible_worker.js",
     "oracle:audit": "node dist/apps/cli/src/oracle-audit.js",
     "merge:smoke": "node dist/apps/cli/src/conflict-aware-merge-smoke.js",
+    "merge:report": "node dist/apps/cli/src/conflict-aware-merge-report.js",
     "orchestrator:smoke": "node dist/apps/cli/src/orchestrator-smoke.js",
     "orchestrator:report": "node dist/apps/cli/src/orchestrator-report.js",
     "context:composer-smoke": "node dist/apps/cli/src/context-composer-smoke.js",
