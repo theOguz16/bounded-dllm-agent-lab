@@ -89,6 +89,7 @@
     "context:composer-report": "node dist/apps/cli/src/context-composer-report.js",
     "remask:repair-smoke": "node dist/apps/cli/src/remask-repair-smoke.js",
     "remask:repair-report": "node dist/apps/cli/src/remask-repair-report.js",
+    "remask:repair-safety-smoke": "node dist/apps/cli/src/remask-repair-safety-smoke.js",
     "clean": "rm -rf dist"
   },
   "workspaces": [
