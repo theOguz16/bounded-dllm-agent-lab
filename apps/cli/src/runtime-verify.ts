@@ -70,6 +70,14 @@ const commands: RuntimeVerifyCommand[] = [
   {
     script: "remask:repair-safety-report",
     purpose: "Generate repair safety report across fixtures."
+  },
+  {
+    script: "worker:http-mock-contract-smoke",
+    purpose: "Verify canonical HTTP worker contract with local mock worker."
+  },
+  {
+    script: "worker:orchestrator-smoke",
+    purpose: "Verify worker-backed orchestrator smoke with local mock worker."
   }
 ];
 
