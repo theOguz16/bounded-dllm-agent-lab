@@ -10,14 +10,21 @@ import {
   type CaseOutputSnapshot,
   type CaseScore
 } from "../../../packages/eval-core/src/index.js";
-import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
-import { hardFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
+import {
+  createExperimentConfig,
+  createRunManifest,
+  validateRunManifest
+} from "../../../packages/experiment-core/src/index.js";
+import {
+  hardFixtures,
+  validateFixtures
+} from "../../../packages/fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpDllmWorkerEngine } from "../../../packages/providers/src/index.js";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
+import { createWorkspaceFromPacket } from "../../../packages/context-core/src/workspace-adapter.js";
 
 const workerUrl = process.env.DLLM_WORKER_URL ?? "http://127.0.0.1:8765";
-const engine = new HttpDllmWorkerEngine(workerUrl, "boundary");
+const engine = new HttpDllmWorkerEngine(workerUrl, "verifier");
 const reportDir = "reports";
 const suiteName = "worker-hard-benchmark-v1";
 const fixtureSubset = hardFixtures;
@@ -34,6 +41,7 @@ if (fixtureFailures.length) {
 }
 
 const healthy = await engine.health();
+
 if (!healthy) {
   throw new Error(`Worker health check failed for ${workerUrl}`);
 }
@@ -46,6 +54,7 @@ const completedCaseIds = new Set(checkpoint?.completedCaseIds ?? []);
 
 for (const [index, fixture] of fixtureSubset.entries()) {
   const progress = `${index + 1}/${fixtureSubset.length}`;
+
   if (completedCaseIds.has(fixture.case.id)) {
     console.error(`[worker-hard-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`);
     continue;
@@ -53,15 +62,25 @@ for (const [index, fixture] of fixtureSubset.entries()) {
 
   console.error(`[worker-hard-benchmark] ${progress} ${fixture.case.id}`);
 
-  const workspace = createWorkspace(`hard-benchmark-${fixture.case.id}`, fixture.packet);
-  const masked = createMaskedWorkspaceView(workspace, "boundary");
+  /**
+   * Hard fixture da research packet formatından gelir.
+   * Runtime workspace dönüşümü context-core adapter üzerinden yapılır.
+   */
+  const workspace = createWorkspaceFromPacket(fixture.packet, {
+    id: `hard-benchmark-${fixture.case.id}`
+  });
+
+  const masked = createMaskedWorkspaceView(workspace, "verifier");
   const result = await refineWithRetry(masked.workspace, fixture.case.id);
 
-  // Hard worker benchmark gerçek HTTP worker'ı daha aldatıcı fixture'larla dener:
-  // distractor fact, partial evidence, tempting scope ve üçlü conflict gibi sinyaller
-  // burada model/orchestrator davranışını base suite'ten daha fazla zorlar.
+  /**
+   * Hard worker benchmark gerçek HTTP worker'ı daha aldatıcı fixture'larla dener:
+   * distractor fact, partial evidence, tempting scope ve üçlü conflict gibi sinyaller
+   * burada model/orchestrator davranışını base suite'ten daha fazla zorlar.
+   */
   scores.push(scoreCase(fixture.case, result.workspace));
   completedCaseIds.add(fixture.case.id);
+
   outputSnapshots.push({
     caseId: fixture.case.id,
     family: fixture.case.family,
@@ -71,6 +90,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
     forbiddenTerms: fixture.case.forbiddenTerms,
     finalResult: result.workspace.finalResult?.summary ?? ""
   });
+
   await writeCheckpoint({
     runId,
     suiteName,
@@ -83,6 +103,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
 }
 
 const report = aggregateScores(scores);
+
 const artifact = createBenchmarkArtifact({
   suiteName,
   engineName: "external-dllm-worker-hard-benchmark",
@@ -90,6 +111,7 @@ const artifact = createBenchmarkArtifact({
   report,
   outputSnapshots
 });
+
 const config = createExperimentConfig({
   runId,
   suiteName,
@@ -116,6 +138,7 @@ const config = createExperimentConfig({
   },
   createdAt: runCreatedAt
 });
+
 const manifest = createRunManifest({
   config,
   report,
@@ -125,6 +148,7 @@ const manifest = createRunManifest({
     manifestPath
   }
 });
+
 const failures = validateRunManifest(manifest);
 
 if (failures.length) {
@@ -169,7 +193,10 @@ type HardBenchmarkCheckpoint = {
   outputSnapshots: CaseOutputSnapshot[];
 };
 
-async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspace>[0], caseId: string) {
+async function refineWithRetry(
+  workspace: Parameters<typeof engine.refineWorkspace>[0],
+  caseId: string
+) {
   const maxAttempts = Number(process.env.BENCHMARK_RETRY_ATTEMPTS ?? "3");
   let lastError: unknown;
 
@@ -179,7 +206,10 @@ async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspa
     } catch (error) {
       lastError = error;
       console.error(`[worker-hard-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
-      if (attempt < maxAttempts) await sleep(1500 * attempt);
+
+      if (attempt < maxAttempts) {
+        await sleep(1500 * attempt);
+      }
     }
   }
 
@@ -188,31 +218,44 @@ async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspa
 
 async function writeCheckpoint(checkpoint: HardBenchmarkCheckpoint): Promise<void> {
   await mkdir(reportDir, { recursive: true });
-  // Hard benchmark daha kısa olsa da aynı checkpoint davranışını koruyoruz. Böylece
-  // base ve hard worker deneyleri aynı operasyonel güvenilirlik standardına sahip olur.
+
+  /**
+   * Hard benchmark daha kısa olsa da aynı checkpoint davranışını koruyoruz.
+   * Böylece base ve hard worker deneyleri aynı operasyonel güvenilirlik
+   * standardına sahip olur.
+   */
   await writeFile(checkpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
 }
 
 async function loadCheckpoint(): Promise<HardBenchmarkCheckpoint | undefined> {
-  if (process.env.BENCHMARK_RESUME !== "1") return undefined;
+  if (process.env.BENCHMARK_RESUME !== "1") {
+    return undefined;
+  }
 
   try {
     const raw = await readFile(checkpointPath, "utf8");
     const checkpoint = JSON.parse(raw) as HardBenchmarkCheckpoint;
     console.error(`[worker-hard-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`);
+
     return checkpoint;
   } catch {
     console.error(`[worker-hard-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`);
+
     return undefined;
   }
 }
 
 async function resolveRunId(createdAt: string): Promise<string> {
-  if (process.env.BENCHMARK_RUN_ID) return process.env.BENCHMARK_RUN_ID;
+  if (process.env.BENCHMARK_RUN_ID) {
+    return process.env.BENCHMARK_RUN_ID;
+  }
 
   if (process.env.BENCHMARK_RESUME === "1") {
     const latest = await latestCheckpointRunId();
-    if (latest) return latest;
+
+    if (latest) {
+      return latest;
+    }
   }
 
   return `${createdAt.replace(/[:.]/g, "-")}-worker-hard-benchmark`;
@@ -225,6 +268,7 @@ async function latestCheckpointRunId(): Promise<string | undefined> {
       .filter((file) => file.endsWith("-worker-hard-benchmark.checkpoint.json"))
       .sort()
       .reverse();
+
     return checkpoints[0]?.replace(/\.checkpoint\.json$/, "");
   } catch {
     return undefined;

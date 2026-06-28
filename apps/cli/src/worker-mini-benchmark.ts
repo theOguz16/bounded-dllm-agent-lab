@@ -9,14 +9,22 @@ import {
   scoreCase,
   type CaseOutputSnapshot
 } from "../../../packages/eval-core/src/index.js";
-import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
-import { demoFixtures, validateFixtures, type BenchmarkFixture } from "../../../packages/fixtures/src/index.js";
+import {
+  createExperimentConfig,
+  createRunManifest,
+  validateRunManifest
+} from "../../../packages/experiment-core/src/index.js";
+import {
+  demoFixtures,
+  validateFixtures,
+  type BenchmarkFixture
+} from "../../../packages/fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpDllmWorkerEngine } from "../../../packages/providers/src/index.js";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
+import { createWorkspaceFromPacket } from "../../../packages/context-core/src/workspace-adapter.js";
 
 const workerUrl = process.env.DLLM_WORKER_URL ?? "http://127.0.0.1:8765";
-const engine = new HttpDllmWorkerEngine(workerUrl, "boundary");
+const engine = new HttpDllmWorkerEngine(workerUrl, "verifier");
 const reportDir = "reports";
 const suiteName = "worker-mini-benchmark-v1";
 const fixtureSubset = selectOneFixturePerFamily(demoFixtures);
@@ -27,21 +35,38 @@ if (fixtureFailures.length) {
 }
 
 const healthy = await engine.health();
+
 if (!healthy) {
   throw new Error(`Worker health check failed for ${workerUrl}`);
 }
 
 const scores = [];
 const outputSnapshots: CaseOutputSnapshot[] = [];
+
 for (const fixture of fixtureSubset) {
-  const workspace = createWorkspace(`mini-benchmark-${fixture.case.id}`, fixture.packet);
-  const masked = createMaskedWorkspaceView(workspace, "boundary");
+  /**
+   * workspace-core artık packet bilmez.
+   * Bu yüzden fixture packet'ı önce context-core adapter üzerinden
+   * canonical SharedSemanticWorkspace modeline dönüştürüyoruz.
+   */
+  const workspace = createWorkspaceFromPacket(fixture.packet, {
+    id: `mini-benchmark-${fixture.case.id}`
+  });
+
+  /**
+   * Eski "boundary" view kaldırıldı.
+   * Boundary/scope/authority kontrolleri verifier view altında temsil ediliyor.
+   */
+  const masked = createMaskedWorkspaceView(workspace, "verifier");
   const result = await engine.refineWorkspace(masked.workspace);
 
-  // Mini benchmark artık bağlantı kontrolü değildir. Her aileden bir senaryo ile
-  // gerçek worker'ın correction, sensitive, scope, insufficient ve conflict hata
-  // modlarında ilk davranış sinyalini toplar.
+  /**
+   * Mini benchmark bağlantı kontrolü değildir.
+   * Her aileden bir senaryo ile gerçek worker'ın correction, sensitive, scope,
+   * insufficient ve conflict hata modlarında ilk davranış sinyalini toplar.
+   */
   scores.push(scoreCase(fixture.case, result.workspace));
+
   outputSnapshots.push({
     caseId: fixture.case.id,
     family: fixture.case.family,
@@ -56,6 +81,7 @@ for (const fixture of fixtureSubset) {
 const report = aggregateScores(scores);
 const createdAt = new Date().toISOString();
 const runId = `${createdAt.replace(/[:.]/g, "-")}-worker-mini-benchmark`;
+
 const artifact = createBenchmarkArtifact({
   suiteName,
   engineName: "external-dllm-worker-mini-benchmark",
@@ -63,9 +89,11 @@ const artifact = createBenchmarkArtifact({
   report,
   outputSnapshots
 });
+
 const jsonPath = join(reportDir, `${runId}.json`);
 const markdownPath = join(reportDir, `${runId}.md`);
 const manifestPath = join(reportDir, `${runId}.manifest.json`);
+
 const config = createExperimentConfig({
   runId,
   suiteName,
@@ -92,6 +120,7 @@ const config = createExperimentConfig({
   },
   createdAt
 });
+
 const manifest = createRunManifest({
   config,
   report,
@@ -101,6 +130,7 @@ const manifest = createRunManifest({
     manifestPath
   }
 });
+
 const failures = validateRunManifest(manifest);
 
 if (failures.length) {
@@ -137,12 +167,17 @@ function selectOneFixturePerFamily(fixtures: BenchmarkFixture[]): BenchmarkFixtu
     "conflict_resolution"
   ] as const;
 
-  // Deterministik seçim yapıyoruz: her aileden ilk fixture. Rastgele seçim ilk gerçek
-  // GPU koşusunda sonucu yorumlamayı zorlaştırır; burada amacımız tüm ailelerin pipeline'a
-  // girdiğini kontrollü biçimde görmek.
+  /**
+   * Deterministik seçim yapıyoruz: her aileden ilk fixture.
+   * Rastgele seçim ilk gerçek GPU koşusunda sonucu yorumlamayı zorlaştırır.
+   */
   return families.map((family) => {
     const fixture = fixtures.find((item) => item.family === family);
-    if (!fixture) throw new Error(`Missing fixture family: ${family}`);
+
+    if (!fixture) {
+      throw new Error(`Missing fixture family: ${family}`);
+    }
+
     return fixture;
   });
 }

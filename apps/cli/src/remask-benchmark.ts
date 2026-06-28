@@ -18,24 +18,31 @@ import {
   validateRunManifest,
   type ExperimentRunManifest
 } from "../../../packages/experiment-core/src/index.js";
-import { remaskFixtures, validateFixtures, type BenchmarkFixture } from "../../../packages/fixtures/src/index.js";
+import {
+  remaskFixtures,
+  validateFixtures,
+  type BenchmarkFixture
+} from "../../../packages/fixtures/src/index.js";
+import {
+  createWorkspaceFromPacket,
+  type WorkspaceEvidenceFact
+} from "../../../packages/context-core/src/workspace-adapter.js";
 import { runRefinementLoop } from "../../../packages/refinement-loop/src/index.js";
 import {
-  addClaim,
   addVerifierResult,
-  setBoundaryDecision,
   setFinalResult,
   type SharedSemanticWorkspace,
   type WorkspaceRegion
 } from "../../../packages/workspace-core/src/index.js";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
 import type { ModelEngine } from "../../../packages/providers/src/index.js";
 
 const reportDir = "reports";
 const suiteName = "remask-required-benchmark-v1";
 const createdAt = new Date().toISOString();
 const safeTimestamp = createdAt.replace(/[:.]/g, "-");
-const fixtureFailures = validateFixtures(remaskFixtures, { expectedFamilyCount: undefined });
+const fixtureFailures = validateFixtures(remaskFixtures, {
+  expectedFamilyCount: undefined
+});
 
 if (fixtureFailures.length) {
   throw new Error(JSON.stringify({ ok: false, fixtureFailures }, null, 2));
@@ -47,24 +54,45 @@ async function runBenchmark(): Promise<void> {
   const manifests = [
     await runMode("single_pass_stale", "single-pass-stale-engine", async (fixture) => {
       const engine = new SinglePassStaleEngine();
-      const workspace = createWorkspace(`remask-single-${fixture.case.id}`, fixture.packet);
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `remask-single-${fixture.case.id}`
+      });
+
       const result = await engine.refineWorkspace(workspace);
-      return { workspace: result.workspace, engineName: engine.name };
+
+      return {
+        workspace: result.workspace,
+        engineName: engine.name
+      };
     }),
+
     await runMode("remask_recovery", "remask-recovery-engine", async (fixture) => {
       const engine = new RemaskRecoveryEngine();
-      const workspace = createWorkspace(`remask-recovery-${fixture.case.id}`, fixture.packet);
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `remask-recovery-${fixture.case.id}`
+      });
+
       const result = await runRefinementLoop({
         workspace,
         engine,
-        view: "boundary",
+        view: "verifier",
         maxAttempts: 2
       });
-      return { workspace: result.workspace, engineName: engine.name };
+
+      return {
+        workspace: result.workspace,
+        engineName: engine.name
+      };
     })
   ];
 
-  const comparison = createComparisonArtifact({ createdAt, manifests });
+  const comparison = createComparisonArtifact({
+    createdAt,
+    manifests
+  });
+
   const comparisonJsonPath = join(reportDir, `${safeTimestamp}-remask-comparison.json`);
   const comparisonMarkdownPath = join(reportDir, `${safeTimestamp}-remask-comparison.md`);
 
@@ -95,14 +123,19 @@ async function runBenchmark(): Promise<void> {
 async function runMode(
   architectureName: string,
   engineName: string,
-  runFixture: (fixture: BenchmarkFixture) => Promise<{ workspace: SharedSemanticWorkspace; engineName: string }>
+  runFixture: (fixture: BenchmarkFixture) => Promise<{
+    workspace: SharedSemanticWorkspace;
+    engineName: string;
+  }>
 ): Promise<ExperimentRunManifest> {
   const scores: CaseScore[] = [];
   const outputSnapshots: CaseOutputSnapshot[] = [];
 
   for (const fixture of remaskFixtures) {
     const result = await runFixture(fixture);
+
     scores.push(scoreCase(fixture.case, result.workspace));
+
     outputSnapshots.push({
       caseId: fixture.case.id,
       family: fixture.case.family,
@@ -119,6 +152,7 @@ async function runMode(
   const jsonPath = join(reportDir, `${runId}.json`);
   const markdownPath = join(reportDir, `${runId}.md`);
   const manifestPath = join(reportDir, `${runId}.manifest.json`);
+
   const artifact = createBenchmarkArtifact({
     suiteName,
     engineName,
@@ -126,6 +160,7 @@ async function runMode(
     report,
     outputSnapshots
   });
+
   const manifest = createRunManifest({
     config: createExperimentConfig({
       runId,
@@ -159,6 +194,7 @@ async function runMode(
       manifestPath
     }
   });
+
   const failures = validateRunManifest(manifest);
 
   if (failures.length) {
@@ -179,21 +215,33 @@ class SinglePassStaleEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace) {
     const started = Date.now();
     const createdAt = new Date(started).toISOString();
-    const stale = workspace.packet.facts.find((fact) => fact.kind === "stale") ?? workspace.packet.facts[0];
-    let refined = setBoundaryDecision(workspace, {
-      status: "sufficient_context",
-      reason: "Single-pass baseline does not recover after verifier feedback.",
-      missingInformation: [],
-      decidedBy: "boundary",
+    const stale = selectStaleFact(workspace);
+    const fallback = selectCorrectionFact(workspace);
+    const selected = stale ?? fallback;
+
+    let refined = workspace;
+
+    /**
+     * Single-pass baseline bilerek stale cevabı kabul eder.
+     * Evidence id artık generic değil; adapter'dan gelen gerçek stale evidenceId kullanılır.
+     */
+    refined = addVerifierResult(refined, {
+      id: `verifier-${workspace.id}-single-pass-stale`,
+      status: "pass",
+      decision: "approve",
+      checkName: "single-pass-stale-baseline",
+      summary: "Single-pass baseline accepts the first available stale result and does not recover.",
+      findings: [],
+      checkedFiles: workspace.scope.changedFiles,
+      evidenceIds: selected ? [selected.evidenceId] : [],
+      failedRegions: [],
+      createdBy: "verifier",
       createdAt
     });
 
-    // Bu baseline bilerek ilk/stale cevabı final yapar. Amaç kötü model yazmak değil;
-    // refinement recovery koşusunda ikinci pass'in gerçekten skoru değiştirdiğini
-    // ölçebileceğimiz kontrollü bir alt sınır oluşturmaktır.
     refined = setFinalResult(refined, {
-      summary: stale?.content ?? "insufficient_context",
-      createdBy: "implementer",
+      summary: selected?.content ?? "insufficient_context",
+      createdBy: "coder",
       createdAt
     });
 
@@ -212,57 +260,53 @@ class RemaskRecoveryEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace) {
     const started = Date.now();
     const createdAt = new Date(started).toISOString();
-    const stale = workspace.packet.facts.find((fact) => fact.kind === "stale") ?? workspace.packet.facts[0];
-    const correction = workspace.packet.facts.find((fact) => fact.kind === "correction");
-    const shouldRecover = workspace.maskedRegions.includes("final_result") && workspace.verifierResults.some((result) => result.status === "fail");
-    const selected = shouldRecover && correction ? correction : stale;
-    const failedRegions: WorkspaceRegion[] = shouldRecover ? [] : ["final_result"];
-    const replacementWorkspace = shouldRecover
-      ? {
-          ...workspace,
-          // Remask recovery yalnızca yeni bir final_result eklemek değildir. Aynı
-          // region'daki eski/stale claim'i de kaldırmalıdır; aksi halde evaluator
-          // eski forbidden metni hâlâ workspace output zincirinde görür.
-          claims: workspace.claims.filter((claim) => claim.region !== "final_result")
-        }
-      : workspace;
-    let refined = setBoundaryDecision(replacementWorkspace, {
-      status: "sufficient_context",
-      reason: shouldRecover
-        ? "Verifier feedback remasked final_result and the engine selected the correction."
-        : "First pass intentionally exposes a stale final_result for verifier recovery.",
-      missingInformation: [],
-      decidedBy: "boundary",
-      createdAt
-    });
 
-    if (selected) {
-      refined = addClaim(refined, {
-        id: `claim-${selected.id}-${shouldRecover ? "recovered" : "stale"}`,
-        region: "final_result",
-        actor: "implementer",
-        content: selected.content,
-        evidenceIds: [selected.evidenceId],
-        confidence: selected.confidence,
-        state: shouldRecover ? "accepted" : "proposed",
-        createdAt
-      });
-    }
+    const stale = selectStaleFact(workspace);
+    const correction = selectCorrectionFact(workspace);
+
+    /**
+     * İlk pass'te stale seçilir ve final_result remask_required olur.
+     * İkinci pass'te final_result maskelendiği ve önceki fail görüldüğü için correction seçilir.
+     */
+    const shouldRecover =
+      workspace.maskedRegions.includes("final_result") &&
+      workspace.verifierResults.some((result) => result.status === "fail");
+
+    const selected = shouldRecover && correction ? correction : stale ?? correction;
+    const failedRegions: WorkspaceRegion[] = shouldRecover ? [] : ["final_result"];
+
+    let refined = workspace;
 
     refined = addVerifierResult(refined, {
-      id: `verifier-${workspace.packet.id}-${shouldRecover ? "pass" : "fail"}`,
+      id: `verifier-${workspace.id}-${shouldRecover ? "pass" : "fail"}`,
       status: shouldRecover ? "pass" : "fail",
+      decision: shouldRecover ? "approve" : "remask_required",
       checkName: "remask-required",
       summary: shouldRecover
         ? "Recovered final_result after targeted remasking."
         : "Detected stale final_result and requested targeted remasking.",
-      evidenceIds: shouldRecover && correction ? [correction.evidenceId] : [],
+      findings: shouldRecover
+        ? []
+        : [
+            {
+              id: `finding-${workspace.id}-stale-final-result`,
+              severity: "error",
+              category: "authority",
+              message: "The first pass selected stale evidence for final_result.",
+              files: workspace.scope.changedFiles,
+              suggestedAction: "remask_required"
+            }
+          ],
+      checkedFiles: workspace.scope.changedFiles,
+      evidenceIds: selected ? [selected.evidenceId] : [],
       failedRegions,
+      createdBy: "verifier",
       createdAt
     });
+
     refined = setFinalResult(refined, {
       summary: selected?.content ?? "insufficient_context",
-      createdBy: "implementer",
+      createdBy: "coder",
       createdAt
     });
 
@@ -274,11 +318,92 @@ class RemaskRecoveryEngine implements ModelEngine {
   }
 }
 
+type ControlledEvidence = {
+  id: string;
+  content: string;
+  evidenceId: string;
+};
+
+type WorkspaceWithEvidenceFacts = SharedSemanticWorkspace & {
+  authority: SharedSemanticWorkspace["authority"] & {
+    evidenceFacts?: WorkspaceEvidenceFact[];
+  };
+  repoFacts: SharedSemanticWorkspace["repoFacts"] & {
+    evidenceFacts?: WorkspaceEvidenceFact[];
+  };
+};
+
+function selectStaleFact(workspace: SharedSemanticWorkspace): ControlledEvidence | undefined {
+  const staleEvidenceFact = findEvidenceFact(workspace, ["stale"]);
+
+  if (staleEvidenceFact) {
+    return {
+      id: staleEvidenceFact.id,
+      content: staleEvidenceFact.content,
+      evidenceId: staleEvidenceFact.evidenceId
+    };
+  }
+
+  const stale = workspace.repoFacts.staleFacts[0];
+
+  if (!stale) {
+    return undefined;
+  }
+
+  return {
+    id: "stale-fact",
+    content: stale,
+    evidenceId: "workspace-repo-stale-fact"
+  };
+}
+
+function selectCorrectionFact(workspace: SharedSemanticWorkspace): ControlledEvidence | undefined {
+  const correctionEvidenceFact = findEvidenceFact(workspace, ["correction", "current"]);
+
+  if (correctionEvidenceFact) {
+    return {
+      id: correctionEvidenceFact.id,
+      content: correctionEvidenceFact.content,
+      evidenceId: correctionEvidenceFact.evidenceId
+    };
+  }
+
+  const correction = workspace.authority.facts[0];
+
+  if (!correction) {
+    return undefined;
+  }
+
+  return {
+    id: "correction-fact",
+    content: correction,
+    evidenceId: "workspace-authority-correction"
+  };
+}
+
+function getEvidenceFacts(workspace: SharedSemanticWorkspace): WorkspaceEvidenceFact[] {
+  const workspaceWithEvidence = workspace as WorkspaceWithEvidenceFacts;
+
+  return [
+    ...(workspaceWithEvidence.authority.evidenceFacts ?? []),
+    ...(workspaceWithEvidence.repoFacts.evidenceFacts ?? [])
+  ];
+}
+
+function findEvidenceFact(
+  workspace: SharedSemanticWorkspace,
+  kinds: WorkspaceEvidenceFact["kind"][]
+): WorkspaceEvidenceFact | undefined {
+  return getEvidenceFacts(workspace).find((fact) => kinds.includes(fact.kind));
+}
+
 await runBenchmark();
 
 function readGitCommit(): string {
   try {
-    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      encoding: "utf8"
+    }).trim();
   } catch {
     return "unknown";
   }

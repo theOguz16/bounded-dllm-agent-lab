@@ -1,15 +1,16 @@
 import type { BenchmarkFixture } from "../../fixtures/src/index.js";
+import {
+  createWorkspaceFromPacket,
+  type WorkspaceEvidenceFact
+} from "../../context-core/src/workspace-adapter.js";
 import { createMaskedWorkspaceView } from "../../masking-policy/src/index.js";
-import { MockDllmEngine, type ModelEngine } from "../../providers/src/index.js";
+import type { ModelEngine } from "../../providers/src/index.js";
 import { runRefinementLoop } from "../../refinement-loop/src/index.js";
 import {
-  addClaim,
   addVerifierResult,
-  setBoundaryDecision,
   setFinalResult,
   type SharedSemanticWorkspace
 } from "../../workspace-core/src/index.js";
-import { createWorkspace } from "../../workspace-core/src/index.js";
 
 export type AblationModeId =
   | "raw_fact_only"
@@ -62,17 +63,22 @@ function createRawFactOnlyRunner(): AblationModeRunner {
     refinementEnabled: false,
     async runFixture(fixture) {
       const createdAt = new Date().toISOString();
-      const workspace = createWorkspace(`ablation-raw-${fixture.case.id}`, fixture.packet);
-      const firstFact = workspace.packet.facts[0];
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `ablation-raw-${fixture.case.id}`
+      });
+
+      const firstFact = selectRawFact(workspace);
       const finalResult = firstFact?.content ?? "insufficient_context";
 
-      // Raw baseline bilinçli olarak zayıftır. İlk fact'i yazar, stale/sensitive/missing
-      // ayrımı yapmaz. Böylece "model veya sistem hiçbir boundary katmanı olmadan ne kadar
-      // drift/leakage üretir?" sorusuna kontrollü bir alt sınır verir.
+      /**
+       * Raw baseline bilinçli olarak zayıftır.
+       * Verifier/evidence trace yazmaz.
+       */
       return {
         workspace: setFinalResult(workspace, {
           summary: finalResult,
-          createdBy: "implementer",
+          createdBy: "coder",
           createdAt
         }),
         engineName: "ablation-raw-fact-only"
@@ -85,34 +91,46 @@ function createBoundedContextRunner(): AblationModeRunner {
   return {
     id: "bounded_context",
     label: "Bounded Context",
-    description: "Uses bounded packet selection and boundary decisions but does not add evidence claims or verifier results.",
+    description: "Uses bounded workspace selection without grounded evidence trace.",
     maskPolicyEnabled: true,
     verifierEnabled: false,
     groundingEnabled: false,
     refinementEnabled: false,
     async runFixture(fixture) {
       const createdAt = new Date().toISOString();
-      const workspace = createWorkspace(`ablation-bounded-${fixture.case.id}`, fixture.packet);
-      const masked = createMaskedWorkspaceView(workspace, "boundary").workspace;
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `ablation-bounded-${fixture.case.id}`
+      });
+
+      const masked = createMaskedWorkspaceView(workspace, "verifier").workspace;
       const selected = selectBoundedFact(masked);
-      const boundaryStatus = shouldRefuse(masked) ? "insufficient_context" : "sufficient_context";
-      let refined = setBoundaryDecision(masked, {
-        status: boundaryStatus,
-        reason: boundaryStatus === "insufficient_context"
-          ? "The bounded packet marks required information as missing."
-          : "The bounded packet contains enough task-relevant information.",
-        missingInformation: boundaryStatus === "insufficient_context" ? masked.packet.mustNotInfer : [],
-        decidedBy: "boundary",
+      const shouldRefuseResult = shouldRefuse(masked);
+      const finalResult = shouldRefuseResult ? "insufficient_context" : selected.content;
+
+      /**
+       * Bu mod bounded context etkisini ölçer.
+       * Grounding kapalı olduğu için evidenceIds bilinçli olarak boş bırakılır.
+       */
+      let refined = addVerifierResult(masked, {
+        id: `verifier-${masked.id}-bounded-context`,
+        status: shouldRefuseResult ? "warn" : "pass",
+        decision: shouldRefuseResult ? "remask_required" : "approve",
+        checkName: "ablation-bounded-context",
+        summary: shouldRefuseResult
+          ? "The bounded workspace marks required information as missing."
+          : "The bounded workspace contains enough task-relevant information.",
+        findings: [],
+        checkedFiles: masked.scope.changedFiles,
+        evidenceIds: [],
+        failedRegions: shouldRefuseResult ? ["final_result"] : [],
+        createdBy: "verifier",
         createdAt
       });
 
-      // Bu mod doğru fact seçimini ve boundary kararını ölçer ama evidence claim ve
-      // verifier yazmaz. Eğer task başarısı artıp evidence/trace zayıf kalıyorsa,
-      // "dar context yardımcı oldu ama sonuç henüz akademik olarak izlenebilir değil"
-      // diyebiliriz.
       refined = setFinalResult(refined, {
-        summary: boundaryStatus === "insufficient_context" ? "insufficient_context" : selected.content,
-        createdBy: "boundary",
+        summary: finalResult,
+        createdBy: "verifier",
         createdAt
       });
 
@@ -128,15 +146,23 @@ function createBoundedGroundedRunner(): AblationModeRunner {
   return {
     id: "bounded_grounded",
     label: "Bounded + Grounded",
-    description: "Uses bounded packet selection with evidence claims and verifier trace, without multi-attempt refinement.",
+    description: "Uses bounded workspace selection with real fixture evidence trace, without multi-attempt refinement.",
     maskPolicyEnabled: true,
     verifierEnabled: true,
     groundingEnabled: true,
     refinementEnabled: false,
     async runFixture(fixture) {
+      /**
+       * Engine burada oluşturulur.
+       * Böylece module init sırasında class tanımlanmadan önce new çalışmaz.
+       */
       const engine = new AblationGroundedEngine();
-      const workspace = createWorkspace(`ablation-grounded-${fixture.case.id}`, fixture.packet);
-      const masked = createMaskedWorkspaceView(workspace, "boundary").workspace;
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `ablation-grounded-${fixture.case.id}`
+      });
+
+      const masked = createMaskedWorkspaceView(workspace, "verifier").workspace;
       const result = await engine.refineWorkspace(masked);
 
       return {
@@ -148,22 +174,33 @@ function createBoundedGroundedRunner(): AblationModeRunner {
 }
 
 function createBoundedRefinementRunner(): AblationModeRunner {
-  const engine = new MockDllmEngine();
-
   return {
     id: "bounded_refinement",
     label: "Bounded + Grounded + Refinement",
-    description: "Uses the existing refinement loop over the bounded grounded mock engine.",
+    description: "Uses the refinement loop over the evidence-aware bounded grounded engine.",
     maskPolicyEnabled: true,
     verifierEnabled: true,
     groundingEnabled: true,
     refinementEnabled: true,
     async runFixture(fixture) {
-      const workspace = createWorkspace(`ablation-refinement-${fixture.case.id}`, fixture.packet);
+      /**
+       * Önemli fix:
+       * Bu engine'i createBoundedRefinementRunner içinde üst seviyede oluşturursak
+       * ablationModes module init sırasında çalışır ve class henüz initialization'a
+       * girmediği için ReferenceError verir.
+       *
+       * Bu yüzden engine lazy olarak runFixture içinde oluşturulur.
+       */
+      const engine = new AblationGroundedEngine();
+
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `ablation-refinement-${fixture.case.id}`
+      });
+
       const result = await runRefinementLoop({
         workspace,
         engine,
-        view: "boundary",
+        view: "verifier",
         maxAttempts: 2
       });
 
@@ -182,47 +219,36 @@ class AblationGroundedEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace) {
     const started = Date.now();
     const createdAt = new Date(started).toISOString();
+
     const selected = selectBoundedFact(workspace);
-    const boundaryStatus = shouldRefuse(workspace) ? "insufficient_context" : "sufficient_context";
-    let refined = setBoundaryDecision(workspace, {
-      status: boundaryStatus,
-      reason: boundaryStatus === "insufficient_context"
-        ? "The bounded packet marks required information as missing."
-        : "The bounded packet contains enough task-relevant information.",
-      missingInformation: boundaryStatus === "insufficient_context" ? workspace.packet.mustNotInfer : [],
-      decidedBy: "boundary",
-      createdAt
-    });
-    const finalResult = boundaryStatus === "insufficient_context" ? "insufficient_context" : selected.content;
+    const shouldRefuseResult = shouldRefuse(workspace);
+    const finalResult = shouldRefuseResult ? "insufficient_context" : selected.content;
 
-    if (selected.evidenceId) {
-      refined = addClaim(refined, {
-        id: `claim-${selected.id}`,
-        region: "final_result",
-        actor: "implementer",
-        content: finalResult,
-        evidenceIds: [selected.evidenceId],
-        confidence: selected.confidence,
-        state: "accepted",
-        createdAt
-      });
-    }
+    let refined = workspace;
 
-    // Grounded modun farkı burada görünür: final result sadece yazılmaz, hangi fact'e
-    // dayandığı claim ve verifier üzerinden izlenebilir hale gelir. Bu katman olmadan
-    // doğru cevap almak mümkün olabilir ama araştırma çıktısı denetlenemez kalır.
+    /**
+     * Grounded mod artık generic evidence id üretmez.
+     * Adapter'dan gelen gerçek fixture evidenceId kullanılır.
+     */
     refined = addVerifierResult(refined, {
-      id: `verifier-${workspace.packet.id}`,
-      status: "pass",
+      id: `verifier-${workspace.id}-ablation-grounding`,
+      status: shouldRefuseResult ? "warn" : "pass",
+      decision: shouldRefuseResult ? "remask_required" : "approve",
       checkName: "ablation-grounding",
-      summary: "Grounded ablation selected a bounded fact and wrote evidence trace.",
+      summary: shouldRefuseResult
+        ? "The bounded workspace marks required information as missing."
+        : "Grounded ablation selected a bounded fact and wrote real fixture evidence trace.",
+      findings: [],
+      checkedFiles: workspace.scope.changedFiles,
       evidenceIds: selected.evidenceId ? [selected.evidenceId] : [],
-      failedRegions: [],
+      failedRegions: shouldRefuseResult ? ["final_result"] : [],
+      createdBy: "verifier",
       createdAt
     });
-    setFinalResult(refined, {
+
+    refined = setFinalResult(refined, {
       summary: finalResult,
-      createdBy: "implementer",
+      createdBy: "coder",
       createdAt
     });
 
@@ -234,31 +260,159 @@ class AblationGroundedEngine implements ModelEngine {
   }
 }
 
-function selectBoundedFact(workspace: SharedSemanticWorkspace) {
-  const facts = workspace.packet.facts;
-  const sensitive = facts.find((fact) => fact.kind === "sensitive");
-  const current = facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
-  const selected = current ?? sensitive ?? facts[0];
+type SelectedBoundedFact = {
+  id: string;
+  content: string;
+  evidenceId: string;
+  confidence: number;
+};
 
-  if (!selected) {
+type WorkspaceWithEvidenceFacts = SharedSemanticWorkspace & {
+  authority: SharedSemanticWorkspace["authority"] & {
+    evidenceFacts?: WorkspaceEvidenceFact[];
+  };
+  repoFacts: SharedSemanticWorkspace["repoFacts"] & {
+    evidenceFacts?: WorkspaceEvidenceFact[];
+  };
+};
+
+function selectRawFact(workspace: SharedSemanticWorkspace): SelectedBoundedFact | undefined {
+  const firstEvidenceFact = getEvidenceFacts(workspace)[0];
+
+  if (firstEvidenceFact) {
+    return evidenceFactToSelectedFact(firstEvidenceFact);
+  }
+
+  const authorityFact = workspace.authority.facts[0];
+
+  if (authorityFact) {
     return {
-      id: "missing-fact",
-      content: "insufficient_context",
-      evidenceId: "",
-      confidence: 0
+      id: "authority-raw",
+      content: authorityFact,
+      evidenceId: "workspace-authority",
+      confidence: 0.7
     };
   }
 
-  if (selected.kind === "sensitive") {
+  const staleFact = workspace.repoFacts.staleFacts[0];
+
+  if (staleFact) {
     return {
-      ...selected,
-      content: selected.content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context."
+      id: "stale-raw",
+      content: staleFact,
+      evidenceId: "workspace-repo-stale-fact",
+      confidence: 0.45
     };
   }
 
-  return selected;
+  const sensitivePattern = workspace.policy.sensitivePatterns[0] ?? workspace.repoFacts.sensitivePatterns[0];
+
+  if (sensitivePattern) {
+    return {
+      id: "sensitive-raw",
+      content: sensitivePattern,
+      evidenceId: "workspace-policy-sensitive-pattern",
+      confidence: 0.4
+    };
+  }
+
+  return undefined;
+}
+
+function selectBoundedFact(workspace: SharedSemanticWorkspace): SelectedBoundedFact {
+  const authorityEvidenceFact = findEvidenceFact(workspace, ["current", "correction"]);
+
+  if (authorityEvidenceFact) {
+    return evidenceFactToSelectedFact(authorityEvidenceFact);
+  }
+
+  const sensitiveEvidenceFact = findEvidenceFact(workspace, ["sensitive"]);
+
+  if (sensitiveEvidenceFact) {
+    return {
+      ...evidenceFactToSelectedFact(sensitiveEvidenceFact),
+      content: safeSensitiveContent(sensitiveEvidenceFact.content)
+    };
+  }
+
+  const staleEvidenceFact = findEvidenceFact(workspace, ["stale"]);
+
+  if (staleEvidenceFact) {
+    return evidenceFactToSelectedFact(staleEvidenceFact);
+  }
+
+  const authorityFact = workspace.authority.facts[0];
+
+  if (authorityFact) {
+    return {
+      id: "authority-current",
+      content: authorityFact,
+      evidenceId: "workspace-authority",
+      confidence: 0.9
+    };
+  }
+
+  const sensitivePattern = workspace.policy.sensitivePatterns[0] ?? workspace.repoFacts.sensitivePatterns[0];
+
+  if (sensitivePattern) {
+    return {
+      id: "sensitive-policy",
+      content: safeSensitiveContent(sensitivePattern),
+      evidenceId: "workspace-policy-sensitive-pattern",
+      confidence: 0.75
+    };
+  }
+
+  const staleFact = workspace.repoFacts.staleFacts[0];
+
+  if (staleFact) {
+    return {
+      id: "repo-stale-fact",
+      content: staleFact,
+      evidenceId: "workspace-repo-stale-fact",
+      confidence: 0.45
+    };
+  }
+
+  return {
+    id: "missing-fact",
+    content: "insufficient_context",
+    evidenceId: "",
+    confidence: 0
+  };
+}
+
+function getEvidenceFacts(workspace: SharedSemanticWorkspace): WorkspaceEvidenceFact[] {
+  const workspaceWithEvidence = workspace as WorkspaceWithEvidenceFacts;
+
+  return [
+    ...(workspaceWithEvidence.authority.evidenceFacts ?? []),
+    ...(workspaceWithEvidence.repoFacts.evidenceFacts ?? [])
+  ];
+}
+
+function findEvidenceFact(
+  workspace: SharedSemanticWorkspace,
+  kinds: WorkspaceEvidenceFact["kind"][]
+): WorkspaceEvidenceFact | undefined {
+  return getEvidenceFacts(workspace).find((fact) => kinds.includes(fact.kind));
+}
+
+function evidenceFactToSelectedFact(fact: WorkspaceEvidenceFact): SelectedBoundedFact {
+  return {
+    id: fact.id,
+    content: fact.content,
+    evidenceId: fact.evidenceId,
+    confidence: fact.confidence
+  };
 }
 
 function shouldRefuse(workspace: SharedSemanticWorkspace): boolean {
-  return workspace.packet.mustNotInfer.some((item) => item.toLowerCase().includes("missing"));
+  return workspace.authority.missingRules.some((item) =>
+    item.toLowerCase().includes("missing")
+  );
+}
+
+function safeSensitiveContent(content: string): string {
+  return content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
 }

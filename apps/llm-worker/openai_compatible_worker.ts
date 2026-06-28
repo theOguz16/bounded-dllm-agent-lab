@@ -1,12 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
-  addClaim,
   addVerifierResult,
-  setBoundaryDecision,
   setFinalResult,
-  type BoundaryStatus,
   type SharedSemanticWorkspace,
-  type VerifierStatus
+  type WorkspaceCheckStatus,
+  type WorkspaceDecision,
+  type WorkspaceRegion
 } from "../../packages/workspace-core/src/index.js";
 import type {
   DllmWorkerRefineRequest,
@@ -23,11 +22,17 @@ const model = process.env.LLM_MODEL ?? "openai-compatible-model";
 const temperature = Number(process.env.LLM_TEMPERATURE ?? "0");
 const maxTokens = Number(process.env.LLM_MAX_TOKENS ?? "512");
 
+type LlmBoundaryStatus =
+  | "sufficient_context"
+  | "insufficient_context"
+  | "unsafe_sensitive"
+  | "outside_allowed_scope";
+
 type LlmDecision = {
   finalResult: string;
-  boundaryStatus: BoundaryStatus;
+  boundaryStatus: LlmBoundaryStatus;
   evidenceIds: string[];
-  verifierStatus: VerifierStatus;
+  verifierStatus: WorkspaceCheckStatus;
   verifierSummary: string;
 };
 
@@ -50,11 +55,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
-    writeJson(response, 404, { ok: false, error: "not_found" });
+    writeJson(response, 404, {
+      ok: false,
+      error: "not_found"
+    });
   } catch (error) {
     writeJson(response, 500, {
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
+      error: formatError(error)
     });
   }
 });
@@ -64,9 +72,12 @@ server.listen(port, host, () => {
   console.log(`Using ${baseUrl}/chat/completions with model ${model}`);
 });
 
-async function handleRefine(request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function handleRefine(
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
   const started = Date.now();
-  const body = await readJson(request) as DllmWorkerRefineRequest;
+  const body = (await readJson(request)) as DllmWorkerRefineRequest;
   const decision = await requestLlmDecisionSafely(body.workspace);
   const workspace = applyDecision(body.workspace, decision);
 
@@ -80,14 +91,19 @@ async function handleRefine(request: IncomingMessage, response: ServerResponse):
   writeJson(response, 200, result);
 }
 
-async function requestLlmDecisionSafely(workspace: SharedSemanticWorkspace): Promise<LlmDecision> {
+async function requestLlmDecisionSafely(
+  workspace: SharedSemanticWorkspace
+): Promise<LlmDecision> {
   try {
     return await requestLlmDecision(workspace);
   } catch (error) {
-    // Expanded-context gibi stres koşularında autoregressive model bazen JSON
-    // sözleşmesini bozabilir veya yarım cevap döndürebilir. Bu durum benchmark'ı
-    // çökertmemeli; o case'in ölçülebilir bir model/contract failure olarak rapora
-    // girmesi gerekir. Böylece altyapı hatası ile model davranışı birbirine karışmaz.
+    /**
+     * Expanded-context gibi stres koşularında autoregressive model bazen JSON
+     * sözleşmesini bozabilir veya yarım cevap döndürebilir.
+     *
+     * Bu durum benchmark'ı çökertmemeli; case ölçülebilir bir model/contract
+     * failure olarak rapora girmeli.
+     */
     return {
       finalResult: "invalid_llm_response",
       boundaryStatus: "insufficient_context",
@@ -98,7 +114,9 @@ async function requestLlmDecisionSafely(workspace: SharedSemanticWorkspace): Pro
   }
 }
 
-async function requestLlmDecision(workspace: SharedSemanticWorkspace): Promise<LlmDecision> {
+async function requestLlmDecision(
+  workspace: SharedSemanticWorkspace
+): Promise<LlmDecision> {
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
@@ -114,7 +132,7 @@ async function requestLlmDecision(workspace: SharedSemanticWorkspace): Promise<L
           role: "system",
           content: [
             "You are an autoregressive LLM baseline for a bounded-context agent benchmark.",
-            "Use only the provided packet fields.",
+            "Use only the provided workspace fields.",
             "Do not reveal raw sensitive values.",
             "Do not invent missing information.",
             "Return JSON only."
@@ -128,7 +146,14 @@ async function requestLlmDecision(workspace: SharedSemanticWorkspace): Promise<L
     })
   });
 
-  const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: {
+        content?: string;
+      };
+    }>;
+  };
+
   const content = payload.choices?.[0]?.message?.content;
 
   if (!response.ok || !content) {
@@ -139,78 +164,75 @@ async function requestLlmDecision(workspace: SharedSemanticWorkspace): Promise<L
 }
 
 function buildPrompt(workspace: SharedSemanticWorkspace): string {
-  const packet = workspace.packet;
-  const facts = packet.facts.map((fact) => ({
-    id: fact.id,
-    kind: fact.kind,
-    content: fact.content,
-    evidenceId: fact.evidenceId,
-    confidence: fact.confidence
-  }));
-
-  // Baseline prompt'u evaluator oracle alanlarını bilerek içermez. Model task, fact,
-  // scope ve responseContract görür; expectedResult/requiredTerms/forbiddenTerms
-  // görmez. Bu ayrım bilimsel karşılaştırmanın en hassas yeridir.
+  /**
+   * Eski sürüm burada workspace.packet okuyordu.
+   * Yeni canonical workspace'te modelin görebileceği context ayrı alanlarda durur:
+   * task, scope, authority, policy, repoFacts ve patchIntent.
+   *
+   * Evaluator oracle alanları burada yoktur; expectedResult, requiredTerms,
+   * forbiddenTerms gibi grading key'ler worker'a gönderilmez.
+   */
   return JSON.stringify(
     {
       instruction: "Resolve the task and return the smallest safe answer as JSON.",
       outputSchema: {
         finalResult: "string",
         boundaryStatus: "sufficient_context | insufficient_context | unsafe_sensitive | outside_allowed_scope",
-        evidenceIds: ["evidence ids used from the facts"],
+        evidenceIds: ["evidence ids used from the workspace context"],
         verifierStatus: "pass | warn | fail",
         verifierSummary: "short reason"
       },
-      task: packet.task,
-      goal: packet.goal,
-      allowedScope: packet.allowedScope,
-      forbiddenScope: packet.forbiddenScope,
-      mustNotInfer: packet.mustNotInfer,
-      responseContract: packet.responseContract,
-      facts
+      task: workspace.task,
+      scope: workspace.scope,
+      authority: workspace.authority,
+      policy: workspace.policy,
+      repoFacts: workspace.repoFacts,
+      patchIntent: workspace.patchIntent,
+      roleViews: workspace.roleViews
     },
     null,
     2
   );
 }
 
-function applyDecision(workspace: SharedSemanticWorkspace, decision: LlmDecision): SharedSemanticWorkspace {
+function applyDecision(
+  workspace: SharedSemanticWorkspace,
+  decision: LlmDecision
+): SharedSemanticWorkspace {
   const createdAt = new Date().toISOString();
-  let refined = setBoundaryDecision(workspace, {
-    status: decision.boundaryStatus,
-    reason: decision.verifierSummary,
-    missingInformation: decision.boundaryStatus === "insufficient_context" ? workspace.packet.mustNotInfer : [],
-    decidedBy: "boundary",
-    createdAt
-  });
+  const failedRegions = resolveFailedRegions(decision);
+  const verifierDecision = mapBoundaryStatusToWorkspaceDecision(decision.boundaryStatus);
 
-  refined = addClaim(refined, {
-    id: `${workspace.id}-claim-llm-final`,
-    region: "final_result",
-    actor: "implementer",
-    content: decision.finalResult,
-    evidenceIds: decision.evidenceIds,
-    confidence: 0.5,
-    state: decision.verifierStatus === "fail" ? "proposed" : "accepted",
-    createdAt
-  });
+  let refined = workspace;
 
+  /**
+   * setBoundaryDecision kaldırıldı.
+   * Boundary/sufficiency kararı artık verifier_result içinde temsil edilir.
+   *
+   * addClaim de kaldırıldı; yeni WorkspaceClaim shape'i bu worker için gerekli değil.
+   * Final output ve verifier trace benchmark için yeterli canonical sinyali üretir.
+   */
   refined = addVerifierResult(refined, {
     id: `${workspace.id}-verifier-llm-grounding`,
     status: decision.verifierStatus,
+    decision: verifierDecision,
     checkName: "llm_baseline_grounding",
     summary: decision.verifierSummary,
+    findings: [],
+    checkedFiles: workspace.scope.changedFiles,
     evidenceIds: decision.evidenceIds,
-    failedRegions: decision.verifierStatus === "fail" ? ["final_result"] : [],
+    failedRegions,
+    createdBy: "verifier",
     createdAt
   });
 
-  // Burada finalResult modeli normalize etmeden yazıyoruz. Dream worker'daki
-  // bounded protocol raylarıyla farkı özellikle koruyoruz; baseline gerçek model
-  // kararının scope, leakage ve evidence davranışını göstermeli.
+  /**
+   * Burada finalResult modeli normalize etmeden yazıyoruz.
+   * Baseline gerçek model kararının scope, leakage ve evidence davranışını göstermeli.
+   */
   return setFinalResult(refined, {
     summary: decision.finalResult,
-    createdBy: "implementer",
+    createdBy: "coder",
     createdAt
   });
 }
@@ -231,16 +253,22 @@ function parseDecision(content: string): LlmDecision {
 function extractJson(content: string): string {
   const trimmed = content.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
+
+  if (fenced) {
+    return fenced[1].trim();
+  }
 
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) return trimmed.slice(firstBrace, lastBrace + 1);
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1);
+  }
 
   return trimmed;
 }
 
-function parseBoundaryStatus(value: unknown): BoundaryStatus {
+function parseBoundaryStatus(value: unknown): LlmBoundaryStatus {
   if (
     value === "sufficient_context" ||
     value === "insufficient_context" ||
@@ -253,9 +281,43 @@ function parseBoundaryStatus(value: unknown): BoundaryStatus {
   return "insufficient_context";
 }
 
-function parseVerifierStatus(value: unknown): VerifierStatus {
-  if (value === "pass" || value === "warn" || value === "fail") return value;
+function parseVerifierStatus(value: unknown): WorkspaceCheckStatus {
+  if (value === "pass" || value === "warn" || value === "fail") {
+    return value;
+  }
+
   return "warn";
+}
+
+function mapBoundaryStatusToWorkspaceDecision(
+  status: LlmBoundaryStatus
+): WorkspaceDecision {
+  if (status === "sufficient_context") {
+    return "approve";
+  }
+
+  if (status === "insufficient_context") {
+    return "remask_required";
+  }
+
+  if (status === "unsafe_sensitive") {
+    return "reject";
+  }
+
+  return "refuse";
+}
+
+function resolveFailedRegions(decision: LlmDecision): WorkspaceRegion[] {
+  if (
+    decision.verifierStatus === "fail" ||
+    decision.boundaryStatus === "insufficient_context" ||
+    decision.boundaryStatus === "unsafe_sensitive" ||
+    decision.boundaryStatus === "outside_allowed_scope"
+  ) {
+    return ["final_result"];
+  }
+
+  return [];
 }
 
 function formatError(error: unknown): string {
@@ -265,7 +327,9 @@ function formatError(error: unknown): string {
 function readJson(request: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+
     request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+
     request.on("end", () => {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -273,12 +337,20 @@ function readJson(request: IncomingMessage): Promise<unknown> {
         reject(error);
       }
     });
+
     request.on("error", reject);
   });
 }
 
-function writeJson(response: ServerResponse, status: number, body: unknown): void {
-  response.writeHead(status, { "content-type": "application/json" });
+function writeJson(
+  response: ServerResponse,
+  status: number,
+  body: unknown
+): void {
+  response.writeHead(status, {
+    "content-type": "application/json"
+  });
+
   response.end(`${JSON.stringify(body)}\n`);
 }
 

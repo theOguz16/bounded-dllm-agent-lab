@@ -10,18 +10,35 @@ import {
   type CaseOutputSnapshot,
   type CaseScore
 } from "../../../packages/eval-core/src/index.js";
-import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
-import { hardFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
+import {
+  createExperimentConfig,
+  createRunManifest,
+  validateRunManifest
+} from "../../../packages/experiment-core/src/index.js";
+import {
+  hardFixtures,
+  validateFixtures
+} from "../../../packages/fixtures/src/index.js";
+import { createWorkspaceFromPacket } from "../../../packages/context-core/src/workspace-adapter.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpLlmWorkerEngine } from "../../../packages/providers/src/index.js";
 import { isHealthResponse } from "../../../packages/worker-contract/src/index.js";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
-import type { BoundedContextPacket, ContextFact } from "../../../packages/context-core/src/index.js";
+import type {
+  BoundedContextPacket,
+  ContextFact
+} from "../../../packages/context-core/src/index.js";
 
 type LlmContextStrategy = "plain" | "rag" | "expanded" | "synthetic";
 
 const workerUrl = process.env.LLM_WORKER_URL ?? "http://127.0.0.1:8775";
-const engine = new HttpLlmWorkerEngine(workerUrl, "boundary");
+
+/**
+ * Eski "boundary" view kaldırıldı.
+ * LLM baseline da artık verifier view üzerinden çalışır; boundary/scope/authority
+ * kontrolleri verifier_result ve merge_decision tarafında temsil edilir.
+ */
+const engine = new HttpLlmWorkerEngine(workerUrl, "verifier");
+
 const reportDir = "reports";
 const contextStrategy = parseContextStrategy(process.env.LLM_CONTEXT_STRATEGY ?? "plain");
 const suiteName = createSuiteName(contextStrategy);
@@ -39,13 +56,18 @@ if (fixtureFailures.length) {
 }
 
 const healthy = await engine.health();
+
 if (!healthy) {
   throw new Error(`LLM worker health check failed for ${workerUrl}`);
 }
+
 const workerHealth = await readWorkerHealth(workerUrl);
-// Model adı çoğu zaman benchmark terminalinde değil, worker terminalinde env olarak
-// tanımlanır. Health metadata'sını okumak manifest'in "hangi model ölçüldü?"
-// sorusuna sonradan tahminle değil, çalışan worker'ın kendi beyanıyla cevap verir.
+
+/**
+ * Model adı çoğu zaman benchmark terminalinde değil, worker terminalinde env olarak
+ * tanımlanır. Health metadata'sını okumak manifest'in "hangi model ölçüldü?"
+ * sorusuna sonradan tahminle değil, çalışan worker'ın kendi beyanıyla cevap verir.
+ */
 const modelName = process.env.LLM_MODEL ?? workerHealth.modelName ?? "openai-compatible-model";
 
 const checkpoint = await loadCheckpoint();
@@ -56,6 +78,7 @@ const completedCaseIds = new Set(checkpoint?.completedCaseIds ?? []);
 
 for (const [index, fixture] of fixtureSubset.entries()) {
   const progress = `${index + 1}/${fixtureSubset.length}`;
+
   if (completedCaseIds.has(fixture.case.id)) {
     console.error(`[worker-llm-context-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`);
     continue;
@@ -64,15 +87,27 @@ for (const [index, fixture] of fixtureSubset.entries()) {
   console.error(`[worker-llm-context-benchmark:${contextStrategy}] ${progress} ${fixture.case.id}`);
 
   const packet = createStrategyPacket(fixture.packet, fixture.case.id);
-  const workspace = createWorkspace(`llm-${contextStrategy}-hard-baseline-${fixture.case.id}`, packet);
-  const masked = createMaskedWorkspaceView(workspace, "boundary");
+
+  /**
+   * LLM context benchmark hâlâ strategy packet üretir.
+   * Fakat workspace-core artık packet bilmediği için packet -> workspace dönüşümü
+   * context-core adapter üzerinden yapılır.
+   */
+  const workspace = createWorkspaceFromPacket(packet, {
+    id: `llm-${contextStrategy}-hard-baseline-${fixture.case.id}`
+  });
+
+  const masked = createMaskedWorkspaceView(workspace, "verifier");
   const result = await refineWithRetry(masked.workspace, fixture.case.id);
 
-  // Bu runner'ın amacı dLLM worker'ı tekrar ölçmek değil; aynı hard fixture'ları
-  // autoregressive LLM worker'a verip model ailesi karşılaştırmasının ilk gerçek
-  // kolonunu üretmektir. Input aynı kalır, oracle yine modele gitmez.
+  /**
+   * Bu runner'ın amacı dLLM worker'ı tekrar ölçmek değil; aynı hard fixture'ları
+   * autoregressive LLM worker'a verip model ailesi karşılaştırmasının ilk gerçek
+   * kolonunu üretmektir. Input aynı kalır, oracle yine modele gitmez.
+   */
   scores.push(scoreCase(fixture.case, result.workspace));
   completedCaseIds.add(fixture.case.id);
+
   outputSnapshots.push({
     caseId: fixture.case.id,
     family: fixture.case.family,
@@ -82,6 +117,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
     forbiddenTerms: fixture.case.forbiddenTerms,
     finalResult: result.workspace.finalResult?.summary ?? ""
   });
+
   await writeCheckpoint({
     runId,
     suiteName,
@@ -94,6 +130,7 @@ for (const [index, fixture] of fixtureSubset.entries()) {
 }
 
 const report = aggregateScores(scores);
+
 const artifact = createBenchmarkArtifact({
   suiteName,
   engineName: createEngineName(contextStrategy),
@@ -101,6 +138,7 @@ const artifact = createBenchmarkArtifact({
   report,
   outputSnapshots
 });
+
 const config = createExperimentConfig({
   runId,
   suiteName,
@@ -127,6 +165,7 @@ const config = createExperimentConfig({
   },
   createdAt: runCreatedAt
 });
+
 const manifest = createRunManifest({
   config,
   report,
@@ -136,6 +175,7 @@ const manifest = createRunManifest({
     manifestPath
   }
 });
+
 const failures = validateRunManifest(manifest);
 
 if (failures.length) {
@@ -182,29 +222,37 @@ type LlmHardBenchmarkCheckpoint = {
   outputSnapshots: CaseOutputSnapshot[];
 };
 
-function createStrategyPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+function createStrategyPacket(
+  packet: BoundedContextPacket,
+  caseId: string
+): BoundedContextPacket {
   if (contextStrategy === "plain") return packet;
   if (contextStrategy === "expanded") return createExpandedPacket(packet, caseId);
   if (contextStrategy === "synthetic") return createSyntheticPacket(packet, caseId);
+
   return createRagPacket(packet, caseId);
 }
 
-function createRagPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+function createRagPacket(
+  packet: BoundedContextPacket,
+  caseId: string
+): BoundedContextPacket {
   const query = [
     packet.task,
     packet.goal,
     ...packet.allowedScope.map((scope) => `${scope.label} ${scope.path ?? ""}`),
     ...packet.mustNotInfer
   ].join(" ");
+
   const retrievedFacts = retrieveAdditionalFacts(query, packet.id);
   const existingEvidenceIds = new Set(packet.facts.map((fact) => fact.evidenceId));
   const newFacts = retrievedFacts.filter((fact) => !existingEvidenceIds.has(fact.evidenceId));
 
-  // RAG baseline bilinçli olarak bounded packet'e ek retrieval bilgisi ekler.
-  // Bu mimariyi adil biçimde test etmek için oracle alanlarını değil, sadece başka
-  // fixture packet'lerinden gelebilecek fact benzeri context parçalarını ekliyoruz.
-  // Böylece "daha fazla bilgi" fayda mı getiriyor, yoksa distractor/gürültü mü
-  // üretiyor sorusunu aynı model üzerinde ölçebiliriz.
+  /**
+   * RAG baseline bilinçli olarak bounded packet'e ek retrieval bilgisi ekler.
+   * Oracle alanlarını değil, sadece başka fixture packet'lerinden gelebilecek
+   * fact benzeri context parçalarını ekliyoruz.
+   */
   return {
     ...packet,
     id: `${packet.id}-rag`,
@@ -215,15 +263,18 @@ function createRagPacket(packet: BoundedContextPacket, caseId: string): BoundedC
   };
 }
 
-function createExpandedPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+function createExpandedPacket(
+  packet: BoundedContextPacket,
+  caseId: string
+): BoundedContextPacket {
   const expandedFacts = createExpandedContextFacts(packet.id);
   const existingEvidenceIds = new Set(packet.facts.map((fact) => fact.evidenceId));
   const newFacts = expandedFacts.filter((fact) => !existingEvidenceIds.has(fact.evidenceId));
 
-  // Expanded-context baseline RAG'den farklıdır: burada amaç en alakalı birkaç
-  // fact'i almak değil, daha geniş ve gürültülü bir çalışma belleği simüle etmektir.
-  // Böylece "context büyüdükçe model daha iyi mi olur, yoksa karar odağı mı dağılır?"
-  // sorusunu aynı model ve aynı evaluator üzerinde ölçebiliriz.
+  /**
+   * Expanded-context baseline RAG'den farklıdır: burada amaç en alakalı birkaç
+   * fact'i almak değil, daha geniş ve gürültülü bir çalışma belleği simüle etmektir.
+   */
   return {
     ...packet,
     id: `${packet.id}-expanded`,
@@ -234,14 +285,16 @@ function createExpandedPacket(packet: BoundedContextPacket, caseId: string): Bou
   };
 }
 
-function createSyntheticPacket(packet: BoundedContextPacket, caseId: string): BoundedContextPacket {
+function createSyntheticPacket(
+  packet: BoundedContextPacket,
+  caseId: string
+): BoundedContextPacket {
   const syntheticFact = createSyntheticContextFact(packet, caseId);
 
-  // Synthetic-context baseline geniş context eklemez; mevcut bounded packet'i küçük
-  // bir karar özetiyle zenginleştirir. Bu, araştırmanın ana sorusuna denk gelir:
-  // "Dar context, iyi yapılandırılmış sentetik bağlamla güçlenebilir mi?"
-  // Oracle alanlarını kullanmıyoruz; summary sadece packet içindeki fact kind,
-  // evidence id ve scope kurallarından türetilir.
+  /**
+   * Synthetic-context baseline geniş context eklemez; mevcut bounded packet'i
+   * küçük bir karar özetiyle zenginleştirir.
+   */
   return {
     ...packet,
     id: `${packet.id}-synthetic`,
@@ -252,15 +305,23 @@ function createSyntheticPacket(packet: BoundedContextPacket, caseId: string): Bo
   };
 }
 
-function createSyntheticContextFact(packet: BoundedContextPacket, caseId: string): ContextFact {
-  const correctionOrCurrent = packet.facts.find((fact) => fact.kind === "correction") ?? packet.facts.find((fact) => fact.kind === "current");
+function createSyntheticContextFact(
+  packet: BoundedContextPacket,
+  caseId: string
+): ContextFact {
+  const correctionOrCurrent =
+    packet.facts.find((fact) => fact.kind === "correction") ??
+    packet.facts.find((fact) => fact.kind === "current");
+
   const sensitive = packet.facts.find((fact) => fact.kind === "sensitive");
   const uncertain = packet.facts.find((fact) => fact.kind === "uncertain");
   const stale = packet.facts.find((fact) => fact.kind === "stale");
   const preferred = correctionOrCurrent ?? sensitive ?? uncertain ?? stale ?? packet.facts[0];
+
   const boundaryHint = packet.mustNotInfer.length
     ? `If required information is missing, return insufficient_context instead of guessing. Missing signals: ${packet.mustNotInfer.join("; ")}.`
     : "The packet appears answerable if the preferred evidence directly supports the task.";
+
   const scopeHint = [
     ...packet.allowedScope.map((scope) => `Allowed: ${scope.label}${scope.path ? ` (${scope.path})` : ""}`),
     ...packet.forbiddenScope.map((scope) => `Forbidden: ${scope.label}${scope.path ? ` (${scope.path})` : ""}`)
@@ -281,8 +342,12 @@ function createSyntheticContextFact(packet: BoundedContextPacket, caseId: string
   };
 }
 
-function retrieveAdditionalFacts(query: string, currentPacketId: string): ContextFact[] {
+function retrieveAdditionalFacts(
+  query: string,
+  currentPacketId: string
+): ContextFact[] {
   const queryTerms = normalizedTerms(query);
+
   const candidates = hardFixtures
     .filter((fixture) => fixture.packet.id !== currentPacketId)
     .flatMap((fixture) =>
@@ -303,6 +368,7 @@ function retrieveAdditionalFacts(query: string, currentPacketId: string): Contex
 
 function createExpandedContextFacts(currentPacketId: string): ContextFact[] {
   const byFamily = new Map(hardFixtures.map((fixture) => [fixture.family, fixture.packet.facts]));
+
   const selectedFacts = [
     ...(byFamily.get("correction_override") ?? []).slice(0, 4),
     ...(byFamily.get("sensitive_boundary") ?? []).slice(0, 5),
@@ -319,7 +385,10 @@ function createExpandedContextFacts(currentPacketId: string): ContextFact[] {
   }));
 }
 
-async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspace>[0], caseId: string) {
+async function refineWithRetry(
+  workspace: Parameters<typeof engine.refineWorkspace>[0],
+  caseId: string
+) {
   const maxAttempts = Number(process.env.BENCHMARK_RETRY_ATTEMPTS ?? "3");
   let lastError: unknown;
 
@@ -329,7 +398,10 @@ async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspa
     } catch (error) {
       lastError = error;
       console.error(`[worker-llm-context-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
-      if (attempt < maxAttempts) await sleep(1500 * attempt);
+
+      if (attempt < maxAttempts) {
+        await sleep(1500 * attempt);
+      }
     }
   }
 
@@ -338,31 +410,43 @@ async function refineWithRetry(workspace: Parameters<typeof engine.refineWorkspa
 
 async function writeCheckpoint(checkpoint: LlmHardBenchmarkCheckpoint): Promise<void> {
   await mkdir(reportDir, { recursive: true });
-  // LLM API koşuları GPU koşuları kadar uzun olmasa bile dış servis hatasına açıktır.
-  // Checkpoint aynı case'i tekrar ücretlendirmeden kaldığımız yerden sürdürmemizi sağlar.
+
+  /**
+   * LLM API koşuları GPU koşuları kadar uzun olmasa bile dış servis hatasına açıktır.
+   * Checkpoint aynı case'i tekrar ücretlendirmeden kaldığımız yerden sürdürmemizi sağlar.
+   */
   await writeFile(checkpointPath, `${JSON.stringify(checkpoint, null, 2)}\n`);
 }
 
 async function loadCheckpoint(): Promise<LlmHardBenchmarkCheckpoint | undefined> {
-  if (process.env.BENCHMARK_RESUME !== "1") return undefined;
+  if (process.env.BENCHMARK_RESUME !== "1") {
+    return undefined;
+  }
 
   try {
     const raw = await readFile(checkpointPath, "utf8");
     const checkpoint = JSON.parse(raw) as LlmHardBenchmarkCheckpoint;
     console.error(`[worker-llm-context-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`);
+
     return checkpoint;
   } catch {
     console.error(`[worker-llm-context-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`);
+
     return undefined;
   }
 }
 
 async function resolveRunId(createdAt: string): Promise<string> {
-  if (process.env.BENCHMARK_RUN_ID) return process.env.BENCHMARK_RUN_ID;
+  if (process.env.BENCHMARK_RUN_ID) {
+    return process.env.BENCHMARK_RUN_ID;
+  }
 
   if (process.env.BENCHMARK_RESUME === "1") {
     const latest = await latestCheckpointRunId();
-    if (latest) return latest;
+
+    if (latest) {
+      return latest;
+    }
   }
 
   return `${createdAt.replace(/[:.]/g, "-")}-${createRunSuffix(contextStrategy)}`;
@@ -372,10 +456,12 @@ async function latestCheckpointRunId(): Promise<string | undefined> {
   try {
     const files = await readdir(reportDir);
     const suffix = `-${createRunSuffix(contextStrategy)}.checkpoint.json`;
+
     const checkpoints = files
       .filter((file) => file.endsWith(suffix))
       .sort()
       .reverse();
+
     return checkpoints[0]?.replace(/\.checkpoint\.json$/, "");
   } catch {
     return undefined;
@@ -410,7 +496,15 @@ async function readWorkerHealth(baseUrl: string) {
 }
 
 function parseContextStrategy(value: string): LlmContextStrategy {
-  if (value === "plain" || value === "rag" || value === "expanded" || value === "synthetic") return value;
+  if (
+    value === "plain" ||
+    value === "rag" ||
+    value === "expanded" ||
+    value === "synthetic"
+  ) {
+    return value;
+  }
+
   throw new Error(`Unknown LLM_CONTEXT_STRATEGY: ${value}`);
 }
 
@@ -418,6 +512,7 @@ function createSuiteName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "llm-rag-hard-baseline-v1";
   if (strategy === "expanded") return "llm-expanded-hard-baseline-v1";
   if (strategy === "synthetic") return "llm-synthetic-hard-baseline-v1";
+
   return "llm-hard-baseline-v1";
 }
 
@@ -425,6 +520,7 @@ function createRunSuffix(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "llm-rag-hard-baseline";
   if (strategy === "expanded") return "llm-expanded-hard-baseline";
   if (strategy === "synthetic") return "llm-synthetic-hard-baseline";
+
   return "llm-hard-baseline";
 }
 
@@ -432,6 +528,7 @@ function createEngineName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "external-llm-worker-rag-hard-baseline";
   if (strategy === "expanded") return "external-llm-worker-expanded-hard-baseline";
   if (strategy === "synthetic") return "external-llm-worker-synthetic-hard-baseline";
+
   return "external-llm-worker-hard-baseline";
 }
 
@@ -439,11 +536,13 @@ function createArchitectureName(strategy: LlmContextStrategy): string {
   if (strategy === "rag") return "external-ar-llm-rag-hard-baseline";
   if (strategy === "expanded") return "external-ar-llm-expanded-hard-baseline";
   if (strategy === "synthetic") return "external-ar-llm-synthetic-hard-baseline";
+
   return "external-ar-llm-hard-baseline";
 }
 
 function lexicalOverlapScore(queryTerms: Set<string>, content: string): number {
   const contentTerms = normalizedTerms(content);
+
   return [...contentTerms].filter((term) => queryTerms.has(term)).length;
 }
 
@@ -467,6 +566,7 @@ function normalizedTerms(value: string): Set<string> {
     "use",
     "with"
   ]);
+
   const terms = value
     .toLowerCase()
     .replace(/[^a-z0-9_]+/g, " ")

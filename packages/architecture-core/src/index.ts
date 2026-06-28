@@ -1,8 +1,9 @@
-import { createWorkspace, type SharedSemanticWorkspace } from "../../workspace-core/src/index.js";
+import { createWorkspaceFromPacket } from "../../context-core/src/workspace-adapter.js";
 import { createMaskedWorkspaceView } from "../../masking-policy/src/index.js";
-import type { BenchmarkFixture } from "../../fixtures/src/index.js";
 import { MockDllmEngine } from "../../providers/src/index.js";
 import { runRefinementLoop } from "../../refinement-loop/src/index.js";
+import type { BenchmarkFixture } from "../../fixtures/src/index.js";
+import type { SharedSemanticWorkspace } from "../../workspace-core/src/index.js";
 
 export type ArchitectureId =
   | "bounded-dllm-refinement-loop"
@@ -28,7 +29,10 @@ export type ArchitectureRunOptions = {
 };
 
 export type ArchitectureRunner = ArchitectureMetadata & {
-  runFixture(fixture: BenchmarkFixture, options: ArchitectureRunOptions): Promise<ArchitectureRunResult>;
+  runFixture(
+    fixture: BenchmarkFixture,
+    options: ArchitectureRunOptions
+  ): Promise<ArchitectureRunResult>;
 };
 
 export const architectureRegistry: Record<ArchitectureId, ArchitectureRunner> = {
@@ -62,7 +66,10 @@ export function listArchitectures(): ArchitectureMetadata[] {
 }
 
 export function parseArchitectureId(value: string | undefined): ArchitectureId {
-  if (value && value in architectureRegistry) return value as ArchitectureId;
+  if (value && value in architectureRegistry) {
+    return value as ArchitectureId;
+  }
+
   return "bounded-dllm-refinement-loop";
 }
 
@@ -76,11 +83,24 @@ function createBoundedDllmRunner(): ArchitectureRunner {
     isMock: true,
     description: "Current bounded-context architecture with mask views and verifier-guided refinement.",
     async runFixture(fixture, options) {
-      const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
+      /**
+       * Architecture runner research fixture packet'ı alır.
+       * Runtime workspace ise artık packet bilmez; dönüşüm adapter üzerinden yapılır.
+       */
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `workspace-${fixture.case.id}`
+      });
+
       const result = await runRefinementLoop({
         workspace,
         engine,
-        view: "boundary",
+
+        /**
+         * Eski "boundary" view kaldırıldı.
+         * Boundary/scope/authority davranışı verifier view ve verifier_result içinde
+         * temsil edilir.
+         */
+        view: "verifier",
         maxAttempts: options.maxAttempts
       });
 
@@ -99,14 +119,22 @@ function createBaselineRunner(input: Omit<ArchitectureMetadata, "isMock">): Arch
     ...input,
     isMock: true,
     async runFixture(fixture) {
-      const workspace = createWorkspace(`workspace-${fixture.case.id}`, fixture.packet);
-      const masked = createMaskedWorkspaceView(workspace, "boundary");
+      /**
+       * Baseline runner'lar da aynı BenchmarkFixture -> Workspace sözleşmesini
+       * kullanır. Sadece packet -> workspace dönüşümü adapter'a taşınmıştır.
+       */
+      const workspace = createWorkspaceFromPacket(fixture.packet, {
+        id: `workspace-${fixture.case.id}`
+      });
+
+      const masked = createMaskedWorkspaceView(workspace, "verifier");
       const result = await engine.refineWorkspace(masked.workspace);
 
-      // Bu baseline runner'lar henüz gerçek mimari davranışı iddia etmez. Ama aynı
-      // BenchmarkFixture -> Workspace output sözleşmesini kullanırlar. Böylece lab,
-      // gerçek long-context/RAG/synthetic provider geldiğinde runner değiştirmeden
-      // adil karşılaştırma yapabilecek hale gelir.
+      /**
+       * Bu baseline runner'lar henüz gerçek mimari davranışı iddia etmez.
+       * Ama aynı output sözleşmesini kullanırlar. Böylece gerçek long-context/RAG/
+       * synthetic provider geldiğinde runner değiştirmeden karşılaştırma yapılabilir.
+       */
       return {
         workspace: result.workspace,
         engineName: `${input.id}:${engine.name}`

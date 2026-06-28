@@ -1,7 +1,5 @@
 import {
-  addClaim,
   addVerifierResult,
-  setBoundaryDecision,
   setFinalResult,
   type SharedSemanticWorkspace
 } from "../../workspace-core/src/index.js";
@@ -39,18 +37,22 @@ export class HttpDllmWorkerEngine implements ModelEngine {
     const response = await fetch(`${this.baseUrl}/health`);
     const body: unknown = await response.json();
 
-    // Python worker ayrı bir runtime olduğu için sadece HTTP 200'e güvenmiyoruz.
-    // Dönen JSON'un beklenen health sözleşmesine uyduğunu da kontrol ediyoruz.
+    /**
+     * Python worker ayrı bir runtime olduğu için sadece HTTP 200'e güvenmiyoruz.
+     * Dönen JSON'un beklenen health sözleşmesine uyduğunu da kontrol ediyoruz.
+     */
     return response.ok && isHealthResponse(body);
   }
 
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
+
     const request = createRefineRequest({
       requestId: `${workspace.id}-${workspace.revision}`,
       view: this.view,
       workspace
     });
+
     const response = await fetch(`${this.baseUrl}/refine`, {
       method: "POST",
       headers: {
@@ -58,11 +60,14 @@ export class HttpDllmWorkerEngine implements ModelEngine {
       },
       body: JSON.stringify(request)
     });
+
     const body: unknown = await response.json();
 
-    // Dil sınırı burada başlıyor: TypeScript tarafında tipler var, Python tarafında
-    // JSON var. Bu nedenle refine cevabını kullanmadan önce contract guard ile
-    // doğruluyoruz; aksi halde bozuk worker cevabı benchmark sonucunu kirletebilir.
+    /**
+     * Dil sınırı burada başlıyor: TypeScript tarafında tipler var, Python tarafında
+     * JSON var. Bu nedenle refine cevabını kullanmadan önce contract guard ile
+     * doğruluyoruz; aksi halde bozuk worker cevabı benchmark sonucunu kirletebilir.
+     */
     if (!response.ok || !isRefineResponse(body)) {
       throw new Error(`Invalid dLLM worker response from ${this.baseUrl}/refine`);
     }
@@ -88,18 +93,22 @@ export class HttpLlmWorkerEngine implements ModelEngine {
     const response = await fetch(`${this.baseUrl}/health`);
     const body: unknown = await response.json();
 
-    // LLM baseline worker da aynı HTTP sözleşmesini konuşur; fark inference
-    // ailesindedir. Health guard burada "çalışıyor" ile "beklenen contract"ı ayırır.
+    /**
+     * LLM baseline worker da aynı HTTP sözleşmesini konuşur; fark inference
+     * ailesindedir. Health guard burada "çalışıyor" ile "beklenen contract"ı ayırır.
+     */
     return response.ok && isHealthResponse(body) && body.mode === "llm";
   }
 
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
+
     const request = createRefineRequest({
       requestId: `${workspace.id}-${workspace.revision}`,
       view: this.view,
       workspace
     });
+
     const response = await fetch(`${this.baseUrl}/refine`, {
       method: "POST",
       headers: {
@@ -107,11 +116,14 @@ export class HttpLlmWorkerEngine implements ModelEngine {
       },
       body: JSON.stringify(request)
     });
+
     const body: unknown = await response.json();
 
-    // Baseline worker dış API kullandığı için bozuk JSON, timeout sonrası yarım cevap
-    // veya schema dışı workspace üretme riski taşır. Contract guard bu kirlenmeyi
-    // benchmark metriğine sessizce sokmamızı engeller.
+    /**
+     * Baseline worker dış API kullandığı için bozuk JSON, timeout sonrası yarım cevap
+     * veya schema dışı workspace üretme riski taşır. Contract guard bu kirlenmeyi
+     * benchmark metriğine sessizce sokmamızı engeller.
+     */
     if (!response.ok || !isRefineResponse(body)) {
       throw new Error(`Invalid LLM worker response from ${this.baseUrl}/refine: ${compactWorkerBody(body)}`);
     }
@@ -124,11 +136,6 @@ export class HttpLlmWorkerEngine implements ModelEngine {
   }
 }
 
-function compactWorkerBody(body: unknown): string {
-  const text = JSON.stringify(body);
-  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
-}
-
 export class MockDllmEngine implements ModelEngine {
   readonly name = "mock-dllm-engine";
   readonly mode = "dllm";
@@ -136,67 +143,54 @@ export class MockDllmEngine implements ModelEngine {
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
     const started = Date.now();
     const createdAt = new Date(started).toISOString();
-    const currentFact = workspace.packet.facts.find((fact) => fact.kind === "correction" || fact.kind === "current");
-    const sensitiveFact = workspace.packet.facts.find((fact) => fact.kind === "sensitive");
-    const selectedFact = currentFact ?? sensitiveFact;
-    // Sensitive fact'lerde content içinde hem güvenli politika cümlesi hem de raw değer
-    // bulunabilir. Mock engine gerçek bir model değil; pipeline'ı test eden deterministik
-    // bir motor. Bu yüzden raw değeri özellikle kırpıyoruz. Böylece sensitive leakage
-    // metriği "input'ta sır var" diye değil, "output'a sır kopyalandı mı" diye ölçülür.
-    const safeSensitiveContent = sensitiveFact?.content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
-    const missing = workspace.packet.mustNotInfer.filter((item) => item.toLowerCase().includes("missing"));
-    // mustNotInfer içinde missing sinyali varsa doğru davranış doğrudan cevap vermek değil,
-    // boundaryDecision üretmektir. Bu, ileride BoundaryMask rolünün simüle ettiği davranışın
-    // en küçük deterministik karşılığıdır.
-    const boundaryDecision = missing.length
-      ? {
-          status: "insufficient_context" as const,
-          reason: "Required information is missing from the bounded context packet.",
-          missingInformation: missing,
-          decidedBy: "boundary" as const,
-          createdAt
-        }
-      : {
-          status: "sufficient_context" as const,
-          reason: "The bounded context packet contains enough task-relevant evidence.",
-          missingInformation: [],
-          decidedBy: "boundary" as const,
-          createdAt
-        };
-    const finalResult =
-      currentFact?.content ??
-      (sensitiveFact ? safeSensitiveContent : "No current fact was available in the bounded context packet.");
-    let refined = setBoundaryDecision(workspace, boundaryDecision);
 
-    if (selectedFact) {
-      refined = addClaim(refined, {
-        id: `claim-${selectedFact.id}`,
-        region: "final_result",
-        actor: "implementer",
-        content: selectedFact.kind === "sensitive" ? safeSensitiveContent : selectedFact.content,
-        evidenceIds: [selectedFact.evidenceId],
-        confidence: selectedFact.confidence,
-        state: "accepted",
-        createdAt
-      });
-    }
+    /**
+     * Eski mock engine workspace.packet.facts okuyordu.
+     * Yeni canonical workspace modelinde authority/current bilgi workspace.authority,
+     * sensitive bilgi policy/repoFacts, eksik bilgi sinyali ise authority.missingRules
+     * altında tutulur.
+     */
+    const selectedFact = selectWorkspaceFact(workspace);
 
-    // Verifier sonucu burada basit görünüyor ama mimari olarak çok önemli: agent'ın
-    // ürettiği claim ile boundary kararı aynı workspace'te doğrulanabilir bir kayıt
-    // bırakıyor. Gerçek model geldiğinde bu alan lint, test, policy ve conflict
-    // kontrollerinin çıktısını taşıyacak.
+    const missing = workspace.authority.missingRules.filter((item) =>
+      item.toLowerCase().includes("missing")
+    );
+
+    const hasMissingInformation = missing.length > 0;
+
+    const finalResult = hasMissingInformation
+      ? `insufficient_context: Required information is missing from the bounded workspace. Missing signals: ${missing.join("; ")}`
+      : selectedFact?.content ?? "No current fact was available in the bounded workspace.";
+
+    let refined = workspace;
+
+    /**
+     * addClaim kaldırıldı.
+     *
+     * Bu mock provider için claim zorunlu değil; evaluator ve benchmark için
+     * verifierResult + finalResult yeterli canonical sinyali üretir.
+     * WorkspaceClaim shape'i değiştiği için burada claim yazmak gereksiz type
+     * kırılmasına sebep oluyordu.
+     */
     refined = addVerifierResult(refined, {
-      id: `verifier-${workspace.packet.id}`,
-      status: boundaryDecision.status === "sufficient_context" || boundaryDecision.status === "insufficient_context" ? "pass" : "warn",
+      id: `verifier-${workspace.id}-${refined.revision}`,
+      decision: hasMissingInformation ? "remask_required" : "approve",
+      status: hasMissingInformation ? "warn" : "pass",
       checkName: "bounded-context-safety",
-      summary: "Mock verifier checked boundary status and evidence-backed claim production.",
+      summary: hasMissingInformation
+        ? "Mock verifier detected missing required information."
+        : "Mock verifier accepted the evidence-backed workspace result.",
+      findings: [],
+      checkedFiles: workspace.scope.changedFiles,
       evidenceIds: selectedFact ? [selectedFact.evidenceId] : [],
-      failedRegions: [],
+      failedRegions: hasMissingInformation ? ["final_result"] : [],
+      createdBy: "verifier",
       createdAt
     });
-    setFinalResult(refined, {
+
+    refined = setFinalResult(refined, {
       summary: finalResult,
-      createdBy: "implementer",
+      createdBy: "coder",
       createdAt
     });
 
@@ -206,4 +200,63 @@ export class MockDllmEngine implements ModelEngine {
       engineName: this.name
     };
   }
+}
+
+type SelectedWorkspaceFact = {
+  id: string;
+  content: string;
+  evidenceId: string;
+  confidence: number;
+};
+
+function selectWorkspaceFact(workspace: SharedSemanticWorkspace): SelectedWorkspaceFact | undefined {
+  const currentAuthorityFact = workspace.authority.facts[0];
+
+  if (currentAuthorityFact) {
+    return {
+      id: "authority-current",
+      content: currentAuthorityFact,
+      evidenceId: "workspace-authority",
+      confidence: 0.9
+    };
+  }
+
+  const sensitivePattern = workspace.policy.sensitivePatterns[0] ?? workspace.repoFacts.sensitivePatterns[0];
+
+  if (sensitivePattern) {
+    return {
+      id: "sensitive-policy",
+      content: safeSensitiveContent(sensitivePattern),
+      evidenceId: "workspace-policy-sensitive-pattern",
+      confidence: 0.75
+    };
+  }
+
+  const staleFact = workspace.repoFacts.staleFacts[0];
+
+  if (staleFact) {
+    return {
+      id: "repo-stale-fact",
+      content: staleFact,
+      evidenceId: "workspace-repo-stale-fact",
+      confidence: 0.45
+    };
+  }
+
+  return undefined;
+}
+
+function safeSensitiveContent(content: string): string {
+  /**
+   * Fixture'larda sensitive content bazen "Raw value:" ile gerçek sırrı taşıyordu.
+   * Mock engine deterministik kalsın ama raw secret output'a kopyalanmasın diye
+   * bu kısmı kırpıyoruz.
+   */
+  return content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
+}
+
+function compactWorkerBody(body: unknown): string {
+  const text = JSON.stringify(body);
+
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 }

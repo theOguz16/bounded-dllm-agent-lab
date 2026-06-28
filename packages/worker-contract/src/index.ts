@@ -1,15 +1,36 @@
 import type { MaskView } from "../../masking-policy/src/index.js";
-import type { SharedSemanticWorkspace, WorkspaceRegion } from "../../workspace-core/src/index.js";
+import type {
+  SharedSemanticWorkspace,
+  WorkspaceRegion
+} from "../../workspace-core/src/index.js";
 
-export type DllmWorkerRoute = "/health" | "/refine" | "/infill" | "/resolve-conflict";
+export type DllmWorkerRoute =
+  | "/health"
+  | "/refine"
+  | "/infill"
+  | "/resolve-conflict";
 
+/**
+ * Worker tarafında geçerli workspace region set'i.
+ * Eski plan/review/risk_analysis/boundary_decision/verifier_feedback region'larını
+ * burada tutmuyoruz; worker contract da yeni canonical workspace dilini kullanmalı.
+ */
 const workspaceRegions = new Set<WorkspaceRegion>([
-  "plan",
+  "task",
+  "scope",
+  "authority",
+  "policy",
+  "repo_facts",
   "patch_intent",
-  "risk_analysis",
-  "review",
-  "boundary_decision",
-  "verifier_feedback",
+  "role_view",
+  "claim",
+  "patch_plan",
+  "patch_draft",
+  "verifier_result",
+  "test_signal",
+  "remask_request",
+  "conflict",
+  "merge_decision",
   "final_result"
 ]);
 
@@ -78,9 +99,11 @@ export function createRefineRequest(input: {
   view: MaskView;
   workspace: SharedSemanticWorkspace;
 }): DllmWorkerRefineRequest {
-  // Worker contract tarafı bilinçli olarak ince tutulur. Benchmark, memory policy,
-  // scope kuralları ve verifier kararları TypeScript tarafında kalır. Python worker
-  // sadece kendisine verilen masked workspace'i refine eden izole inference katmanıdır.
+  /**
+   * Worker contract bilinçli olarak ince tutulur.
+   * Policy, orchestration ve verifier kararları TypeScript tarafında kalır.
+   * Worker sadece masked workspace'i refine eden inference katmanıdır.
+   */
   return {
     requestId: input.requestId,
     view: input.view,
@@ -91,6 +114,7 @@ export function createRefineRequest(input: {
 
 export function isHealthResponse(value: unknown): value is DllmWorkerHealthResponse {
   if (!isRecord(value)) return false;
+
   return (
     value.ok === true &&
     typeof value.workerName === "string" &&
@@ -104,9 +128,11 @@ export function isHealthResponse(value: unknown): value is DllmWorkerHealthRespo
 
 export function isRefineResponse(value: unknown): value is DllmWorkerRefineResponse {
   if (!isRecord(value)) return false;
-  // Buradaki runtime guard TypeScript tiplerinin Python tarafında otomatik olarak
-  // korunmadığını hatırlatır. Dil sınırından gelen JSON'u güvenmeden önce en azından
-  // ana alanları kontrol ediyoruz.
+
+  /**
+   * Python/worker sınırından gelen JSON'a güvenmiyoruz.
+   * TypeScript tipi runtime'da korunmadığı için ana workspace iskeletini kontrol ediyoruz.
+   */
   return (
     typeof value.requestId === "string" &&
     typeof value.engineName === "string" &&
@@ -117,9 +143,11 @@ export function isRefineResponse(value: unknown): value is DllmWorkerRefineRespo
 
 export function isInfillResponse(value: unknown): value is DllmWorkerInfillResponse {
   if (!isRecord(value)) return false;
-  // Infill endpoint'i tek bir region için küçük bir üretim yapar. Bu, dLLM'in
-  // "tüm cevabı üret" yerine "maskeli boşluğu doldur" davranışını test etmek için
-  // ayrı tutulur.
+
+  /**
+   * Infill endpoint'i tek region üretimi içindir.
+   * Bu, dLLM-style "bütün cevabı üretme, maskeli boşluğu doldur" davranışını test eder.
+   */
   return (
     typeof value.requestId === "string" &&
     isWorkspaceRegion(value.region) &&
@@ -129,10 +157,15 @@ export function isInfillResponse(value: unknown): value is DllmWorkerInfillRespo
   );
 }
 
-export function isResolveConflictResponse(value: unknown): value is DllmWorkerResolveConflictResponse {
+export function isResolveConflictResponse(
+  value: unknown
+): value is DllmWorkerResolveConflictResponse {
   if (!isRecord(value)) return false;
-  // Conflict çözümü ayrı endpoint'tir çünkü conflict resolution ileride modelin
-  // iki iddia arasından hangisinin evidence'a daha uygun olduğunu tartmasını sağlar.
+
+  /**
+   * Conflict resolution ayrı endpoint'tir.
+   * Merge aşamasının iki claim veya iki write arasındaki çelişkiyi çözmesini sağlar.
+   */
   return (
     typeof value.requestId === "string" &&
     typeof value.conflictId === "string" &&
@@ -148,17 +181,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isWorkspaceLike(value: unknown): value is SharedSemanticWorkspace {
   if (!isRecord(value)) return false;
-  // Worker response içinde tüm workspace'i derinlemesine validate etmek pahalı ve
-  // tekrarlı olur; ama ana iskeleti kontrol etmek gerekir. Çünkü Python tarafı bozuk
-  // JSON döndürürse TypeScript tipi bunu otomatik yakalayamaz.
+
+  /**
+   * Eski guard version + packet bekliyordu.
+   * Yeni canonical workspace schemaVersion + revision + product state alanlarıyla tanınır.
+   */
   return (
+    value.schemaVersion === "shared-semantic-workspace/v1" &&
     typeof value.id === "string" &&
-    typeof value.version === "number" &&
-    isRecord(value.packet) &&
+    typeof value.revision === "number" &&
+    isRecord(value.task) &&
+    isRecord(value.scope) &&
+    isRecord(value.authority) &&
+    isRecord(value.policy) &&
+    isRecord(value.repoFacts) &&
+    isRecord(value.patchIntent) &&
+    Array.isArray(value.activeRoles) &&
+    isRecord(value.roleViews) &&
     Array.isArray(value.claims) &&
     Array.isArray(value.conflicts) &&
     Array.isArray(value.maskedRegions) &&
     Array.isArray(value.verifierResults) &&
+    Array.isArray(value.testSignals) &&
+    Array.isArray(value.remaskRequests) &&
     Array.isArray(value.trace)
   );
 }

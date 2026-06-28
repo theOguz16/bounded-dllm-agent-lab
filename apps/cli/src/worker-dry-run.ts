@@ -9,14 +9,21 @@ import {
   scoreCase,
   type CaseOutputSnapshot
 } from "../../../packages/eval-core/src/index.js";
-import { createExperimentConfig, createRunManifest, validateRunManifest } from "../../../packages/experiment-core/src/index.js";
-import { demoFixtures, validateFixtures } from "../../../packages/fixtures/src/index.js";
+import {
+  createExperimentConfig,
+  createRunManifest,
+  validateRunManifest
+} from "../../../packages/experiment-core/src/index.js";
+import {
+  demoFixtures,
+  validateFixtures
+} from "../../../packages/fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpDllmWorkerEngine } from "../../../packages/providers/src/index.js";
-import { createWorkspace } from "../../../packages/workspace-core/src/index.js";
+import { createWorkspaceFromPacket } from "../../../packages/context-core/src/workspace-adapter.js";
 
 const workerUrl = process.env.DLLM_WORKER_URL ?? "http://127.0.0.1:8765";
-const engine = new HttpDllmWorkerEngine(workerUrl, "boundary");
+const engine = new HttpDllmWorkerEngine(workerUrl, "verifier");
 const reportDir = "reports";
 const suiteName = "worker-dry-run-v1";
 const fixtureSubset = demoFixtures.slice(0, 2);
@@ -27,21 +34,37 @@ if (fixtureFailures.length) {
 }
 
 const healthy = await engine.health();
+
 if (!healthy) {
   throw new Error(`Worker health check failed for ${workerUrl}`);
 }
 
 const scores = [];
 const outputSnapshots: CaseOutputSnapshot[] = [];
+
 for (const fixture of fixtureSubset) {
-  const workspace = createWorkspace(`dry-run-${fixture.case.id}`, fixture.packet);
-  const masked = createMaskedWorkspaceView(workspace, "boundary");
+  /**
+   * workspace-core artık packet tabanlı createWorkspace çağrısını desteklemiyor.
+   * Fixture packet'ı önce context-core adapter üzerinden canonical workspace'e çevrilir.
+   */
+  const workspace = createWorkspaceFromPacket(fixture.packet, {
+    id: `dry-run-${fixture.case.id}`
+  });
+
+  /**
+   * Eski "boundary" view yerine verifier view kullanılır.
+   * Scope/authority/boundary kontrolü artık verifier sonucunda temsil edilir.
+   */
+  const masked = createMaskedWorkspaceView(workspace, "verifier");
   const result = await engine.refineWorkspace(masked.workspace);
 
-  // Dry-run tam benchmark değildir. Burada amaç gerçek worker URL'inin health ve
-  // refine sözleşmesini taşıdığını görmek. Skorlar yine üretilir ama model kalitesi
-  // yorumu için değil, pipeline'ın rapor/manifest üretebildiğini kanıtlamak içindir.
+  /**
+   * Dry-run tam benchmark değildir.
+   * Amaç gerçek worker URL'inin health ve refine sözleşmesini taşıdığını görmek.
+   * Skorlar pipeline'ın rapor/manifest üretebildiğini kanıtlamak için tutulur.
+   */
   scores.push(scoreCase(fixture.case, result.workspace));
+
   outputSnapshots.push({
     caseId: fixture.case.id,
     family: fixture.case.family,
@@ -56,6 +79,7 @@ for (const fixture of fixtureSubset) {
 const report = aggregateScores(scores);
 const createdAt = new Date().toISOString();
 const runId = `${createdAt.replace(/[:.]/g, "-")}-worker-dry-run`;
+
 const artifact = createBenchmarkArtifact({
   suiteName,
   engineName: "external-dllm-worker-dry-run",
@@ -63,9 +87,11 @@ const artifact = createBenchmarkArtifact({
   report,
   outputSnapshots
 });
+
 const jsonPath = join(reportDir, `${runId}.json`);
 const markdownPath = join(reportDir, `${runId}.md`);
 const manifestPath = join(reportDir, `${runId}.manifest.json`);
+
 const config = createExperimentConfig({
   runId,
   suiteName,
@@ -92,6 +118,7 @@ const config = createExperimentConfig({
   },
   createdAt
 });
+
 const manifest = createRunManifest({
   config,
   report,
@@ -101,6 +128,7 @@ const manifest = createRunManifest({
     manifestPath
   }
 });
+
 const failures = validateRunManifest(manifest);
 
 if (failures.length) {

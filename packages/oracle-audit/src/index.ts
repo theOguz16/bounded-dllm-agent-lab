@@ -1,7 +1,10 @@
+import { createWorkspaceFromPacket } from "../../context-core/src/workspace-adapter.js";
 import type { BenchmarkFixture } from "../../fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../masking-policy/src/index.js";
-import { createRefineRequest, type DllmWorkerRefineRequest } from "../../worker-contract/src/index.js";
-import { createWorkspace } from "../../workspace-core/src/index.js";
+import {
+  createRefineRequest,
+  type DllmWorkerRefineRequest
+} from "../../worker-contract/src/index.js";
 
 export type OracleLeakageSeverity = "error" | "warn";
 
@@ -42,7 +45,9 @@ const forbiddenOracleKeys = new Set([
   "traceCompleteness"
 ]);
 
-export function auditFixturesForOracleLeakage(fixtures: BenchmarkFixture[]): OracleLeakageAuditResult {
+export function auditFixturesForOracleLeakage(
+  fixtures: BenchmarkFixture[]
+): OracleLeakageAuditResult {
   const findings = fixtures.flatMap((fixture) => auditFixtureWorkerRequest(fixture));
 
   return {
@@ -53,12 +58,28 @@ export function auditFixturesForOracleLeakage(fixtures: BenchmarkFixture[]): Ora
   };
 }
 
-export function auditFixtureWorkerRequest(fixture: BenchmarkFixture): OracleLeakageFinding[] {
-  const workspace = createWorkspace(`oracle-audit-${fixture.case.id}`, fixture.packet);
-  const masked = createMaskedWorkspaceView(workspace, "boundary");
+export function auditFixtureWorkerRequest(
+  fixture: BenchmarkFixture
+): OracleLeakageFinding[] {
+  /**
+   * Oracle audit de worker'a giden gerçek request'i denetler.
+   * Eski workspace.packet yapısı kaldırıldığı için fixture packet önce canonical
+   * workspace'e çevrilir.
+   */
+  const workspace = createWorkspaceFromPacket(fixture.packet, {
+    id: `oracle-audit-${fixture.case.id}`
+  });
+
+  const masked = createMaskedWorkspaceView(workspace, "verifier");
+
   const request = createRefineRequest({
     requestId: `oracle-audit-${fixture.case.id}`,
-    view: "boundary",
+
+    /**
+     * Eski "boundary" view yok.
+     * Audit edilen worker request'i verifier view üzerinden üretilir.
+     */
+    view: "verifier",
     workspace: masked.workspace
   });
 
@@ -71,11 +92,14 @@ export function auditRefineRequestForOracleLeakage(
 ): OracleLeakageFinding[] {
   const findings: OracleLeakageFinding[] = [];
 
-  // Oracle audit iki şeyi ayırır:
-  // 1. Modelin görmesi gereken kanıt/fact içeriği.
-  // 2. Sadece evaluator'ın bilmesi gereken cevap anahtarı ve skor alanları.
-  // İkinci grup worker request'ine girerse benchmark "model bildi" değil,
-  // "cevap anahtarı sızdı" sonucuna dönüşür.
+  /**
+   * Oracle audit iki şeyi ayırır:
+   * 1. Modelin görmesi gereken task/scope/fact/authority içeriği.
+   * 2. Sadece evaluator'ın bilmesi gereken cevap anahtarı ve skor alanları.
+   *
+   * İkinci grup worker request'ine girerse benchmark "model bildi" değil,
+   * "cevap anahtarı sızdı" sonucuna dönüşür.
+   */
   walkJson(request, [], (path, value) => {
     const key = path[path.length - 1] ?? "";
     const dottedPath = path.join(".");
@@ -90,7 +114,9 @@ export function auditRefineRequestForOracleLeakage(
       });
     }
 
-    if (typeof value !== "string") return;
+    if (typeof value !== "string") {
+      return;
+    }
 
     const evaluatorOnlyTerms = [
       fixture.case.expectedResult,
@@ -100,14 +126,19 @@ export function auditRefineRequestForOracleLeakage(
     ].filter(Boolean);
 
     for (const term of evaluatorOnlyTerms) {
-      if (!term || !value.includes(term)) continue;
-      if (isAllowedEvidencePath(path)) continue;
+      if (!term || !value.includes(term)) {
+        continue;
+      }
+
+      if (isAllowedEvidencePath(path)) {
+        continue;
+      }
 
       findings.push({
         caseId: fixture.case.id,
         severity: "error",
         path: dottedPath,
-        reason: "Evaluator-only answer text appeared outside allowed evidence-bearing packet fields.",
+        reason: "Evaluator-only answer text appeared outside allowed evidence-bearing workspace fields.",
         preview: preview(value)
       });
     }
@@ -119,22 +150,29 @@ export function auditRefineRequestForOracleLeakage(
 function isAllowedEvidencePath(path: string[]): boolean {
   const dottedPath = path.join(".");
 
-  // Fact, task, goal, scope ve mustNotInfer benchmark input'unun kendisidir; modelin
-  // bunları görmesi gerekir. Aynı cümlenin fact içinde bulunması leakage değildir.
-  // Leakage, aynı bilginin expectedResult/requiredTerms gibi grading alanlarından
-  // veya üretilmiş workspace alanlarından worker'a sızmasıdır.
+  /**
+   * Yeni canonical workspace'te artık workspace.packet yok.
+   * Modelin görmesi gereken input alanları workspace.task, workspace.scope,
+   * workspace.authority, workspace.policy ve workspace.repoFacts altında durur.
+   *
+   * Bu alanlarda evaluator term'lerinin görünmesi tek başına leakage değildir;
+   * çünkü bunlar fixture input'unun worker'a gitmesi gereken kısmıdır.
+   */
   return (
-    dottedPath.startsWith("workspace.packet.task") ||
-    dottedPath.startsWith("workspace.packet.goal") ||
-    dottedPath.startsWith("workspace.packet.facts.") ||
-    dottedPath.startsWith("workspace.packet.allowedScope.") ||
-    dottedPath.startsWith("workspace.packet.forbiddenScope.") ||
-    dottedPath.startsWith("workspace.packet.mustNotInfer.") ||
-    dottedPath.startsWith("workspace.packet.responseContract")
+    dottedPath.startsWith("workspace.task.") ||
+    dottedPath.startsWith("workspace.scope.") ||
+    dottedPath.startsWith("workspace.authority.") ||
+    dottedPath.startsWith("workspace.policy.") ||
+    dottedPath.startsWith("workspace.repoFacts.") ||
+    dottedPath.startsWith("workspace.patchIntent.")
   );
 }
 
-function walkJson(value: unknown, path: string[], visit: (path: string[], value: unknown) => void): void {
+function walkJson(
+  value: unknown,
+  path: string[],
+  visit: (path: string[], value: unknown) => void
+): void {
   visit(path, value);
 
   if (Array.isArray(value)) {
@@ -142,7 +180,9 @@ function walkJson(value: unknown, path: string[], visit: (path: string[], value:
     return;
   }
 
-  if (typeof value !== "object" || value === null) return;
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
 
   for (const [key, child] of Object.entries(value)) {
     walkJson(child, [...path, key], visit);
@@ -151,5 +191,6 @@ function walkJson(value: unknown, path: string[], visit: (path: string[], value:
 
 function preview(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value);
+
   return text.length > 120 ? `${text.slice(0, 117)}...` : text;
 }

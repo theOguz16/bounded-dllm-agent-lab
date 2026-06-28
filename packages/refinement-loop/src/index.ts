@@ -6,15 +6,15 @@ import {
 import type { ModelEngine } from "../../providers/src/index.js";
 import type {
   SharedSemanticWorkspace,
-  VerifierResult,
-  VerifierStatus,
-  WorkspaceRegion
+  WorkspaceCheckStatus,
+  WorkspaceRegion,
+  WorkspaceVerifierResult
 } from "../../workspace-core/src/index.js";
 
 export type RefinementLoopAttempt = {
   attempt: number;
   view: MaskView;
-  verifierStatus?: VerifierStatus;
+  verifierStatus?: WorkspaceCheckStatus;
   failedRegions: WorkspaceRegion[];
   remasked: boolean;
 };
@@ -31,10 +31,17 @@ export type RefinementLoopInput = {
   engine: ModelEngine;
   view: MaskView;
   maxAttempts?: number;
-  remaskOnStatuses?: VerifierStatus[];
+
+  /**
+   * Yeni canonical workspace modelinde verifier status tipi
+   * WorkspaceCheckStatus olarak adlandırılır.
+   */
+  remaskOnStatuses?: WorkspaceCheckStatus[];
 };
 
-export async function runRefinementLoop(input: RefinementLoopInput): Promise<RefinementLoopResult> {
+export async function runRefinementLoop(
+  input: RefinementLoopInput
+): Promise<RefinementLoopResult> {
   const maxAttempts = input.maxAttempts ?? 2;
   const remaskOnStatuses = input.remaskOnStatuses ?? ["fail", "warn"];
   let current = createMaskedWorkspaceView(input.workspace, input.view).workspace;
@@ -43,8 +50,10 @@ export async function runRefinementLoop(input: RefinementLoopInput): Promise<Ref
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const result = await input.engine.refineWorkspace(current);
     current = result.workspace;
+
     const verifierResult = latestVerifierResult(current);
     const failedRegions = resolveFailedRegions(verifierResult);
+
     const shouldRemask = Boolean(
       verifierResult &&
         remaskOnStatuses.includes(verifierResult.status) &&
@@ -52,10 +61,14 @@ export async function runRefinementLoop(input: RefinementLoopInput): Promise<Ref
         attempt < maxAttempts
     );
 
-    // Refinement loop'un araştırmadaki anlamı şudur: verifier bir alanı sorunlu
-    // bulursa modelden bütün workspace'i yeniden yazmasını istemiyoruz. Sadece
-    // sorunlu region tekrar maskeleniyor. Bu, dLLM'in masked refinement doğasına
-    // LLM-style "baştan cevap üret" yaklaşımından daha yakın bir akıştır.
+    /**
+     * Refinement loop'un araştırmadaki anlamı şudur:
+     * verifier bir alanı sorunlu bulursa modelden bütün workspace'i yeniden
+     * yazmasını istemiyoruz. Sadece sorunlu region tekrar maskeleniyor.
+     *
+     * Bu, dLLM'in masked refinement doğasına LLM-style "baştan cevap üret"
+     * yaklaşımından daha yakın bir akıştır.
+     */
     attempts.push({
       attempt,
       view: input.view,
@@ -68,14 +81,21 @@ export async function runRefinementLoop(input: RefinementLoopInput): Promise<Ref
       return {
         workspace: current,
         attempts,
-        completed: !verifierResult || !remaskOnStatuses.includes(verifierResult.status) || failedRegions.length === 0,
+        completed:
+          !verifierResult ||
+          !remaskOnStatuses.includes(verifierResult.status) ||
+          failedRegions.length === 0,
         engineName: result.engineName
       };
     }
 
-    // Burada bütün context penceresini büyütmek veya sohbet geçmişini şişirmek yerine,
-    // verifier'ın işaret ettiği küçük alanı tekrar açıyoruz. Dar context araştırması
-    // açısından kritik fark bu: problem nerede ise sadece orası yeniden düşünülür.
+    /**
+     * Burada bütün context penceresini büyütmek veya sohbet geçmişini şişirmek
+     * yerine, verifier'ın işaret ettiği küçük alanı tekrar açıyoruz.
+     *
+     * Dar context araştırması açısından kritik fark bu:
+     * problem nerede ise sadece orası yeniden düşünülür.
+     */
     current = remaskAfterFailure(current, failedRegions);
   }
 
@@ -87,11 +107,18 @@ export async function runRefinementLoop(input: RefinementLoopInput): Promise<Ref
   };
 }
 
-function latestVerifierResult(workspace: SharedSemanticWorkspace): VerifierResult | undefined {
+function latestVerifierResult(
+  workspace: SharedSemanticWorkspace
+): WorkspaceVerifierResult | undefined {
   return workspace.verifierResults.at(-1);
 }
 
-function resolveFailedRegions(verifierResult: VerifierResult | undefined): WorkspaceRegion[] {
-  if (!verifierResult) return [];
+function resolveFailedRegions(
+  verifierResult: WorkspaceVerifierResult | undefined
+): WorkspaceRegion[] {
+  if (!verifierResult) {
+    return [];
+  }
+
   return verifierResult.failedRegions;
 }
