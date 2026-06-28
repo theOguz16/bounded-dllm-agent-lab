@@ -1,54 +1,22 @@
-import type { MaskView } from "../../masking-policy/src/index.js";
 import type {
-  SharedSemanticWorkspace,
-  WorkspaceRegion
+  SharedSemanticWorkspace
 } from "../../workspace-core/src/index.js";
 
-export type DllmWorkerRoute =
-  | "/health"
-  | "/refine"
-  | "/infill"
-  | "/resolve-conflict";
-
-/**
- * Worker tarafında geçerli workspace region set'i.
- * Eski plan/review/risk_analysis/boundary_decision/verifier_feedback region'larını
- * burada tutmuyoruz; worker contract da yeni canonical workspace dilini kullanmalı.
- */
-const workspaceRegions = new Set<WorkspaceRegion>([
-  "task",
-  "scope",
-  "authority",
-  "policy",
-  "repo_facts",
-  "patch_intent",
-  "role_view",
-  "claim",
-  "patch_plan",
-  "patch_draft",
-  "verifier_result",
-  "test_signal",
-  "remask_request",
-  "conflict",
-  "merge_decision",
-  "final_result"
-]);
+export type DllmWorkerMode = "mock" | "dllm" | "llm" | string;
 
 export type DllmWorkerHealthResponse = {
-  ok: boolean;
+  ok: true;
   workerName: string;
-  mode: "mock" | "dllm" | "llm";
-  version: string;
+  mode: DllmWorkerMode;
+  version?: string;
   modelName?: string;
-  modelVersion?: string;
   upstreamBaseUrl?: string;
+  [key: string]: unknown;
 };
 
 export type DllmWorkerRefineRequest = {
   requestId: string;
-  view: MaskView;
   workspace: SharedSemanticWorkspace;
-  maskedRegions: WorkspaceRegion[];
 };
 
 export type DllmWorkerRefineResponse = {
@@ -60,15 +28,13 @@ export type DllmWorkerRefineResponse = {
 
 export type DllmWorkerInfillRequest = {
   requestId: string;
-  view: MaskView;
-  workspace: SharedSemanticWorkspace;
-  region: WorkspaceRegion;
+  region: string;
   prompt: string;
 };
 
 export type DllmWorkerInfillResponse = {
   requestId: string;
-  region: WorkspaceRegion;
+  region: string;
   content: string;
   engineName: string;
   latencyMs: number;
@@ -76,8 +42,8 @@ export type DllmWorkerInfillResponse = {
 
 export type DllmWorkerResolveConflictRequest = {
   requestId: string;
-  workspace: SharedSemanticWorkspace;
   conflictId: string;
+  workspace: SharedSemanticWorkspace;
 };
 
 export type DllmWorkerResolveConflictResponse = {
@@ -88,126 +54,264 @@ export type DllmWorkerResolveConflictResponse = {
   latencyMs: number;
 };
 
-export type DllmWorkerErrorResponse = {
-  ok: false;
-  error: string;
-  requestId?: string;
+export type HttpWorkspaceWorkerClientConfig = {
+  baseUrl: string;
+  apiKey?: string;
+  timeoutMs?: number;
 };
 
-export function createRefineRequest(input: {
-  requestId: string;
-  view: MaskView;
-  workspace: SharedSemanticWorkspace;
-}): DllmWorkerRefineRequest {
-  /**
-   * Worker contract bilinçli olarak ince tutulur.
-   * Policy, orchestration ve verifier kararları TypeScript tarafında kalır.
-   * Worker sadece masked workspace'i refine eden inference katmanıdır.
-   */
+export type HttpWorkspaceWorkerClient = {
+  baseUrl: string;
+  health(): Promise<DllmWorkerHealthResponse>;
+  refine(input: DllmWorkerRefineRequest): Promise<DllmWorkerRefineResponse>;
+  infill(input: DllmWorkerInfillRequest): Promise<DllmWorkerInfillResponse>;
+  resolveConflict(
+    input: DllmWorkerResolveConflictRequest
+  ): Promise<DllmWorkerResolveConflictResponse>;
+};
+
+type FetchLike = (
+  url: string,
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body?: string;
+  }
+) => Promise<{
+  ok: boolean;
+  status: number;
+  text(): Promise<string>;
+}>;
+
+export function createHttpWorkspaceWorkerClient(
+  config: HttpWorkspaceWorkerClientConfig
+): HttpWorkspaceWorkerClient {
+  const baseUrl = normalizeBaseUrl(config.baseUrl);
+  const timeoutMs = config.timeoutMs ?? 60_000;
+
   return {
-    requestId: input.requestId,
-    view: input.view,
-    workspace: input.workspace,
-    maskedRegions: input.workspace.maskedRegions
+    baseUrl,
+
+    async health(): Promise<DllmWorkerHealthResponse> {
+      const body = await requestJson<unknown>({
+        url: `${baseUrl}/health`,
+        method: "GET",
+        apiKey: config.apiKey,
+        timeoutMs
+      });
+
+      return assertHealthResponse(body);
+    },
+
+    async refine(
+      input: DllmWorkerRefineRequest
+    ): Promise<DllmWorkerRefineResponse> {
+      const body = await requestJson<unknown>({
+        url: `${baseUrl}/refine`,
+        method: "POST",
+        apiKey: config.apiKey,
+        timeoutMs,
+        body: input
+      });
+
+      return assertRefineResponse(body);
+    },
+
+    async infill(
+      input: DllmWorkerInfillRequest
+    ): Promise<DllmWorkerInfillResponse> {
+      const body = await requestJson<unknown>({
+        url: `${baseUrl}/infill`,
+        method: "POST",
+        apiKey: config.apiKey,
+        timeoutMs,
+        body: input
+      });
+
+      return assertInfillResponse(body);
+    },
+
+    async resolveConflict(
+      input: DllmWorkerResolveConflictRequest
+    ): Promise<DllmWorkerResolveConflictResponse> {
+      const body = await requestJson<unknown>({
+        url: `${baseUrl}/resolve-conflict`,
+        method: "POST",
+        apiKey: config.apiKey,
+        timeoutMs,
+        body: input
+      });
+
+      return assertResolveConflictResponse(body);
+    }
   };
 }
 
-export function isHealthResponse(value: unknown): value is DllmWorkerHealthResponse {
-  if (!isRecord(value)) return false;
+async function requestJson<T>(input: {
+  url: string;
+  method: "GET" | "POST";
+  apiKey?: string;
+  timeoutMs: number;
+  body?: unknown;
+}): Promise<T> {
+  const fetchImpl = getFetch();
 
-  return (
+  if (!fetchImpl) {
+    throw new Error("global fetch is not available in this Node.js runtime.");
+  }
+
+  const response = await withTimeout(
+    fetchImpl(input.url, {
+      method: input.method,
+      headers: createHeaders(input.apiKey),
+      body: input.body === undefined ? undefined : JSON.stringify(input.body)
+    }),
+    input.timeoutMs
+  );
+
+  const text = await response.text();
+  const parsed = safeJsonParse(text);
+
+  if (!response.ok) {
+    throw new Error(`Worker returned HTTP ${response.status}: ${text.slice(0, 1000)}`);
+  }
+
+  if (parsed === null) {
+    throw new Error(`Worker returned invalid JSON: ${text.slice(0, 1000)}`);
+  }
+
+  return parsed as T;
+}
+
+function assertHealthResponse(value: unknown): DllmWorkerHealthResponse {
+  if (
+    isJsonObject(value) &&
     value.ok === true &&
     typeof value.workerName === "string" &&
-    (value.mode === "mock" || value.mode === "dllm" || value.mode === "llm") &&
-    typeof value.version === "string" &&
-    (value.modelName === undefined || typeof value.modelName === "string") &&
-    (value.modelVersion === undefined || typeof value.modelVersion === "string") &&
-    (value.upstreamBaseUrl === undefined || typeof value.upstreamBaseUrl === "string")
+    value.workerName.length > 0 &&
+    typeof value.mode === "string" &&
+    value.mode.length > 0
+  ) {
+    return value as DllmWorkerHealthResponse;
+  }
+
+  throw new Error(
+    `Worker health response did not match contract: ${JSON.stringify(value).slice(0, 1000)}`
   );
 }
 
-export function isRefineResponse(value: unknown): value is DllmWorkerRefineResponse {
-  if (!isRecord(value)) return false;
-
-  /**
-   * Python/worker sınırından gelen JSON'a güvenmiyoruz.
-   * TypeScript tipi runtime'da korunmadığı için ana workspace iskeletini kontrol ediyoruz.
-   */
-  return (
+function assertRefineResponse(value: unknown): DllmWorkerRefineResponse {
+  if (
+    isJsonObject(value) &&
     typeof value.requestId === "string" &&
+    value.requestId.length > 0 &&
+    isJsonObject(value.workspace) &&
     typeof value.engineName === "string" &&
+    value.engineName.length > 0 &&
     typeof value.latencyMs === "number" &&
-    isWorkspaceLike(value.workspace)
+    value.latencyMs >= 0
+  ) {
+    return value as DllmWorkerRefineResponse;
+  }
+
+  throw new Error(
+    `Worker refine response did not match contract: ${JSON.stringify(value).slice(0, 1000)}`
   );
 }
 
-export function isInfillResponse(value: unknown): value is DllmWorkerInfillResponse {
-  if (!isRecord(value)) return false;
-
-  /**
-   * Infill endpoint'i tek region üretimi içindir.
-   * Bu, dLLM-style "bütün cevabı üretme, maskeli boşluğu doldur" davranışını test eder.
-   */
-  return (
+function assertInfillResponse(value: unknown): DllmWorkerInfillResponse {
+  if (
+    isJsonObject(value) &&
     typeof value.requestId === "string" &&
-    isWorkspaceRegion(value.region) &&
+    value.requestId.length > 0 &&
+    typeof value.region === "string" &&
+    value.region.length > 0 &&
     typeof value.content === "string" &&
     typeof value.engineName === "string" &&
-    typeof value.latencyMs === "number"
+    value.engineName.length > 0 &&
+    typeof value.latencyMs === "number" &&
+    value.latencyMs >= 0
+  ) {
+    return value as DllmWorkerInfillResponse;
+  }
+
+  throw new Error(
+    `Worker infill response did not match contract: ${JSON.stringify(value).slice(0, 1000)}`
   );
 }
 
-export function isResolveConflictResponse(
+function assertResolveConflictResponse(
   value: unknown
-): value is DllmWorkerResolveConflictResponse {
-  if (!isRecord(value)) return false;
-
-  /**
-   * Conflict resolution ayrı endpoint'tir.
-   * Merge aşamasının iki claim veya iki write arasındaki çelişkiyi çözmesini sağlar.
-   */
-  return (
+): DllmWorkerResolveConflictResponse {
+  if (
+    isJsonObject(value) &&
     typeof value.requestId === "string" &&
+    value.requestId.length > 0 &&
     typeof value.conflictId === "string" &&
+    value.conflictId.length > 0 &&
     typeof value.resolution === "string" &&
+    value.resolution.length > 0 &&
     typeof value.engineName === "string" &&
-    typeof value.latencyMs === "number"
+    value.engineName.length > 0 &&
+    typeof value.latencyMs === "number" &&
+    value.latencyMs >= 0
+  ) {
+    return value as DllmWorkerResolveConflictResponse;
+  }
+
+  throw new Error(
+    `Worker resolve-conflict response did not match contract: ${JSON.stringify(value).slice(0, 1000)}`
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function createHeaders(apiKey: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json"
+  };
+
+  if (apiKey) {
+    headers.authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
 }
 
-function isWorkspaceLike(value: unknown): value is SharedSemanticWorkspace {
-  if (!isRecord(value)) return false;
-
-  /**
-   * Eski guard version + packet bekliyordu.
-   * Yeni canonical workspace schemaVersion + revision + product state alanlarıyla tanınır.
-   */
-  return (
-    value.schemaVersion === "shared-semantic-workspace/v1" &&
-    typeof value.id === "string" &&
-    typeof value.revision === "number" &&
-    isRecord(value.task) &&
-    isRecord(value.scope) &&
-    isRecord(value.authority) &&
-    isRecord(value.policy) &&
-    isRecord(value.repoFacts) &&
-    isRecord(value.patchIntent) &&
-    Array.isArray(value.activeRoles) &&
-    isRecord(value.roleViews) &&
-    Array.isArray(value.claims) &&
-    Array.isArray(value.conflicts) &&
-    Array.isArray(value.maskedRegions) &&
-    Array.isArray(value.verifierResults) &&
-    Array.isArray(value.testSignals) &&
-    Array.isArray(value.remaskRequests) &&
-    Array.isArray(value.trace)
-  );
+function normalizeBaseUrl(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
-function isWorkspaceRegion(value: unknown): value is WorkspaceRegion {
-  return typeof value === "string" && workspaceRegions.has(value as WorkspaceRegion);
+function safeJsonParse(value: string): unknown | null {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function getFetch(): FetchLike | null {
+  const fetchImpl = (globalThis as unknown as { fetch?: FetchLike }).fetch;
+  return typeof fetchImpl === "function" ? fetchImpl : null;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`Worker request timed out after ${timeoutMs}ms.`));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

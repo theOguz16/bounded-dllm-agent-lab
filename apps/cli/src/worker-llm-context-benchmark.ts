@@ -22,7 +22,9 @@ import {
 import { createWorkspaceFromPacket } from "../../../packages/context-core/src/workspace-adapter.js";
 import { createMaskedWorkspaceView } from "../../../packages/masking-policy/src/index.js";
 import { HttpLlmWorkerEngine } from "../../../packages/providers/src/index.js";
-import { isHealthResponse } from "../../../packages/worker-contract/src/index.js";
+import {
+  createHttpWorkspaceWorkerClient
+} from "../../../packages/worker-contract/src/index.js";
 import type {
   BoundedContextPacket,
   ContextFact
@@ -80,7 +82,9 @@ for (const [index, fixture] of fixtureSubset.entries()) {
   const progress = `${index + 1}/${fixtureSubset.length}`;
 
   if (completedCaseIds.has(fixture.case.id)) {
-    console.error(`[worker-llm-context-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`);
+    console.error(
+      `[worker-llm-context-benchmark] ${progress} ${fixture.case.id} skipped from checkpoint`
+    );
     continue;
   }
 
@@ -332,8 +336,12 @@ function createSyntheticContextFact(
     kind: "current",
     content: [
       `Synthetic evidence plan for ${caseId}.`,
-      preferred ? `Preferred evidence id: ${preferred.evidenceId}. Preferred fact kind: ${preferred.kind}.` : "No preferred evidence is available.",
-      sensitive ? "Sensitive facts may be summarized but raw sensitive values must not be copied." : "No sensitive fact is marked in the packet.",
+      preferred
+        ? `Preferred evidence id: ${preferred.evidenceId}. Preferred fact kind: ${preferred.kind}.`
+        : "No preferred evidence is available.",
+      sensitive
+        ? "Sensitive facts may be summarized but raw sensitive values must not be copied."
+        : "No sensitive fact is marked in the packet.",
       boundaryHint,
       scopeHint
     ].join(" "),
@@ -361,7 +369,11 @@ function retrieveAdditionalFacts(
       }))
     )
     .filter((candidate) => candidate.score > 0)
-    .sort((left, right) => right.score - left.score || left.fact.evidenceId.localeCompare(right.fact.evidenceId));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        left.fact.evidenceId.localeCompare(right.fact.evidenceId)
+    );
 
   return candidates.slice(0, 4).map((candidate) => candidate.fact);
 }
@@ -397,7 +409,10 @@ async function refineWithRetry(
       return await engine.refineWorkspace(workspace);
     } catch (error) {
       lastError = error;
-      console.error(`[worker-llm-context-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`);
+
+      console.error(
+        `[worker-llm-context-benchmark] ${caseId} attempt ${attempt}/${maxAttempts} failed: ${formatError(error)}`
+      );
 
       if (attempt < maxAttempts) {
         await sleep(1500 * attempt);
@@ -426,11 +441,16 @@ async function loadCheckpoint(): Promise<LlmHardBenchmarkCheckpoint | undefined>
   try {
     const raw = await readFile(checkpointPath, "utf8");
     const checkpoint = JSON.parse(raw) as LlmHardBenchmarkCheckpoint;
-    console.error(`[worker-llm-context-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`);
+
+    console.error(
+      `[worker-llm-context-benchmark] resuming ${checkpoint.completedCaseIds.length}/${fixtureSubset.length} from ${checkpointPath}`
+    );
 
     return checkpoint;
   } catch {
-    console.error(`[worker-llm-context-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`);
+    console.error(
+      `[worker-llm-context-benchmark] no checkpoint found at ${checkpointPath}; starting fresh`
+    );
 
     return undefined;
   }
@@ -485,14 +505,18 @@ function readGitCommit(): string {
 }
 
 async function readWorkerHealth(baseUrl: string) {
-  const response = await fetch(`${baseUrl}/health`);
-  const body: unknown = await response.json();
+  const client = createHttpWorkspaceWorkerClient({
+    baseUrl,
+    timeoutMs: Number(process.env.LLM_WORKER_TIMEOUT_MS ?? "120000")
+  });
 
-  if (!response.ok || !isHealthResponse(body) || body.mode !== "llm") {
-    throw new Error(`Invalid LLM worker health response from ${baseUrl}/health`);
+  const health = await client.health();
+
+  if (health.mode !== "llm") {
+    throw new Error(`Invalid LLM worker health response from ${baseUrl}/health: mode=${health.mode}`);
   }
 
-  return body;
+  return health;
 }
 
 function parseContextStrategy(value: string): LlmContextStrategy {

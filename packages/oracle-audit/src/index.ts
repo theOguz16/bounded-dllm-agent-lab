@@ -1,9 +1,8 @@
 import { createWorkspaceFromPacket } from "../../context-core/src/workspace-adapter.js";
 import type { BenchmarkFixture } from "../../fixtures/src/index.js";
 import { createMaskedWorkspaceView } from "../../masking-policy/src/index.js";
-import {
-  createRefineRequest,
-  type DllmWorkerRefineRequest
+import type {
+  DllmWorkerRefineRequest
 } from "../../worker-contract/src/index.js";
 
 export type OracleLeakageSeverity = "error" | "warn";
@@ -72,16 +71,10 @@ export function auditFixtureWorkerRequest(
 
   const masked = createMaskedWorkspaceView(workspace, "verifier");
 
-  const request = createRefineRequest({
+  const request: DllmWorkerRefineRequest = {
     requestId: `oracle-audit-${fixture.case.id}`,
-
-    /**
-     * Eski "boundary" view yok.
-     * Audit edilen worker request'i verifier view üzerinden üretilir.
-     */
-    view: "verifier",
     workspace: masked.workspace
-  });
+  };
 
   return auditRefineRequestForOracleLeakage(fixture, request);
 }
@@ -159,11 +152,17 @@ function isAllowedEvidencePath(path: string[]): boolean {
    * çünkü bunlar fixture input'unun worker'a gitmesi gereken kısmıdır.
    */
   return (
+    dottedPath === "workspace.task" ||
     dottedPath.startsWith("workspace.task.") ||
+    dottedPath === "workspace.scope" ||
     dottedPath.startsWith("workspace.scope.") ||
+    dottedPath === "workspace.authority" ||
     dottedPath.startsWith("workspace.authority.") ||
+    dottedPath === "workspace.policy" ||
     dottedPath.startsWith("workspace.policy.") ||
+    dottedPath === "workspace.repoFacts" ||
     dottedPath.startsWith("workspace.repoFacts.") ||
+    dottedPath === "workspace.patchIntent" ||
     dottedPath.startsWith("workspace.patchIntent.")
   );
 }

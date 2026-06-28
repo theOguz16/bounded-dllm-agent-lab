@@ -4,9 +4,7 @@ import {
   type SharedSemanticWorkspace
 } from "../../workspace-core/src/index.js";
 import {
-  createRefineRequest,
-  isHealthResponse,
-  isRefineResponse
+  createHttpWorkspaceWorkerClient
 } from "../../worker-contract/src/index.js";
 import type { MaskView } from "../../masking-policy/src/index.js";
 
@@ -34,48 +32,33 @@ export class HttpDllmWorkerEngine implements ModelEngine {
   ) {}
 
   async health(): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/health`);
-    const body: unknown = await response.json();
+    try {
+      const client = createHttpWorkspaceWorkerClient({
+        baseUrl: this.baseUrl
+      });
 
-    /**
-     * Python worker ayrı bir runtime olduğu için sadece HTTP 200'e güvenmiyoruz.
-     * Dönen JSON'un beklenen health sözleşmesine uyduğunu da kontrol ediyoruz.
-     */
-    return response.ok && isHealthResponse(body);
+      const health = await client.health();
+
+      return health.mode === "dllm" || health.mode === "mock";
+    } catch {
+      return false;
+    }
   }
 
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
-    const started = Date.now();
+    const client = createHttpWorkspaceWorkerClient({
+      baseUrl: this.baseUrl
+    });
 
-    const request = createRefineRequest({
-      requestId: `${workspace.id}-${workspace.revision}`,
-      view: this.view,
+    const response = await client.refine({
+      requestId: createWorkerRequestId(workspace),
       workspace
     });
 
-    const response = await fetch(`${this.baseUrl}/refine`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(request)
-    });
-
-    const body: unknown = await response.json();
-
-    /**
-     * Dil sınırı burada başlıyor: TypeScript tarafında tipler var, Python tarafında
-     * JSON var. Bu nedenle refine cevabını kullanmadan önce contract guard ile
-     * doğruluyoruz; aksi halde bozuk worker cevabı benchmark sonucunu kirletebilir.
-     */
-    if (!response.ok || !isRefineResponse(body)) {
-      throw new Error(`Invalid dLLM worker response from ${this.baseUrl}/refine`);
-    }
-
     return {
-      workspace: body.workspace,
-      latencyMs: Date.now() - started,
-      engineName: body.engineName
+      workspace: response.workspace,
+      latencyMs: response.latencyMs,
+      engineName: response.engineName
     };
   }
 }
@@ -90,48 +73,33 @@ export class HttpLlmWorkerEngine implements ModelEngine {
   ) {}
 
   async health(): Promise<boolean> {
-    const response = await fetch(`${this.baseUrl}/health`);
-    const body: unknown = await response.json();
+    try {
+      const client = createHttpWorkspaceWorkerClient({
+        baseUrl: this.baseUrl
+      });
 
-    /**
-     * LLM baseline worker da aynı HTTP sözleşmesini konuşur; fark inference
-     * ailesindedir. Health guard burada "çalışıyor" ile "beklenen contract"ı ayırır.
-     */
-    return response.ok && isHealthResponse(body) && body.mode === "llm";
+      const health = await client.health();
+
+      return health.mode === "llm";
+    } catch {
+      return false;
+    }
   }
 
   async refineWorkspace(workspace: SharedSemanticWorkspace): Promise<RefinementResult> {
-    const started = Date.now();
+    const client = createHttpWorkspaceWorkerClient({
+      baseUrl: this.baseUrl
+    });
 
-    const request = createRefineRequest({
-      requestId: `${workspace.id}-${workspace.revision}`,
-      view: this.view,
+    const response = await client.refine({
+      requestId: createWorkerRequestId(workspace),
       workspace
     });
 
-    const response = await fetch(`${this.baseUrl}/refine`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(request)
-    });
-
-    const body: unknown = await response.json();
-
-    /**
-     * Baseline worker dış API kullandığı için bozuk JSON, timeout sonrası yarım cevap
-     * veya schema dışı workspace üretme riski taşır. Contract guard bu kirlenmeyi
-     * benchmark metriğine sessizce sokmamızı engeller.
-     */
-    if (!response.ok || !isRefineResponse(body)) {
-      throw new Error(`Invalid LLM worker response from ${this.baseUrl}/refine: ${compactWorkerBody(body)}`);
-    }
-
     return {
-      workspace: body.workspace,
-      latencyMs: Date.now() - started,
-      engineName: body.engineName
+      workspace: response.workspace,
+      latencyMs: response.latencyMs,
+      engineName: response.engineName
     };
   }
 }
@@ -144,12 +112,6 @@ export class MockDllmEngine implements ModelEngine {
     const started = Date.now();
     const createdAt = new Date(started).toISOString();
 
-    /**
-     * Eski mock engine workspace.packet.facts okuyordu.
-     * Yeni canonical workspace modelinde authority/current bilgi workspace.authority,
-     * sensitive bilgi policy/repoFacts, eksik bilgi sinyali ise authority.missingRules
-     * altında tutulur.
-     */
     const selectedFact = selectWorkspaceFact(workspace);
 
     const missing = workspace.authority.missingRules.filter((item) =>
@@ -164,14 +126,6 @@ export class MockDllmEngine implements ModelEngine {
 
     let refined = workspace;
 
-    /**
-     * addClaim kaldırıldı.
-     *
-     * Bu mock provider için claim zorunlu değil; evaluator ve benchmark için
-     * verifierResult + finalResult yeterli canonical sinyali üretir.
-     * WorkspaceClaim shape'i değiştiği için burada claim yazmak gereksiz type
-     * kırılmasına sebep oluyordu.
-     */
     refined = addVerifierResult(refined, {
       id: `verifier-${workspace.id}-${refined.revision}`,
       decision: hasMissingInformation ? "remask_required" : "approve",
@@ -209,6 +163,10 @@ type SelectedWorkspaceFact = {
   confidence: number;
 };
 
+function createWorkerRequestId(workspace: SharedSemanticWorkspace): string {
+  return `${workspace.id}-${workspace.revision}`;
+}
+
 function selectWorkspaceFact(workspace: SharedSemanticWorkspace): SelectedWorkspaceFact | undefined {
   const currentAuthorityFact = workspace.authority.facts[0];
 
@@ -221,7 +179,8 @@ function selectWorkspaceFact(workspace: SharedSemanticWorkspace): SelectedWorksp
     };
   }
 
-  const sensitivePattern = workspace.policy.sensitivePatterns[0] ?? workspace.repoFacts.sensitivePatterns[0];
+  const sensitivePattern =
+    workspace.policy.sensitivePatterns[0] ?? workspace.repoFacts.sensitivePatterns[0];
 
   if (sensitivePattern) {
     return {
@@ -247,16 +206,5 @@ function selectWorkspaceFact(workspace: SharedSemanticWorkspace): SelectedWorksp
 }
 
 function safeSensitiveContent(content: string): string {
-  /**
-   * Fixture'larda sensitive content bazen "Raw value:" ile gerçek sırrı taşıyordu.
-   * Mock engine deterministik kalsın ama raw secret output'a kopyalanmasın diye
-   * bu kısmı kırpıyoruz.
-   */
   return content.split(" Raw value:")[0] ?? "Sensitive information must stay out of default context.";
-}
-
-function compactWorkerBody(body: unknown): string {
-  const text = JSON.stringify(body);
-
-  return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 }

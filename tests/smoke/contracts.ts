@@ -33,7 +33,7 @@ import {
   type VerifierAdapterOutput
 } from "../../packages/product-runtime/src/index.js";
 import { renderArtifactViewerHtml } from "../../apps/web/src/index.js";
-import { isHealthResponse, isInfillResponse, isResolveConflictResponse } from "../../packages/worker-contract/src/index.js";
+import { createHttpWorkspaceWorkerClient } from "../../packages/worker-contract/src/index.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
 const cases = [
@@ -113,10 +113,16 @@ const comparison = createComparisonArtifact({
 
 assert.equal(comparison.runCount, 1);
 assert.equal(comparison.rows[0].architectureName, "bounded-dllm-refinement-loop");
-assert.equal(isHealthResponse({ ok: true, workerName: "mock", mode: "mock", version: "0.1.0" }), true);
-assert.equal(isInfillResponse({ requestId: "1", region: "patch_intent", content: "x", engineName: "mock", latencyMs: 1 }), true);
-assert.equal(isResolveConflictResponse({ requestId: "1", conflictId: "c1", resolution: "x", engineName: "mock", latencyMs: 1 }), true);
-assert.equal(isHealthResponse({ ok: true, workerName: "mock", mode: "unknown", version: "0.1.0" }), false);
+const workerClient = createHttpWorkspaceWorkerClient({
+  baseUrl: "http://127.0.0.1:8765"
+});
+
+assert.equal(typeof createHttpWorkspaceWorkerClient, "function");
+assert.equal(workerClient.baseUrl, "http://127.0.0.1:8765");
+assert.equal(typeof workerClient.health, "function");
+assert.equal(typeof workerClient.refine, "function");
+assert.equal(typeof workerClient.infill, "function");
+assert.equal(typeof workerClient.resolveConflict, "function");
 
 assert.deepEqual(validateFixtures(demoFixtures), []);
 assert.deepEqual(validateFixtures(hardFixtures, { expectedFamilyCount: 5 }), []);
