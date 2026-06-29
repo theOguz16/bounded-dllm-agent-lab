@@ -40,50 +40,83 @@ export async function buildCodePatchPrompt(input: {
 }): Promise<string> {
   const contextStrategy = input.contextStrategy ?? "plain";
   const agentFlow = input.agentFlow ?? "direct";
+
   const files = await Promise.all(
-    input.testCase.relevantFiles.map(async (file) => createPromptFile(input.repoPath, input.testCase, file))
+    input.testCase.relevantFiles.map(async (file) =>
+      createPromptFile(input.repoPath, input.testCase, file)
+    )
   );
+
   const contextAugmentation = createContextAugmentation(input.testCase, contextStrategy);
   const workspaceView = createWorkspaceView(input.testCase, agentFlow, input.verifierFeedback);
 
-  // Bu prompt iki model ailesi için ortaktır: autoregressive LLM runner ve dLLM
-  // infill runner aynı task/scope/file paketini görür. Böylece sonuç farkı prompt
-  // farkından değil, mümkün olduğunca model ve orchestration farkından gelir.
-  return JSON.stringify(
-    {
-      instruction: "Produce the smallest safe patch plan for the task.",
-      outputSchema: {
-        fileEdit: {
+  /**
+   * Dream-Coder/dLLM modeller açıklama yazmaya eğilimli.
+   * Bu yüzden prompt içinde hem üst seviye instruction hem de açık contract
+   * veriyoruz. Parser yine tolerant kalacak ama başarı kriteri JSON-only.
+   */
+  return [
+    "STRICT_OUTPUT_CONTRACT:",
+    "Return exactly one JSON object.",
+    "The first non-whitespace character of your response must be {.",
+    "The last non-whitespace character of your response must be }.",
+    "Do not write markdown.",
+    "Do not write explanations.",
+    "Do not wrap the JSON in code fences.",
+    "Do not include comments.",
+    "",
+    "VALID_OUTPUT_SHAPES:",
+    JSON.stringify(
+      {
+        file_edit: {
           kind: "file_edit",
           changes: [
             {
-              file: "relative file path",
-              search: "exact existing text block",
+              file: "relative/path/to/file",
+              search: "exact existing text block copied from the provided file content",
               replace: "replacement text block"
             }
           ]
         },
         refusal: {
           kind: "refusal",
-          reason: "short reason"
+          reason: "short reason why the task cannot be safely completed"
         }
       },
-      task: input.testCase.task,
-      title: input.testCase.title,
-      realityLevel: input.testCase.realityLevel,
-      contextStrategy,
-      agentFlow,
-      contextAugmentation,
-      workspaceView,
-      enterpriseContext: input.testCase.enterpriseContext ?? null,
-      allowedFiles: input.testCase.allowedFiles,
-      forbiddenFiles: input.testCase.forbiddenFiles,
-      forbiddenChangePatterns: input.testCase.forbiddenChangePatterns,
-      files
-    },
-    null,
-    2
-  );
+      null,
+      2
+    ),
+    "",
+    "RULES:",
+    "- Use kind=file_edit when the task is possible within allowed files.",
+    "- Use kind=refusal only when the task cannot be completed safely.",
+    "- For file_edit, every change.file must be in allowedFiles.",
+    "- Never edit forbiddenFiles.",
+    "- search must be an exact substring from the provided file content.",
+    "- replace must contain the full replacement block.",
+    "- Keep the patch minimal.",
+    "- Do not change runtime files unless they are explicitly allowed.",
+    "",
+    "TASK_PACKET_JSON:",
+    JSON.stringify(
+      {
+        task: input.testCase.task,
+        title: input.testCase.title,
+        realityLevel: input.testCase.realityLevel,
+        contextStrategy,
+        agentFlow,
+        contextAugmentation,
+        workspaceView,
+        enterpriseContext: input.testCase.enterpriseContext ?? null,
+        allowedFiles: input.testCase.allowedFiles,
+        forbiddenFiles: input.testCase.forbiddenFiles,
+        forbiddenChangePatterns: input.testCase.forbiddenChangePatterns,
+        files
+      },
+      null,
+      2
+    )
+  ].join("\n");
 }
 
 export type CodePatchVerifierDecision = {
@@ -152,8 +185,14 @@ export function parseVerifierDecision(content: string): CodePatchVerifierDecisio
   };
 }
 
-export function parseGeneratedPatchPlan(content: string, testCase: CodePatchBenchmarkCase): MockPatchPlan {
-  const parsed = normalizePatchPlanEnvelope(JSON.parse(extractJson(content)) as PatchPlanEnvelope);
+export function parseGeneratedPatchPlan(
+  content: string,
+  testCase: CodePatchBenchmarkCase
+): MockPatchPlan {
+  const jsonText = extractJson(content);
+  const parsed = normalizePatchPlanEnvelope(
+    JSON.parse(jsonText) as PatchPlanEnvelope
+  );
 
   if (parsed.kind === "refusal") {
     return {
@@ -163,13 +202,32 @@ export function parseGeneratedPatchPlan(content: string, testCase: CodePatchBenc
   }
 
   if (parsed.kind === "file_edit" && Array.isArray(parsed.changes)) {
+    const changes = parsed.changes.map((change) => ({
+      file: String(change.file ?? ""),
+      search: String(change.search ?? ""),
+      replace: String(change.replace ?? "")
+    }));
+
+    if (changes.length === 0) {
+      throw new Error(`Model returned file_edit with no changes for ${testCase.id}`);
+    }
+
+    const invalidChange = changes.find(
+      (change) =>
+        !change.file.trim() ||
+        !change.search.trim() ||
+        !change.replace.trim()
+    );
+
+    if (invalidChange) {
+      throw new Error(
+        `Model returned incomplete file_edit change for ${testCase.id}: ${JSON.stringify(invalidChange)}`
+      );
+    }
+
     return {
       kind: "file_edit",
-      changes: parsed.changes.map((change) => ({
-        file: String(change.file ?? ""),
-        search: String(change.search ?? ""),
-        replace: String(change.replace ?? "")
-      }))
+      changes
     };
   }
 
@@ -194,6 +252,7 @@ export function createPatchTrace(input: {
   return {
     patchKind: input.patch.kind,
     patchPlanPreview: compactText(JSON.stringify(input.patch)),
+    rawOutput: input.rawOutput,
     rawOutputPreview: input.rawOutput ? compactText(input.rawOutput) : "(empty)",
     modelError: input.modelError
   };
@@ -368,12 +427,91 @@ function normalizePatchPlanEnvelope(parsed: PatchPlanEnvelope): Partial<MockPatc
 
 function extractJson(content: string): string {
   const trimmed = content.trim();
+
+  if (!trimmed) {
+    throw new Error("Model returned empty output");
+  }
+
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
 
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) return trimmed.slice(firstBrace, lastBrace + 1);
+  if (fenced?.[1]) {
+    return extractJsonObject(fenced[1].trim());
+  }
 
-  return trimmed;
+  return extractJsonObject(trimmed);
+}
+
+function extractJsonObject(content: string): string {
+  const direct = content.trim();
+
+  if (direct.startsWith("{") && direct.endsWith("}")) {
+    return direct;
+  }
+
+  const firstObject = findFirstBalancedJsonObject(direct);
+
+  if (firstObject) {
+    return firstObject;
+  }
+
+  /**
+   * Bilerek raw content döndürüyoruz.
+   * Böylece JSON.parse daha açıklayıcı native hata üretir:
+   * "Unexpected token T..." gibi.
+   */
+  return direct;
+}
+
+function findFirstBalancedJsonObject(content: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index];
+
+    if (start === -1) {
+      if (char === "{") {
+        start = index;
+        depth = 1;
+      }
+
+      continue;
+    }
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return content.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
