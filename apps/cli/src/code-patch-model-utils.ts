@@ -26,6 +26,7 @@ type PromptFile = {
 
 type PatchPlanEnvelope = Partial<MockPatchPlan> & {
   fileEdit?: Partial<Extract<MockPatchPlan, { kind: "file_edit" }>>;
+  file_edit?: Partial<Extract<MockPatchPlan, { kind: "file_edit" }>>;
   refusal?: Partial<Extract<MockPatchPlan, { kind: "refusal" }>>;
   patch?: Partial<MockPatchPlan>;
   output?: Partial<MockPatchPlan>;
@@ -202,11 +203,17 @@ export function parseGeneratedPatchPlan(
   }
 
   if (parsed.kind === "file_edit" && Array.isArray(parsed.changes)) {
-    const changes = parsed.changes.map((change) => ({
-      file: String(change.file ?? ""),
-      search: String(change.search ?? ""),
-      replace: String(change.replace ?? "")
-    }));
+    const changes = parsed.changes.map((change) => {
+    const file = String(change.file ?? "");
+    const search = String(change.search ?? "");
+    const replace = String(change.replace ?? "");
+
+    return normalizeGeneratedChange({
+      file,
+      search,
+      replace
+    });
+  });
 
     if (changes.length === 0) {
       throw new Error(`Model returned file_edit with no changes for ${testCase.id}`);
@@ -232,6 +239,34 @@ export function parseGeneratedPatchPlan(
   }
 
   throw new Error(`Model did not return a valid patch plan for ${testCase.id}`);
+}
+
+function normalizeGeneratedChange(change: {
+  file: string;
+  search: string;
+  replace: string;
+}): {
+  file: string;
+  search: string;
+  replace: string;
+} {
+  const versionSearchMatch = change.search.match(
+    /^("version"\s*:\s*")([0-9]+\.[0-9]+\.[0-9]+)$/
+  );
+
+  const versionReplaceMatch = change.replace.match(
+    /^("version"\s*:\s*")([0-9]+\.[0-9]+\.[0-9]+)"$/
+  );
+
+  if (versionSearchMatch && versionReplaceMatch) {
+    return {
+      ...change,
+      search: `${versionSearchMatch[1]}${versionSearchMatch[2]}"`,
+      replace: `${versionReplaceMatch[1]}${versionReplaceMatch[2]}"`
+    };
+  }
+
+  return change;
 }
 
 export function createInvalidPatchPlan(error: unknown): MockPatchPlan {
@@ -414,15 +449,41 @@ function createRagNotes(testCase: CodePatchBenchmarkCase): string[] {
   ];
 }
 
-function normalizePatchPlanEnvelope(parsed: PatchPlanEnvelope): Partial<MockPatchPlan> {
-  // Modeller sık sık şemadaki örnek anahtarları root wrapper olarak döndürüyor:
-  // { "fileEdit": { "kind": "file_edit", ... } }. Bu gerçek patch niyetidir,
-  // parser katılığı yüzünden başarısız sayılmamalıdır.
-  if (parsed.fileEdit) return parsed.fileEdit;
-  if (parsed.refusal) return parsed.refusal;
-  if (parsed.patch) return parsed.patch;
-  if (parsed.output) return parsed.output;
-  return parsed;
+function normalizePatchPlanEnvelope(input: PatchPlanEnvelope): Partial<MockPatchPlan> {
+  if (input.kind) {
+    return input;
+  }
+
+  if (input.fileEdit) {
+    return {
+      ...input.fileEdit,
+      kind: "file_edit"
+    };
+  }
+
+  if (input.file_edit) {
+    return {
+      ...input.file_edit,
+      kind: "file_edit"
+    };
+  }
+
+  if (input.refusal) {
+    return {
+      ...input.refusal,
+      kind: "refusal"
+    };
+  }
+
+  if (input.patch) {
+    return normalizePatchPlanEnvelope(input.patch as PatchPlanEnvelope);
+  }
+
+  if (input.output) {
+    return normalizePatchPlanEnvelope(input.output as PatchPlanEnvelope);
+  }
+
+  return input;
 }
 
 function extractJson(content: string): string {
