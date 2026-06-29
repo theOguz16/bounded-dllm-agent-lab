@@ -10,7 +10,7 @@ from transformers import AutoModel, AutoTokenizer
 
 MODEL_PATH = os.environ.get("DREAM_CODER_MODEL", "Dream-org/Dream-Coder-v0-Instruct-7B")
 WORKER_NAME = "dream-coder-dllm-worker"
-WORKER_VERSION = "0.2.0"
+WORKER_VERSION = "0.3.0"
 DEFAULT_HOST = os.environ.get("DLLM_WORKER_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("DLLM_WORKER_PORT", "8765"))
 
@@ -59,6 +59,135 @@ def extract_code(text):
 
     return text.strip()
 
+def extract_first_json_object(text):
+    content = str(text).strip()
+
+    fenced = re.search(r"```(?:json)?\s*([\s\S]*?)```", content, re.IGNORECASE)
+    if fenced:
+        content = fenced.group(1).strip()
+
+    start = -1
+    depth = 0
+    in_string = False
+    escaped = False
+
+    for index, char in enumerate(content):
+        if start == -1:
+            if char == "{":
+                start = index
+                depth = 1
+            continue
+
+        if escaped:
+            escaped = False
+            continue
+
+        if char == "\\":
+            escaped = True
+            continue
+
+        if char == '"':
+            in_string = not in_string
+            continue
+
+        if in_string:
+            continue
+
+        if char == "{":
+            depth += 1
+            continue
+
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = content[start : index + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    return None
+
+    return None
+
+
+def needs_json_patch_contract(prompt, region):
+    if region == "final_result":
+        return True
+
+    if "STRICT_OUTPUT_CONTRACT" in prompt:
+        return True
+
+    if "VALID_OUTPUT_SHAPES" in prompt:
+        return True
+
+    if '"kind": "file_edit"' in prompt:
+        return True
+
+    return False
+
+
+def build_json_repair_prompt(original_prompt, raw_output):
+    return "\n".join(
+        [
+            "You must convert the previous model answer into exactly one valid JSON object.",
+            "The first non-whitespace character must be {.",
+            "The last non-whitespace character must be }.",
+            "Do not write markdown.",
+            "Do not write explanations.",
+            "Do not use code fences.",
+            "",
+            "Valid output shapes:",
+            json.dumps(
+                {
+                    "file_edit": {
+                        "kind": "file_edit",
+                        "changes": [
+                            {
+                                "file": "relative/path/to/file",
+                                "search": "exact existing text block from the provided file content",
+                                "replace": "replacement text block",
+                            }
+                        ],
+                    },
+                    "refusal": {
+                        "kind": "refusal",
+                        "reason": "short reason",
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "",
+            "Original task packet and file context:",
+            original_prompt[:12000],
+            "",
+            "Previous non-JSON answer:",
+            str(raw_output)[:4000],
+            "",
+            "Return JSON only now.",
+        ]
+    )
+
+
+def coerce_json_patch_output(runtime, prompt, raw_content):
+    first_json = extract_first_json_object(raw_content)
+
+    if first_json:
+        return first_json
+
+    repair_prompt = build_json_repair_prompt(prompt, raw_content)
+    _repair_raw, repair_content = runtime.generate(
+        repair_prompt,
+        max_new_tokens=512,
+        steps=256,
+    )
+
+    repaired_json = extract_first_json_object(repair_content)
+
+    if repaired_json:
+        return repaired_json
+
+    return raw_content
 
 def build_prompt(workspace):
     """
@@ -640,11 +769,19 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"ok": False, "error": "invalid_infill_request"})
             return
 
+        json_patch_contract = needs_json_patch_contract(prompt, region)
+
+        max_new_tokens = 512 if json_patch_contract else 128
+        steps = 256 if json_patch_contract else 128
+
         _raw_output, content = self.runtime.generate(
             prompt,
-            max_new_tokens=96,
-            steps=96,
+            max_new_tokens=max_new_tokens,
+            steps=steps,
         )
+
+        if json_patch_contract:
+            content = coerce_json_patch_output(self.runtime, prompt, content)
 
         latency_ms = int((time.time() - started) * 1000)
 
@@ -658,6 +795,43 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
                 "latencyMs": latency_ms,
             },
         )
+            started = time.time()
+            payload = self._read_json()
+
+            if payload is None:
+                self._send_json(400, {"ok": False, "error": "invalid_json"})
+                return
+
+            request_id = payload.get("requestId")
+            region = payload.get("region")
+            prompt = payload.get("prompt")
+
+            if (
+                not isinstance(request_id, str)
+                or not isinstance(region, str)
+                or not isinstance(prompt, str)
+            ):
+                self._send_json(400, {"ok": False, "error": "invalid_infill_request"})
+                return
+
+            _raw_output, content = self.runtime.generate(
+                prompt,
+                max_new_tokens=96,
+                steps=96,
+            )
+
+            latency_ms = int((time.time() - started) * 1000)
+
+            self._send_json(
+                200,
+                {
+                    "requestId": request_id,
+                    "region": region,
+                    "content": content,
+                    "engineName": WORKER_NAME,
+                    "latencyMs": latency_ms,
+                },
+            )
 
     def _handle_resolve_conflict(self):
         started = time.time()
