@@ -10,16 +10,12 @@ from transformers import AutoModel, AutoTokenizer
 
 MODEL_PATH = os.environ.get("DREAM_CODER_MODEL", "Dream-org/Dream-Coder-v0-Instruct-7B")
 WORKER_NAME = "dream-coder-dllm-worker"
-WORKER_VERSION = "0.3.0"
+WORKER_VERSION = "0.3.1"
 DEFAULT_HOST = os.environ.get("DLLM_WORKER_HOST", "127.0.0.1")
 DEFAULT_PORT = int(os.environ.get("DLLM_WORKER_PORT", "8765"))
 
 
 def configure_cache():
-    """
-    Model dosyaları büyük olduğu için cache'i /workspace altında tutuyoruz.
-    RunPod pod stop edildiğinde /workspace kalırsa aynı modeli tekrar indirmeyiz.
-    """
     hf_home = os.environ.get("HF_HOME", "/workspace/hf-cache")
     os.environ.setdefault("HF_HOME", hf_home)
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", f"{hf_home}/hub")
@@ -44,20 +40,17 @@ def load_model():
 
 
 def extract_code(text):
-    """
-    Dream-Coder bazen "yalnızca kod/JSON" dememize rağmen açıklama ve markdown
-    döndürebilir. Ham davranışı tamamen saklamıyoruz ama JSON/code bloğu varsa
-    çalışma sonucuna temiz içerik taşıyoruz.
-    """
     blocks = re.findall(
-        r"```(?:json|typescript|ts|javascript|js|python)?\n(.*?)```",
-        text,
+        r"```(?:json|typescript|ts|javascript|js|python)?\s*\n(.*?)```",
+        str(text),
         re.DOTALL,
     )
+
     if blocks:
         return blocks[0].strip()
 
-    return text.strip()
+    return str(text).strip()
+
 
 def extract_first_json_object(text):
     content = str(text).strip()
@@ -99,6 +92,7 @@ def extract_first_json_object(text):
 
         if char == "}":
             depth -= 1
+
             if depth == 0:
                 candidate = content[start : index + 1]
                 try:
@@ -123,46 +117,63 @@ def needs_json_patch_contract(prompt, region):
     if '"kind": "file_edit"' in prompt:
         return True
 
+    if '"file_edit"' in prompt and '"changes"' in prompt:
+        return True
+
     return False
 
 
 def build_json_repair_prompt(original_prompt, raw_output):
     return "\n".join(
         [
-            "You must convert the previous model answer into exactly one valid JSON object.",
+            "You are a JSON-only code patch formatter.",
+            "Convert the previous answer into exactly one valid JSON object.",
             "The first non-whitespace character must be {.",
             "The last non-whitespace character must be }.",
             "Do not write markdown.",
             "Do not write explanations.",
             "Do not use code fences.",
+            "Do not include comments.",
             "",
-            "Valid output shapes:",
+            "Valid output shape for an executable patch:",
             json.dumps(
                 {
-                    "file_edit": {
-                        "kind": "file_edit",
-                        "changes": [
-                            {
-                                "file": "relative/path/to/file",
-                                "search": "exact existing text block from the provided file content",
-                                "replace": "replacement text block",
-                            }
-                        ],
-                    },
-                    "refusal": {
-                        "kind": "refusal",
-                        "reason": "short reason",
-                    },
+                    "kind": "file_edit",
+                    "changes": [
+                        {
+                            "file": "relative/path/to/file",
+                            "search": "exact existing text block from the provided file content",
+                            "replace": "replacement text block",
+                        }
+                    ],
                 },
                 ensure_ascii=False,
                 indent=2,
             ),
             "",
+            "Valid output shape for a safe refusal:",
+            json.dumps(
+                {
+                    "kind": "refusal",
+                    "reason": "short reason",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            "",
+            "Rules:",
+            "- Use file_edit when the task can be completed within allowed files.",
+            "- Use refusal only when the task cannot be completed safely.",
+            "- Every change.file must be one of the allowed files in the original task packet.",
+            "- Never edit forbidden files.",
+            "- search must be copied exactly from the provided file content.",
+            "- replace must contain the complete replacement block.",
+            "",
             "Original task packet and file context:",
-            original_prompt[:12000],
+            str(original_prompt)[:16000],
             "",
             "Previous non-JSON answer:",
-            str(raw_output)[:4000],
+            str(raw_output)[:6000],
             "",
             "Return JSON only now.",
         ]
@@ -178,7 +189,7 @@ def coerce_json_patch_output(runtime, prompt, raw_content):
     repair_prompt = build_json_repair_prompt(prompt, raw_content)
     _repair_raw, repair_content = runtime.generate(
         repair_prompt,
-        max_new_tokens=512,
+        max_new_tokens=768,
         steps=256,
     )
 
@@ -189,20 +200,8 @@ def coerce_json_patch_output(runtime, prompt, raw_content):
 
     return raw_content
 
-def build_prompt(workspace):
-    """
-    Canonical workspace prompt builder.
 
-    Eski sürüm workspace.packet okuyordu.
-    Yeni runtime'da modelin görmesi gereken alanlar şunlar:
-    - workspace.task
-    - workspace.scope
-    - workspace.authority
-    - workspace.policy
-    - workspace.repoFacts
-    - workspace.patchIntent
-    - workspace.roleViews
-    """
+def build_prompt(workspace):
     task = workspace.get("task", "")
     scope = workspace.get("scope", {})
     authority = workspace.get("authority", {})
@@ -265,10 +264,6 @@ def summarize_role_views(role_views):
 
 
 def compact_json(value, max_chars=4000):
-    """
-    Worker prompt'unu patlatmamak için büyük alanları string olarak kompaktlaştırır.
-    Model hala canonical alanları görür ama devasa workspace dump yememiş olur.
-    """
     text = json.dumps(value, ensure_ascii=False, indent=2)
     if len(text) <= max_chars:
         return value
@@ -281,21 +276,12 @@ def compact_json(value, max_chars=4000):
 
 
 def select_grounding_fact(workspace, generated_result):
-    """
-    Canonical workspace'ten güvenli grounding seçer.
-
-    Öncelik:
-    1. authority.facts
-    2. repoFacts.evidenceFacts içinde correction/current
-    3. sensitive pattern için güvenli özet
-    4. stale fact sadece düşük güvenli fallback olarak kalır
-    """
     candidates = collect_grounding_candidates(workspace)
 
     if not candidates:
         return None
 
-    generated_lower = generated_result.lower()
+    generated_lower = str(generated_result).lower()
 
     for candidate in candidates:
         content = str(candidate.get("content", ""))
@@ -432,20 +418,6 @@ def requires_insufficient_context(workspace):
 
 
 def apply_agentic_workspace_protocol(workspace, generated_result):
-    """
-    Canonical workspace output writer.
-
-    Eski alanları yazmıyoruz:
-    - boundaryDecision
-    - verifier_feedback
-    - actor: implementer
-    - workspace.packet
-
-    Yeni canonical alanlar:
-    - finalResult
-    - verifierResults
-    - trace
-    """
     now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     selected_fact = select_grounding_fact(workspace, generated_result)
     should_refuse = requires_insufficient_context(workspace)
@@ -515,7 +487,7 @@ def resolve_final_summary(generated_result, selected_fact, should_refuse):
         return "insufficient_context"
 
     if selected_fact is None:
-        cleaned = generated_result.strip()
+        cleaned = str(generated_result).strip()
         return cleaned if cleaned else "insufficient_context"
 
     kind = selected_fact.get("kind")
@@ -525,11 +497,6 @@ def resolve_final_summary(generated_result, selected_fact, should_refuse):
         return safe_sensitive_content(content)
 
     if kind == "stale":
-        """
-        Stale fact tek başına merge-safe final sayılmaz.
-        Bu durumda output'u doğrudan approve etmeyip remask/verifier tarafına
-        problem sinyali bırakıyoruz.
-        """
         return content if content else "insufficient_context"
 
     return content if content else "insufficient_context"
@@ -579,7 +546,7 @@ def append_trace(workspace, final_summary, verifier_decision, created_at):
                 "action": "worker_refine_completed",
                 "actor": "coder",
                 "region": "final_result",
-                "summary": f"Dream-Coder wrote finalResult: {final_summary[:120]}",
+                "summary": f"Dream-Coder wrote finalResult: {str(final_summary)[:120]}",
                 "createdAt": created_at,
             },
             {
@@ -609,10 +576,6 @@ def read_changed_files(workspace):
 
 
 def safe_sensitive_content(content):
-    """
-    Sensitive benchmark'lerde content bazen "Raw value:" ile gerçek sırrı taşıyordu.
-    Worker raw secret'ı output'a kopyalamaz.
-    """
     text = str(content)
 
     if "Raw value:" in text:
@@ -624,24 +587,6 @@ def safe_sensitive_content(content):
         return text[:index].strip()
 
     return text.strip()
-
-
-def format_scope(scope_regions):
-    if not isinstance(scope_regions, list) or not scope_regions:
-        return "- none"
-
-    lines = []
-    for region in scope_regions:
-        if not isinstance(region, dict):
-            lines.append(f"- {region}")
-            continue
-
-        label = region.get("label", "")
-        path = region.get("path", "")
-        reason = region.get("reason", "")
-        lines.append(f"- {label} {path} {reason}".strip())
-
-    return "\n".join(lines)
 
 
 class DreamCoderRuntime:
@@ -770,8 +715,7 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
             return
 
         json_patch_contract = needs_json_patch_contract(prompt, region)
-
-        max_new_tokens = 512 if json_patch_contract else 128
+        max_new_tokens = 768 if json_patch_contract else 128
         steps = 256 if json_patch_contract else 128
 
         _raw_output, content = self.runtime.generate(
@@ -780,8 +724,14 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
             steps=steps,
         )
 
+        raw_content = content
+        json_repair_applied = False
+        json_repair_succeeded = False
+
         if json_patch_contract:
+            json_repair_applied = True
             content = coerce_json_patch_output(self.runtime, prompt, content)
+            json_repair_succeeded = extract_first_json_object(content) is not None
 
         latency_ms = int((time.time() - started) * 1000)
 
@@ -793,45 +743,17 @@ class DreamCoderWorkerHandler(BaseHTTPRequestHandler):
                 "content": content,
                 "engineName": WORKER_NAME,
                 "latencyMs": latency_ms,
+                "debug": {
+                    "jsonPatchContract": json_patch_contract,
+                    "jsonRepairApplied": json_repair_applied,
+                    "jsonRepairSucceeded": json_repair_succeeded,
+                    "maxNewTokens": max_new_tokens,
+                    "steps": steps,
+                    "rawContentPreview": str(raw_content)[:240],
+                    "finalContentPreview": str(content)[:240],
+                },
             },
         )
-            started = time.time()
-            payload = self._read_json()
-
-            if payload is None:
-                self._send_json(400, {"ok": False, "error": "invalid_json"})
-                return
-
-            request_id = payload.get("requestId")
-            region = payload.get("region")
-            prompt = payload.get("prompt")
-
-            if (
-                not isinstance(request_id, str)
-                or not isinstance(region, str)
-                or not isinstance(prompt, str)
-            ):
-                self._send_json(400, {"ok": False, "error": "invalid_infill_request"})
-                return
-
-            _raw_output, content = self.runtime.generate(
-                prompt,
-                max_new_tokens=96,
-                steps=96,
-            )
-
-            latency_ms = int((time.time() - started) * 1000)
-
-            self._send_json(
-                200,
-                {
-                    "requestId": request_id,
-                    "region": region,
-                    "content": content,
-                    "engineName": WORKER_NAME,
-                    "latencyMs": latency_ms,
-                },
-            )
 
     def _handle_resolve_conflict(self):
         started = time.time()
