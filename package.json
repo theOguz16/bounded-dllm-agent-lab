@@ -111,7 +111,7 @@
     "baseline:verify": "npm run typecheck && npm run build && npm run baseline:strategy-contract-smoke && npm run baseline:strategy-report && npm run baseline:comparison-report",
     "baseline:strategy-contract-smoke": "node dist/apps/cli/src/baseline-strategy-contract-smoke.js",
     "baseline:strategy-report": "node dist/apps/cli/src/baseline-strategy-report.js",
-    "verify:evaluation-pipeline": "npm run repo:evaluation-verify && npm run report:model-worker-contract && npm run report:model-acceptance && npm run fetch:github-pr && npm run report:dllm-verifier && npm run report:evaluation-integrated && npm run report:evaluation-case-level",
+    "verify:evaluation-pipeline": "npm run repo:evaluation-verify && npm run report:model-worker-contract && npm run report:model-acceptance && npm run report:model-worker-live && npm run fetch:github-pr && npm run report:dllm-verifier && npm run report:evaluation-integrated && npm run report:evaluation-case-level",
     "verify:dllm-verifier": "npm run typecheck && npm run build && npm run smoke:dllm-verifier && npm run smoke:dllm-verifier:pipeline && npm run report:dllm-verifier",
     "smoke:dllm-verifier": "node dist/apps/cli/src/dllm-verifier-smoke.js",
     "report:model-acceptance": "node dist/apps/cli/src/model-worker-acceptance-report.js",
@@ -130,7 +130,8 @@
     "smoke:model-worker:runpod-proxy": "node dist/apps/cli/src/model-worker-runpod-proxy-smoke.js",
     "verify:model-worker:runpod-proxy": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-proxy",
     "smoke:model-worker:runpod-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
-    "verify:model-worker:runpod-live": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-live"
+    "verify:model-worker:runpod-live": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-live",
+    "report:model-worker-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js"
   },
   "workspaces": [
     "apps/*",
