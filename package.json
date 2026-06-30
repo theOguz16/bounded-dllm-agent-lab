@@ -114,7 +114,9 @@
     "baseline:strategy-report": "node dist/apps/cli/src/baseline-strategy-report.js",
     "model:acceptance-report": "node dist/apps/cli/src/model-worker-acceptance-report.js",
     "github:pr-live-fetch": "node dist/apps/cli/src/github-pr-live-fetch.js",
-    "phase-k:final-verify": "npm run repo:evaluation-verify && npm run model:acceptance-report && npm run github:pr-live-fetch"
+    "phase-k:final-verify": "npm run repo:evaluation-verify && npm run model:acceptance-report && npm run github:pr-live-fetch",
+    "phase-l:verifier-smoke": "node dist/apps/cli/src/dllm-verifier-smoke.js",
+    "phase-l:verify": "npm run typecheck && npm run build && npm run phase-l:verifier-smoke"
   },
   "workspaces": [
     "apps/*",
