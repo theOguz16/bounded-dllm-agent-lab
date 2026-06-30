@@ -431,32 +431,38 @@ function extractUsage(
 
   const promptTokens =
     firstNumber(
-      mergedUsage.promptTokens,
-      mergedUsage.prompt_tokens,
       usage.promptTokens,
       usage.prompt_tokens,
+      upstream.promptTokens,
+      upstream.prompt_tokens,
       merged.promptTokens,
-      merged.prompt_tokens
+      merged.prompt_tokens,
+      mergedUsage.promptTokens,
+      mergedUsage.prompt_tokens
     ) ?? null;
 
   const completionTokens =
     firstNumber(
-      mergedUsage.completionTokens,
-      mergedUsage.completion_tokens,
       usage.completionTokens,
       usage.completion_tokens,
+      upstream.completionTokens,
+      upstream.completion_tokens,
       merged.completionTokens,
-      merged.completion_tokens
+      merged.completion_tokens,
+      mergedUsage.completionTokens,
+      mergedUsage.completion_tokens
     ) ?? null;
 
   const totalTokens =
     firstNumber(
-      mergedUsage.totalTokens,
-      mergedUsage.total_tokens,
       usage.totalTokens,
       usage.total_tokens,
+      upstream.totalTokens,
+      upstream.total_tokens,
       merged.totalTokens,
-      merged.total_tokens
+      merged.total_tokens,
+      mergedUsage.totalTokens,
+      mergedUsage.total_tokens
     ) ?? null;
 
   if (promptTokens === null && completionTokens === null && totalTokens === null) {
