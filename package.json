@@ -100,6 +100,7 @@
     "remask:repair-safety-report": "node dist/apps/cli/src/remask-repair-safety-report.js",
     "real:diff-smoke": "node dist/apps/cli/src/real-repo-diff-smoke.js",
     "real:evaluation-report": "node dist/apps/cli/src/real-repo-evaluation-report.js",
+    "real:control-report": "node dist/apps/cli/src/real-repo-control-report.js",
     "clean": "rm -rf dist"
   },
   "workspaces": [

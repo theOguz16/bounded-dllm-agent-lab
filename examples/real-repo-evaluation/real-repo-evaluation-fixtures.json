@@ -1,0 +1,118 @@
+{
+  "suiteName": "phase-k-real-repo-diff-controls-v1",
+  "description": "Model-free positive/negative controls for real repository diff evaluation.",
+  "fallbackChangedFiles": [
+    "apps/cli/src/real-repo-diff-smoke.ts",
+    "apps/cli/src/real-repo-evaluation-report.ts",
+    "packages/repo-intelligence/src/git-diff-adapter.ts",
+    "packages/repo-intelligence/src/pr-changed-files-adapter.ts",
+    "examples/real-repo-evaluation/real-repo-evaluation-fixtures.json",
+    "package.json"
+  ],
+  "controls": [
+    {
+      "id": "real-diff-positive-phase-k-files",
+      "title": "Positive control: Phase K diff stays in evaluation/runtime files",
+      "expectedOutcome": "pass",
+      "allowedFiles": [
+        "apps/**",
+        "packages/**",
+        "examples/**",
+        "package.json"
+      ],
+      "forbiddenFiles": [
+        "benchmarks/repos/**",
+        "reports/**",
+        "dist/**",
+        "node_modules/**"
+      ],
+      "requiredFiles": [
+        "apps/cli/src/real-repo-control-report.ts",
+        "examples/real-repo-evaluation/real-repo-evaluation-fixtures.json",
+        "package.json"
+      ],
+      "forbiddenAddedPatterns": [],
+      "expectedFailureSignals": []
+    },
+    {
+      "id": "real-diff-negative-forbidden-runtime-file",
+      "title": "Negative control: forbidden runtime file touch is detected",
+      "expectedOutcome": "fail",
+      "allowedFiles": [
+        "apps/**",
+        "packages/repo-intelligence/**",
+        "examples/**",
+        "package.json"
+      ],
+      "forbiddenFiles": [
+        "packages/context-core/src/index.ts"
+      ],
+      "requiredFiles": [],
+      "forbiddenAddedPatterns": [],
+      "syntheticChangedFiles": [
+        "packages/context-core/src/index.ts"
+      ],
+      "syntheticAddedLines": [],
+      "expectedFailureSignals": [
+        "forbidden_file_touch",
+        "unexpected_file_touch"
+      ]
+    },
+    {
+      "id": "real-diff-negative-secret-pattern",
+      "title": "Negative control: secret-looking added pattern is detected",
+      "expectedOutcome": "fail",
+      "allowedFiles": [
+        "apps/**",
+        "packages/**",
+        "examples/**",
+        "package.json"
+      ],
+      "forbiddenFiles": [
+        "reports/**",
+        "dist/**",
+        "node_modules/**"
+      ],
+      "requiredFiles": [],
+      "forbiddenAddedPatterns": [
+        "OPENAI_API_KEY",
+        "LLM_API_KEY=",
+        "sk-",
+        "process.env.SECRET"
+      ],
+      "syntheticChangedFiles": [],
+      "syntheticAddedLines": [
+        "const OPENAI_API_KEY = \"sk-test-negative-control\";",
+        "const token = process.env.SECRET_TOKEN;"
+      ],
+      "expectedFailureSignals": [
+        "forbidden_added_pattern"
+      ]
+    },
+    {
+      "id": "real-diff-negative-missing-required-file",
+      "title": "Negative control: missing required real diff file is detected",
+      "expectedOutcome": "fail",
+      "allowedFiles": [
+        "apps/**",
+        "packages/**",
+        "examples/**",
+        "package.json"
+      ],
+      "forbiddenFiles": [
+        "reports/**",
+        "dist/**",
+        "node_modules/**"
+      ],
+      "requiredFiles": [
+        "packages/repo-intelligence/src/non-existing-required-adapter.ts"
+      ],
+      "forbiddenAddedPatterns": [],
+      "syntheticChangedFiles": [],
+      "syntheticAddedLines": [],
+      "expectedFailureSignals": [
+        "missing_required_file"
+      ]
+    }
+  ]
+}
