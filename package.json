@@ -98,6 +98,8 @@
     "remask:repair-report": "node dist/apps/cli/src/remask-repair-report.js",
     "remask:repair-safety-smoke": "node dist/apps/cli/src/remask-repair-safety-smoke.js",
     "remask:repair-safety-report": "node dist/apps/cli/src/remask-repair-safety-report.js",
+    "real:diff-smoke": "node dist/apps/cli/src/real-repo-diff-smoke.js",
+    "real:evaluation-report": "node dist/apps/cli/src/real-repo-evaluation-report.js",
     "clean": "rm -rf dist"
   },
   "workspaces": [
