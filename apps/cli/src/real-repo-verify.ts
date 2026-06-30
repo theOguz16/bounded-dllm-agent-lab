@@ -174,7 +174,7 @@ function runCommand(command: VerificationCommand): VerificationCommandResult {
   const durationMs = Date.now() - startedAt;
   const stdout = child.stdout ?? "";
   const stderr = child.stderr ?? "";
-  const parsedOutput = parseJsonObject(stdout);
+  const parsedOutput = parseJsonObject(stdout) ?? parseJsonObject(stderr);
   const failures: string[] = [];
 
   if (child.error) {
