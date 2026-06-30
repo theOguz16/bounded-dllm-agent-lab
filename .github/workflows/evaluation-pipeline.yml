@@ -29,16 +29,25 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
 
       - name: Install dependencies
+        run: npm install
+
+      - name: Prepare report directories
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+          mkdir -p reports/real-repo-evaluation
+          mkdir -p reports/baseline-comparison
+          mkdir -p reports/model-worker-contract
+          mkdir -p reports/model-worker-acceptance
+          mkdir -p reports/github-pr-live
+          mkdir -p reports/dllm-verifier
+          mkdir -p reports/evaluation-integrated
+          mkdir -p reports/evaluation-case-level
+
+      - name: Show available npm scripts
+        run: npm run
 
       - name: Run full verification
         run: npm run verify:all
@@ -48,14 +57,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: evaluation-reports
-          path: |
-            reports/real-repo-evaluation/**
-            reports/baseline-comparison/**
-            reports/model-worker-contract/**
-            reports/model-worker-acceptance/**
-            reports/github-pr-live/**
-            reports/dllm-verifier/**
-            reports/evaluation-integrated/**
-            reports/evaluation-case-level/**
+          path: reports/**
           if-no-files-found: warn
           retention-days: 14
