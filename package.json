@@ -122,7 +122,10 @@
     "report:evaluation-integrated": "node dist/apps/cli/src/evaluation-integrated-report.js",
     "report:evaluation-case-level": "node dist/apps/cli/src/evaluation-case-level-report.js",
     "report:model-worker-contract": "node dist/apps/cli/src/model-worker-contract-report.js",
-    "verify:model-worker-contract": "npm run typecheck && npm run build && npm run report:model-worker-contract"
+    "verify:model-worker-contract": "npm run typecheck && npm run build && npm run report:model-worker-contract",
+    "model-worker:mock": "node dist/apps/cli/src/model-worker-mock-server.js",
+    "smoke:model-worker:http": "node dist/apps/cli/src/model-worker-http-smoke.js",
+    "verify:model-worker:http": "npm run typecheck && npm run build && npm run smoke:model-worker:http"
   },
   "workspaces": [
     "apps/*",
