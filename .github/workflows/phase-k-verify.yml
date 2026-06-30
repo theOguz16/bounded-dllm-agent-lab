@@ -1,0 +1,73 @@
+name: Phase K Verify
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  phase-k-verify:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: read
+
+    env:
+      MODEL_ACCEPTANCE_REQUIRED: ${{ vars.MODEL_ACCEPTANCE_REQUIRED || '0' }}
+      LLM_WORKER_URL: ${{ secrets.LLM_WORKER_URL }}
+: ${{ vars.MODEL_ACCEPTANCE_REQUIRED || '0' }}
+      LLM_WORKER_URL: ${{ secrets.LLM_WORKER_URL }}
+      DLLM_WORKER_URL: ${{ secrets.DLLM_WORKER_URL }}
+      MODEL_WORKER_API_KEY: ${{ secrets.MODEL_WORKER_API_KEY }}
+      LLM_MODEL_ID: ${{ vars.LLM_MODEL_ID }}
+      DLLM_MODEL_ID: ${{ vars.DLLM_MODEL_ID }}
+      MODEL_INPUT_USD_PER_1M_TOKENS: ${{ vars.MODEL_INPUT_USD_PER_1M_TOKENS }}
+      MODEL_OUTPUT_USD_PER_1M_TOKENS: ${{ vars.MODEL_OUTPUT_USD_PER_1M_TOKENS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Phase K final verify
+        run: npm run phase-k:final-verify
+
+      - name: Fetch live PR changed files
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: npm run github:pr-live-fetch
+
+      - name: Evaluate live PR input
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -f reports/github-pr-live/live-pr-input.json ]; then
+            PR_INPUT_FILE=reports/github-pr-live/live-pr-input.json npm run pr:evaluation-report
+          else
+            echo "No live PR input generated."
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-k-reports
+          path: reports/
+          if-no-files-found: ignore
