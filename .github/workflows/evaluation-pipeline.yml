@@ -1,4 +1,4 @@
-name: Evaluation Pipeline Verify
+name: Evaluation Pipeline
 
 on:
   push:
@@ -7,31 +7,26 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
-  phase-k-verify:
+  verify:
+    name: Verify evaluation pipeline
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      pull-requests: read
-
     env:
-      MODEL_ACCEPTANCE_REQUIRED: ${{ vars.MODEL_ACCEPTANCE_REQUIRED || '0' }}
-      LLM_WORKER_URL: ${{ secrets.LLM_WORKER_URL }}
-: ${{ vars.MODEL_ACCEPTANCE_REQUIRED || '0' }}
-      LLM_WORKER_URL: ${{ secrets.LLM_WORKER_URL }}
-      DLLM_WORKER_URL: ${{ secrets.DLLM_WORKER_URL }}
-      MODEL_WORKER_API_KEY: ${{ secrets.MODEL_WORKER_API_KEY }}
-      LLM_MODEL_ID: ${{ vars.LLM_MODEL_ID }}
-      DLLM_MODEL_ID: ${{ vars.DLLM_MODEL_ID }}
-      MODEL_INPUT_USD_PER_1M_TOKENS: ${{ vars.MODEL_INPUT_USD_PER_1M_TOKENS }}
-      MODEL_OUTPUT_USD_PER_1M_TOKENS: ${{ vars.MODEL_OUTPUT_USD_PER_1M_TOKENS }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      MODEL_ACCEPTANCE_REQUIRED: "0"
+      GITHUB_PR_FETCH_REQUIRED: "0"
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -45,29 +40,22 @@ jobs:
             npm install
           fi
 
-      - name: Phase K final verify
-        run: npm run verify:evaluation-pipeline
+      - name: Run full verification
+        run: npm run verify:all
 
-      - name: Fetch live PR changed files
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: npm run fetch:github-pr
-
-      - name: Evaluate live PR input
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -f reports/github-pr-live/live-pr-input.json ]; then
-            PR_INPUT_FILE=reports/github-pr-live/live-pr-input.json npm run pr:evaluation-report
-          else
-            echo "No live PR input generated."
-          fi
-
-      - name: Upload reports
+      - name: Upload evaluation reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase-k-reports
-          path: reports/
-          if-no-files-found: ignore
+          name: evaluation-reports
+          path: |
+            reports/real-repo-evaluation/**
+            reports/baseline-comparison/**
+            reports/model-worker-contract/**
+            reports/model-worker-acceptance/**
+            reports/github-pr-live/**
+            reports/dllm-verifier/**
+            reports/evaluation-integrated/**
+            reports/evaluation-case-level/**
+          if-no-files-found: warn
+          retention-days: 14
