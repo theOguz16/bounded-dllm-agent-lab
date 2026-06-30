@@ -111,7 +111,7 @@
     "baseline:verify": "npm run typecheck && npm run build && npm run baseline:strategy-contract-smoke && npm run baseline:strategy-report && npm run baseline:comparison-report",
     "baseline:strategy-contract-smoke": "node dist/apps/cli/src/baseline-strategy-contract-smoke.js",
     "baseline:strategy-report": "node dist/apps/cli/src/baseline-strategy-report.js",
-    "verify:evaluation-pipeline": "npm run repo:evaluation-verify && npm run report:model-acceptance && npm run fetch:github-pr && npm run report:dllm-verifier && npm run report:evaluation-integrated",
+    "verify:evaluation-pipeline": "npm run repo:evaluation-verify && npm run report:model-acceptance && npm run fetch:github-pr && npm run report:dllm-verifier && npm run report:evaluation-integrated && npm run report:evaluation-case-level",
     "verify:dllm-verifier": "npm run typecheck && npm run build && npm run smoke:dllm-verifier && npm run smoke:dllm-verifier:pipeline && npm run report:dllm-verifier",
     "smoke:dllm-verifier": "node dist/apps/cli/src/dllm-verifier-smoke.js",
     "report:model-acceptance": "node dist/apps/cli/src/model-worker-acceptance-report.js",
@@ -119,7 +119,8 @@
     "smoke:dllm-verifier:pipeline": "node dist/apps/cli/src/dllm-verifier-pipeline-smoke.js",
     "verify:all": "npm run verify:evaluation-pipeline && npm run verify:dllm-verifier",
     "report:dllm-verifier": "node dist/apps/cli/src/dllm-verifier-report.js",
-    "report:evaluation-integrated": "node dist/apps/cli/src/evaluation-integrated-report.js"
+    "report:evaluation-integrated": "node dist/apps/cli/src/evaluation-integrated-report.js",
+    "report:evaluation-case-level": "node dist/apps/cli/src/evaluation-case-level-report.js"
   },
   "workspaces": [
     "apps/*",
