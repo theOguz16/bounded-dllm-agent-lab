@@ -125,7 +125,10 @@
     "verify:model-worker-contract": "npm run typecheck && npm run build && npm run report:model-worker-contract",
     "model-worker:mock": "node dist/apps/cli/src/model-worker-mock-server.js",
     "smoke:model-worker:http": "node dist/apps/cli/src/model-worker-http-smoke.js",
-    "verify:model-worker:http": "npm run typecheck && npm run build && npm run smoke:model-worker:http"
+    "verify:model-worker:http": "npm run typecheck && npm run build && npm run smoke:model-worker:http",
+    "model-worker:runpod-proxy": "node dist/apps/cli/src/model-worker-runpod-proxy.js",
+    "smoke:model-worker:runpod-proxy": "node dist/apps/cli/src/model-worker-runpod-proxy-smoke.js",
+    "verify:model-worker:runpod-proxy": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-proxy"
   },
   "workspaces": [
     "apps/*",
