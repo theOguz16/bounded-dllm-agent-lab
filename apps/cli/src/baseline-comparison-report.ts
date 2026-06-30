@@ -3,7 +3,8 @@ import { join } from "node:path";
 import {
   aggregateBaselineComparison,
   compareBoundedVsDirect,
-  createDirectBroadContextMockBaseline,
+  createDirectBroadContextMockStrategy,
+  runBaselineStrategy,
   type BaselineComparisonAggregate,
   type BaselineComparisonCase,
   type BaselineInputKind,
@@ -98,6 +99,7 @@ const safeTimestamp = createdAt.replace(/[:.]/g, "-");
 const reportDir = "reports/baseline-comparison";
 const rootDir = process.cwd();
 const prInputPath = process.env.PR_INPUT_FILE ?? "examples/real-repo-evaluation/github-pr-input.example.json";
+const baselineStrategy = createDirectBroadContextMockStrategy();
 
 const fallbackChangedFiles = [
   "apps/cli/src/real-repo-diff-smoke.ts",
@@ -271,17 +273,22 @@ function createComparisonCase(input: {
     repair
   });
 
-  const direct = createDirectBroadContextMockBaseline({
-    changedFiles: input.source.changedFiles,
-    scannedFileCount: input.source.repoResult.scannedFileCount,
-    sensitivePatternCount: input.source.repoResult.facts.sensitivePatterns.length,
-    staleFactCount: input.source.repoResult.facts.staleFacts.length,
-    moduleBoundaryCount: input.source.repoResult.facts.moduleBoundaries.length,
-    conflicts: merge.conflicts.map((conflict) => ({
-      kind: conflict.kind
-    })),
-    bounded
+  const directResult = runBaselineStrategy({
+    strategy: baselineStrategy,
+    baselineInput: {
+      changedFiles: input.source.changedFiles,
+      scannedFileCount: input.source.repoResult.scannedFileCount,
+      sensitivePatternCount: input.source.repoResult.facts.sensitivePatterns.length,
+      staleFactCount: input.source.repoResult.facts.staleFacts.length,
+      moduleBoundaryCount: input.source.repoResult.facts.moduleBoundaries.length,
+      conflicts: merge.conflicts.map((conflict) => ({
+        kind: conflict.kind
+      })),
+      bounded
+    }
   });
+
+  const direct = directResult.output;
 
   return {
     caseId: input.fixture.case.id,

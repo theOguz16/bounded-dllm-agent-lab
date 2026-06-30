@@ -105,6 +105,71 @@ export type DirectBroadContextMockBaselineInput = {
   bounded: Pick<BoundedPipelineSummary, "estimatedTokens">;
 };
 
+export type BaselineStrategyId =
+  | "direct_broad_context_mock"
+  | "direct_llm_worker"
+  | "direct_dllm_worker";
+
+export type BaselineStrategyCapability =
+  | "model_free"
+  | "single_pass"
+  | "broad_context"
+  | "worker_backed"
+  | "llm"
+  | "dllm";
+
+export type BaselineStrategyMetadata = {
+  id: BaselineStrategyId;
+  label: string;
+  description: string;
+  capabilities: BaselineStrategyCapability[];
+  modelRequired: boolean;
+  deterministic: boolean;
+};
+
+export type BaselineStrategyRunInput = DirectBroadContextMockBaselineInput;
+
+export type BaselineStrategyRunResult = {
+  metadata: BaselineStrategyMetadata;
+  output: DirectBaselineSummary;
+};
+
+export type BaselineStrategy = {
+  metadata: BaselineStrategyMetadata;
+  run(input: BaselineStrategyRunInput): DirectBaselineSummary;
+};
+
+export function createDirectBroadContextMockStrategy(): BaselineStrategy {
+  return {
+    metadata: {
+      id: "direct_broad_context_mock",
+      label: "Direct Broad-Context Mock Baseline",
+      description:
+        "Deterministic model-free baseline that approximates a direct broad-context coding agent without remask repair or second-pass verification.",
+      capabilities: [
+        "model_free",
+        "single_pass",
+        "broad_context"
+      ],
+      modelRequired: false,
+      deterministic: true
+    },
+    run(input: BaselineStrategyRunInput): DirectBaselineSummary {
+      return createDirectBroadContextMockBaseline(input);
+    }
+  };
+}
+
+export function runBaselineStrategy(input: {
+  strategy: BaselineStrategy;
+  baselineInput: BaselineStrategyRunInput;
+}): BaselineStrategyRunResult {
+  return {
+    metadata: input.strategy.metadata,
+    output: input.strategy.run(input.baselineInput)
+  };
+}
+
 export function createDirectBroadContextMockBaseline(
   input: DirectBroadContextMockBaselineInput
 ): DirectBaselineSummary {
