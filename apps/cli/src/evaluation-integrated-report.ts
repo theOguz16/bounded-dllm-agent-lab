@@ -114,6 +114,13 @@ async function main(): Promise<void> {
     modelAcceptance
   });
 
+  const researchSummary = createResearchSummary({
+    baseline,
+    dllmVerifier,
+    repoVerification,
+    modelAcceptance
+  });
+
   const ok =
     repoVerification.failedCount === 0 &&
     dllmVerifier.failedCount === 0 &&
@@ -128,6 +135,7 @@ async function main(): Promise<void> {
     suiteName,
     createdAt,
     integratedJudgement,
+    researchSummary,
     baseline,
     dllmVerifier,
     repoVerification,
@@ -158,6 +166,7 @@ async function main(): Promise<void> {
         suiteName,
         createdAt,
         integratedJudgement,
+        researchSummary,
         baseline: {
           caseCount: baseline.caseCount,
           boundedFinalSafeRate: baseline.boundedFinalSafeRate,
@@ -273,6 +282,63 @@ function countByStringField(items: JsonRecord[], field: string): DecisionCounts 
   return counts;
 }
 
+function createResearchSummary(input: {
+  baseline: {
+    caseCount: number;
+    boundedFinalSafeRate: number;
+    directFinalSafeRate: number;
+    boundedWinRate: number;
+    averageTokenSavingsRate: number;
+    averageDirectScopeExpansionFactor: number;
+  };
+  dllmVerifier: {
+    caseCount: number;
+    passedCount: number;
+    failedCount: number;
+    decisionCounts: DecisionCounts;
+    totalSignalCount: number;
+    totalMaskRegionCount: number;
+  };
+  repoVerification: {
+    commandCount: number;
+    passedCount: number;
+    failedCount: number;
+  };
+  modelAcceptance: {
+    status: string | null;
+    configuredWorkerCount: number;
+    skippedWorkerCount: number;
+    failedWorkerCount: number;
+  };
+}): {
+  conclusion: string;
+  keyFindings: string[];
+  limitations: string[];
+  nextValidationStep: string;
+} {
+  return {
+    conclusion:
+      "The bounded evaluation pipeline remains safe in the model-free benchmark, while the dLLM-style verifier provides an independent approve/remask/reject validation layer.",
+    keyFindings: [
+      `Bounded final safe rate is ${input.baseline.boundedFinalSafeRate} across ${input.baseline.caseCount} baseline comparison cases.`,
+      `Direct baseline final safe rate is ${input.baseline.directFinalSafeRate}, with bounded win rate ${input.baseline.boundedWinRate}.`,
+      `Average token savings rate is ${input.baseline.averageTokenSavingsRate}.`,
+      `dLLM verifier passed ${input.dllmVerifier.passedCount}/${input.dllmVerifier.caseCount} verifier cases.`,
+      `dLLM verifier decision counts: ${JSON.stringify(input.dllmVerifier.decisionCounts)}.`,
+      `Repo verification passed ${input.repoVerification.passedCount}/${input.repoVerification.commandCount} commands.`
+    ],
+    limitations: [
+      "Real LLM/dLLM worker acceptance is still skipped when worker URLs are not configured.",
+      "Current verifier behavior is model-free and contract-driven until a real worker endpoint is attached.",
+      "Case-level verifier enrichment currently validates bounded-safe candidates rather than replacing full model execution."
+    ],
+    nextValidationStep:
+      input.modelAcceptance.configuredWorkerCount > 0
+        ? "Run required real model acceptance with MODEL_ACCEPTANCE_REQUIRED=1."
+        : "Attach LLM_WORKER_URL and DLLM_WORKER_URL, then run required real model acceptance."
+  };
+}
+
 function createIntegratedJudgement(input: {
   baseline: {
     boundedFinalSafeRate: number;
@@ -316,6 +382,12 @@ function reportToMarkdown(report: {
   suiteName: string;
   createdAt: string;
   integratedJudgement: string;
+  researchSummary: {
+    conclusion: string;
+    keyFindings: string[];
+    limitations: string[];
+    nextValidationStep: string;
+  };
   baseline: JsonRecord;
   dllmVerifier: JsonRecord;
   repoVerification: JsonRecord;
@@ -333,6 +405,27 @@ function reportToMarkdown(report: {
   lines.push("## Integrated Judgement");
   lines.push("");
   lines.push(report.integratedJudgement);
+  lines.push("");
+
+  lines.push("## Research Summary");
+  lines.push("");
+  lines.push(report.researchSummary.conclusion);
+  lines.push("");
+  lines.push("### Key Findings");
+  lines.push("");
+  for (const finding of report.researchSummary.keyFindings) {
+    lines.push(`- ${finding}`);
+  }
+  lines.push("");
+  lines.push("### Limitations");
+  lines.push("");
+  for (const limitation of report.researchSummary.limitations) {
+    lines.push(`- ${limitation}`);
+  }
+  lines.push("");
+  lines.push(`### Next Validation Step`);
+  lines.push("");
+  lines.push(report.researchSummary.nextValidationStep);
   lines.push("");
 
   lines.push("## Baseline Comparison");
