@@ -468,7 +468,10 @@ function reportToMarkdown(report: BaselineComparisonReport): string {
   lines.push(`- Suite: \`${report.suiteName}\``);
   lines.push(`- Baseline strategy: \`${report.baselineStrategy.id}\``);
   lines.push(`- Strategy label: \`${report.baselineStrategy.label}\``);
+  lines.push(`- Strategy capabilities: \`${report.baselineStrategy.capabilities.join(", ")}\``);
   lines.push(`- Model required: \`${report.baselineStrategy.modelRequired}\``);
+  lines.push(`- Deterministic: \`${report.baselineStrategy.deterministic}\``);
+  lines.push(`- Strategy description: ${report.baselineStrategy.description}`);
   lines.push("");
 
   lines.push(`## Summary`);

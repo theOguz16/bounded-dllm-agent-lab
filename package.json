@@ -87,7 +87,7 @@
     "repo:orchestrator-smoke": "node dist/apps/cli/src/repo-orchestrator-smoke.js",
     "repo:orchestrator-report": "node dist/apps/cli/src/repo-orchestrator-report.js",
     "repo:changed-files-smoke": "node dist/apps/cli/src/repo-changed-files-smoke.js",
-    "repo:evaluation-verify": "npm run typecheck && npm run build && node dist/apps/cli/src/real-repo-verify.js && node dist/apps/cli/src/baseline-strategy-contract-smoke.js && node dist/apps/cli/src/baseline-comparison-report.js",
+    "repo:evaluation-verify": "npm run typecheck && npm run build && node dist/apps/cli/src/real-repo-verify.js && node dist/apps/cli/src/baseline-strategy-contract-smoke.js && node dist/apps/cli/src/baseline-strategy-report.js && node dist/apps/cli/src/baseline-comparison-report.js",
     "cost:benchmark": "node dist/apps/cli/src/cost-benchmark.js",
     "merge:smoke": "node dist/apps/cli/src/conflict-aware-merge-smoke.js",
     "merge:report": "node dist/apps/cli/src/conflict-aware-merge-report.js",
@@ -108,9 +108,10 @@
     "real:safety-regression": "node dist/apps/cli/src/real-repo-safety-regression-report.js",
     "real:verify": "npm run typecheck && npm run build && node dist/apps/cli/src/real-repo-verify.js",
     "baseline:comparison-report": "node dist/apps/cli/src/baseline-comparison-report.js",
-    "baseline:verify": "npm run typecheck && npm run build && npm run baseline:strategy-contract-smoke && npm run baseline:comparison-report",
+    "baseline:verify": "npm run typecheck && npm run build && npm run baseline:strategy-contract-smoke && npm run baseline:strategy-report && npm run baseline:comparison-report",
     "baseline:strategy-contract-smoke": "node dist/apps/cli/src/baseline-strategy-contract-smoke.js",
-    "phase-k:verify": "npm run repo:evaluation-verify"
+    "phase-k:verify": "npm run repo:evaluation-verify",
+    "baseline:strategy-report": "node dist/apps/cli/src/baseline-strategy-report.js"
   },
   "workspaces": [
     "apps/*",
