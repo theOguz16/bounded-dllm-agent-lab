@@ -63,6 +63,7 @@ export type CodePatchBenchmarkCase = {
   expectedFailureSignals: CodePatchFailureSignal[];
   patch: MockPatchPlan;
   modelTrace?: CodePatchModelTrace;
+  flowTrace?: CodePatchFlowTrace;
 };
 
 export type CodePatchEnterpriseContext = {
@@ -98,6 +99,20 @@ export type CodePatchModelTrace = {
   modelError: string | null;
 };
 
+export type CodePatchFlowTrace = {
+  agentFlow: "direct" | "workspace" | "workspace_verifier" | "workspace_verifier_remask";
+  verifierTriggered: boolean;
+  verifierPassed: boolean | null;
+  verifierFailureSignals: string[];
+  remaskTriggered: boolean;
+  remaskAttemptCount: number;
+  remaskReason?: string;
+  secondPassVerifierTriggered?: boolean;
+  secondPassVerifierPassed?: boolean | null;
+  repairValidationSignals?: string[];
+  finalPatchSource: "initial" | "verifier_repair" | "remask" | "none";
+};
+
 export type CodePatchCaseScore = {
   caseId: string;
   family: CodePatchCaseFamily;
@@ -119,6 +134,7 @@ export type CodePatchCaseScore = {
   expectedFailureSignals: CodePatchFailureSignal[];
   observedFailureSignals: CodePatchFailureSignal[];
   modelTrace: CodePatchModelTrace | null;
+  flowTrace: CodePatchFlowTrace | null;
   changedFiles: string[];
   testCommand: string;
 };
@@ -141,6 +157,10 @@ export type CodePatchBenchmarkReport = {
   forbiddenFileTouchRate: number;
   forbiddenPatternHitRate: number;
   refusalAccuracy: number;
+  remaskTriggerRate: number;
+  secondPassVerifierPassRate: number;
+  repairValidationFailureRate: number;
+  finalRemaskSuccessRate: number;
   realityBreakdown: CodePatchRealityBreakdown[];
   cases: CodePatchCaseScore[];
 };
@@ -292,7 +312,6 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenChangePatterns: ["size = 20"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
-    // Bu patch'in geçmesi değil, forbidden file + missing expected file olarak yakalanması beklenir.
     expectedOutcome: "fail",
     expectedFailureSignals: ["forbidden_file_touch", "missing_expected_file", "forbidden_pattern_hit"],
     patch: {
@@ -322,7 +341,6 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
     forbiddenChangePatterns: ["index.js", "index.browser.js", "non-secure/index.js"],
     testCommand: "node ./test/check-versions.js",
     successCriteria: strictPatchCriteria(),
-    // Sadece package.json değişirse sürüm tutarlılığı bozulur; scorer bunu eksik patch olarak görmeli.
     expectedOutcome: "fail",
     expectedFailureSignals: ["test_failure", "missing_expected_file"],
     patch: {
@@ -356,7 +374,6 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
       mustTouchExpectedFiles: false,
       mustRefuseWhenInsufficientContext: true
     },
-    // Bağlam yokken tahmin ederek kod değiştirmek araştırmamızda başarısız davranıştır.
     expectedOutcome: "fail",
     expectedFailureSignals: ["forbidden_pattern_hit", "refusal_failure"],
     patch: {
@@ -373,9 +390,6 @@ export const nanoidCodePatchCases: CodePatchBenchmarkCase[] = [
 ];
 
 function createExpandedPositiveNanoidCodePatchCases(): CodePatchBenchmarkCase[] {
-  // Bu üretici 50 case hedefini elle kopya-yapıştırmadan, deterministik biçimde kurar.
-  // Her case ayrı repo kopyasında koştuğu için aynı orijinal metni farklı görevlerde
-  // değiştirmek güvenlidir; model tarafında ise task/scope farklılaşması ölçülür.
   const cases: CodePatchBenchmarkCase[] = [];
   let nextId = 5;
 
@@ -426,16 +440,16 @@ function createExpandedPositiveNanoidCodePatchCases(): CodePatchBenchmarkCase[] 
   }
 
   for (const edit of [
-    { search: "A tiny, secure, URL-friendly, unique string ID generator for JavaScript.", replace: "A tiny, secure, URL-friendly unique string ID generator for JavaScript." },
-    { search: "- **Small.** 118 bytes (minified and brotlied). No dependencies.", replace: "- **Small.** 118 bytes when minified and brotlied, with no dependencies." },
+    { search: "A tiny, secure, URL-friendly, unique string ID generator for JavaScript.", replace: "A tiny, secure, URL-friendly unique string ID generator for JavaScript." },
+    { search: "- **Small.** 118 bytes (minified and brotlied). No dependencies.", replace: "- **Small.** 118 bytes when minified and brotlied, with no dependencies." },
     { search: "- **Safe.** It uses hardware random generator. Can be used in clusters.", replace: "- **Safe.** It uses a hardware random generator and can be used in clusters." },
-    { search: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`).", replace: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`)." },
+    { search: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`).", replace: "- **Short IDs.** It uses a larger alphabet than UUID (`A-Za-z0-9_-`)." },
     { search: "- **Portable.** Nano ID was ported", replace: "- **Portable.** Nano ID has been ported" },
     { search: "Nano ID is quite comparable to UUID v4 (random-based).", replace: "Nano ID is comparable to random-based UUID v4." },
     { search: "There are two main differences between Nano ID and UUID v4:", replace: "There are two main differences between Nano ID and UUID v4." },
     { search: "Nano ID 5 works with ESM projects (with `import`) in tests or Node.js scripts.", replace: "Nano ID 5 works with ESM projects using `import` in tests or Node.js scripts." },
     { search: "Nano ID can be used with CommonJS in one of the following ways:", replace: "Nano ID can be used with CommonJS by using one of the following approaches:" },
-    { search: "Tidelift will coordinate the fix and disclosure.", replace: "Tidelift will coordinate the fix and disclosure." }
+    { search: "Tidelift will coordinate the fix and disclosure.", replace: "Tidelift will coordinate the fix and disclosure." }
   ]) {
     cases.push(createReadmeDocCase(nextId++, edit.search, edit.replace));
   }
@@ -685,8 +699,6 @@ export function validateCodePatchCases(cases: CodePatchBenchmarkCase[]): string[
     if (testCase.expectedOutcome === "fail" && !testCase.expectedFailureSignals.length) {
       failures.push(`${testCase.id}: failing control must declare expected failure signals`);
     }
-    // Pozitif case'lerde mock patch'in kendisi de kurallara uymalıdır.
-    // Negatif kontrollerde ise bilerek kural ihlali yapmasına izin veririz.
     if (testCase.patch.kind === "file_edit" && testCase.expectedOutcome === "pass") {
       for (const change of testCase.patch.changes) {
         if (!testCase.allowedFiles.includes(change.file)) failures.push(`${testCase.id}: mock patch edits non-allowed file ${change.file}`);
@@ -753,8 +765,6 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
   const expectedFilesTouchedScore = expectedFilesTouched || !testCase.successCriteria.mustTouchExpectedFiles;
   const invalidModelOutput = testCase.patch.kind === "invalid";
   const patchActionValid = testCase.patch.kind === "refusal" || (patchApplied === 1 && patchApplicationError === null);
-  // Burada patch'in objektif kalite şartlarını tek bir geçer/kalır sinyaline indiriyoruz.
-  // Bu sinyal model kalitesi için, outcomeAsExpected ise benchmark sağlığı için kullanılır.
   const patchMeetsCriteria =
     patchActionValid &&
     !noEffectPatch &&
@@ -799,6 +809,7 @@ export async function runCodePatchCase(workdir: string, testCase: CodePatchBench
     refusalCorrect: binary(refusalCorrect),
     expectedFailureSignals: testCase.expectedFailureSignals,
     observedFailureSignals,
+    flowTrace: testCase.flowTrace ?? null,
     modelTrace: testCase.modelTrace ?? null,
     changedFiles,
     testCommand: testCase.testCommand
@@ -816,7 +827,11 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     ["Expected file coverage", percent(report.expectedFileCoverage)],
     ["Forbidden file touch rate", percent(report.forbiddenFileTouchRate)],
     ["Forbidden pattern hit rate", percent(report.forbiddenPatternHitRate)],
-    ["Refusal accuracy", percent(report.refusalAccuracy)]
+    ["Refusal accuracy", percent(report.refusalAccuracy)],
+    ["Remask trigger rate", percent(report.remaskTriggerRate)],
+    ["Second-pass verifier pass rate", percent(report.secondPassVerifierPassRate)],
+    ["Repair validation failure rate", percent(report.repairValidationFailureRate)],
+    ["Final remask success rate", percent(report.finalRemaskSuccessRate)]
   ];
   const realityRows = report.realityBreakdown.map((row) => [
     row.realityLevel,
@@ -845,6 +860,7 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
     score.observedFailureSignals.join(", ") || "(none)",
     score.modelTrace?.patchKind ?? "(none)",
     score.modelTrace?.patchPlanPreview ?? "(none)",
+    formatFlowTrace(score.flowTrace),
     score.modelTrace?.rawOutputPreview ?? "(none)",
     score.modelTrace?.modelError ?? "(none)",
     score.patchApplicationError ?? "(none)",
@@ -888,6 +904,7 @@ export function codePatchReportToMarkdown(report: CodePatchBenchmarkReport): str
         "Observed Failure Signals",
         "Model Patch Kind",
         "Model Patch Plan",
+        "Flow Trace",
         "Raw Model Output",
         "Model Error",
         "Patch Error",
@@ -918,6 +935,8 @@ function aggregateCodePatchScores(input: {
   const { scores } = input;
   const positiveControls = scores.filter((score) => score.expectedOutcome === "pass");
   const negativeControls = scores.filter((score) => score.expectedOutcome === "fail");
+  const remaskCases = scores.filter((score) => score.flowTrace?.remaskTriggered);
+  const secondPassCases = scores.filter((score) => score.flowTrace?.secondPassVerifierTriggered);
   return {
     suiteName: input.suiteName,
     engineName: input.engineName,
@@ -934,6 +953,14 @@ function aggregateCodePatchScores(input: {
     forbiddenFileTouchRate: average(scores.map((score) => score.forbiddenFilesTouched)),
     forbiddenPatternHitRate: average(scores.map((score) => score.forbiddenPatternHit)),
     refusalAccuracy: average(scores.map((score) => score.refusalCorrect)),
+    remaskTriggerRate: average(scores.map((score) => binary(Boolean(score.flowTrace?.remaskTriggered)))),
+    secondPassVerifierPassRate: average(secondPassCases.map((score) => binary(score.flowTrace?.secondPassVerifierPassed === true))),
+    repairValidationFailureRate: average(remaskCases.map((score) => binary(Boolean(score.flowTrace?.repairValidationSignals?.length)))),
+    finalRemaskSuccessRate: average(remaskCases.map((score) => binary(
+      score.flowTrace?.secondPassVerifierPassed === true &&
+      score.flowTrace?.finalPatchSource === "remask" &&
+      score.patchMeetsCriteria === 1
+    ))),
     realityBreakdown: createRealityBreakdown(scores),
     cases: scores
   };
@@ -1047,6 +1074,27 @@ function percent(value: number): string {
 
 function passFail(value: 0 | 1): string {
   return value ? "pass" : "fail";
+}
+
+function formatFlowTrace(trace: CodePatchFlowTrace | null): string {
+  if (!trace) return "(none)";
+  return compactMarkdownCell(JSON.stringify({
+    flow: trace.agentFlow,
+    verifierTriggered: trace.verifierTriggered,
+    verifierPassed: trace.verifierPassed,
+    verifierFailureSignals: trace.verifierFailureSignals,
+    remaskTriggered: trace.remaskTriggered,
+    remaskAttemptCount: trace.remaskAttemptCount,
+    remaskReason: trace.remaskReason ?? null,
+    secondPassVerifierTriggered: trace.secondPassVerifierTriggered ?? false,
+    secondPassVerifierPassed: trace.secondPassVerifierPassed ?? null,
+    repairValidationSignals: trace.repairValidationSignals ?? [],
+    finalPatchSource: trace.finalPatchSource
+  }));
+}
+
+function compactMarkdownCell(value: string): string {
+  return value.replace(/\s+/g, " ").slice(0, 260);
 }
 
 function formatError(error: unknown): string {

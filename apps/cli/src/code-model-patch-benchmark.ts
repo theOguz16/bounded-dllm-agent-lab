@@ -6,7 +6,8 @@ import {
   nanoidRemaskRequiredCodePatchCases,
   runCodePatchBenchmark,
   validateCodePatchCases,
-  type CodePatchBenchmarkCase
+  type CodePatchBenchmarkCase,
+  type CodePatchFlowTrace
 } from "../../../packages/code-benchmark/src/index.js";
 import {
   buildCodePatchPrompt,
@@ -35,6 +36,12 @@ type GeneratedPatchPlan = {
   patch: CodePatchBenchmarkCase["patch"];
   rawOutput: string;
   modelError: string | null;
+  flowTrace: CodePatchFlowTrace;
+};
+
+type RemaskRepairValidation = {
+  ok: boolean;
+  signals: string[];
 };
 
 const repoPath = process.env.CODE_BENCH_REPO_PATH ?? "benchmarks/repos/nanoid";
@@ -65,7 +72,8 @@ for (const testCase of modelCases) {
   generatedCases.push({
     ...testCase,
     patch: generated.patch,
-    modelTrace: createPatchTrace(generated)
+    modelTrace: createPatchTrace(generated),
+    flowTrace: generated.flowTrace
   });
 }
 
@@ -118,7 +126,20 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
   const firstPass = await requestPatchPlanOnce(testCase);
 
   if (agentFlow === "direct" || agentFlow === "workspace") return firstPass;
-  if (firstPass.patch.kind === "invalid") return firstPass;
+
+  if (firstPass.patch.kind === "invalid") {
+    return {
+      ...firstPass,
+      flowTrace: createFlowTrace({
+        verifierTriggered: false,
+        verifierPassed: null,
+        verifierFailureSignals: ["invalid_first_pass"],
+        remaskTriggered: false,
+        remaskAttemptCount: 0,
+        finalPatchSource: "none"
+      })
+    };
+  }
 
   let verifier: CodePatchVerifierDecision;
 
@@ -128,11 +149,32 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
     return {
       patch: createInvalidPatchPlan(error),
       rawOutput: firstPass.rawOutput,
-      modelError: formatError(error)
+      modelError: formatError(error),
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: false,
+        verifierFailureSignals: [`verifier_error:${compactText(formatError(error))}`],
+        remaskTriggered: false,
+        remaskAttemptCount: 0,
+        finalPatchSource: "none"
+      })
     };
   }
 
-  if (verifier.decision === "approve") return firstPass;
+  if (verifier.decision === "approve") {
+    return {
+      ...firstPass,
+      rawOutput: `${firstPass.rawOutput}\n\nVERIFIER=${JSON.stringify(verifier)}`,
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: true,
+        verifierFailureSignals: [],
+        remaskTriggered: false,
+        remaskAttemptCount: 0,
+        finalPatchSource: finalPatchSourceFor(firstPass.patch, "initial")
+      })
+    };
+  }
 
   if (verifier.decision === "refuse" || agentFlow === "workspace_verifier") {
     return {
@@ -141,16 +183,147 @@ async function requestPatchPlan(testCase: CodePatchBenchmarkCase): Promise<Gener
         reason: `verifier_refusal: ${verifier.reason}`
       },
       rawOutput: `${firstPass.rawOutput}\n\nVERIFIER=${JSON.stringify(verifier)}`,
-      modelError: firstPass.modelError
+      modelError: firstPass.modelError,
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: false,
+        verifierFailureSignals: [verifierFailureSignal(verifier)],
+        remaskTriggered: false,
+        remaskAttemptCount: 0,
+        remaskReason: verifier.reason,
+        finalPatchSource: "none"
+      })
     };
   }
 
-  return requestPatchPlanOnce(testCase, verifier);
+  const remaskPass = await requestPatchPlanOnce(testCase, verifier, firstPass);
+  const repairValidation = validateRemaskRepairPlan({
+    testCase,
+    firstPass,
+    verifier,
+    remaskPass
+  });
+
+  if (!repairValidation.ok) {
+    const modelError = `invalid_remask_repair: ${repairValidation.signals.join(", ")}`;
+
+    return {
+      patch: createInvalidPatchPlan(new Error(modelError)),
+      rawOutput: [
+        firstPass.rawOutput,
+        `VERIFIER=${JSON.stringify(verifier)}`,
+        `REMASK=${remaskPass.rawOutput}`,
+        `REPAIR_VALIDATION=${JSON.stringify(repairValidation)}`
+      ].join("\n\n"),
+      modelError,
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: false,
+        verifierFailureSignals: [verifierFailureSignal(verifier), ...repairValidation.signals],
+        remaskTriggered: true,
+        remaskAttemptCount: 1,
+        remaskReason: verifier.reason,
+        repairValidationSignals: repairValidation.signals,
+        secondPassVerifierTriggered: false,
+        secondPassVerifierPassed: null,
+        finalPatchSource: "none"
+      })
+    };
+  }
+
+  let secondPassVerifier: CodePatchVerifierDecision;
+
+  try {
+    secondPassVerifier = await requestSecondPassVerifierDecision({
+      testCase,
+      firstPass,
+      firstVerifier: verifier,
+      remaskPass,
+      repairValidation
+    });
+  } catch (error) {
+    const modelError = `second_pass_verifier_error: ${formatError(error)}`;
+
+    return {
+      patch: createInvalidPatchPlan(new Error(modelError)),
+      rawOutput: [
+        firstPass.rawOutput,
+        `VERIFIER=${JSON.stringify(verifier)}`,
+        `REMASK=${remaskPass.rawOutput}`,
+        `REPAIR_VALIDATION=${JSON.stringify(repairValidation)}`
+      ].join("\n\n"),
+      modelError,
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: false,
+        verifierFailureSignals: [verifierFailureSignal(verifier), `second_pass_verifier_error:${compactText(formatError(error))}`],
+        remaskTriggered: true,
+        remaskAttemptCount: 1,
+        remaskReason: verifier.reason,
+        repairValidationSignals: repairValidation.signals,
+        secondPassVerifierTriggered: true,
+        secondPassVerifierPassed: false,
+        finalPatchSource: "none"
+      })
+    };
+  }
+
+  if (secondPassVerifier.decision !== "approve") {
+    const modelError = `second_pass_rejected: ${secondPassVerifier.reason}`;
+
+    return {
+      patch: createInvalidPatchPlan(new Error(modelError)),
+      rawOutput: [
+        firstPass.rawOutput,
+        `VERIFIER=${JSON.stringify(verifier)}`,
+        `REMASK=${remaskPass.rawOutput}`,
+        `REPAIR_VALIDATION=${JSON.stringify(repairValidation)}`,
+        `SECOND_PASS_VERIFIER=${JSON.stringify(secondPassVerifier)}`
+      ].join("\n\n"),
+      modelError,
+      flowTrace: createFlowTrace({
+        verifierTriggered: true,
+        verifierPassed: false,
+        verifierFailureSignals: [verifierFailureSignal(verifier), verifierFailureSignal(secondPassVerifier)],
+        remaskTriggered: true,
+        remaskAttemptCount: 1,
+        remaskReason: verifier.reason,
+        repairValidationSignals: repairValidation.signals,
+        secondPassVerifierTriggered: true,
+        secondPassVerifierPassed: false,
+        finalPatchSource: "none"
+      })
+    };
+  }
+
+  return {
+    ...remaskPass,
+    rawOutput: [
+      firstPass.rawOutput,
+      `VERIFIER=${JSON.stringify(verifier)}`,
+      `REMASK=${remaskPass.rawOutput}`,
+      `REPAIR_VALIDATION=${JSON.stringify(repairValidation)}`,
+      `SECOND_PASS_VERIFIER=${JSON.stringify(secondPassVerifier)}`
+    ].join("\n\n"),
+    flowTrace: createFlowTrace({
+      verifierTriggered: true,
+      verifierPassed: false,
+      verifierFailureSignals: [verifierFailureSignal(verifier)],
+      remaskTriggered: true,
+      remaskAttemptCount: 1,
+      remaskReason: verifier.reason,
+      repairValidationSignals: repairValidation.signals,
+      secondPassVerifierTriggered: true,
+      secondPassVerifierPassed: true,
+      finalPatchSource: finalPatchSourceFor(remaskPass.patch, "remask")
+    })
+  };
 }
 
 async function requestPatchPlanOnce(
   testCase: CodePatchBenchmarkCase,
-  verifierFeedback?: CodePatchVerifierDecision
+  verifierFeedback?: CodePatchVerifierDecision,
+  previousPass?: GeneratedPatchPlan
 ): Promise<GeneratedPatchPlan> {
   let rawOutput = "";
 
@@ -168,28 +341,25 @@ async function requestPatchPlanOnce(
         messages: [
           {
             role: "system",
-            content: [
-              "You are a code patch agent inside a deterministic benchmark.",
-              "Return JSON only.",
-              "Use only the provided file contents.",
-              "Do not touch forbidden files.",
-              "For file_edit changes, search must be exact existing text and replace must be different.",
-              "If required information is missing, return a refusal."
-            ].join(" ")
+            content: createPatchAgentSystemPrompt(Boolean(verifierFeedback))
           },
           {
             role: "user",
-            content: await buildCodePatchPrompt({
-              repoPath,
-              testCase: createPromptCase(testCase, verifierFeedback),
-              contextStrategy,
-              agentFlow,
-              verifierFeedback
-            })
+            content: [
+              await buildCodePatchPrompt({
+                repoPath,
+                testCase: createPromptCase(testCase, verifierFeedback),
+                contextStrategy,
+                agentFlow,
+                verifierFeedback
+              }),
+              createRemaskRepairPromptAddendum(testCase, verifierFeedback, previousPass)
+            ].filter(Boolean).join("\n\n")
           }
         ]
       })
     });
+
     const payload = await response.json() as ChatCompletionPayload;
     const content = payload.choices?.[0]?.message?.content;
 
@@ -203,7 +373,10 @@ async function requestPatchPlanOnce(
     return {
       patch,
       rawOutput,
-      modelError: null
+      modelError: null,
+      flowTrace: createFlowTrace({
+        finalPatchSource: finalPatchSourceFor(patch, "initial")
+      })
     };
   } catch (error) {
     const patch = createInvalidPatchPlan(error);
@@ -211,7 +384,10 @@ async function requestPatchPlanOnce(
     return {
       patch,
       rawOutput,
-      modelError: formatError(error)
+      modelError: formatError(error),
+      flowTrace: createFlowTrace({
+        finalPatchSource: "none"
+      })
     };
   }
 }
@@ -274,6 +450,246 @@ async function requestVerifierDecision(
   }
 
   return parseVerifierDecision(content);
+}
+
+async function requestSecondPassVerifierDecision(input: {
+  testCase: CodePatchBenchmarkCase;
+  firstPass: GeneratedPatchPlan;
+  firstVerifier: CodePatchVerifierDecision;
+  remaskPass: GeneratedPatchPlan;
+  repairValidation: RemaskRepairValidation;
+}): Promise<CodePatchVerifierDecision> {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model,
+      temperature,
+      max_tokens: 320,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are the second-pass verifier for a local remask repair.",
+            "Return JSON only.",
+            "Approve only if the repaired patch fixes the failed region without broadening scope.",
+            "If the repair touches extra files, ignores the verifier feedback, or remains incomplete, return refuse."
+          ].join(" ")
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              outputSchema: {
+                decision: "approve | refuse | remask",
+                reason: "short reason",
+                failedRegion: "none | boundary_decision | patch_plan | file_edit_contract"
+              },
+              task: input.testCase.task,
+              title: input.testCase.title,
+              realityLevel: input.testCase.realityLevel,
+              enterpriseContext: input.testCase.enterpriseContext ?? null,
+              allowedFiles: input.testCase.allowedFiles,
+              forbiddenFiles: input.testCase.forbiddenFiles,
+              firstPassPatch: input.firstPass.patch,
+              firstVerifier: input.firstVerifier,
+              localRepairContract: {
+                failedRegion: input.firstVerifier.failedRegion,
+                repairValidation: input.repairValidation,
+                noBroadening: true,
+                outputMustBeFullFinalPatchPlan: true
+              },
+              repairedPatch: input.remaskPass.patch,
+              repairedRawOutput: compactText(input.remaskPass.rawOutput)
+            },
+            null,
+            2
+          )
+        }
+      ]
+    })
+  });
+  const payload = await response.json() as ChatCompletionPayload;
+  const content = payload.choices?.[0]?.message?.content;
+
+  if (!response.ok || !content) {
+    throw new Error(`second-pass verifier completion failed with status ${response.status}: ${compactText(JSON.stringify(payload))}`);
+  }
+
+  return parseVerifierDecision(content);
+}
+
+function createFlowTrace(overrides: Partial<CodePatchFlowTrace> = {}): CodePatchFlowTrace {
+  return {
+    agentFlow: agentFlow as CodePatchFlowTrace["agentFlow"],
+    verifierTriggered: false,
+    verifierPassed: null,
+    verifierFailureSignals: [],
+    remaskTriggered: false,
+    remaskAttemptCount: 0,
+    secondPassVerifierTriggered: false,
+    secondPassVerifierPassed: null,
+    repairValidationSignals: [],
+    finalPatchSource: "initial",
+    ...overrides
+  };
+}
+
+function createPatchAgentSystemPrompt(isRemaskRepair: boolean): string {
+  const baseRules = [
+    "Return JSON only.",
+    "Use only the provided file contents.",
+    "Do not touch forbidden files.",
+    "For file_edit changes, search must be exact existing text and replace must be different.",
+    "If required information is missing, return a refusal."
+  ];
+
+  if (!isRemaskRepair) {
+    return [
+      "You are a code patch agent inside a deterministic benchmark.",
+      ...baseRules
+    ].join(" ");
+  }
+
+  return [
+    "You are a local remask repair agent inside a deterministic benchmark.",
+    ...baseRules,
+    "Repair only the verifier-marked failed region.",
+    "Return the full final patch plan, not only the incremental missing edit.",
+    "Do not broaden the patch to unrelated files or tasks."
+  ].join(" ");
+}
+
+function createRemaskRepairPromptAddendum(
+  testCase: CodePatchBenchmarkCase,
+  verifierFeedback?: CodePatchVerifierDecision,
+  previousPass?: GeneratedPatchPlan
+): string {
+  if (!verifierFeedback) return "";
+
+  return [
+    "REMASK_REPAIR_CONTRACT_JSON:",
+    JSON.stringify(
+      {
+        mode: "local_failed_region_repair_v2",
+        failedRegion: verifierFeedback.failedRegion,
+        verifierReason: verifierFeedback.reason,
+        previousPatch: previousPass?.patch ?? null,
+        previousPatchRawOutputPreview: previousPass?.rawOutput ? compactText(previousPass.rawOutput) : null,
+        allowedRepairScope: testCase.allowedFiles,
+        forbiddenRepairScope: testCase.forbiddenFiles,
+        rules: [
+          "Repair only the failed region named by failedRegion.",
+          "The output must be a complete final patch plan that can be applied by itself.",
+          "Preserve valid first-pass edits if they are still required.",
+          "Add only the minimal missing local edits needed to satisfy the task.",
+          "Do not introduce files outside allowedRepairScope.",
+          "Do not touch forbiddenRepairScope.",
+          "If the failure is actually missing authority or unsafe boundary, return refusal instead of guessing."
+        ]
+      },
+      null,
+      2
+    )
+  ].join("\n");
+}
+
+function validateRemaskRepairPlan(input: {
+  testCase: CodePatchBenchmarkCase;
+  firstPass: GeneratedPatchPlan;
+  verifier: CodePatchVerifierDecision;
+  remaskPass: GeneratedPatchPlan;
+}): RemaskRepairValidation {
+  const signals: string[] = [];
+
+  if (input.verifier.decision !== "remask") {
+    signals.push("verifier_did_not_request_remask");
+  }
+
+  if (input.verifier.failedRegion === "none") {
+    signals.push("missing_failed_region");
+  }
+
+  if (input.verifier.failedRegion === "boundary_decision") {
+    signals.push("unsafe_boundary_remask");
+  }
+
+  if (input.remaskPass.patch.kind !== "file_edit") {
+    signals.push(`invalid_repair_kind:${input.remaskPass.patch.kind}`);
+    return { ok: false, signals };
+  }
+
+  const changes = input.remaskPass.patch.changes;
+
+  if (!changes.length) {
+    signals.push("empty_repair_patch");
+  }
+
+  const changedFiles = unique(changes.map((change) => change.file));
+  const firstPassFiles = input.firstPass.patch.kind === "file_edit"
+    ? unique(input.firstPass.patch.changes.map((change) => change.file))
+    : [];
+  const expectedLocalFiles = input.testCase.expectedChangedFiles.length
+    ? input.testCase.expectedChangedFiles
+    : input.testCase.allowedFiles;
+
+  for (const change of changes) {
+    if (!change.file.trim()) signals.push("blank_repair_file");
+    if (!change.search.trim()) signals.push(`blank_repair_search:${change.file}`);
+    if (!change.replace.trim()) signals.push(`blank_repair_replace:${change.file}`);
+    if (change.search === change.replace) signals.push(`no_effect_repair_change:${change.file}`);
+  }
+
+  for (const file of changedFiles) {
+    if (!input.testCase.allowedFiles.includes(file)) signals.push(`repair_non_allowed_file:${file}`);
+    if (input.testCase.forbiddenFiles.includes(file)) signals.push(`repair_forbidden_file:${file}`);
+    if (!expectedLocalFiles.includes(file)) signals.push(`repair_extra_file_touch:${file}`);
+  }
+
+  if (input.testCase.successCriteria.mustTouchExpectedFiles) {
+    for (const file of input.testCase.expectedChangedFiles) {
+      if (!changedFiles.includes(file)) signals.push(`repair_missing_expected_file:${file}`);
+    }
+  }
+
+  for (const file of firstPassFiles) {
+    if (expectedLocalFiles.includes(file) && !changedFiles.includes(file)) {
+      signals.push(`repair_dropped_first_pass_file:${file}`);
+    }
+  }
+
+  for (const required of input.testCase.requiredContentPatterns ?? []) {
+    const matchingChange = changes.find((change) => change.file === required.file && change.replace.includes(required.pattern));
+    if (!matchingChange) signals.push(`repair_missing_required_content:${required.file}`);
+  }
+
+  return {
+    ok: signals.length === 0,
+    signals
+  };
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function verifierFailureSignal(verifier: CodePatchVerifierDecision): string {
+  return [
+    verifier.decision,
+    verifier.failedRegion,
+    compactText(verifier.reason)
+  ].filter(Boolean).join(":");
+}
+
+function finalPatchSourceFor(
+  patch: CodePatchBenchmarkCase["patch"],
+  source: "initial" | "remask"
+): CodePatchFlowTrace["finalPatchSource"] {
+  if (patch.kind !== "file_edit") return "none";
+  return source;
 }
 
 function normalizeBaseUrl(value: string): string {
