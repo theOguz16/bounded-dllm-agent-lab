@@ -3,9 +3,12 @@ import { join } from "node:path";
 import {
   aggregateBaselineComparison,
   compareBoundedVsDirect,
-  createDirectBroadContextMockStrategy,
+  getBaselineStrategyById,
   runBaselineStrategy,
   type BaselineComparisonAggregate,
+  type BaselineStrategy,
+  type BaselineStrategyId,
+  type BaselineStrategyMetadata,
   type BaselineComparisonCase,
   type BaselineInputKind,
   type BoundedPipelineSummary
@@ -42,6 +45,7 @@ type BaselineComparisonReport = {
   reportName: string;
   createdAt: string;
   suiteName: string;
+  baselineStrategy: BaselineStrategyMetadata;
   realDiff: {
     mode: string;
     baseRef: string | null;
@@ -99,7 +103,7 @@ const safeTimestamp = createdAt.replace(/[:.]/g, "-");
 const reportDir = "reports/baseline-comparison";
 const rootDir = process.cwd();
 const prInputPath = process.env.PR_INPUT_FILE ?? "examples/real-repo-evaluation/github-pr-input.example.json";
-const baselineStrategy = createDirectBroadContextMockStrategy();
+const baselineStrategy = resolveBaselineStrategy();
 
 const fallbackChangedFiles = [
   "apps/cli/src/real-repo-diff-smoke.ts",
@@ -134,6 +138,56 @@ if (fixtureFailures.length) {
       2
     )
   );
+}
+
+function resolveBaselineStrategy(): BaselineStrategy {
+  const requestedStrategy = process.env.BASELINE_STRATEGY ?? "direct_broad_context_mock";
+  const strategy = getBaselineStrategyById(requestedStrategy as BaselineStrategyId);
+
+  if (!strategy) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          reportName,
+          suiteName,
+          reason: "unknown_baseline_strategy",
+          requestedStrategy,
+          supportedStrategies: [
+            "direct_broad_context_mock",
+            "direct_llm_worker",
+            "direct_dllm_worker"
+          ]
+        },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+
+  if (strategy.metadata.modelRequired) {
+    console.error(
+      JSON.stringify(
+        {
+          ok: false,
+          reportName,
+          suiteName,
+          reason: "baseline_strategy_unavailable",
+          requestedStrategy,
+          selectedStrategy: strategy.metadata,
+          unavailableReason: "worker_not_configured",
+          hint:
+            "This strategy slot is declared for future worker-backed model evaluation. Use BASELINE_STRATEGY=direct_broad_context_mock until a worker endpoint is configured."
+        },
+        null,
+        2
+      )
+    );
+    process.exit(1);
+  }
+
+  return strategy;
 }
 
 await runReport();
@@ -233,6 +287,7 @@ async function runReport(): Promise<void> {
         ok: true,
         reportName,
         suiteName,
+        baselineStrategy: report.baselineStrategy.id,
         caseCount: report.aggregate.caseCount,
         sourceCount: report.aggregate.sourceCount,
         fixtureCount: report.aggregate.fixtureCount,
@@ -347,6 +402,7 @@ function createReport(input: {
     reportName,
     createdAt,
     suiteName,
+    baselineStrategy: baselineStrategy.metadata,
     realDiff: {
       mode: input.realDiff.mode,
       baseRef: input.realDiff.baseRef,
@@ -410,6 +466,9 @@ function reportToMarkdown(report: BaselineComparisonReport): string {
   lines.push(`- Report: \`${report.reportName}\``);
   lines.push(`- Created at: \`${report.createdAt}\``);
   lines.push(`- Suite: \`${report.suiteName}\``);
+  lines.push(`- Baseline strategy: \`${report.baselineStrategy.id}\``);
+  lines.push(`- Strategy label: \`${report.baselineStrategy.label}\``);
+  lines.push(`- Model required: \`${report.baselineStrategy.modelRequired}\``);
   lines.push("");
 
   lines.push(`## Summary`);
