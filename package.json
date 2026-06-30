@@ -104,7 +104,8 @@
     "clean": "rm -rf dist",
     "pr:changed-files-smoke": "node dist/apps/cli/src/pr-changed-files-smoke.js",
     "pr:evaluation-report": "node dist/apps/cli/src/pr-evaluation-report.js",
-    "real:safety-regression": "node dist/apps/cli/src/real-repo-safety-regression-report.js"
+    "real:safety-regression": "node dist/apps/cli/src/real-repo-safety-regression-report.js",
+    "real:verify": "npm run typecheck && npm run build && node dist/apps/cli/src/real-repo-verify.js"
   },
   "workspaces": [
     "apps/*",
