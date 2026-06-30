@@ -355,3 +355,100 @@ function average(values: number[]): number {
 function roundRatio(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }
+
+export type WorkerBackedBaselineStrategyId =
+  | "direct_llm_worker"
+  | "direct_dllm_worker";
+
+export type BaselineStrategyUnavailableReason =
+  | "worker_not_configured"
+  | "model_endpoint_missing"
+  | "api_key_missing"
+  | "unsupported_strategy";
+
+export class BaselineStrategyUnavailableError extends Error {
+  readonly strategyId: BaselineStrategyId;
+  readonly reason: BaselineStrategyUnavailableReason;
+
+  constructor(input: {
+    strategyId: BaselineStrategyId;
+    reason: BaselineStrategyUnavailableReason;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "BaselineStrategyUnavailableError";
+    this.strategyId = input.strategyId;
+    this.reason = input.reason;
+  }
+}
+
+export type WorkerBackedBaselinePlaceholderOptions = {
+  id: WorkerBackedBaselineStrategyId;
+  label: string;
+  description: string;
+  capabilities: BaselineStrategyCapability[];
+};
+
+export function createWorkerBackedBaselinePlaceholderStrategy(
+  options: WorkerBackedBaselinePlaceholderOptions
+): BaselineStrategy {
+  return {
+    metadata: {
+      id: options.id,
+      label: options.label,
+      description: options.description,
+      capabilities: options.capabilities,
+      modelRequired: true,
+      deterministic: false
+    },
+    run(): DirectBaselineSummary {
+      throw new BaselineStrategyUnavailableError({
+        strategyId: options.id,
+        reason: "worker_not_configured",
+        message: `${options.id} is declared in the baseline strategy contract, but no worker endpoint is configured yet.`
+      });
+    }
+  };
+}
+
+export function createDirectLlmWorkerPlaceholderStrategy(): BaselineStrategy {
+  return createWorkerBackedBaselinePlaceholderStrategy({
+    id: "direct_llm_worker",
+    label: "Direct LLM Worker Baseline",
+    description:
+      "Worker-backed broad-context LLM baseline slot. This is a typed placeholder until a real model worker endpoint is configured.",
+    capabilities: [
+      "worker_backed",
+      "single_pass",
+      "broad_context",
+      "llm"
+    ]
+  });
+}
+
+export function createDirectDllmWorkerPlaceholderStrategy(): BaselineStrategy {
+  return createWorkerBackedBaselinePlaceholderStrategy({
+    id: "direct_dllm_worker",
+    label: "Direct dLLM Worker Baseline",
+    description:
+      "Worker-backed broad-context dLLM baseline slot. This is a typed placeholder until a real dLLM worker endpoint is configured.",
+    capabilities: [
+      "worker_backed",
+      "single_pass",
+      "broad_context",
+      "dllm"
+    ]
+  });
+}
+
+export function listBaselineStrategies(): BaselineStrategy[] {
+  return [
+    createDirectBroadContextMockStrategy(),
+    createDirectLlmWorkerPlaceholderStrategy(),
+    createDirectDllmWorkerPlaceholderStrategy()
+  ];
+}
+
+export function getBaselineStrategyById(id: BaselineStrategyId): BaselineStrategy | null {
+  return listBaselineStrategies().find((strategy) => strategy.metadata.id === id) ?? null;
+}
