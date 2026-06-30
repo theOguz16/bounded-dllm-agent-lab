@@ -131,7 +131,8 @@
     "verify:model-worker:runpod-proxy": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-proxy",
     "smoke:model-worker:runpod-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
     "verify:model-worker:runpod-live": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-live",
-    "report:model-worker-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js"
+    "report:model-worker-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
+    "report:live-mini-benchmark": "node scripts/live-mini-benchmark.cjs"
   },
   "workspaces": [
     "apps/*",
