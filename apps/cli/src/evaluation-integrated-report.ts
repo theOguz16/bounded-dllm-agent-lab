@@ -76,15 +76,13 @@ async function main(): Promise<void> {
     sourcePath: baselineFile.path,
     reportName: stringValue(baselineReport.reportName),
     suiteName: stringValue(baselineReport.suiteName),
-    baselineStrategy: stringValue(baselineReport.baselineStrategy),
-    caseCount: numberValue(baselineReport.caseCount),
-    boundedFinalSafeRate: numberValue(baselineReport.boundedFinalSafeRate),
-    directFinalSafeRate: numberValue(baselineReport.directFinalSafeRate),
-    boundedWinRate: numberValue(baselineReport.boundedWinRate),
-    averageTokenSavingsRate: numberValue(baselineReport.averageTokenSavingsRate),
-    averageDirectScopeExpansionFactor: numberValue(
-      baselineReport.averageDirectScopeExpansionFactor
-    ),
+    baselineStrategy: pickString(baselineReport, baselineAggregate, "baselineStrategy"),
+    caseCount: pickNumber(baselineReport, baselineAggregate, "caseCount"),
+    boundedFinalSafeRate: pickNumber(baselineReport, baselineAggregate, "boundedFinalSafeRate"),
+    directFinalSafeRate: pickNumber(baselineReport, baselineAggregate, "directFinalSafeRate"),
+    boundedWinRate: pickNumber(baselineReport, baselineAggregate, "boundedWinRate"),
+    averageTokenSavingsRate: pickNumber(baselineReport, baselineAggregate, "averageTokenSavingsRate"),
+    averageDirectScopeExpansionFactor: pickNumber(baselineReport, baselineAggregate, "averageDirectScopeExpansionFactor"),
     boundedFinalDecisionCounts: baselineAggregate.boundedFinalDecisionCounts ?? null,
     directDecisionCounts: baselineAggregate.directDecisionCounts ?? null,
     directFailureModeCounts: baselineAggregate.directFailureModeCounts ?? null,
@@ -244,6 +242,20 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function pickNumber(report: JsonRecord, aggregate: JsonRecord, key: string): number {
+  const topLevel = numberValue(report[key]);
+
+  if (topLevel !== 0) {
+    return topLevel;
+  }
+
+  return numberValue(aggregate[key]);
+}
+
+function pickString(report: JsonRecord, aggregate: JsonRecord, key: string): string | null {
+  return stringValue(report[key]) ?? stringValue(aggregate[key]);
 }
 
 function sumNumberField(items: JsonRecord[], field: string): number {
