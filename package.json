@@ -108,7 +108,7 @@
     "real:safety-regression": "node dist/apps/cli/src/real-repo-safety-regression-report.js",
     "real:verify": "npm run typecheck && npm run build && node dist/apps/cli/src/real-repo-verify.js",
     "baseline:comparison-report": "node dist/apps/cli/src/baseline-comparison-report.js",
-    "baseline:verify": "npm run typecheck && npm run build && npm run baseline:comparison-report",
+    "baseline:verify": "npm run typecheck && npm run build && npm run baseline:comparison-report"
   },
   "workspaces": [
     "apps/*",
