@@ -207,3 +207,42 @@ function summarizeDecision(
 
   return `Verifier requires remask because ${signals.length} signal(s) produced ${maskRegions.length} mask region(s).`;
 }
+
+export type DllmVerifierPipelineCandidate = {
+  taskId: string;
+  changedFiles: string[];
+  proposedTouchedFiles: string[];
+  allowedFiles?: string[];
+  requiredFiles?: string[];
+  unresolvedConflicts?: Array<{
+    kind: string;
+    filePath?: string;
+  }>;
+  staleFactCount?: number;
+  sensitivePatternCount?: number;
+  proposedAddedLines?: string[];
+};
+
+export function createDllmVerifierInputFromPipelineCandidate(
+  candidate: DllmVerifierPipelineCandidate
+): DllmVerifierInput {
+  return {
+    taskId: candidate.taskId,
+    changedFiles: candidate.changedFiles,
+    proposedTouchedFiles: candidate.proposedTouchedFiles,
+    allowedFiles: candidate.allowedFiles ?? candidate.changedFiles,
+    requiredFiles: candidate.requiredFiles ?? candidate.changedFiles,
+    unresolvedConflicts: candidate.unresolvedConflicts ?? [],
+    staleFactCount: candidate.staleFactCount ?? 0,
+    sensitivePatternCount: candidate.sensitivePatternCount ?? 0,
+    proposedAddedLines: candidate.proposedAddedLines ?? []
+  };
+}
+
+export function runDllmVerifierOnPipelineCandidate(
+  candidate: DllmVerifierPipelineCandidate
+): DllmVerifierOutput {
+  return runDllmStyleVerifier(
+    createDllmVerifierInputFromPipelineCandidate(candidate)
+  );
+}
