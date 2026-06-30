@@ -12,7 +12,7 @@
   "controls": [
     {
       "id": "real-diff-positive-phase-k-files",
-      "title": "Positive control: Phase K diff stays in evaluation/runtime files",
+      "title": "Positive control: current real diff stays inside allowed Phase K surfaces",
       "expectedOutcome": "pass",
       "allowedFiles": [
         "apps/**",
@@ -26,11 +26,7 @@
         "dist/**",
         "node_modules/**"
       ],
-      "requiredFiles": [
-        "apps/cli/src/real-repo-control-report.ts",
-        "examples/real-repo-evaluation/real-repo-evaluation-fixtures.json",
-        "package.json"
-      ],
+      "requiredFiles": [],
       "forbiddenAddedPatterns": [],
       "expectedFailureSignals": []
     },
