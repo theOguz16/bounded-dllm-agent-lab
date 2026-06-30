@@ -46,9 +46,9 @@ Real model acceptance requires configured worker endpoints.
 ## Commands
 
 - Model-free verification: npm run repo:evaluation-verify
-- Final Phase K verification: npm run phase-k:final-verify
-- Real worker acceptance: MODEL_ACCEPTANCE_REQUIRED=1 LLM_WORKER_URL=... DLLM_WORKER_URL=... npm run model:acceptance-report
-- Live PR fetch: GITHUB_REPOSITORY=owner/repo PR_NUMBER=123 GITHUB_TOKEN=... npm run github:pr-live-fetch
+- Final Phase K verification: npm run verify:evaluation-pipeline
+- Real worker acceptance: MODEL_ACCEPTANCE_REQUIRED=1 LLM_WORKER_URL=... DLLM_WORKER_URL=... npm run report:model-acceptance
+- Live PR fetch: GITHUB_REPOSITORY=owner/repo PR_NUMBER=123 GITHUB_TOKEN=... npm run fetch:github-pr
 
 ## Completion Criteria
 

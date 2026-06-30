@@ -1,4 +1,4 @@
-name: Phase K Verify
+name: Evaluation Pipeline Verify
 
 on:
   push:
@@ -46,14 +46,14 @@ jobs:
           fi
 
       - name: Phase K final verify
-        run: npm run phase-k:final-verify
+        run: npm run verify:evaluation-pipeline
 
       - name: Fetch live PR changed files
         if: github.event_name == 'pull_request'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: npm run github:pr-live-fetch
+        run: npm run fetch:github-pr
 
       - name: Evaluate live PR input
         if: github.event_name == 'pull_request'
