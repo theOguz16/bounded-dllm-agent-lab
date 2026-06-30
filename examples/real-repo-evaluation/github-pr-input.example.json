@@ -1,0 +1,47 @@
+{
+  "repo": "theOguz16/bounded-dllm-agent-lab",
+  "prNumber": 101,
+  "baseRef": "main",
+  "headRef": "phase-k-real-pr-input",
+  "title": "Phase K real repo PR input adapter",
+  "changedFiles": [
+    "apps/cli/src/pr-changed-files-smoke.ts",
+    "apps/cli/src/pr-evaluation-report.ts",
+    "packages/repo-intelligence/src/pr-changed-files-adapter.ts",
+    "package.json"
+  ],
+  "files": [
+    {
+      "filename": "packages/repo-intelligence/src/pr-changed-files-adapter.ts",
+      "status": "modified",
+      "additions": 120,
+      "deletions": 0,
+      "changes": 120,
+      "patch": "@@ -0,0 +1,3 @@\n+export function createPrChangedFilesSummary() {}\n+export function selectChangedFilesForPrEvaluation() {}\n+export function readPrChangedFilesInput() {}"
+    },
+    {
+      "filename": "apps/cli/src/pr-changed-files-smoke.ts",
+      "status": "added",
+      "additions": 80,
+      "deletions": 0,
+      "changes": 80,
+      "patch": "@@ -0,0 +1,2 @@\n+import { createPrChangedFilesSummary } from \"../../../packages/repo-intelligence/src/pr-changed-files-adapter.js\";\n+console.log(\"pr smoke\");"
+    },
+    {
+      "filename": "apps/cli/src/pr-evaluation-report.ts",
+      "status": "added",
+      "additions": 120,
+      "deletions": 0,
+      "changes": 120,
+      "patch": "@@ -0,0 +1,2 @@\n+import { runMockOrchestrationFlow } from \"../../../packages/orchestration-core/src/index.js\";\n+console.log(\"pr report\");"
+    },
+    {
+      "filename": "package.json",
+      "status": "modified",
+      "additions": 2,
+      "deletions": 0,
+      "changes": 2,
+      "patch": "@@ -1,3 +1,5 @@\n+\"pr:changed-files-smoke\": \"node dist/apps/cli/src/pr-changed-files-smoke.js\",\n+\"pr:evaluation-report\": \"node dist/apps/cli/src/pr-evaluation-report.js\""
+    }
+  ]
+}

@@ -101,7 +101,9 @@
     "real:diff-smoke": "node dist/apps/cli/src/real-repo-diff-smoke.js",
     "real:evaluation-report": "node dist/apps/cli/src/real-repo-evaluation-report.js",
     "real:control-report": "node dist/apps/cli/src/real-repo-control-report.js",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "pr:changed-files-smoke": "node dist/apps/cli/src/pr-changed-files-smoke.js",
+    "pr:evaluation-report": "node dist/apps/cli/src/pr-evaluation-report.js"
   },
   "workspaces": [
     "apps/*",
