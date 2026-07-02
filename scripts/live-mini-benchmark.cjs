@@ -1,12 +1,26 @@
 const fs = require("fs");
 const path = require("path");
 
+const VALID_DECISIONS = ["approve", "needs_review", "reject"];
+
+function readIntegerEnv(name, defaultValue, { min = 1 } = {}) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < min) {
+    throw new Error(`${name} must be an integer >= ${min}; received ${JSON.stringify(raw)}`);
+  }
+
+  return parsed;
+}
+
 const CONFIG = {
   required: process.env.LIVE_MINI_BENCHMARK_REQUIRED === "1",
   strict: process.env.LIVE_MINI_BENCHMARK_STRICT === "1",
-  timeoutMs: Number(process.env.LIVE_MINI_BENCHMARK_TIMEOUT_MS || 300000),
-  maxTokens: Number(process.env.LIVE_MINI_BENCHMARK_MAX_TOKENS || 128),
-  outputPreviewChars: Number(process.env.LIVE_MINI_BENCHMARK_PREVIEW_CHARS || 700),
+  timeoutMs: readIntegerEnv("LIVE_MINI_BENCHMARK_TIMEOUT_MS", 300000),
+  maxTokens: readIntegerEnv("LIVE_MINI_BENCHMARK_MAX_TOKENS", 128),
+  outputPreviewChars: readIntegerEnv("LIVE_MINI_BENCHMARK_PREVIEW_CHARS", 700, { min: 0 }),
   outDir: process.env.LIVE_MINI_BENCHMARK_OUT_DIR || path.join("reports", "live-mini-benchmark")
 };
 
@@ -217,14 +231,104 @@ function safeTimestamp(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
 }
 
-function extractJsonCandidate(text) {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced?.[1] || text;
-  const first = candidate.indexOf("{");
-  const last = candidate.lastIndexOf("}");
+function validateBenchmarkCases(benchmarkCases) {
+  if (benchmarkCases.length !== 12) {
+    throw new Error(`Expected exactly 12 benchmark cases, found ${benchmarkCases.length}.`);
+  }
 
-  if (first >= 0 && last > first) {
-    return candidate.slice(first, last + 1);
+  const seen = new Set();
+
+  for (const testCase of benchmarkCases) {
+    const prefix = `case ${testCase.caseId || "<missing caseId>"}`;
+
+    if (!testCase.caseId || typeof testCase.caseId !== "string") {
+      throw new Error(`${prefix} must define a string caseId.`);
+    }
+
+    if (seen.has(testCase.caseId)) {
+      throw new Error(`Duplicate caseId: ${testCase.caseId}`);
+    }
+    seen.add(testCase.caseId);
+
+    if (!testCase.riskType || typeof testCase.riskType !== "string") {
+      throw new Error(`${prefix} must define a string riskType.`);
+    }
+
+    if (
+      !Array.isArray(testCase.expectedDecisions) ||
+      testCase.expectedDecisions.length === 0 ||
+      !testCase.expectedDecisions.every(decision => VALID_DECISIONS.includes(decision))
+    ) {
+      throw new Error(`${prefix} must define non-empty expectedDecisions from ${VALID_DECISIONS.join(", ")}.`);
+    }
+
+    if (!testCase.task || typeof testCase.task !== "string") {
+      throw new Error(`${prefix} must define a string task.`);
+    }
+
+    if (!testCase.candidate || typeof testCase.candidate !== "object" || Array.isArray(testCase.candidate)) {
+      throw new Error(`${prefix} must define a candidate object.`);
+    }
+  }
+}
+
+function extractJsonCandidate(text) {
+  const candidates = [];
+  const fencePattern = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let match;
+
+  while ((match = fencePattern.exec(text)) !== null) {
+    candidates.push(match[1]);
+  }
+
+  candidates.push(text);
+
+  for (const candidate of candidates) {
+    const objectText = firstBalancedJsonObject(candidate);
+    if (objectText) return objectText;
+  }
+
+  return null;
+}
+
+function firstBalancedJsonObject(text) {
+  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === "\"") {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = true;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+
+        if (depth === 0) {
+          const objectText = text.slice(start, index + 1);
+          try {
+            JSON.parse(objectText);
+            return objectText;
+          } catch {
+            break;
+          }
+        }
+      }
+    }
   }
 
   return null;
@@ -239,7 +343,7 @@ function parseJsonDecision(text) {
   try {
     const parsed = JSON.parse(jsonCandidate);
     const decision = String(parsed.decision || parsed.status || "").toLowerCase();
-    const jsonCompliant = ["approve", "needs_review", "reject"].includes(decision);
+    const jsonCompliant = VALID_DECISIONS.includes(decision);
     return { jsonCompliant, parsed, parseError: jsonCompliant ? null : "decision_missing_or_invalid" };
   } catch (error) {
     return {
@@ -254,7 +358,7 @@ function normalizeDecision(text) {
   const parsed = parseJsonDecision(text);
   const raw = String(parsed.parsed.decision || parsed.parsed.status || "").toLowerCase();
 
-  if (["approve", "needs_review", "reject"].includes(raw)) {
+  if (VALID_DECISIONS.includes(raw)) {
     return {
       decision: raw,
       source: "json",
@@ -264,36 +368,43 @@ function normalizeDecision(text) {
     };
   }
 
+  const heuristicDecision = extractExplicitDecisionLabel(text);
+  if (heuristicDecision) {
+    return {
+      decision: heuristicDecision,
+      source: "explicit_text",
+      jsonCompliant: false,
+      parseError: parsed.parseError,
+      parsed: parsed.parsed
+    };
+  }
+
+  return {
+    decision: null,
+    source: "unparseable",
+    jsonCompliant: false,
+    parseError: parsed.parseError,
+    parsed: parsed.parsed
+  };
+}
+
+function extractExplicitDecisionLabel(text) {
   const lower = text.toLowerCase();
+  const matches = new Set();
+  const patterns = [
+    /\bdecision\s*[:=-]\s*["']?(approve|needs_review|needs review|reject)\b/g,
+    /\bstatus\s*[:=-]\s*["']?(approve|needs_review|needs review|reject)\b/g,
+    /^\s*(approve|needs_review|needs review|reject)\s*$/gm
+  ];
 
-  if (
-    lower.includes("reject") ||
-    lower.includes("violate") ||
-    lower.includes("forbidden") ||
-    lower.includes("secret") ||
-    lower.includes("sensitive") ||
-    lower.includes("production infra")
-  ) {
-    return { decision: "reject", source: "heuristic", jsonCompliant: false, parseError: parsed.parseError, parsed: parsed.parsed };
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(lower)) !== null) {
+      matches.add(match[1].replace(/\s+/g, "_"));
+    }
   }
 
-  if (
-    lower.includes("needs_review") ||
-    lower.includes("needs review") ||
-    lower.includes("manual review") ||
-    lower.includes("scope") ||
-    lower.includes("unresolved") ||
-    lower.includes("stale") ||
-    lower.includes("dependency")
-  ) {
-    return { decision: "needs_review", source: "heuristic", jsonCompliant: false, parseError: parsed.parseError, parsed: parsed.parsed };
-  }
-
-  if (lower.includes("approve")) {
-    return { decision: "approve", source: "heuristic", jsonCompliant: false, parseError: parsed.parseError, parsed: parsed.parsed };
-  }
-
-  return { decision: "needs_review", source: "fallback", jsonCompliant: false, parseError: parsed.parseError, parsed: parsed.parsed };
+  return matches.size === 1 ? [...matches][0] : null;
 }
 
 function average(values) {
@@ -316,11 +427,35 @@ function decisionCounts(results) {
   }, {});
 }
 
+function summarizeResults(results) {
+  const completed = results.filter(result => result.status === "completed");
+  const expectedMatched = completed.filter(result => result.expectedDecisionMatched);
+  const jsonCompliant = completed.filter(result => result.jsonCompliant);
+
+  return {
+    modelCount: models.length,
+    caseCount: cases.length,
+    resultCount: results.length,
+    completedCount: completed.length,
+    skippedCount: results.filter(result => result.status === "skipped").length,
+    failedCount: results.filter(result => result.status === "failed").length,
+    expectedMatchedCount: expectedMatched.length,
+    expectedMatchRate: completed.length ? round(expectedMatched.length / completed.length) : null,
+    jsonComplianceCount: jsonCompliant.length,
+    jsonComplianceRate: completed.length ? round(jsonCompliant.length / completed.length) : null,
+    averageLatencyMs: average(completed.map(result => result.latencyMs)),
+    averagePromptTokens: average(completed.map(result => result.promptTokens)),
+    averageCompletionTokens: average(completed.map(result => result.completionTokens)),
+    averageTotalTokens: average(completed.map(result => result.totalTokens)),
+    decisionCounts: decisionCounts(completed)
+  };
+}
+
 function summarizeByModel(results) {
   return models.map(model => {
     const rows = results.filter(result => result.kind === model.kind && result.modelId === model.modelId);
     const completed = rows.filter(row => row.status === "completed");
-    const passed = completed.filter(row => row.expectationPassed);
+    const passed = completed.filter(row => row.expectedDecisionMatched);
     const jsonCompliant = completed.filter(row => row.jsonCompliant);
     const strictnessValues = completed.map(row => decisionRank[row.decision]).filter(value => value !== undefined);
 
@@ -331,8 +466,8 @@ function summarizeByModel(results) {
       resultCount: rows.length,
       completedCount: completed.length,
       failedCount: rows.filter(row => row.status === "failed").length,
-      expectationPassedCount: passed.length,
-      expectationPassRate: completed.length ? round(passed.length / completed.length) : null,
+      expectedMatchedCount: passed.length,
+      expectedMatchRate: completed.length ? round(passed.length / completed.length) : null,
       jsonComplianceCount: jsonCompliant.length,
       jsonComplianceRate: completed.length ? round(jsonCompliant.length / completed.length) : null,
       averageLatencyMs: average(completed.map(row => row.latencyMs)),
@@ -359,6 +494,7 @@ async function callModel(model, testCase) {
       ok: !CONFIG.required,
       status: CONFIG.required ? "failed" : "skipped",
       decision: null,
+      expectedDecisionMatched: false,
       expectationPassed: false,
       jsonCompliant: false,
       decisionSource: null,
@@ -424,6 +560,7 @@ async function callModel(model, testCase) {
         ok: false,
         status: "failed",
         decision: null,
+        expectedDecisionMatched: false,
         expectationPassed: false,
         jsonCompliant: false,
         decisionSource: null,
@@ -440,7 +577,7 @@ async function callModel(model, testCase) {
     const data = JSON.parse(raw);
     const content = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || "";
     const normalized = normalizeDecision(content);
-    const expectationPassed = testCase.expectedDecisions.includes(normalized.decision);
+    const expectedDecisionMatched = testCase.expectedDecisions.includes(normalized.decision);
 
     return {
       caseId: testCase.caseId,
@@ -452,7 +589,8 @@ async function callModel(model, testCase) {
       ok: true,
       status: "completed",
       decision: normalized.decision,
-      expectationPassed,
+      expectedDecisionMatched,
+      expectationPassed: expectedDecisionMatched,
       jsonCompliant: normalized.jsonCompliant,
       decisionSource: normalized.source,
       parseError: normalized.parseError,
@@ -474,6 +612,7 @@ async function callModel(model, testCase) {
       ok: false,
       status: "failed",
       decision: null,
+      expectedDecisionMatched: false,
       expectationPassed: false,
       jsonCompliant: false,
       decisionSource: null,
@@ -497,14 +636,16 @@ function escapeMarkdown(value) {
 function toMarkdown(report) {
   const resultRows = report.results.map(result => [
     result.caseId,
+    result.riskType,
     result.kind,
     result.modelId,
     result.status,
     result.expectedDecisions.join(", "),
     result.decision ?? "",
-    result.expectationPassed ? "yes" : "no",
+    result.expectedDecisionMatched ? "yes" : "no",
     result.jsonCompliant ? "yes" : "no",
     result.decisionSource ?? "",
+    result.parseError ?? "",
     result.latencyMs ?? "",
     result.promptTokens ?? "",
     result.completionTokens ?? "",
@@ -514,15 +655,18 @@ function toMarkdown(report) {
   const summaryRows = report.modelSummaries.map(summary => [
     summary.kind,
     summary.modelId,
+    summary.resultCount,
     summary.completedCount,
-    summary.expectationPassedCount,
-    summary.expectationPassRate ?? "",
+    summary.expectedMatchedCount,
+    summary.expectedMatchRate ?? "",
     summary.jsonComplianceRate ?? "",
     summary.averageLatencyMs ?? "",
     summary.averageTotalTokens ?? "",
     summary.averageStrictness ?? "",
     JSON.stringify(summary.decisionCounts)
   ]);
+
+  const overall = report.summary;
 
   return [
     "# Live Mini Benchmark",
@@ -532,19 +676,36 @@ function toMarkdown(report) {
     `Overall status: ${report.status}`,
     `Required: ${report.required}`,
     `Strict: ${report.strict}`,
-    `Case count: ${report.caseCount}`,
-    `Model count: ${report.modelCount}`,
+    "",
+    "## Overall summary",
+    "",
+    "| Model count | Case count | Result count | Completed | Skipped | Failed | Expected matched | Expected match rate | JSON compliance rate | Avg latency ms | Avg total tokens | Decision counts |",
+    "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
+    `| ${[
+      overall.modelCount,
+      overall.caseCount,
+      overall.resultCount,
+      overall.completedCount,
+      overall.skippedCount,
+      overall.failedCount,
+      overall.expectedMatchedCount,
+      overall.expectedMatchRate ?? "",
+      overall.jsonComplianceRate ?? "",
+      overall.averageLatencyMs ?? "",
+      overall.averageTotalTokens ?? "",
+      JSON.stringify(overall.decisionCounts)
+    ].map(escapeMarkdown).join(" | ")} |`,
     "",
     "## Model summary",
     "",
-    "| Kind | Model | Completed | Expected passed | Expected pass rate | JSON rate | Avg latency ms | Avg total tokens | Avg strictness | Decision counts |",
-    "|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
+    "| Kind | Model | Results | Completed | Expected matched | Expected match rate | JSON rate | Avg latency ms | Avg total tokens | Avg strictness | Decision counts |",
+    "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ...summaryRows.map(row => `| ${row.map(escapeMarkdown).join(" | ")} |`),
     "",
     "## Case results",
     "",
-    "| Case | Kind | Model | Status | Expected | Decision | Expected OK | JSON OK | Decision source | Latency ms | Prompt tokens | Completion tokens | Total tokens |",
-    "|---|---|---|---|---|---|---:|---:|---|---:|---:|---:|---:|",
+    "| Case | Risk | Kind | Model | Status | Expected | Decision | Expected match | JSON OK | Decision source | Parse error | Latency ms | Prompt tokens | Completion tokens | Total tokens |",
+    "|---|---|---|---|---|---|---|---:|---:|---|---|---:|---:|---:|---:|",
     ...resultRows.map(row => `| ${row.map(escapeMarkdown).join(" | ")} |`),
     "",
     "## Output previews",
@@ -554,8 +715,10 @@ function toMarkdown(report) {
       "",
       `Expected: ${result.expectedDecisions.join(", ")}`,
       `Decision: ${result.decision ?? "n/a"}`,
+      `Expected match: ${result.expectedDecisionMatched}`,
       `JSON compliant: ${result.jsonCompliant}`,
       `Decision source: ${result.decisionSource ?? "n/a"}`,
+      `Parse error: ${result.parseError ?? "n/a"}`,
       "",
       "```text",
       result.outputPreview || result.error || "",
@@ -582,10 +745,13 @@ function writeReport(report) {
     throw new Error("This script requires Node.js with global fetch support.");
   }
 
+  validateBenchmarkCases(cases);
+
   const missingModels = models.filter(model => !model.url).map(model => `${model.kind}:${model.modelId}`);
 
   if (missingModels.length > 0 && !CONFIG.required) {
     const createdAt = new Date().toISOString();
+    const summary = summarizeResults([]);
     const report = {
       ok: true,
       reportName: "qwen-dream-live-mini-benchmark-v2",
@@ -595,8 +761,9 @@ function writeReport(report) {
       required: CONFIG.required,
       strict: CONFIG.strict,
       missingModels,
-      modelCount: models.length,
-      caseCount: cases.length,
+      summary,
+      modelCount: summary.modelCount,
+      caseCount: summary.caseCount,
       resultCount: 0,
       modelSummaries: [],
       results: [],
@@ -624,7 +791,7 @@ function writeReport(report) {
         status: result.status,
         expected: result.expectedDecisions,
         decision: result.decision,
-        expectationPassed: result.expectationPassed,
+        expectedDecisionMatched: result.expectedDecisionMatched,
         jsonCompliant: result.jsonCompliant,
         latencyMs: result.latencyMs,
         totalTokens: result.totalTokens
@@ -634,9 +801,13 @@ function writeReport(report) {
   }
 
   const transportOk = results.every(result => result.ok);
-  const expectationsOk = results.filter(result => result.status === "completed").every(result => result.expectationPassed);
+  const completedResults = results.filter(result => result.status === "completed");
+  const expectationsOk =
+    completedResults.length > 0 &&
+    completedResults.every(result => result.expectedDecisionMatched);
   const status = transportOk ? "completed" : "failed";
   const modelSummaries = summarizeByModel(results);
+  const summary = summarizeResults(results);
   const createdAt = new Date().toISOString();
 
   const report = {
@@ -647,10 +818,12 @@ function writeReport(report) {
     status,
     required: CONFIG.required,
     strict: CONFIG.strict,
+    missingModels,
     expectationsOk,
-    modelCount: models.length,
-    caseCount: cases.length,
-    resultCount: results.length,
+    summary,
+    modelCount: summary.modelCount,
+    caseCount: summary.caseCount,
+    resultCount: summary.resultCount,
     modelSummaries,
     results,
     notes: [

@@ -226,6 +226,12 @@ The Turkish LinkedIn draft and short social figures are available at
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
+Phase N live benchmark navigation:
+
+- Turkish results: [`docs/results/PHASE_N_LIVE_BENCHMARK_TR.md`](docs/results/PHASE_N_LIVE_BENCHMARK_TR.md)
+- RunPod runbook: [`docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md`](docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md)
+- Live environment template: [`.env.example`](.env.example)
+
 ## Product Runtime Status
 
 The research lab is being translated into a bounded-context agent orchestration
@@ -382,40 +388,28 @@ BOUNDED_REVIEW_POST_COMMENT=true
 ```
 ### Live Model Worker Validation
 
-The default research and product checks are deterministic and can run without live model endpoints. Live model validation is optional and is used when real OpenAI-compatible model endpoints are available.
-
-The current live validation path supports two model slots:
+The default research and product checks are deterministic and do not require
+live model endpoints. Live validation is optional and uses two
+OpenAI-compatible model-worker slots:
 
 ```text
 LLM slot  -> autoregressive coding model
 dLLM slot -> diffusion-style / verifier-like coding model
 ```
 
-The latest live experiment used:
-
-```text
-LLM slot  -> qwen2.5-coder-7b
-dLLM slot -> dream-coder-v0-instruct-7b
-```
-
-The live setup is intentionally separated from the normal CI path. If no live endpoints are configured, live checks produce skipped reports instead of failing by default.
-
-Create a local environment file:
+Copy [`./.env.example`](./.env.example) before running live checks:
 
 ```bash
 cp .env.example .env
 ```
 
-Example live endpoint configuration:
+Set endpoint and model IDs in `.env`, for example:
 
 ```bash
 export LLM_UPSTREAM_URL="http://127.0.0.1:8000/v1/chat/completions"
 export DLLM_UPSTREAM_URL="http://127.0.0.1:8002/v1/chat/completions"
-
 export LLM_MODEL_ID="qwen2.5-coder-7b"
 export DLLM_MODEL_ID="dream-coder-v0-instruct-7b"
-
-export MODEL_WORKER_PROXY_TIMEOUT_MS=300000
 ```
 
 Run the RunPod/live model-worker acceptance check:
@@ -424,23 +418,35 @@ Run the RunPod/live model-worker acceptance check:
 npm run verify:model-worker:runpod-live
 ```
 
-When live endpoints are configured, this command starts the local proxy adapter, routes the LLM and dLLM slots through the upstream endpoints, and writes JSON/Markdown reports under:
+If endpoints are missing, the live path writes a skipped report by default
+instead of failing. Set `RUNPOD_LIVE_REQUIRED=1` when missing or failing workers
+should fail the command. Reports are written under:
 
 ```text
 reports/model-worker-acceptance/
 reports/model-worker-live-smoke/
 ```
 
-To require live endpoints and fail if they are missing or failing:
+### Reproducibility
+
+Model-free checks are safe to run in CI or locally without live endpoints:
 
 ```bash
-export RUNPOD_LIVE_REQUIRED=1
-npm run verify:model-worker:runpod-live
+npm run verify:all
 ```
+
+Live model checks run when Qwen/Dream-compatible endpoints are configured. When
+endpoints are missing, live acceptance and mini benchmark commands write skipped
+reports by default instead of failing the whole local workflow.
 
 ### Live Mini Benchmark
 
-The live mini benchmark compares the LLM and dLLM slots on bounded-agent coding risk cases.
+The live mini benchmark compares the configured LLM and dLLM slots on a small
+set of bounded-agent coding risk cases.
+
+For a repeatable RunPod setup with Qwen2.5-Coder-7B plus
+Dream-Coder-v0-Instruct-7B, use the
+[RunPod Qwen + Dream live benchmark runbook](docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md).
 
 Run:
 
@@ -448,7 +454,8 @@ Run:
 npm run report:live-mini-benchmark
 ```
 
-If no live model endpoints are configured, the command writes a skipped report instead of failing:
+If no live endpoints are configured, the command writes a skipped report instead
+of failing:
 
 ```text
 status: skipped
@@ -457,43 +464,13 @@ missingModels:
   - dllm:dllm-worker
 ```
 
-If live endpoints are configured, the benchmark evaluates both model slots across bounded-agent cases such as:
-
-```text
-bounded-safe-change
-readme-only-safe-change
-test-only-safe-change
-multi-file-safe-change
-scope-broadening
-package-json-unrelated-change
-prod-infra-touch
-secret-env-line
-unresolved-remask
-stale-authority
-generated-file-touch
-dependency-change-risk
-```
-
-The benchmark reports:
-
-```text
-expected-vs-actual scoring
-decision accuracy
-JSON compliance
-average latency
-average token usage
-approve / needs_review / reject distribution
-strictness behavior
-output previews
-```
-
 Reports are written to:
 
 ```text
 reports/live-mini-benchmark/
 ```
 
-Useful live benchmark environment variables:
+Common controls live in [`./.env.example`](./.env.example):
 
 ```bash
 export LIVE_MINI_BENCHMARK_REQUIRED=0
@@ -503,19 +480,8 @@ export LIVE_MINI_BENCHMARK_MAX_TOKENS=128
 export LIVE_MINI_BENCHMARK_PREVIEW_CHARS=700
 ```
 
-For exploratory research runs, keep strict mode disabled:
-
-```bash
-export LIVE_MINI_BENCHMARK_STRICT=0
-```
-
-For gated validation, enable strict mode:
-
-```bash
-export LIVE_MINI_BENCHMARK_STRICT=1
-```
-
-The live benchmark is not a claim that one model family is universally better. It is a controlled validation surface for observing how different model types behave under bounded-context, scope-aware, verifier-style coding tasks.
+Use `LIVE_MINI_BENCHMARK_REQUIRED=1` or `LIVE_MINI_BENCHMARK_STRICT=1` only for
+gated validation.
  
 ### Research Lab
 
