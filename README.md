@@ -380,7 +380,143 @@ default in the dogfood workflow and can be enabled intentionally with:
 ```text
 BOUNDED_REVIEW_POST_COMMENT=true
 ```
+### Live Model Worker Validation
 
+The default research and product checks are deterministic and can run without live model endpoints. Live model validation is optional and is used when real OpenAI-compatible model endpoints are available.
+
+The current live validation path supports two model slots:
+
+```text
+LLM slot  -> autoregressive coding model
+dLLM slot -> diffusion-style / verifier-like coding model
+```
+
+The latest live experiment used:
+
+```text
+LLM slot  -> qwen2.5-coder-7b
+dLLM slot -> dream-coder-v0-instruct-7b
+```
+
+The live setup is intentionally separated from the normal CI path. If no live endpoints are configured, live checks produce skipped reports instead of failing by default.
+
+Create a local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Example live endpoint configuration:
+
+```bash
+export LLM_UPSTREAM_URL="http://127.0.0.1:8000/v1/chat/completions"
+export DLLM_UPSTREAM_URL="http://127.0.0.1:8002/v1/chat/completions"
+
+export LLM_MODEL_ID="qwen2.5-coder-7b"
+export DLLM_MODEL_ID="dream-coder-v0-instruct-7b"
+
+export MODEL_WORKER_PROXY_TIMEOUT_MS=300000
+```
+
+Run the RunPod/live model-worker acceptance check:
+
+```bash
+npm run verify:model-worker:runpod-live
+```
+
+When live endpoints are configured, this command starts the local proxy adapter, routes the LLM and dLLM slots through the upstream endpoints, and writes JSON/Markdown reports under:
+
+```text
+reports/model-worker-acceptance/
+reports/model-worker-live-smoke/
+```
+
+To require live endpoints and fail if they are missing or failing:
+
+```bash
+export RUNPOD_LIVE_REQUIRED=1
+npm run verify:model-worker:runpod-live
+```
+
+### Live Mini Benchmark
+
+The live mini benchmark compares the LLM and dLLM slots on bounded-agent coding risk cases.
+
+Run:
+
+```bash
+npm run report:live-mini-benchmark
+```
+
+If no live model endpoints are configured, the command writes a skipped report instead of failing:
+
+```text
+status: skipped
+missingModels:
+  - llm:llm-worker
+  - dllm:dllm-worker
+```
+
+If live endpoints are configured, the benchmark evaluates both model slots across bounded-agent cases such as:
+
+```text
+bounded-safe-change
+readme-only-safe-change
+test-only-safe-change
+multi-file-safe-change
+scope-broadening
+package-json-unrelated-change
+prod-infra-touch
+secret-env-line
+unresolved-remask
+stale-authority
+generated-file-touch
+dependency-change-risk
+```
+
+The benchmark reports:
+
+```text
+expected-vs-actual scoring
+decision accuracy
+JSON compliance
+average latency
+average token usage
+approve / needs_review / reject distribution
+strictness behavior
+output previews
+```
+
+Reports are written to:
+
+```text
+reports/live-mini-benchmark/
+```
+
+Useful live benchmark environment variables:
+
+```bash
+export LIVE_MINI_BENCHMARK_REQUIRED=0
+export LIVE_MINI_BENCHMARK_STRICT=0
+export LIVE_MINI_BENCHMARK_TIMEOUT_MS=300000
+export LIVE_MINI_BENCHMARK_MAX_TOKENS=128
+export LIVE_MINI_BENCHMARK_PREVIEW_CHARS=700
+```
+
+For exploratory research runs, keep strict mode disabled:
+
+```bash
+export LIVE_MINI_BENCHMARK_STRICT=0
+```
+
+For gated validation, enable strict mode:
+
+```bash
+export LIVE_MINI_BENCHMARK_STRICT=1
+```
+
+The live benchmark is not a claim that one model family is universally better. It is a controlled validation surface for observing how different model types behave under bounded-context, scope-aware, verifier-style coding tasks.
+ 
 ### Research Lab
 
 ```bash
