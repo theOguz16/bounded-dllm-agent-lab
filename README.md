@@ -226,8 +226,9 @@ The Turkish LinkedIn draft and short social figures are available at
 The first milestone figures are available at
 [`docs/results/FIRST_MILESTONE_FIGURES.md`](docs/results/FIRST_MILESTONE_FIGURES.md).
 
-Phase N live benchmark navigation:
+Phase N / O live benchmark navigation:
 
+- Phase O 12-case live benchmark: [`docs/results/PHASE_O_12CASE_LIVE_BENCHMARK_TR.md`](docs/results/PHASE_O_12CASE_LIVE_BENCHMARK_TR.md)
 - Final Turkish report: [`docs/results/PHASE_N_FINAL_REPORT_TR.md`](docs/results/PHASE_N_FINAL_REPORT_TR.md)
 - Turkish results: [`docs/results/PHASE_N_LIVE_BENCHMARK_TR.md`](docs/results/PHASE_N_LIVE_BENCHMARK_TR.md)
 - RunPod runbook: [`docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md`](docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md)
