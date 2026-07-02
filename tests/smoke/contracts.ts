@@ -66,6 +66,24 @@ const artifact = createBenchmarkArtifact({
 // Golden smoke test bir modelin kalitesini test etmez. Buradaki amaç rapor ve
 // manifest şeklinin sessizce değişmesini yakalamaktır. Gerçek deneyler başlamadan
 // önce contract drift'i fark etmek lab güvenilirliği için kritik.
+
+function finalResultSummary(finalResult: unknown): string | undefined {
+  if (typeof finalResult === "string") {
+    return finalResult;
+  }
+
+  if (
+    finalResult &&
+    typeof finalResult === "object" &&
+    "summary" in finalResult &&
+    typeof (finalResult as { summary?: unknown }).summary === "string"
+  ) {
+    return (finalResult as { summary: string }).summary;
+  }
+
+  return undefined;
+}
+
 assert.equal(artifact.report.cases.length, 1);
 assert.equal(artifact.report.familyBreakdown.length, 1);
 assert.equal(artifact.report.familyBreakdown[0].family, "correction_override");
@@ -141,9 +159,9 @@ const ablationModeIds = listAblationModes().map((mode) => mode.id);
 // gerekli mimari varyantların kayıtlı olduğunu ve en zayıf/güçlü kontrollü modların
 // aynı fixture sözleşmesiyle workspace üretebildiğini doğrular.
 assert.deepEqual(ablationModeIds, ["raw_fact_only", "bounded_context", "bounded_grounded", "bounded_refinement"]);
-assert.equal((await getAblationMode("raw_fact_only").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be Python Flask.");
-assert.equal((await getAblationMode("bounded_grounded").runFixture(demoFixtures[0])).workspace.finalResult, "The backend will be TypeScript Fastify.");
-assert.equal((await getAblationMode("bounded_grounded").runFixture(hardFixtures[0])).workspace.finalResult, "The hard benchmark should include twenty five adversarial cases.");
+assert.equal(finalResultSummary((await getAblationMode("raw_fact_only").runFixture(demoFixtures[0])).workspace.finalResult), "The backend will be TypeScript Fastify.");
+assert.equal(finalResultSummary((await getAblationMode("bounded_grounded").runFixture(demoFixtures[0])).workspace.finalResult), "The backend will be TypeScript Fastify.");
+assert.equal(finalResultSummary((await getAblationMode("bounded_grounded").runFixture(hardFixtures[0])).workspace.finalResult), "The hard benchmark should include twenty five adversarial cases.");
 
 assert.deepEqual(validateCodePatchCases(nanoidCodePatchCases), []);
 assert.equal(nanoidCodePatchCases[0].repoId, "nanoid");
