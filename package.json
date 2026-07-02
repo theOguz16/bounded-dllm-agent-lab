@@ -132,7 +132,9 @@
     "smoke:model-worker:runpod-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
     "verify:model-worker:runpod-live": "npm run typecheck && npm run build && npm run smoke:model-worker:runpod-live",
     "report:model-worker-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
-    "report:live-mini-benchmark": "node scripts/live-mini-benchmark.cjs"
+    "report:live-mini-benchmark": "node scripts/live-mini-benchmark.cjs",
+    "test:live-mini-benchmark-parser": "node scripts/live-mini-benchmark-parser-smoke.cjs",
+    "test": "npm run test:smoke"
   },
   "workspaces": [
     "apps/*",
