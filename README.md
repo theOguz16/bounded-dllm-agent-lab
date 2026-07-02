@@ -228,6 +228,7 @@ The first milestone figures are available at
 
 Phase N live benchmark navigation:
 
+- Final Turkish report: [`docs/results/PHASE_N_FINAL_REPORT_TR.md`](docs/results/PHASE_N_FINAL_REPORT_TR.md)
 - Turkish results: [`docs/results/PHASE_N_LIVE_BENCHMARK_TR.md`](docs/results/PHASE_N_LIVE_BENCHMARK_TR.md)
 - RunPod runbook: [`docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md`](docs/runbooks/RUNPOD_QWEN_DREAM_LIVE_BENCHMARK.md)
 - Live environment template: [`.env.example`](.env.example)
