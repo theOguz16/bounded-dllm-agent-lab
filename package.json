@@ -136,7 +136,8 @@
     "test:live-mini-benchmark-parser": "node scripts/live-mini-benchmark-parser-smoke.cjs",
     "test": "npm run test:smoke",
     "report:compare-live-mini-benchmark": "node scripts/compare-live-mini-benchmarks.cjs",
-    "test:live-mini-benchmark-comparison": "node scripts/compare-live-mini-benchmarks-smoke.cjs"
+    "test:live-mini-benchmark-comparison": "node scripts/compare-live-mini-benchmarks-smoke.cjs",
+    "test:dream-openai-server-syntax": "python3 -m py_compile scripts/dream-openai-server.py"
   },
   "workspaces": [
     "apps/*",
