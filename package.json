@@ -134,7 +134,9 @@
     "report:model-worker-live": "node dist/apps/cli/src/model-worker-runpod-live-smoke.js",
     "report:live-mini-benchmark": "node scripts/live-mini-benchmark.cjs",
     "test:live-mini-benchmark-parser": "node scripts/live-mini-benchmark-parser-smoke.cjs",
-    "test": "npm run test:smoke"
+    "test": "npm run test:smoke",
+    "report:compare-live-mini-benchmark": "node scripts/compare-live-mini-benchmarks.cjs",
+    "test:live-mini-benchmark-comparison": "node scripts/compare-live-mini-benchmarks-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
