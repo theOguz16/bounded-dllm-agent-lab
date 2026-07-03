@@ -196,3 +196,80 @@ Dream result: contract uyumsuzluğu tespit edildi
 Artifact üretimi: tamamlandı
 Sonraki adım: Dream contract fix + rerun
 ```
+
+
+---
+
+## Phase O.3 Rerun Sonucu — Parser Hardening Sonrası
+
+Phase O.2'de live benchmark parser'ı plain JSON, fenced JSON ve gömülü JSON cevaplarını daha iyi yakalayacak şekilde sertleştirildi. Ardından aynı Qwen + Dream 12-case benchmark RunPod üzerinde tekrar çalıştırıldı.
+
+## O.3 Özet Sonuç
+
+```text
+Benchmark status: completed
+expectationsOk: false
+Case count: 12
+Result count: 24
+```
+
+## O.3 Model Bazlı Sonuç
+
+| Model Slot | Model | Expected Match Rate | JSON Compliance Rate | Avg Latency | Decision Counts |
+| --- | --- | ---: | ---: | ---: | --- |
+| LLM | qwen2.5-coder-7b | 100% | 100% | 409 ms | approve: 4, needs_review: 5, reject: 3 |
+| dLLM/verifier | dream-coder-v0-instruct-7b | 8.33% | 8.33% | 82,774 ms | approve: 1, unknown: 11 |
+
+## O.1 ve O.3 Karşılaştırması
+
+| Model | Metric | O.1 | O.3 |
+| --- | --- | ---: | ---: |
+| Qwen | Expected Match Rate | 100% | 100% |
+| Qwen | JSON Compliance Rate | 100% | 100% |
+| Qwen | Avg Latency | 385 ms | 409 ms |
+| Dream | Expected Match Rate | 16.67% | 8.33% |
+| Dream | JSON Compliance Rate | 16.67% | 8.33% |
+| Dream | Unknown Decisions | 10 / 12 | 11 / 12 |
+| Dream | Avg Latency | 69,336 ms | 82,774 ms |
+
+## O.3 Yorumu
+
+Phase O.3 sonucu, Phase O.2 parser hardening değişikliğinin Qwen tarafında stabiliteyi bozmadığını gösterdi. Qwen yine 12/12 expected match ve 12/12 JSON compliance elde etti.
+
+Dream-Coder tarafında ise beklenen iyileşme görülmedi. Dream 12 case'in tamamını tamamladı fakat yalnızca 1 case'te parse edilebilir ve expected set ile uyumlu decision üretti. 11 case `unknown` kaldı.
+
+Bu nedenle güvenli çıkarım şudur:
+
+```text
+Dream-Coder'ın düşük benchmark uyumu yalnızca parser eksikliğinden kaynaklanmıyor. Mevcut Dream wrapper, prompt contract ve generation davranışı altında model çoğu case'te structured JSON decision üretmiyor.
+```
+
+Bu sonuç hâlâ şu anlama gelmez:
+
+```text
+Dream-Coder genel olarak başarısızdır.
+dLLM yaklaşımı başarısızdır.
+Qwen her açıdan Dream'den üstündür.
+```
+
+Daha doğru sonuç:
+
+```text
+Qwen2.5-Coder-7B mevcut bounded-agent decision contract'ına stabil şekilde uyuyor. Dream-Coder ise bu contract altında ölçülebilir verifier davranışı üretmek için wrapper-level veya generation-level iyileştirme gerektiriyor.
+```
+
+## Sonraki Teknik Adım
+
+Bir sonraki adım parser değil, Dream wrapper seviyesidir:
+
+```text
+Phase O.4 — Dream wrapper-level repair
+```
+
+O.4'te hedef:
+
+- Dream raw output örneklerini incelemek
+- Dream için daha kısa ve daha sert JSON-only prompt denemek
+- Gerekirse wrapper içinde post-processing veya retry stratejisi eklemek
+- Token usage alanlarını düzeltmek
+- Sadece Dream-focused mini rerun ile unknown oranını düşürmeye çalışmak
