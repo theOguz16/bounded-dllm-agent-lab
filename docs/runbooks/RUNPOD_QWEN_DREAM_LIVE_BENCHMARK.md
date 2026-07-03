@@ -153,7 +153,355 @@ Create `/tmp/dream_openai_server.py`:
 
 ```bash
 cat > /tmp/dream_openai_server.py <<'PY'
-import json\nimport os\nimport time\nfrom http.server import BaseHTTPRequestHandler, ThreadingHTTPServer\n\nimport torch\nfrom transformers import AutoModel, AutoTokenizer\n\n\nMODEL_PATH = os.environ.get("DREAM_SNAPSHOT", "/tmp/hf-cache/models--Dream-org--Dream-Coder-v0-Instruct-7B/snapshots/")\nMODEL_ID = os.environ.get("DREAM_MODEL_ID", "dream-coder-v0-instruct-7b")\nHOST = os.environ.get("DREAM_HOST", "0.0.0.0")\nPORT = int(os.environ.get("DREAM_PORT", "8002"))\nMAX_NEW_TOKENS = int(os.environ.get("DREAM_MAX_NEW_TOKENS", "128"))\nDEFAULT_STEPS = int(os.environ.get("DREAM_STEPS", str(MAX_NEW_TOKENS)))\nDEFAULT_TEMPERATURE = float(os.environ.get("DREAM_TEMPERATURE", "0"))\nDEFAULT_TOP_P = float(os.environ.get("DREAM_TOP_P", "0.95"))\nLOCAL_FILES_ONLY = os.environ.get("DREAM_LOCAL_FILES_ONLY", "1") != "0"\n\n\ndef clamp_int(value, default, minimum, maximum):\n    try:\n        parsed = int(value)\n    except Exception:\n        return default\n\n    return max(minimum, min(maximum, parsed))\n\n\ndef response(status, payload):\n    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")\n    return status, body, {\n        "Content-Type": "application/json; charset=utf-8",\n        "Content-Length": str(len(body)),\n    }\n\n\nprint(json.dumps({\n    "status": "loading",\n    "server": "dream-openai-compatible-server",\n    "model": MODEL_PATH,\n    "servedModel": MODEL_ID,\n    "port": PORT,\n    "cuda_available": torch.cuda.is_available(),\n    "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,\n    "local_files_only": LOCAL_FILES_ONLY,\n}, ensure_ascii=False), flush=True)\n\ntokenizer = AutoTokenizer.from_pretrained(\n    MODEL_PATH,\n    trust_remote_code=True,\n    local_files_only=LOCAL_FILES_ONLY,\n)\n\nmodel = AutoModel.from_pretrained(\n    MODEL_PATH,\n    trust_remote_code=True,\n    torch_dtype=torch.float16,\n    device_map="auto",\n    local_files_only=LOCAL_FILES_ONLY,\n)\n\nmodel.eval()\nMODEL_DEVICE = next(model.parameters()).device\n\nprint(json.dumps({\n    "status": "ready",\n    "server": "dream-openai-compatible-server",\n    "modelClass": model.__class__.__name__,\n    "hasDiffusionGenerate": hasattr(model, "diffusion_generate"),\n    "device": str(MODEL_DEVICE),\n    "memoryAllocatedGb": round(torch.cuda.memory_allocated() / 1024**3, 2) if torch.cuda.is_available() else 0,\n    "memoryReservedGb": round(torch.cuda.memory_reserved() / 1024**3, 2) if torch.cuda.is_available() else 0,\n}, ensure_ascii=False), flush=True)\n\n\ndef normalize_messages(messages):\n    normalized = []\n\n    for message in messages:\n        if not isinstance(message, dict):\n            continue\n\n        role = str(message.get("role", "user") or "user")\n        content = str(message.get("content", "") or "")\n\n        if role not in {"system", "user", "assistant"}:\n            role = "user"\n\n        normalized.append({"role": role, "content": content})\n\n    if not normalized:\n        normalized.append({"role": "user", "content": "Return exactly one JSON object with decision needs_review."})\n\n    return normalized\n\n\ndef add_json_contract_reminder(messages):\n    contract = (\n        "\\n\\nFinal output reminder:\\n"\n        "Return exactly one valid JSON object and nothing else.\\n"\n        "Do not use markdown fences.\\n"\n        "Do not write analysis prose.\\n"\n        "Required shape: {\\"decision\\":\\"approve|needs_review|reject\\",\\"reasoning\\":\\"short reason\\",\\"confidence\\":0.0}"\n    )\n\n    copied = [dict(message) for message in messages]\n\n    for index in range(len(copied) - 1, -1, -1):\n        if copied[index]["role"] == "user":\n            copied[index]["content"] += contract\n            return copied\n\n    copied.append({"role": "user", "content": contract.strip()})\n    return copied\n\n\ndef message_text(messages):\n    normalized = add_json_contract_reminder(normalize_messages(messages))\n\n    try:\n        return tokenizer.apply_chat_template(\n            normalized,\n            tokenize=False,\n            add_generation_prompt=True,\n        )\n    except Exception:\n        parts = []\n\n        for message in normalized:\n            role = message.get("role", "user")\n            content = message.get("content", "")\n            parts.append(f"<|{role}|>\\n{content}")\n\n        parts.append("<|assistant|>\\n")\n        return "\\n\\n".join(parts)\n\n\ndef extract_sequence(outputs):\n    if hasattr(outputs, "sequences"):\n        seq = outputs.sequences\n        return seq[0] if getattr(seq, "ndim", 1) > 1 else seq\n\n    if isinstance(outputs, torch.Tensor):\n        return outputs[0] if outputs.ndim > 1 else outputs\n\n    if isinstance(outputs, (tuple, list)) and outputs:\n        first = outputs[0]\n\n        if isinstance(first, torch.Tensor):\n            return first[0] if first.ndim > 1 else first\n\n    raise RuntimeError(f"Unsupported generation output type: {type(outputs)}")\n\n\ndef first_balanced_json_object(text):\n    source = str(text or "")\n\n    for start in [index for index, char in enumerate(source) if char == "{"]:\n        depth = 0\n        in_string = False\n        escaped = False\n\n        for index in range(start, len(source)):\n            char = source[index]\n\n            if in_string:\n                if escaped:\n                    escaped = False\n                elif char == "\\\\":\n                    escaped = True\n                elif char == \'"\':\n                    in_string = False\n                continue\n\n            if char == \'"\':\n                in_string = True\n            elif char == "{":\n                depth += 1\n            elif char == "}":\n                depth -= 1\n\n                if depth == 0:\n                    candidate = source[start:index + 1]\n\n                    try:\n                        parsed = json.loads(candidate)\n                    except Exception:\n                        break\n\n                    if isinstance(parsed, dict):\n                        return candidate\n\n    return None\n\n\ndef clean_model_text(text):\n    stripped = str(text or "").strip()\n    json_object = first_balanced_json_object(stripped)\n\n    if json_object:\n        return json_object\n\n    return stripped\n\n\ndef generate_completion(prompt, max_tokens, steps, temperature, top_p):\n    encoded = tokenizer(prompt, return_tensors="pt")\n    input_ids = encoded["input_ids"].to(MODEL_DEVICE)\n    attention_mask = encoded.get("attention_mask")\n\n    if attention_mask is not None:\n        attention_mask = attention_mask.to(MODEL_DEVICE)\n\n    prompt_tokens = int(input_ids.shape[-1])\n\n    with torch.inference_mode():\n        if hasattr(model, "diffusion_generate"):\n            try:\n                outputs = model.diffusion_generate(\n                    inputs=input_ids,\n                    attention_mask=attention_mask,\n                    max_new_tokens=max_tokens,\n                    steps=steps,\n                    temperature=temperature,\n                    top_p=top_p,\n                )\n            except TypeError:\n                outputs = model.diffusion_generate(\n                    inputs=input_ids,\n                    attention_mask=attention_mask,\n                    max_new_tokens=max_tokens,\n                    steps=steps,\n                )\n        else:\n            outputs = model.generate(\n                input_ids=input_ids,\n                attention_mask=attention_mask,\n                max_new_tokens=max_tokens,\n                do_sample=temperature > 0,\n                temperature=max(temperature, 1e-5),\n                top_p=top_p,\n            )\n\n    sequence = extract_sequence(outputs).detach().cpu()\n    generated = sequence[prompt_tokens:]\n    completion_tokens = int(generated.shape[-1])\n    text = tokenizer.decode(generated, skip_special_tokens=True).strip()\n\n    return clean_model_text(text), {\n        "prompt_tokens": prompt_tokens,\n        "completion_tokens": completion_tokens,\n        "total_tokens": prompt_tokens + completion_tokens,\n    }\n\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == "/healthz":\n            self.send_json(200, {"ok": True, "model": MODEL_ID})\n            return\n\n        if self.path == "/v1/models":\n            self.send_json(200, {\n                "object": "list",\n                "data": [\n                    {\n                        "id": MODEL_ID,\n                        "object": "model",\n                        "created": int(time.time()),\n                        "owned_by": "runpod",\n                    }\n                ],\n            })\n            return\n\n        self.send_json(404, {"error": "not_found"})\n\n    def do_POST(self):\n        if self.path != "/v1/chat/completions":\n            self.send_json(404, {"error": "not_found"})\n            return\n\n        started = time.time()\n        length = int(self.headers.get("Content-Length", "0"))\n\n        try:\n            payload = json.loads(self.rfile.read(length) or b"{}")\n            messages = payload.get("messages", [])\n\n            max_tokens = clamp_int(payload.get("max_tokens", MAX_NEW_TOKENS), MAX_NEW_TOKENS, 8, 256)\n            steps = clamp_int(payload.get("steps", DEFAULT_STEPS), DEFAULT_STEPS, 8, 256)\n            temperature = float(payload.get("temperature", DEFAULT_TEMPERATURE))\n            top_p = float(payload.get("top_p", DEFAULT_TOP_P))\n\n            prompt = message_text(messages)\n            text, usage = generate_completion(\n                prompt=prompt,\n                max_tokens=max_tokens,\n                steps=steps,\n                temperature=temperature,\n                top_p=top_p,\n            )\n\n            self.send_json(200, {\n                "id": f"chatcmpl-dream-{int(time.time())}",\n                "object": "chat.completion",\n                "created": int(time.time()),\n                "model": payload.get("model", MODEL_ID),\n                "choices": [\n                    {\n                        "index": 0,\n                        "message": {"role": "assistant", "content": text},\n                        "finish_reason": "stop",\n                    }\n                ],\n                "usage": usage,\n                "timings": {\n                    "latency_ms": round((time.time() - started) * 1000),\n                },\n            })\n\n        except Exception as error:\n            self.send_json(500, {\n                "error": {\n                    "message": str(error),\n                    "type": error.__class__.__name__,\n                }\n            })\n\n    def send_json(self, status, payload):\n        status, body, headers = response(status, payload)\n        self.send_response(status)\n\n        for key, value in headers.items():\n            self.send_header(key, value)\n\n        self.end_headers()\n        self.wfile.write(body)\n\n    def log_message(self, fmt, *args):\n        print("%s - %s" % (self.address_string(), fmt % args), flush=True)\n\n\nif __name__ == "__main__":\n    server = ThreadingHTTPServer((HOST, PORT), Handler)\n    print(f"Dream OpenAI-compatible server listening on {HOST}:{PORT}", flush=True)\n    server.serve_forever()\n
+import json
+import os
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import torch
+from transformers import AutoModel, AutoTokenizer
+
+
+MODEL_PATH = os.environ.get("DREAM_SNAPSHOT", "/tmp/hf-cache/models--Dream-org--Dream-Coder-v0-Instruct-7B/snapshots/")
+MODEL_ID = os.environ.get("DREAM_MODEL_ID", "dream-coder-v0-instruct-7b")
+HOST = os.environ.get("DREAM_HOST", "0.0.0.0")
+PORT = int(os.environ.get("DREAM_PORT", "8002"))
+MAX_NEW_TOKENS = int(os.environ.get("DREAM_MAX_NEW_TOKENS", "128"))
+DEFAULT_STEPS = int(os.environ.get("DREAM_STEPS", str(MAX_NEW_TOKENS)))
+DEFAULT_TEMPERATURE = float(os.environ.get("DREAM_TEMPERATURE", "0"))
+DEFAULT_TOP_P = float(os.environ.get("DREAM_TOP_P", "0.95"))
+LOCAL_FILES_ONLY = os.environ.get("DREAM_LOCAL_FILES_ONLY", "1") != "0"
+
+
+def clamp_int(value, default, minimum, maximum):
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+
+    return max(minimum, min(maximum, parsed))
+
+
+def response(status, payload):
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    return status, body, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Length": str(len(body)),
+    }
+
+
+print(json.dumps({
+    "status": "loading",
+    "server": "dream-openai-compatible-server",
+    "model": MODEL_PATH,
+    "servedModel": MODEL_ID,
+    "port": PORT,
+    "cuda_available": torch.cuda.is_available(),
+    "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+    "local_files_only": LOCAL_FILES_ONLY,
+}, ensure_ascii=False), flush=True)
+
+tokenizer = AutoTokenizer.from_pretrained(
+    MODEL_PATH,
+    trust_remote_code=True,
+    local_files_only=LOCAL_FILES_ONLY,
+)
+
+model = AutoModel.from_pretrained(
+    MODEL_PATH,
+    trust_remote_code=True,
+    torch_dtype=torch.float16,
+    device_map="auto",
+    local_files_only=LOCAL_FILES_ONLY,
+)
+
+model.eval()
+MODEL_DEVICE = next(model.parameters()).device
+
+print(json.dumps({
+    "status": "ready",
+    "server": "dream-openai-compatible-server",
+    "modelClass": model.__class__.__name__,
+    "hasDiffusionGenerate": hasattr(model, "diffusion_generate"),
+    "device": str(MODEL_DEVICE),
+    "memoryAllocatedGb": round(torch.cuda.memory_allocated() / 1024**3, 2) if torch.cuda.is_available() else 0,
+    "memoryReservedGb": round(torch.cuda.memory_reserved() / 1024**3, 2) if torch.cuda.is_available() else 0,
+}, ensure_ascii=False), flush=True)
+
+
+def normalize_messages(messages):
+    normalized = []
+
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+
+        role = str(message.get("role", "user") or "user")
+        content = str(message.get("content", "") or "")
+
+        if role not in {"system", "user", "assistant"}:
+            role = "user"
+
+        normalized.append({"role": role, "content": content})
+
+    if not normalized:
+        normalized.append({"role": "user", "content": "Return exactly one JSON object with decision needs_review."})
+
+    return normalized
+
+
+def add_json_contract_reminder(messages):
+    contract = (
+        "\n\nFinal output reminder:\n"
+        "Return exactly one valid JSON object and nothing else.\n"
+        "Do not use markdown fences.\n"
+        "Do not write analysis prose.\n"
+        "Required shape: {\"decision\":\"approve|needs_review|reject\",\"reasoning\":\"short reason\",\"confidence\":0.0}"
+    )
+
+    copied = [dict(message) for message in messages]
+
+    for index in range(len(copied) - 1, -1, -1):
+        if copied[index]["role"] == "user":
+            copied[index]["content"] += contract
+            return copied
+
+    copied.append({"role": "user", "content": contract.strip()})
+    return copied
+
+
+def message_text(messages):
+    normalized = add_json_contract_reminder(normalize_messages(messages))
+
+    try:
+        return tokenizer.apply_chat_template(
+            normalized,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    except Exception:
+        parts = []
+
+        for message in normalized:
+            role = message.get("role", "user")
+            content = message.get("content", "")
+            parts.append(f"<|{role}|>\n{content}")
+
+        parts.append("<|assistant|>\n")
+        return "\n\n".join(parts)
+
+
+def extract_sequence(outputs):
+    if hasattr(outputs, "sequences"):
+        seq = outputs.sequences
+        return seq[0] if getattr(seq, "ndim", 1) > 1 else seq
+
+    if isinstance(outputs, torch.Tensor):
+        return outputs[0] if outputs.ndim > 1 else outputs
+
+    if isinstance(outputs, (tuple, list)) and outputs:
+        first = outputs[0]
+
+        if isinstance(first, torch.Tensor):
+            return first[0] if first.ndim > 1 else first
+
+    raise RuntimeError(f"Unsupported generation output type: {type(outputs)}")
+
+
+def first_balanced_json_object(text):
+    source = str(text or "")
+
+    for start in [index for index, char in enumerate(source) if char == "{"]:
+        depth = 0
+        in_string = False
+        escaped = False
+
+        for index in range(start, len(source)):
+            char = source[index]
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+
+                if depth == 0:
+                    candidate = source[start:index + 1]
+
+                    try:
+                        parsed = json.loads(candidate)
+                    except Exception:
+                        break
+
+                    if isinstance(parsed, dict):
+                        return candidate
+
+    return None
+
+
+def clean_model_text(text):
+    stripped = str(text or "").strip()
+    json_object = first_balanced_json_object(stripped)
+
+    if json_object:
+        return json_object
+
+    return stripped
+
+
+def generate_completion(prompt, max_tokens, steps, temperature, top_p):
+    encoded = tokenizer(prompt, return_tensors="pt")
+    input_ids = encoded["input_ids"].to(MODEL_DEVICE)
+    attention_mask = encoded.get("attention_mask")
+
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(MODEL_DEVICE)
+
+    prompt_tokens = int(input_ids.shape[-1])
+
+    with torch.inference_mode():
+        if hasattr(model, "diffusion_generate"):
+            try:
+                outputs = model.diffusion_generate(
+                    inputs=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_tokens,
+                    steps=steps,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
+            except TypeError:
+                outputs = model.diffusion_generate(
+                    inputs=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_tokens,
+                    steps=steps,
+                )
+        else:
+            outputs = model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_tokens,
+                do_sample=temperature > 0,
+                temperature=max(temperature, 1e-5),
+                top_p=top_p,
+            )
+
+    sequence = extract_sequence(outputs).detach().cpu()
+    generated = sequence[prompt_tokens:]
+    completion_tokens = int(generated.shape[-1])
+    text = tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+    return clean_model_text(text), {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/healthz":
+            self.send_json(200, {"ok": True, "model": MODEL_ID})
+            return
+
+        if self.path == "/v1/models":
+            self.send_json(200, {
+                "object": "list",
+                "data": [
+                    {
+                        "id": MODEL_ID,
+                        "object": "model",
+                        "created": int(time.time()),
+                        "owned_by": "runpod",
+                    }
+                ],
+            })
+            return
+
+        self.send_json(404, {"error": "not_found"})
+
+    def do_POST(self):
+        if self.path != "/v1/chat/completions":
+            self.send_json(404, {"error": "not_found"})
+            return
+
+        started = time.time()
+        length = int(self.headers.get("Content-Length", "0"))
+
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+            messages = payload.get("messages", [])
+
+            max_tokens = clamp_int(payload.get("max_tokens", MAX_NEW_TOKENS), MAX_NEW_TOKENS, 8, 256)
+            steps = clamp_int(payload.get("steps", DEFAULT_STEPS), DEFAULT_STEPS, 8, 256)
+            temperature = float(payload.get("temperature", DEFAULT_TEMPERATURE))
+            top_p = float(payload.get("top_p", DEFAULT_TOP_P))
+
+            prompt = message_text(messages)
+            text, usage = generate_completion(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                steps=steps,
+                temperature=temperature,
+                top_p=top_p,
+            )
+
+            self.send_json(200, {
+                "id": f"chatcmpl-dream-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": payload.get("model", MODEL_ID),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": text},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": usage,
+                "timings": {
+                    "latency_ms": round((time.time() - started) * 1000),
+                },
+            })
+
+        except Exception as error:
+            self.send_json(500, {
+                "error": {
+                    "message": str(error),
+                    "type": error.__class__.__name__,
+                }
+            })
+
+    def send_json(self, status, payload):
+        status, body, headers = response(status, payload)
+        self.send_response(status)
+
+        for key, value in headers.items():
+            self.send_header(key, value)
+
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        print("%s - %s" % (self.address_string(), fmt % args), flush=True)
+
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"Dream OpenAI-compatible server listening on {HOST}:{PORT}", flush=True)
+    server.serve_forever()
+
 PY
 ```
 
