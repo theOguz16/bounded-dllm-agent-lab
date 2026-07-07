@@ -1,3 +1,4 @@
+export * from "./model-mutation-validator.js";
 export * from "./workspace-mutation.js";
 
 export type ReviewDecision =
