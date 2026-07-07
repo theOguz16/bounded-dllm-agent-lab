@@ -365,3 +365,30 @@ Phase O.6 — Dream output-contract repair probe
 ```
 
 O.6'nın hedefi benchmark parser'ı değiştirmek değil, Dream'in structured JSON decision üretmesini sağlayacak minimal ve dürüst bir generation-control yaklaşımı denemektir.
+
+
+## Phase O.8 — Compact Payload Clean Rerun
+
+O.8 deneyinde verifier prompt'u korunurken user payload formatı daha kompakt metin tabanlı hale getirildi. Amaç, Dream'in büyük JSON input'u kopyalama davranışını azaltmak ve output contract uyumunu artırmaktı.
+
+Temiz O.8 koşusunda Qwen tarafı tekrar stabil kaldı:
+
+- Completed: 12/12
+- Expected match: 12/12
+- JSON compliance: 12/12
+- Average latency: 350 ms
+
+Dream tarafında ise kompakt payload güvenilir bir iyileştirme sağlamadı:
+
+- Completed: 12/12
+- Expected match: 2/12
+- JSON compliance: 2/12
+- Unknown: 10/12
+- Average latency: 25.38 s
+
+Bu sonuç, problemin yalnızca input formatından kaynaklanmadığını gösteriyor. Dream çoğu case'te hâlâ `To determine...`, `In the context...` gibi prose çıktılarla başlıyor ve istenen JSON output contract'ını takip edemiyor.
+
+O.8 sonucu bu yüzden pozitif bir iyileştirme değil, negatif/kararsız deney sonucu olarak değerlendirildi. Qwen aynı koşulda 12/12 stabil kalırken Dream'in düşük kalması, bu verifier görevinde Dream'in output-contract adherence tarafının zayıf olduğunu gösteriyor.
+
+Sonraki adım olarak O.9'da format-following ile decision-quality ayrıştırılmalıdır. Bunun için Dream'den tam JSON yerine yalnızca tek karar token'ı (`approve`, `needs_review`, `reject`) istenen ayrı bir diagnostic mode eklenmesi önerilir.
+
