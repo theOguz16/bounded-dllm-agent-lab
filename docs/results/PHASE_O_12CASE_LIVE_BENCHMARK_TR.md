@@ -273,3 +273,95 @@ O.4'te hedef:
 - Gerekirse wrapper içinde post-processing veya retry stratejisi eklemek
 - Token usage alanlarını düzeltmek
 - Sadece Dream-focused mini rerun ile unknown oranını düşürmeye çalışmak
+---
+
+## Phase O.5 Rerun Sonucu — Repaired Dream Wrapper Sonrası
+
+Phase O.5'te, Phase O.4'te düzeltilen Dream wrapper ile aynı 12-case Qwen + Dream live benchmark tekrar çalıştırıldı.
+
+Bu rerun'un amacı model kalitesini genel olarak ölçmek değil, şu üç teknik soruya cevap vermekti:
+
+```text
+1. Dream token usage artık 0 olmaktan çıktı mı?
+2. Dream latency düştü mü?
+3. Dream structured JSON decision contract'a daha iyi uydu mu?
+```
+
+## O.5 Özet Sonuç
+
+```text
+Benchmark status: completed
+expectationsOk: false
+Case count: 12
+Result count: 24
+```
+
+## O.5 Model Bazlı Sonuç
+
+| Model Slot | Model | Expected Match Rate | JSON Compliance Rate | Avg Latency | Avg Total Tokens | Decision Counts |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| LLM | qwen2.5-coder-7b | 100% | 100% | 385 ms | 405 | approve: 4, needs_review: 5, reject: 3 |
+| dLLM/verifier | dream-coder-v0-instruct-7b | 8.33% | 8.33% | 19,066 ms | 537 | unknown: 11, needs_review: 1 |
+
+## O.3 ve O.5 Karşılaştırması
+
+| Model | Metric | O.3 | O.5 | Yorum |
+| --- | --- | ---: | ---: | --- |
+| Qwen | Expected Match Rate | 100% | 100% | Stabil kaldı |
+| Qwen | JSON Compliance Rate | 100% | 100% | Stabil kaldı |
+| Qwen | Avg Latency | 409 ms | 385 ms | Benzer / hafif daha iyi |
+| Qwen | Avg Total Tokens | 406 | 405 | Neredeyse aynı |
+| Dream | Expected Match Rate | 8.33% | 8.33% | Düzelmedi |
+| Dream | JSON Compliance Rate | 8.33% | 8.33% | Düzelmedi |
+| Dream | Unknown Decisions | 11 / 12 | 11 / 12 | Düzelmedi |
+| Dream | Avg Latency | 82,774 ms | 19,066 ms | Belirgin iyileşti |
+| Dream | Avg Total Tokens | 0 | 537 | Token accounting düzeldi |
+
+## O.5 Yorumu
+
+Phase O.5 sonucu, Phase O.4 Dream wrapper repair değişikliğinin iki konuda işe yaradığını gösterdi:
+
+```text
+1. Dream artık prompt/completion/total token usage alanlarını 0 yerine gerçek değerlerle döndürüyor.
+2. Dream ortalama latency yaklaşık 82.7 saniyeden 19.1 saniyeye düştü.
+```
+
+Ancak structured decision davranışı düzelmedi:
+
+```text
+Dream JSON compliance 8.33% seviyesinde kaldı.
+Dream expected match rate 8.33% seviyesinde kaldı.
+Dream 12 case'in 11'inde unknown/unparseable decision üretti.
+```
+
+Bu nedenle O.5'in güvenli çıkarımı şudur:
+
+```text
+O.4 wrapper repair, Dream endpoint davranışını ölçülebilir ve daha hızlı hale getirdi; fakat Dream'in JSON-only bounded verifier contract'a uyum problemini çözmedi.
+```
+
+Bu sonuç şunu destekler:
+
+```text
+Bir sonraki teknik çalışma parser hardening değil, Dream output-contract / generation-control tarafında olmalıdır.
+```
+
+## O.5 Sonrası Teknik Karar
+
+Phase O.5'ten sonra iki yol var:
+
+```text
+Yol A — Dream'i current verifier contract altında bırakmak:
+Dream düşük JSON compliance nedeniyle ana karşılaştırmalı verifier olarak kullanılmaz; sadece negative/diagnostic baseline olarak raporlanır.
+
+Yol B — Dream için output-contract repair deneyi yapmak:
+Dream'e özel daha kısa prompt, retry, constrained wrapper veya post-hoc JSON extraction stratejileri denenir.
+```
+
+Araştırma açısından en doğru sonraki adım:
+
+```text
+Phase O.6 — Dream output-contract repair probe
+```
+
+O.6'nın hedefi benchmark parser'ı değiştirmek değil, Dream'in structured JSON decision üretmesini sağlayacak minimal ve dürüst bir generation-control yaklaşımı denemektir.
