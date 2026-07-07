@@ -392,3 +392,39 @@ O.8 sonucu bu yüzden pozitif bir iyileştirme değil, negatif/kararsız deney s
 
 Sonraki adım olarak O.9'da format-following ile decision-quality ayrıştırılmalıdır. Bunun için Dream'den tam JSON yerine yalnızca tek karar token'ı (`approve`, `needs_review`, `reject`) istenen ayrı bir diagnostic mode eklenmesi önerilir.
 
+
+## Phase O.9 — Decision Token Diagnostic Benchmark
+
+O.9 deneyinde format-following problemi ile decision-quality problemi ayrıştırıldı. Bu benchmark'ta modellerden tam JSON nesnesi üretmeleri istenmedi; yalnızca tek karar token'ı üretmeleri istendi:
+
+- `approve`
+- `needs_review`
+- `reject`
+
+Script daha sonra bu token'ı parse ederek karar kalitesini ölçtü. Böylece JSON üretme zorluğu benchmark'tan çıkarıldı.
+
+Qwen sonuçları:
+
+- Completed: 12/12
+- Parsed decision: 12/12
+- Expected match: 12/12
+- Token compliance: 12/12
+- Average latency: 71.08 ms
+- Average completion tokens: 2.42
+
+Dream sonuçları:
+
+- Completed: 12/12
+- Parsed decision: 0/12
+- Expected match: 0/12
+- Token compliance: 0/12
+- Unknown: 12/12
+- Average latency: 12.74 s
+- Average completion tokens: 16
+
+Bu sonuç, Dream tarafındaki problemin yalnızca JSON output contract uyumsuzluğu olmadığını gösterdi. Format yükü minimuma indirildiğinde bile Dream çoğu çıktıda `To evaluate...`, `To determine...`, `Let's analyze...` gibi açıklama/prose üretmeye devam etti ve tek karar token'ı üretemedi.
+
+Bu nedenle O.9 sonucuna göre Dream'in bu bounded verifier görevinde hem output-contract adherence hem de constrained decision-token following açısından zayıf kaldığı değerlendirildi. Qwen ise aynı koşulda hem format hem karar kalitesi açısından 12/12 stabil kaldı.
+
+O.9, çalışmanın ana çıkarımını güçlendirmektedir: Bu görevde Qwen tabanlı LLM verifier pratik olarak kullanılabilir davranış gösterirken, Dream-Coder v0 Instruct 7B mevcut wrapper ve prompt rejimiyle güvenilir bounded verifier olarak kullanılamamaktadır.
+
