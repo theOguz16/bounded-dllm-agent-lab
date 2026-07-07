@@ -1,4 +1,9 @@
 const assert = require("assert");
+function run(name, fn) {
+  fn();
+  console.log(`[ok] ${name}`);
+}
+
 
 const {
   normalizeDecision,
