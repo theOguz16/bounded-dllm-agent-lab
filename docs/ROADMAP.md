@@ -38,21 +38,17 @@ Bounded-context shared-workspace agent orchestration runtime.
 
 ## Güncel Durum Snapshot
 
-Proje artık yalnızca policy/verifier veya PR review katmanından ibaret değildir. Phase M ve Phase N sonrasında şu noktaya gelmiştir:
+Proje artık yalnızca policy/verifier veya PR review katmanından ibaret değildir. Şu noktaya gelmiştir:
 
 ```text
 Deterministic bounded runtime çekirdeği doğrulandı.
+Shared semantic workspace, bounded role context, orchestrator, remask ve safety flow çalışıyor.
 Model-worker proxy ve live acceptance hattı eklendi.
 Qwen + Dream RunPod live acceptance çalıştı.
-Live mini benchmark runner 12 case’e çıkarıldı.
+12-case live benchmark runner hazırlandı.
 Phase N ile reproducibility ve dokümantasyon tamamlandı.
-```
-
-Sıradaki ana hedef artık yalnızca altyapı kurmak değildir. Sıradaki hedef:
-
-```text
-Kurulan live benchmark yüzeyinden daha güçlü kanıt üretmek
-ve gerçek model worker çıktısını shared workspace orchestrator flow’a bağlamak.
+Phase O ile live evidence güçlendirildi.
+Qwen ve Dream davranışı 12-case JSON, compact payload ve decision-token modlarında test edildi.
 ```
 
 Şu an savunulabilir güncel durum:
@@ -61,15 +57,21 @@ ve gerçek model worker çıktısını shared workspace orchestrator flow’a ba
 Mock/deterministic bounded runtime çekirdeği doğrulandı.
 Live model-worker benchmark yüzeyi doğrulandı.
 Qwen + Dream canlı acceptance çalıştı.
-12-case live benchmark runner hazır.
-RunPod runbook, .env.example, results ve final report eklendi.
+12-case live benchmark runner kullanıldı.
+Phase O.5-O.9 ile Qwen/Dream karşılaştırmalı evidence üretildi.
+Qwen2.5-Coder 7B, bounded verifier-style benchmarklarda stabil ana worker adayı olarak öne çıktı.
+Dream-Coder v0 Instruct 7B, mevcut wrapper ve prompt rejiminde güvenilir verifier/decision worker olarak kullanılamadı.
 ```
 
-Ancak bu, “dLLM daha güvenlidir” veya “Dream Qwen’den üstündür” anlamına gelmez. Şu anki güvenli yorum şudur:
+Bu, “Qwen her alanda üstündür” veya “dLLM yaklaşımı değersizdir” anlamına gelmez. Güvenli yorum şudur:
 
 ```text
-İlk bulgular, Dream-Coder’ın bazı verifier-style görevlerde daha temkinli davranış gösterebildiğini; Qwen’in ise canlı deneyde daha hızlı ve format uyumlu göründüğünü göstermektedir.
-Daha güçlü sonuç için 12-case live run, tekrarlı deneyler ve farklı model karşılaştırmaları gerekir.
+Bu görev ailesinde ve mevcut wrapper/prompt rejiminde Qwen2.5-Coder 7B,
+format uyumu, karar token üretimi ve latency açısından pratik worker adayıdır.
+
+Dream-Coder v0 Instruct 7B ise mevcut haliyle bounded verifier veya decision-token worker olarak güvenilir davranmamıştır.
+dLLM-style modeller ileride masked repair, local refinement veya remask planner rollerinde tekrar araştırılabilir;
+ancak ilk ürün dependency’si olmamalıdır.
 ```
 
 ---
@@ -98,6 +100,8 @@ Hangi bilgi stale?
 Hangi karar güncel?
 Ne zaman insan review gerekir?
 Ne zaman lokal repair yeterlidir?
+Model output’u workspace’e ne şekilde yazılabilir?
+Geçersiz model output’u runtime’ı kırmadan nasıl engellenir?
 ```
 
 Kurumsal yazılım ekiplerinde bu problem daha da büyür. Bir ekip billing modülünden, başka ekip auth modülünden, başka ekip mobile yüzeyden sorumlu olabilir. Coding agent’ın bütün projeyi görmesi, bütün projeye dokunabileceği anlamına gelmemelidir.
@@ -199,7 +203,43 @@ Kurumsal yazılım ekiplerinde bu özellikle önemlidir. Çünkü agent’ın b�
 
 ---
 
-### 5. Remask Default Değil, Verifier-Triggered Olmalı
+### 5. Model Output’u Direkt Gerçeklik Değildir
+
+Phase P ile birlikte yeni kritik prensip şudur:
+
+```text
+Model output’u doğrudan runtime state değildir.
+Model output’u önce doğrulanmış workspace mutation’a çevrilmelidir.
+```
+
+Yani modelin cevabı doğrudan:
+
+```text
+final decision
+patch
+merge approval
+policy override
+```
+
+haline gelmemelidir.
+
+Önce şu katmandan geçmelidir:
+
+```text
+model response
+  -> parse
+  -> schema validation
+  -> role write boundary validation
+  -> scope validation
+  -> workspace mutation
+  -> verifier/remask/merge flow
+```
+
+Bu sayede model hatası runtime hatasına dönüşmez.
+
+---
+
+### 6. Remask Default Değil, Verifier-Triggered Olmalı
 
 Remask her zaman ikinci pass olarak çalışmamalıdır. Aksi halde maliyet artar ve gereksiz repair döngüleri oluşur.
 
@@ -235,6 +275,8 @@ User Task / Ticket / PR / Issue
       -> Boundary Verifier Agent
       -> Tester Agent
       -> Remask Repair Agent
+  -> Model Output Parser
+  -> Workspace Mutation Validator
   -> Conflict-Aware Merge
   -> Decision
       approve | refuse | reject | remask_required | human_review_required
@@ -262,7 +304,8 @@ Bu ürün şu değildir:
 * sadece “X model planlasın, Y model kodlasın” sistemi,
 * Cursor/Codex/Windsurf yerine birebir IDE,
 * tüm kararları LLM’e bırakan otomatik yazılım mühendisi,
-* sınırsız memory veya sınırsız context sistemi.
+* sınırsız memory veya sınırsız context sistemi,
+* “dLLM daha güvenlidir” iddiasını ispatlamış bir sistem.
 
 PR review ve GitHub Action yüzeyi yalnızca ilk pratik kullanım alanlarından biridir. Ürünün çekirdeği bundan daha geneldir:
 
@@ -335,7 +378,7 @@ Bu sonuç ürünün son hali anlamına gelmez. Ancak verifier/policy katmanını
 
 ---
 
-## Live Model Worker ve Phase N Durumu
+## Live Model Worker ve Phase N/O Durumu
 
 Phase M ve Phase N sonrasında proje, yalnızca deterministic mock runtime ile sınırlı değildir. Live model-worker yüzeyi de kurulmuştur.
 
@@ -368,13 +411,159 @@ LLM slot  -> Qwen2.5-Coder-7B
 dLLM slot -> Dream-Coder-v0-Instruct-7B
 ```
 
-Güvenli yorum:
+Phase O ile bu yüzey daha güçlü evidence üretmek için kullanılmıştır.
+
+---
+
+## Phase O Final Sonuçları
+
+Phase O’nun amacı yeni altyapı kurmak değil, Phase N’de kurulan 12-case live benchmark yüzeyinden daha güçlü kanıt üretmekti.
+
+### Phase O.5 — Live 12-Case Benchmark Baseline
 
 ```text
-Qwen canlı deneyde daha hızlı ve format uyumlu göründü.
-Dream-Coder bazı verifier-style görevlerde daha temkinli davranış sinyali verdi.
-Bu sonuçlar erken gözlemdir; kesin model üstünlüğü veya genel güvenlik iddiası değildir.
+Qwen:
+- Expected match: 12/12
+- JSON compliance: 12/12
+
+Dream:
+- Expected match: 1/12
+- JSON compliance: 1/12
+- Unknown: 11/12
 ```
+
+Yorum:
+
+```text
+Qwen live verifier benchmark’ta hızlı, stabil ve format uyumlu davrandı.
+Dream wrapper çalıştı fakat çıktı formatı ve karar üretimi büyük ölçüde başarısız kaldı.
+```
+
+---
+
+### Phase O.7 — Strict Output Contract
+
+Prompt daha sıkı JSON contract ile güncellendi.
+
+```text
+Qwen:
+- Expected match: 12/12
+- JSON compliance: 12/12
+
+Dream:
+- Expected match: 3/12
+- JSON compliance: 3/12
+- Unknown: 9/12
+```
+
+Yorum:
+
+```text
+Strict contract Dream tarafında kısmi iyileşme sağladı.
+Ancak Dream hâlâ güvenilir verifier davranışı göstermedi.
+```
+
+---
+
+### Phase O.8 — Compact Payload Clean Rerun
+
+User payload büyük JSON yerine compact text formatına çekildi.
+
+Temiz koşu sonucu:
+
+```text
+Qwen:
+- Expected match: 12/12
+- JSON compliance: 12/12
+
+Dream:
+- Expected match: 2/12
+- JSON compliance: 2/12
+- Unknown: 10/12
+```
+
+Yorum:
+
+```text
+Compact payload güvenilir bir iyileştirme sağlamadı.
+Dream’in problemi sadece input JSON kopyalama davranışı değil;
+model hâlâ çoğu case’te prose üretmeye devam etti.
+```
+
+---
+
+### Phase O.9 — Decision Token Diagnostic Benchmark
+
+Bu deneyde modellerden JSON istenmedi. Sadece tek karar token’ı istendi:
+
+```text
+approve
+needs_review
+reject
+```
+
+Sonuç:
+
+```text
+Qwen:
+- Parsed decision: 12/12
+- Expected match: 12/12
+- Token compliance: 12/12
+- Avg latency: ~71 ms
+
+Dream:
+- Parsed decision: 0/12
+- Expected match: 0/12
+- Token compliance: 0/12
+- Unknown: 12/12
+- Avg latency: ~12.74 s
+```
+
+Yorum:
+
+```text
+O.9, Dream tarafındaki problemin yalnızca JSON output contract olmadığını gösterdi.
+Format yükü minimuma indirildiğinde bile Dream tek karar token’ı üretemedi.
+Qwen ise aynı koşulda 12/12 stabil kaldı.
+```
+
+---
+
+## Phase O’dan Çıkan Ürün Kararı
+
+Phase O sonrası kısa vadeli ürün stratejisi şudur:
+
+```text
+Default live model worker:
+Qwen2.5-Coder 7B
+
+Verifier/safety:
+deterministic verifier + policy engine
+
+Remask:
+verifier-triggered, lokal ve kontrollü
+
+Dream:
+research-only baseline;
+ilk ürün dependency’si değil
+```
+
+Bu nedenle kısa vadeli mimari:
+
+```text
+Qwen-backed planner/coder
+  + deterministic verifier
+  + bounded workspace
+  + verifier-triggered remask
+  + workspace mutation validation
+```
+
+dLLM/dLLM-style modeller tamamen bırakılmamıştır. Fakat ilk ürün akışında ana bağımlılık değildir. İleride şu roller için tekrar araştırılabilir:
+
+* masked local repair,
+* remask planner,
+* failed-region refinement,
+* verifier signal augmentation.
 
 ---
 
@@ -384,16 +573,17 @@ MVP-5 ile MVP-10 arasında ürün, pratik doğrulama ihtiyacı nedeniyle PR revi
 
 Fakat bundan sonra şu ayrım net tutulmalıdır:
 
-| Katman                      | Konum                                       |
-| --------------------------- | ------------------------------------------- |
-| PR reviewer / GitHub Action | İlk entegrasyon yüzeyi                      |
-| Policy engine               | Boundary ve authority kontrol katmanı       |
-| Verifier                    | Güvenlik/doğrulama sinir sistemi            |
-| Mixed validation            | Ürünün ölçüm laboratuvarı                   |
-| Shared workspace            | Ana ürün omurgası                           |
-| Bounded working memory      | Agent context ekonomisi                     |
-| Agent orchestrator          | Ürünün merkezi runtime katmanı              |
-| Live model-worker benchmark | Gerçek model davranışını ölçen deney yüzeyi |
+| Katman                       | Konum                                       |
+| ---------------------------- | ------------------------------------------- |
+| PR reviewer / GitHub Action  | İlk entegrasyon yüzeyi                      |
+| Policy engine                | Boundary ve authority kontrol katmanı       |
+| Verifier                     | Güvenlik/doğrulama sinir sistemi            |
+| Mixed validation             | Ürünün ölçüm laboratuvarı                   |
+| Shared workspace             | Ana ürün omurgası                           |
+| Bounded working memory       | Agent context ekonomisi                     |
+| Agent orchestrator           | Ürünün merkezi runtime katmanı              |
+| Live model-worker benchmark  | Gerçek model davranışını ölçen deney yüzeyi |
+| Workspace mutation validator | Model-backed flow güvenlik kapısı           |
 
 Yani mevcut PR review çalışmaları korunacak, fakat ürünün merkezi PR review değil, workspace tabanlı agent orchestration olacak.
 
@@ -538,7 +728,68 @@ plan
 
 ---
 
-### 6. Conflict-Aware Merge
+### 6. Model Worker Adapter
+
+Phase P ile aktif hale gelecek yeni modül budur.
+
+Görevi:
+
+* OpenAI-compatible worker endpoint’e istek atmak,
+* role-specific prompt/context göndermek,
+* model output’unu almak,
+* latency/token/error bilgisini trace’e eklemek,
+* raw model output’u doğrudan workspace’e yazmamak,
+* output’u mutation validator’a göndermek.
+
+İlk desteklenecek model:
+
+```text
+Qwen2.5-Coder 7B
+```
+
+Dream-Coder bu fazda default worker değildir.
+
+---
+
+### 7. Workspace Mutation Validator
+
+Model-backed orchestration için güvenlik kapısıdır.
+
+Model response şu formatta normalize edilmelidir:
+
+```ts
+type ModelRole = "planner" | "coder" | "verifier" | "remask";
+
+type WorkspaceMutation = {
+  role: ModelRole;
+  target: "plan" | "patchDraft" | "verifierFinding" | "remaskRequest" | "repairDraft";
+  summary: string;
+  claims: unknown[];
+  touchedFiles: string[];
+  confidence?: number;
+};
+```
+
+Validation kuralları:
+
+* invalid JSON bloklanır,
+* eksik required field bloklanır,
+* role dışı write target bloklanır,
+* allowed scope dışı touched file bloklanır,
+* forbidden file varsa mutation bloklanır,
+* unsafe content varsa safety finding üretilir,
+* timeout/model error trace’e güvenli failure olarak yazılır.
+
+Prensip:
+
+```text
+Model output geçersizse runtime çökmez.
+Workspace’e güvenli failed mutation attempt olarak yazılır.
+```
+
+---
+
+### 8. Conflict-Aware Merge
 
 Birden fazla agent workspace’e claim veya patch proposal yazdığında merge katmanı şunları kontrol etmelidir:
 
@@ -553,7 +804,7 @@ Bu modül, “aynı workspace üstünde birbirini ezmeden çalışan agent’lar
 
 ---
 
-### 7. Verifier ve Policy Engine
+### 9. Verifier ve Policy Engine
 
 Mevcut verifier/policy engine korunacak ama yeni mimaride konumu netleşecek.
 
@@ -569,7 +820,7 @@ Bu modül ürünün tamamı değil, agent orchestration runtime’ın kontrol ka
 
 ---
 
-### 8. Remask Engine
+### 10. Remask Engine
 
 Remask Engine’in görevi patch’i baştan üretmek değildir.
 
@@ -588,9 +839,11 @@ Başarı metrikleri:
 * extra file touch rate,
 * cost delta.
 
+Phase P’nin ilk MVP’sinde remask model-backed olmak zorunda değildir. Önce deterministic remask simulation korunacak; model-backed remask daha sonra açılacaktır.
+
 ---
 
-### 9. Cost ve Token Controller
+### 11. Cost ve Token Controller
 
 Ürün vizyonunun önemli iddialarından biri daha düşük context maliyetidir. Bu nedenle runtime her agent çağrısı için şunları ölçmelidir:
 
@@ -600,13 +853,15 @@ Başarı metrikleri:
 * budget utilization,
 * remask extra cost,
 * total flow cost,
-* direct baseline ile karşılaştırma.
+* direct baseline ile karşılaştırma,
+* model-backed flow latency,
+* model-backed flow token usage.
 
 Bu olmadan “dar context daha ucuz ve kontrollü” iddiası ölçülemez.
 
 ---
 
-### 10. Benchmark ve Eval Layer
+### 12. Benchmark ve Eval Layer
 
 Bu katman zaten başladı; fakat artık agent orchestration hedefiyle yeniden konumlanmalıdır.
 
@@ -641,7 +896,9 @@ Karşılaştırılacak akışlar:
 * JSON compliance,
 * latency,
 * token usage,
-* strictness behavior.
+* strictness behavior,
+* mutation validation pass rate,
+* blocked unsafe mutation count.
 
 ---
 
@@ -693,35 +950,41 @@ Core Runtime -> CLI -> GitHub Action -> SDK/API -> Dashboard -> IDE Adapter
 
 Araştırmada görülen önemli ayrım şudur:
 
-* autoregressive coder modeller implementation tarafında güçlü,
-* verifier/boundary/refusal tarafında hata yapabiliyor,
-* dLLM direct patch contract’ında zayıf kalabiliyor,
-* fakat dLLM-style infill/refinement fikri verifier/remask rollerinde değerli olabilir,
-* workspace/verifier/remask flow boundary guess’i azaltabiliyor,
+* autoregressive coder modeller implementation tarafında güçlü olabilir,
+* verifier/boundary/refusal tarafında yine hata yapabilir,
+* deterministic verifier/policy engine ürünün güvenlik omurgası olmalıdır,
+* dLLM direct patch/verifier contract’ında zayıf kalabilir,
+* dLLM-style infill/refinement fikri yine de masked repair rollerinde değerli olabilir,
+* workspace/verifier/remask flow boundary guess’i azaltabilir,
 * remask yalnızca doğru case’lerde açılırsa kalite belirleyici faktör olabilir,
 * gereksiz remask maliyet yaratır.
+
+Phase O sonrası güncel ürün yorumu:
+
+```text
+Qwen2.5-Coder 7B, live benchmarklarda hızlı, format uyumlu ve stabil davranmıştır.
+Dream-Coder v0 Instruct 7B, mevcut wrapper/prompt rejiminde hem JSON contract hem decision-token görevinde zayıf kalmıştır.
+Bu nedenle ilk model-backed orchestrator flow Qwen default worker ile kurulmalıdır.
+Verifier/safety kararı ise deterministic policy/verifier katmanından geçmelidir.
+```
 
 Bu nedenle ürünün kısa vadeli stratejisi:
 
 ```text
-LLM coder + deterministic verifier + bounded workspace + verifier-triggered remask.
+Qwen-backed planner/coder
+  + deterministic verifier
+  + bounded workspace
+  + verifier-triggered remask
+  + workspace mutation validation.
 ```
 
-dLLM ilk sürüm için zorunlu dependency olmamalıdır. dLLM/dLLM-style modeller ileri fazda verifier, remask planner veya masked repair adapter olarak araştırılmalıdır.
-
-Phase M/N sonrası güncel yorum:
-
-```text
-Qwen gibi autoregressive coder modeller live deneyde hızlı ve format uyumlu davranabilir.
-Dream-Coder gibi dLLM-style modeller bazı verifier-style case’lerde daha temkinli davranış sinyali verebilir.
-Bu sinyal ürün kararına dönüşmeden önce 12-case live run, repeated runs ve farklı model karşılaştırmaları gerekir.
-```
+dLLM ilk sürüm için zorunlu dependency olmamalıdır. dLLM/dLLM-style modeller ileri fazda verifier augmentation, remask planner veya masked repair adapter olarak araştırılmalıdır.
 
 ---
 
-## Yakın Dönem Yol Haritası — Güncel Durum
+# Yakın Dönem Yol Haritası — Güncel Durum
 
-Bu roadmap ilk yazıldığında ürünün merkezi hedefi shared semantic workspace tabanlı bounded agent orchestration runtime olarak belirlenmişti. O noktadan sonra çekirdek runtime tarafında önemli ilerleme kaydedildi.
+Bu roadmap ilk yazıldığında ürünün merkezi hedefi shared semantic workspace tabanlı bounded agent orchestration runtime olarak belirlenmişti. O noktadan sonra çekirdek runtime ve live benchmark tarafında önemli ilerleme kaydedildi.
 
 Artık proje yalnızca policy/verifier veya PR review katmanından ibaret değildir. Aşağıdaki runtime zinciri tek komutla doğrulanabilir hale gelmiştir:
 
@@ -761,6 +1024,7 @@ npm run runtime:verify
 | Faz L: dLLM-Style Verifier Core         | Tamamlandı | dLLM-style verifier kararları, signals ve approve/remask/reject mantığı eklendi.                                                |
 | Faz M: Live Model Worker Integration    | Tamamlandı | RunPod proxy, Qwen endpoint, Dream endpoint ve Qwen + Dream live acceptance çalıştı.                                            |
 | Faz N: Live Benchmark Reproducibility   | Tamamlandı | 12-case runner, `.env.example`, runbook, results ve final report eklendi.                                                       |
+| Faz O: Evidence Strengthening           | Tamamlandı | Qwen/Dream 12-case, strict contract, compact payload ve decision-token diagnostic benchmarkları tamamlandı.                     |
 
 ---
 
@@ -818,90 +1082,17 @@ OpenAI-compatible LLM endpoint
   -> JSON/Markdown report
 ```
 
-Bu hâlâ tam ürün değildir. Özellikle gerçek model output’unun shared workspace orchestrator mutation akışına güvenli biçimde bağlanması sıradaki ana iştir.
-
----
-
-## Phase N Çıktıları
-
-Phase N ile repo artık canlı benchmark açısından daha tekrar üretilebilir hale geldi.
-
-Eklenen/güçlenen parçalar:
-
-* `scripts/live-mini-benchmark.cjs`
-* 12 bounded-agent case
-* env tabanlı endpoint/model config
-* endpoint yokken skipped report
-* required mode ile endpoint yokken fail
-* strict mode
-* expected-vs-actual scoring
-* JSON compliance
-* latency/token summary
-* decision distribution
-* `.env.example`
-* RunPod Qwen + Dream runbook
-* Phase N live benchmark sonuç dokümanı
-* Phase N final raporu
-* README Phase N navigasyon linkleri
-
-Phase N’in güvenli araştırma yorumu:
+Phase P’nin amacı bu iki hattı birleştirmektir:
 
 ```text
-Phase N, live model davranışını ölçen tekrar üretilebilir bir yüzey kurmuştur.
-İlk canlı Qwen + Dream gözlemleri erken sinyal niteliğindedir.
-Kesin model üstünlüğü veya dLLM güvenlik iddiası için ek live run gerekir.
+Model output
+  -> structured workspace mutation
+  -> verifier/remask/merge flow
 ```
 
 ---
 
-# Sıradaki Ana Fazlar — Phase O ve Sonrası
-
-## Phase O: Evidence Strengthening
-
-### Amaç
-
-Phase N’de kurulan 12-case live benchmark yüzeyini gerçek RunPod run’larıyla daha güçlü kanıt üretir hale getirmek.
-
-Bu fazın amacı yeni altyapı kurmak değil, var olan live benchmark altyapısını kullanarak daha sağlam ölçüm üretmektir.
-
-### Yapılacaklar
-
-* 12-case live benchmark’ı Qwen + Dream ile tekrar çalıştır.
-* Aynı benchmark’ı birkaç kez tekrarla.
-* Expected match rate, JSON compliance, latency ve token usage tabloları üret.
-* Qwen vs Dream davranışını safe/review/reject case ailelerine göre ayır.
-* Sonuçları `docs/results` altına yeni artifact summary olarak yaz.
-* JSON/Markdown artifact’leri arşivle.
-* “dLLM daha güvenlidir” gibi aşırı iddialardan kaçın.
-* Sonuçları Phase N final raporuyla çelişmeyecek şekilde güncelle.
-
-### Başarı Kriteri
-
-```text
-12-case full live benchmark sonuçları JSON/Markdown artifact olarak üretilecek
-ve Türkçe/İngilizce sonuç özeti yazılacak.
-```
-
-### Önerilen Komutlar
-
-```bash
-npm run report:live-mini-benchmark
-```
-
-RunPod ortamında:
-
-```bash
-export LLM_UPSTREAM_URL="http://127.0.0.1:8000/v1/chat/completions"
-export DLLM_UPSTREAM_URL="http://127.0.0.1:8002/v1/chat/completions"
-export LLM_MODEL_ID="qwen2.5-coder-7b"
-export DLLM_MODEL_ID="dream-coder-v0-instruct-7b"
-export LIVE_MINI_BENCHMARK_REQUIRED=1
-export LIVE_MINI_BENCHMARK_STRICT=0
-
-npm run report:live-mini-benchmark
-```
-
----
+# Sıradaki Ana Faz: Phase P
 
 ## Phase P: Model-Backed Orchestrator Flow
 
@@ -924,42 +1115,400 @@ Model output
   -> verifier/remask/merge flow
 ```
 
-### Yapılacaklar
-
-* Role-based model adapter contract’ı workspace mutation ile birleştir.
-* Planner/coder/verifier/remask model output’unu workspace’e structured mutation olarak yaz.
-* Model output validation ekle.
-* Invalid JSON, timeout, model error ve unsafe mutation durumlarını handle et.
-* Worker-backed orchestrator smoke komutu oluştur.
-* Mock flow ile model-backed flow’u aynı case üzerinde karşılaştır.
-* Model output’unun allowed write regions dışına çıkması durumunda block üret.
-* Second-pass verifier girişini model-backed repair sonrası çalıştır.
-
-### Başarı Kriteri
+İlk model-backed flow için default worker:
 
 ```text
-Mock agent yerine gerçek OpenAI-compatible worker kullanılarak
-planner/coder/verifier/remask flow en az bir fixture üzerinde çalışacak.
+Qwen2.5-Coder 7B
 ```
 
-### Önerilen Komut
+Dream-Coder bu fazda default worker değildir. Research-only baseline olarak tutulur.
+
+---
+
+## Phase P Başarı Kriteri
+
+Phase P bitti diyebilmek için şu komut olmalıdır:
 
 ```bash
 npm run worker:orchestrator-smoke
 ```
 
-### Beklenen Zincir
+Ve çıktı şu tipte olmalıdır:
+
+```json
+{
+  "ok": true,
+  "suiteName": "phase-p-worker-backed-orchestrator",
+  "modelId": "qwen2.5-coder-7b",
+  "finalDecision": "approve",
+  "mutationValidationPassed": true,
+  "verifierPassed": true,
+  "mergeDecision": "approved",
+  "jsonPath": "...",
+  "markdownPath": "..."
+}
+```
+
+---
+
+## Phase P Teknik Zincir
+
+Beklenen ilk zincir:
 
 ```text
 changed files
   -> scoped repo intelligence
-  -> role-specific prompt/context
-  -> model worker response
-  -> workspace mutation
-  -> verifier decision
-  -> optional remask
-  -> second-pass verifier
-  -> merge decision
+  -> shared semantic workspace
+  -> planner bounded view
+  -> Qwen planner worker response
+  -> planner workspace mutation
+  -> mutation validation
+  -> coder bounded view
+  -> Qwen coder worker response
+  -> patchDraft workspace mutation
+  -> mutation validation
+  -> deterministic verifier
+  -> conflict-aware merge
+  -> final decision
+  -> JSON/Markdown trace
+```
+
+İlk MVP’de model-backed remask zorunlu değildir. Remask başlangıçta deterministic simulation olarak kalabilir.
+
+---
+
+## Phase P Issue Sırası
+
+### P.0 — Roadmap ve Phase O Status Update
+
+Amaç:
+
+```text
+Phase O’nun tamamlandığını dokümana işlemek
+ve Phase P’yi aktif faz olarak netleştirmek.
+```
+
+Yapılacaklar:
+
+* Phase O’yu completed olarak işaretle.
+* O.5/O.7/O.8/O.9 sonuçlarını kısa tabloyla ekle.
+* Qwen default worker kararını yaz.
+* Dream’i research-only baseline olarak konumlandır.
+* “Dream bazı verifier-style case’lerde temkinli olabilir” eski ifadesini Phase O sonuçlarına göre güncelle.
+* Phase P’nin ilk hedefini `model output -> workspace mutation -> verifier/remask/merge` olarak netleştir.
+
+Başarı kriteri:
+
+```text
+Roadmap dokümanı güncel gerçekliği doğru yansıtacak.
+```
+
+Commit önerisi:
+
+```text
+docs: update roadmap for phase p
+```
+
+---
+
+### P.1 — Workspace Mutation Contract for Model Roles
+
+Amaç:
+
+```text
+Model cevabını doğrudan runtime kararı yapmak yerine,
+structured workspace mutation contract’ına çevirmek.
+```
+
+Önerilen contract:
+
+```ts
+export type ModelRole = "planner" | "coder" | "verifier" | "remask";
+
+export type WorkspaceMutationTarget =
+  | "plan"
+  | "patchDraft"
+  | "verifierFinding"
+  | "remaskRequest"
+  | "repairDraft";
+
+export type WorkspaceMutation = {
+  role: ModelRole;
+  target: WorkspaceMutationTarget;
+  summary: string;
+  claims: unknown[];
+  touchedFiles: string[];
+  confidence?: number;
+};
+```
+
+Role write boundary:
+
+| Role     | Allowed target                 |
+| -------- | ------------------------------ |
+| planner  | plan                           |
+| coder    | patchDraft                     |
+| verifier | verifierFinding, remaskRequest |
+| remask   | repairDraft                    |
+
+Başarı kriteri:
+
+```text
+WorkspaceMutation type ve role write boundary kuralları test edilebilir hale gelecek.
+```
+
+Komut hedefi:
+
+```bash
+npm run test:workspace-mutation-contract
+```
+
+Commit önerisi:
+
+```text
+feat: add workspace mutation contract
+```
+
+---
+
+### P.2 — Model Output Mutation Validator
+
+Amaç:
+
+```text
+Model output’unu workspace’e yazmadan önce güvenli şekilde doğrulamak.
+```
+
+Validation durumları:
+
+| Durum                           | Beklenen davranış             |
+| ------------------------------- | ----------------------------- |
+| Invalid JSON                    | blocked mutation              |
+| Missing required field          | invalid mutation              |
+| Role dışı target                | blocked mutation              |
+| touchedFiles allowed scope dışı | scope violation               |
+| forbidden file touch            | blocked mutation              |
+| timeout/model error             | failed model mutation attempt |
+| unsafe content                  | safety finding                |
+
+Başarı kriteri:
+
+```text
+Bozuk veya unsafe model output’u runtime’ı kırmadan güvenli şekilde bloklanacak.
+```
+
+Komut hedefi:
+
+```bash
+npm run test:model-mutation-validator
+```
+
+Commit önerisi:
+
+```text
+feat: validate model workspace mutations
+```
+
+---
+
+### P.3 — Worker-Backed Planner Smoke
+
+Amaç:
+
+```text
+Qwen model worker ile ilk role-specific planner mutation üretmek.
+```
+
+Akış:
+
+```text
+fixture task
+  -> workspace builder
+  -> bounded planner view
+  -> Qwen planner call
+  -> WorkspaceMutation(plan)
+  -> mutation validation
+  -> workspace trace
+```
+
+Planner patch yazmaz; yalnızca plan claim üretir. Bu yüzden ilk model-backed role olarak en güvenli başlangıç noktasıdır.
+
+Başarı kriteri:
+
+```text
+Qwen planner, en az 1 fixture üzerinde valid plan mutation üretecek.
+```
+
+Komut hedefi:
+
+```bash
+npm run worker:planner-smoke
+```
+
+Commit önerisi:
+
+```text
+feat: add worker-backed planner smoke
+```
+
+---
+
+### P.4 — Worker-Backed Coder Smoke
+
+Amaç:
+
+```text
+Qwen model worker ile bounded coder view üzerinden patchDraft mutation üretmek.
+```
+
+Akış:
+
+```text
+workspace + planner claim
+  -> bounded coder view
+  -> Qwen coder call
+  -> WorkspaceMutation(patchDraft)
+  -> mutation validation
+  -> deterministic verifier
+```
+
+Coder doğrudan repo dosyasını değiştirmez. Önce workspace’e patchDraft claim yazar.
+
+Başarı kriteri:
+
+```text
+Qwen coder patchDraft mutation üretir,
+mutation validator bunu doğrular,
+deterministic verifier patchDraft üzerinde karar üretir.
+```
+
+Komut hedefi:
+
+```bash
+npm run worker:coder-smoke
+```
+
+Commit önerisi:
+
+```text
+feat: add worker-backed coder smoke
+```
+
+---
+
+### P.5 — Worker-Backed Orchestrator Smoke
+
+Amaç:
+
+```text
+Planner + coder model-backed,
+verifier + merge deterministic olacak şekilde ilk uçtan uca flow’u çalıştırmak.
+```
+
+İlk MVP flow:
+
+```text
+changed files
+  -> repo intelligence
+  -> shared workspace
+  -> planner view
+  -> Qwen planner mutation
+  -> coder view
+  -> Qwen coder mutation
+  -> deterministic verifier
+  -> conflict-aware merge
+  -> final decision
+```
+
+Başarı kriteri:
+
+```text
+En az 1 fixture üzerinde gerçek Qwen worker kullanılarak final merge decision üretilecek.
+```
+
+Komut hedefi:
+
+```bash
+npm run worker:orchestrator-smoke
+```
+
+Commit önerisi:
+
+```text
+feat: add worker-backed orchestrator smoke
+```
+
+---
+
+### P.6 — Mock Flow vs Worker-Backed Flow Comparison
+
+Amaç:
+
+```text
+Aynı fixture üzerinde deterministic/mock flow ile Qwen worker-backed flow’u karşılaştırmak.
+```
+
+Karşılaştırılacak metrikler:
+
+* final decision aynı mı?
+* touchedFiles allowed scope içinde mi?
+* verifier finding aynı mı?
+* mutation validation pass/fail nedir?
+* token usage nedir?
+* latency nedir?
+* trace complete mi?
+* model-backed flow ek risk üretiyor mu?
+
+Komut hedefi:
+
+```bash
+npm run report:worker-orchestrator-comparison
+```
+
+Başarı kriteri:
+
+```text
+Mock ve worker-backed flow aynı fixture üzerinde karşılaştırmalı JSON/Markdown report üretir.
+```
+
+Commit önerisi:
+
+```text
+feat: compare worker-backed orchestrator flow
+```
+
+---
+
+### P.7 — Phase P Initial Results Documentation
+
+Amaç:
+
+```text
+Phase P’nin ilk model-backed orchestrator sonucunu dokümante etmek.
+```
+
+Yazılacaklar:
+
+* hangi fixture kullanıldı,
+* hangi model kullanıldı,
+* planner mutation valid miydi,
+* coder mutation valid miydi,
+* verifier ne dedi,
+* merge decision ne oldu,
+* token/latency neydi,
+* mock flow ile fark neydi,
+* hangi sınırlılıklar var.
+
+Başarı kriteri:
+
+```text
+Phase P ilk sonuçları docs/results altında JSON/Markdown artifact özetiyle yer alır.
+```
+
+Commit önerisi:
+
+```text
+docs: add phase p initial results
 ```
 
 ---
@@ -1053,26 +1602,28 @@ risk, maliyet ve kalite trendini rapor olarak görebilecek.
 
 Bundan sonraki teknik öncelik sırası şudur:
 
-1. 12-case Qwen + Dream live benchmark run.
-2. Repeated live runs and variance check.
-3. Benchmark artifact summary document.
-4. Model-backed orchestrator adapter.
-5. Worker-backed planner/coder/verifier/remask smoke.
-6. Workspace mutation validation for model outputs.
-7. Real remask repair v2.
-8. Real repo / PR diff evaluation.
-9. Bounded workspace flow vs direct baseline benchmark.
-10. dLLM-style verifier/remask role comparison.
-11. CLI/SDK/API polish.
-12. GitHub Action public pilot polish.
-13. Dashboard and team metrics.
+1. Phase O status ve roadmap güncellemesini commit et.
+2. Workspace mutation contract oluştur.
+3. Model output mutation validator ekle.
+4. Worker-backed planner smoke oluştur.
+5. Worker-backed coder smoke oluştur.
+6. Worker-backed orchestrator smoke oluştur.
+7. Mock flow vs worker-backed flow comparison raporu üret.
+8. Phase P initial results dokümantasyonu ekle.
+9. Real repo / PR diff evaluation adapter ekle.
+10. Bounded workspace flow vs direct baseline benchmark oluştur.
+11. Model-backed remask repair v2 tasarla.
+12. dLLM-style verifier/remask role comparison’ı ileri araştırma olarak çalıştır.
+13. CLI/SDK/API polish.
+14. GitHub Action public pilot polish.
+15. Dashboard and team metrics static report prototype.
 
-Bu sırada README veya ürün anlatısı genişletilebilir; fakat kısa vadede ana öncelik dokümantasyon polish değil:
+Bu sırada README veya ürün anlatısı genişletilebilir; fakat kısa vadede ana öncelik dokümantasyon polish değildir:
 
 ```text
-12-case live evidence
+model-backed workspace orchestration
 +
-model-backed orchestrator flow
+workspace mutation validation
 +
 real repo/diff evaluation
 ```
@@ -1087,15 +1638,17 @@ Proje şu aşamaya gelmiştir:
 
 ```text
 Deterministic bounded runtime çekirdeği ve live model-worker benchmark yüzeyi doğrulandı.
-Şimdi hedef, 12-case live evidence üretmek ve gerçek model worker çıktısını
-shared workspace orchestrator flow’a bağlamaktır.
+Phase O ile Qwen/Dream evidence üretildi.
+Qwen ana live worker adayı olarak öne çıktı.
+Dream mevcut haliyle güvenilir verifier/decision worker olarak kullanılamadı.
+Şimdi hedef, gerçek model worker çıktısını shared workspace orchestrator flow’a güvenli mutation olarak bağlamaktır.
 ```
 
 Kısa vadede odak:
 
 ```text
 Dokümantasyon polish değil,
-live evidence strengthening + model-backed workspace orchestration + real repo evaluation.
+model-backed workspace orchestration + mutation validation + real repo evaluation.
 ```
 
 ---
@@ -1137,6 +1690,7 @@ live evidence strengthening + model-backed workspace orchestration + real repo e
 * Token maliyeti bounded flow’da kontrol altında mı?
 * Safe/review/reject case ailelerinde karar dağılımı tutarlı mı?
 * Repeated runs arasında varyans kabul edilebilir mi?
+* Model output mutation validation pass rate nedir?
 
 ### Ürün Kullanılabilirliği
 
@@ -1171,6 +1725,7 @@ Doğru iddia:
 İlk validation katmanında, verifier/policy runtime’ın pozitif ve negatif
 PR-shaped fixture’larda ölçülebilir şekilde çalıştığı gösterildi.
 Phase M/N ile canlı model-worker acceptance ve live benchmark yüzeyi eklendi.
+Phase O ile Qwen/Dream karşılaştırmalı evidence üretildi.
 Bundan sonraki hedef, bu doğrulama katmanını model-backed shared-workspace
 agent orchestration runtime’a bağlamak ve daha geniş gerçek repo/diff
 senaryolarında test etmektir.
@@ -1182,16 +1737,15 @@ Yanlış iddia:
 dLLM daha güvenlidir.
 Dream Qwen’den üstündür.
 Bu sistem tüm agentic coding risklerini çözer.
+Qwen her görevde kesin en iyi modeldir.
 ```
 
 Güvenli araştırma yorumu:
 
 ```text
-İlk bulgular, farklı model tiplerinin bounded verifier-style görevlerde farklı
-karar davranışları gösterebildiğini göstermektedir. Qwen canlı deneyde daha
-hızlı ve format uyumlu görünürken, Dream-Coder bazı riskli/verifier-style
-case’lerde daha temkinli davranış sinyali vermiştir. Daha güçlü sonuç için
-12-case live run, repeated runs ve farklı model karşılaştırmaları gerekir.
+Bu çalışmada Qwen2.5-Coder 7B, bounded verifier-style benchmarklarda ve decision-token diagnostic modunda stabil ve format uyumlu davranmıştır.
+Dream-Coder v0 Instruct 7B ise mevcut wrapper/prompt rejiminde JSON contract ve decision-token modlarında güvenilir sonuç üretmemiştir.
+Bu bulgu, ilk ürün akışında Qwen-backed planner/coder + deterministic verifier stratejisini desteklemektedir.
 ```
 
 ---
@@ -1214,12 +1768,13 @@ role-specific bounded working memory ile ortak semantic workspace üstünde
 daha güvenli, daha ucuz ve daha izlenebilir agentic coding akışları kurmak.
 ```
 
-Phase N sonrası en yakın hedef:
+Phase O sonrası en yakın hedef:
 
 ```text
-12-case live evidence üretmek,
-model-backed orchestrator flow kurmak,
-gerçek repo/diff değerlendirmesine geçmek.
+Model-backed orchestrator flow kurmak,
+model output’unu güvenli workspace mutation’a çevirmek,
+deterministic verifier/remask/merge flow ile birleştirmek,
+sonra gerçek repo/diff değerlendirmesine geçmek.
 ```
 
 ---
@@ -1228,19 +1783,21 @@ gerçek repo/diff değerlendirmesine geçmek.
 
 Bundan sonraki issue’lar şu sırayla açılmalıdır:
 
-1. RunPod’da 12-case Qwen + Dream live benchmark çalıştır.
-2. Live benchmark artifact summary dokümanı üret.
-3. 12-case repeated run ve varyans kontrolü yap.
-4. Worker-backed orchestrator adapter contract oluştur.
-5. Model output -> workspace mutation validation ekle.
-6. Worker-backed planner/coder/verifier/remask smoke komutu ekle.
-7. Real remask repair v2 contract tasarla.
-8. Real repo / PR diff evaluation adapter ekle.
-9. Bounded workspace flow vs direct baseline benchmark oluştur.
-10. dLLM-style verifier/remask role comparison çalıştır.
-11. CLI quickstart ve consumer smoke kit’i sadeleştir.
-12. GitHub Action public pilot polish yap.
-13. Dashboard/team metrics static report prototype oluştur.
+1. Roadmap’i Phase O completed + Phase P active olarak güncelle.
+2. Workspace mutation contract oluştur.
+3. Model output mutation validator ekle.
+4. Worker-backed planner smoke komutu ekle.
+5. Worker-backed coder smoke komutu ekle.
+6. Worker-backed orchestrator smoke komutu ekle.
+7. Mock flow vs worker-backed flow comparison raporu oluştur.
+8. Phase P initial results dokümantasyonunu ekle.
+9. Real repo / PR diff evaluation adapter ekle.
+10. Bounded workspace flow vs direct baseline benchmark oluştur.
+11. Real remask repair v2 contract tasarla.
+12. dLLM-style verifier/remask role comparison’ı ileri araştırma olarak çalıştır.
+13. CLI quickstart ve consumer smoke kit’i sadeleştir.
+14. GitHub Action public pilot polish yap.
+15. Dashboard/team metrics static report prototype oluştur.
 
 ---
 
@@ -1250,10 +1807,19 @@ Bugünkü final durum:
 
 ```text
 Phase N tamamlandı.
+Phase O tamamlandı.
 Runtime çekirdeği doğrulandı.
 Live model-worker benchmark yüzeyi kuruldu.
 Qwen + Dream live acceptance çalıştı.
-12-case benchmark runner hazır.
-Reproducibility dokümanları tamamlandı.
-Sıradaki hedef daha fazla kanıt ve model-backed orchestration.
+12-case benchmark runner kullanıldı.
+Qwen ana live worker adayı olarak belirlendi.
+Dream mevcut haliyle güvenilir verifier/decision worker olarak elendi.
+Sıradaki hedef model-backed orchestration.
+```
+
+Phase P’nin tek cümlelik hedefi:
+
+```text
+Gerçek model worker çıktısını shared semantic workspace’e güvenli, doğrulanmış
+workspace mutation olarak bağlamak.
 ```
