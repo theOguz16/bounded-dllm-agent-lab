@@ -139,7 +139,9 @@
     "test:live-mini-benchmark-comparison": "node scripts/compare-live-mini-benchmarks-smoke.cjs",
     "test:dream-openai-server-syntax": "python3 -m py_compile scripts/dream-openai-server.py",
     "report:dream-output-contract-probe": "node scripts/dream-output-contract-probe.cjs",
-    "test:dream-output-contract-probe": "node scripts/dream-output-contract-probe-smoke.cjs"
+    "test:dream-output-contract-probe": "node scripts/dream-output-contract-probe-smoke.cjs",
+    "report:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token.cjs",
+    "test:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token-smoke.cjs"
   },
   "workspaces": [
     "apps/*",

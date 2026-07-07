@@ -618,6 +618,28 @@ function summarizeByModel(results) {
   });
 }
 
+function getLiveMiniBenchmarkCases() {
+  const candidates = [
+    typeof TEST_CASES !== "undefined" ? TEST_CASES : null,
+    typeof testCases !== "undefined" ? testCases : null,
+    typeof cases !== "undefined" ? cases : null,
+    typeof benchmarkCases !== "undefined" ? benchmarkCases : null,
+    typeof LIVE_MINI_BENCHMARK_CASES !== "undefined" ? LIVE_MINI_BENCHMARK_CASES : null
+  ].filter(value => Array.isArray(value));
+
+  if (!candidates.length) {
+    throw new Error("live mini benchmark cases not found for decision-token benchmark");
+  }
+
+  return candidates[0].map(testCase => ({
+    ...testCase,
+    expectedDecisions: Array.isArray(testCase.expectedDecisions)
+      ? [...testCase.expectedDecisions]
+      : [],
+    candidate: testCase.candidate ? { ...testCase.candidate } : {}
+  }));
+}
+
 function buildVerifierMessages(testCase) {
   const candidate = testCase.candidate || {};
   const joinList = value => Array.isArray(value) && value.length ? value.join(", ") : "none";
@@ -1092,6 +1114,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  getLiveMiniBenchmarkCases,
   VALID_DECISIONS,
   normalizeDecisionValue,
   extractFencedBlocks,
