@@ -141,7 +141,8 @@
     "report:dream-output-contract-probe": "node scripts/dream-output-contract-probe.cjs",
     "test:dream-output-contract-probe": "node scripts/dream-output-contract-probe-smoke.cjs",
     "report:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token.cjs",
-    "test:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token-smoke.cjs"
+    "test:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token-smoke.cjs",
+    "test:workspace-mutation-contract": "node scripts/workspace-mutation-contract-smoke.cjs"
   },
   "workspaces": [
     "apps/*",

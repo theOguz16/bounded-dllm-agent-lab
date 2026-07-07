@@ -1,3 +1,5 @@
+export * from "./workspace-mutation.js";
+
 export type ReviewDecision =
   | "approve"
   | "refuse"
