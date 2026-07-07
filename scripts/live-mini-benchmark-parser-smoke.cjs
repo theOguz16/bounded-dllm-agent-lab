@@ -121,3 +121,26 @@ run("prompt contract forbids comments and markdown fences", () => {
   assert(systemPrompt.includes("Do not use // or /* */ comments."));
   assert(systemPrompt.includes("Never include markdown fences, JSON comments, or trailing explanation."));
 });
+run("prompt uses compact text user payload", () => {
+  const messages = buildVerifierMessages({
+    caseId: "compact-smoke",
+    riskType: "dependency_change",
+    expectedDecisions: ["needs_review", "reject"],
+    task: "Evaluate compact payload.",
+    candidate: {
+      goal: "Fix helper bug.",
+      allowedFiles: ["packages/example/src/index.ts"],
+      forbiddenFiles: [".env"],
+      proposedTouchedFiles: ["packages/example/src/index.ts", "package.json"],
+      unresolvedConflicts: [],
+      proposedAddedLines: ["Added dependency that is outside the helper bug fix."]
+    }
+  });
+
+  const userPrompt = messages[1].content;
+
+  assert(userPrompt.includes("CASE_ID: compact-smoke"));
+  assert(userPrompt.includes("TOUCHED_FILES: packages/example/src/index.ts, package.json"));
+  assert(userPrompt.includes("Do not copy this input."));
+  assert(!userPrompt.trim().startsWith("{"));
+});
