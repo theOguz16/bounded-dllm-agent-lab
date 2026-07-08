@@ -15,6 +15,7 @@ function runSuite(env) {
     env: {
       ...process.env,
       PHASE_R_REMASK_SUITE_REQUIRED: "0",
+      PHASE_R_FORCE_REMASK: "0",
       PHASE_R_WORKER_UPSTREAM_URL: "",
       WORKER_REMASK_UPSTREAM_URL: "",
       WORKER_ORCHESTRATOR_UPSTREAM_URL: "",
@@ -59,6 +60,8 @@ function syntheticChildren(finalDecision, overrides = {}) {
       status: "completed",
       ok: true,
       configured: true,
+      forceRemask: false,
+      forcedRemask: false,
       finalDecision,
       plannerValidationOk: true,
       coderValidationOk: true,
@@ -167,6 +170,12 @@ check("shared Phase R worker env maps to remask and orchestrator env", () => {
   assert.equal(env.WORKER_ORCHESTRATOR_REQUIRED, "1");
 });
 
+check("forced remask env maps to orchestrator force env", () => {
+  const env = buildWorkerEnv({ PHASE_R_FORCE_REMASK: "1" }, false);
+
+  assert.equal(env.WORKER_ORCHESTRATOR_FORCE_REMASK, "1");
+});
+
 check("shared Phase R worker env does not override existing worker env", () => {
   const env = buildWorkerEnv(
     {
@@ -234,6 +243,29 @@ check("synthetic completed configured repair_draft_ready path is ready for live 
   assert.equal(summary.repairDraftReady, true);
 });
 
+check("synthetic forced remask repair_draft_ready summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_draft_ready", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.forceRemask, true);
+  assert.equal(summary.remaskRequested, true);
+  assert.equal(summary.repairDraftReady, true);
+});
+
 check("repair_draft_ready path includes remaskRequested true and repairDraftChecksOk true", () => {
   const summary = buildSummary(
     syntheticChildren("repair_draft_ready", {
@@ -269,6 +301,69 @@ check("synthetic completed configured remask_repair_failed path is ready for liv
 
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.remaskRepairFailed, true);
+});
+
+check("synthetic forced remask remask_repair_failed summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("remask_repair_failed", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: false,
+        repairDraftChecksOk: false
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.forceRemask, true);
+  assert.equal(summary.remaskRequested, true);
+  assert.equal(summary.remaskRepairFailed, true);
+});
+
+check("synthetic forced remask approve path is not ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("approved_by_deterministic_verifier", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "approve",
+        remaskRequested: false
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.forceRemask, true);
+  assert.equal(summary.remaskRequested, false);
+});
+
+check("forced mode requires remaskRequested true", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_draft_ready", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "needs_review",
+        remaskRequested: false,
+        remaskValidationOk: true,
+        repairDraftChecksOk: true
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.forceRemask, true);
+  assert.equal(summary.remaskRequested, false);
 });
 
 console.log("phase-r remask suite report test passed");

@@ -54,6 +54,7 @@ function configFromEnv() {
     plannerMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_PLANNER_MAX_TOKENS", 256),
     coderMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_CODER_MAX_TOKENS", 512),
     remaskMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_REMASK_MAX_TOKENS", 512),
+    forceRemask: process.env.WORKER_ORCHESTRATOR_FORCE_REMASK === "1",
     required: process.env.WORKER_ORCHESTRATOR_REQUIRED === "1",
     outDir: process.env.WORKER_ORCHESTRATOR_OUT_DIR || path.join("reports", "worker-backed-orchestrator-smoke")
   };
@@ -177,6 +178,7 @@ function emptyRoleReport() {
 function emptyVerifierReport() {
   return {
     called: false,
+    forcedRemask: false,
     decision: null,
     ok: false,
     issueCount: 0,
@@ -213,10 +215,12 @@ function baseReport(config, status) {
     caseId: fixture.caseId,
     modelId: config.modelId,
     configured: Boolean(config.upstreamUrl),
+    forceRemask: config.forceRemask,
     finalDecision,
     orchestratorDecision: {
       finalDecision,
-      reason: status === "skipped" ? "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured." : ""
+      reason: status === "skipped" ? "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured." : "",
+      forcedRemask: config.forceRemask
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
@@ -273,6 +277,21 @@ function verifierIssuesMarkdown(verifier) {
       return `- verifier: ${issue.code}: ${issue.message}${location}`;
     })
     .join("\n");
+}
+
+function forcedVerifierFindingMarkdown(verifier) {
+  if (!verifier || !verifier.forcedRemask || !verifier.finding) {
+    return "";
+  }
+
+  return [
+    "",
+    "### Forced Verifier Finding",
+    "",
+    "```json",
+    JSON.stringify(verifier.finding, null, 2),
+    "```"
+  ].join("\n");
 }
 
 function remaskRequestSummary(remask) {
@@ -348,6 +367,7 @@ function renderMarkdown(report, config) {
     `- OK: ${report.ok}`,
     `- Final decision: ${report.finalDecision}`,
     `- Decision reason: ${report.orchestratorDecision.reason}`,
+    `- Force remask mode: ${report.forceRemask}`,
     `- Planner called: ${report.planner.called}`,
     `- Planner validation OK: ${report.planner.validation.ok}`,
     `- Planner validation blocked: ${report.planner.validation.blocked}`,
@@ -355,6 +375,7 @@ function renderMarkdown(report, config) {
     `- Coder validation OK: ${report.coder.validation.ok}`,
     `- Coder validation blocked: ${report.coder.validation.blocked}`,
     `- Verifier called: ${report.verifier.called}`,
+    `- Verifier forced remask: ${report.verifier.forcedRemask}`,
     `- Verifier decision: ${report.verifier.decision ?? ""}`,
     `- Verifier issue count: ${report.verifier.issueCount}`,
     `- Remask called: ${report.remask.called}`,
@@ -389,6 +410,7 @@ function renderMarkdown(report, config) {
     "### Verifier Issues",
     "",
     verifierIssuesMarkdown(report.verifier),
+    forcedVerifierFindingMarkdown(report.verifier),
     "",
     "## Remask",
     "",
@@ -549,12 +571,44 @@ function finalDecisionForVerifierDecision(verifierDecision) {
   return "blocked_before_verifier";
 }
 
+function buildForcedRemaskVerifierResult(mutation) {
+  const issues = [
+    {
+      code: "missing_proposed_patch",
+      message: "Forced repairable issue for remask path smoke.",
+      file: "packages/example/src/index.ts"
+    }
+  ];
+  const finding = {
+    role: "verifier",
+    target: "verifierFinding",
+    summary: "Forced repairable verifier finding for remask path smoke.",
+    claims: [
+      {
+        type: "deterministic_verifier_finding",
+        decision: "needs_review",
+        issues
+      }
+    ],
+    touchedFiles: mutation && Array.isArray(mutation.touchedFiles) ? mutation.touchedFiles : [],
+    confidence: 1
+  };
+
+  return {
+    ok: false,
+    decision: "needs_review",
+    issues,
+    finding
+  };
+}
+
 function decide(
   plannerValidation,
   coderValidation,
   verifierResult = null,
   remaskResult = null,
-  remaskReport = null
+  remaskReport = null,
+  options = {}
 ) {
   if (!plannerValidation.ok) {
     return {
@@ -595,7 +649,8 @@ function decide(
       remaskRequested,
       remaskRepairability: remaskResult ? remaskResult.repairability : null,
       remaskValidationOk,
-      repairDraftChecksOk
+      repairDraftChecksOk,
+      forcedRemask: Boolean(options.forcedRemask)
     };
   }
 
@@ -614,7 +669,8 @@ async function run() {
     report.ok = !config.required;
     report.orchestratorDecision = {
       finalDecision: status,
-      reason: "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured."
+      reason: "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured.",
+      forcedRemask: config.forceRemask
     };
     report.finalDecision = status;
     return writeReport(report, config);
@@ -680,13 +736,16 @@ async function run() {
     let verifierResult = null;
     let remaskResult = null;
     if (coderValidation.ok) {
-      verifierResult = verifyPatchDraftMutation(coderValidation.mutation, {
-        allowedFiles: fixture.allowedFiles,
-        forbiddenFiles: fixture.forbiddenFiles,
-        minConfidence: 0.5
-      });
+      verifierResult = config.forceRemask
+        ? buildForcedRemaskVerifierResult(coderValidation.mutation)
+        : verifyPatchDraftMutation(coderValidation.mutation, {
+          allowedFiles: fixture.allowedFiles,
+          forbiddenFiles: fixture.forbiddenFiles,
+          minConfidence: 0.5
+        });
       report.verifier = {
         called: true,
+        forcedRemask: config.forceRemask,
         decision: verifierResult.decision,
         ok: verifierResult.ok,
         issueCount: verifierResult.issues.length,
@@ -771,7 +830,14 @@ async function run() {
 
     report.ok = true;
     report.status = "completed";
-    const decision = decide(plannerValidation, coderValidation, verifierResult, remaskResult, report.remask);
+    const decision = decide(
+      plannerValidation,
+      coderValidation,
+      verifierResult,
+      remaskResult,
+      report.remask,
+      { forcedRemask: config.forceRemask }
+    );
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
   } catch (error) {
@@ -804,6 +870,7 @@ if (require.main === module) {
 module.exports = {
   SUITE_NAME,
   buildCoderMessages,
+  buildForcedRemaskVerifierResult,
   buildPlannerMessages,
   decide,
   emptyRemaskReport,

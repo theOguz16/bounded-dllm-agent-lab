@@ -68,6 +68,10 @@ function buildWorkerEnv(baseEnv, required) {
     env.WORKER_ORCHESTRATOR_REQUIRED = "1";
   }
 
+  if (env.PHASE_R_FORCE_REMASK === "1") {
+    env.WORKER_ORCHESTRATOR_FORCE_REMASK = "1";
+  }
+
   if (env.PHASE_R_WORKER_UPSTREAM_URL) {
     if (!env.WORKER_REMASK_UPSTREAM_URL) {
       env.WORKER_REMASK_UPSTREAM_URL = env.PHASE_R_WORKER_UPSTREAM_URL;
@@ -153,6 +157,8 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     status: report ? report.status || "missing_report" : "missing_report",
     ok: Boolean(report && report.ok),
     configured: Boolean(report && report.configured),
+    forceRemask: Boolean(report && report.forceRemask),
+    forcedRemask: Boolean(orchestratorDecision.forcedRemask),
     finalDecision: report ? report.finalDecision || null : null,
     plannerValidationOk: Boolean(plannerValidation.ok),
     coderValidationOk: Boolean(coderValidation.ok),
@@ -178,7 +184,7 @@ function summarizeOrchestrator(childResult, reportPath, report) {
   };
 }
 
-function buildSummary(children, configured) {
+function buildSummary(children, configured, forceRemask = false) {
   const remaskRequestBuilderPassed = children.remaskRequestBuilder.exitCode === 0;
   const remaskWorkerCommandExitedZero = children.remaskWorker.exitCode === 0;
   const remaskWorkerConfigured = Boolean(children.remaskWorker.configured);
@@ -195,8 +201,30 @@ function buildSummary(children, configured) {
   const remaskRepairFailed = children.orchestrator.finalDecision === "remask_repair_failed";
   const anySkipped =
     children.remaskWorker.status === "skipped" || children.orchestrator.status === "skipped";
+  const normalReadyForRunPodLiveValidation =
+    configured &&
+    remaskRequestBuilderPassed &&
+    remaskWorkerCommandExitedZero &&
+    orchestratorCommandExitedZero &&
+    plannerValidationPassed &&
+    coderValidationPassed &&
+    verifierCalled &&
+    remaskAwareFinalDecisions.has(children.orchestrator.finalDecision) &&
+    !anySkipped;
+  const forcedReadyForRunPodLiveValidation =
+    configured &&
+    remaskRequestBuilderPassed &&
+    remaskWorkerCommandExitedZero &&
+    orchestratorCommandExitedZero &&
+    plannerValidationPassed &&
+    coderValidationPassed &&
+    verifierCalled &&
+    remaskRequested &&
+    (repairDraftReady || remaskRepairFailed) &&
+    !anySkipped;
 
   return {
+    forceRemask,
     remaskRequestBuilderPassed,
     remaskWorkerCommandExitedZero,
     remaskWorkerConfigured,
@@ -212,16 +240,9 @@ function buildSummary(children, configured) {
     repairDraftReady,
     remaskRepairFailed,
     anySkipped,
-    readyForRunPodLiveValidation:
-      configured &&
-      remaskRequestBuilderPassed &&
-      remaskWorkerCommandExitedZero &&
-      orchestratorCommandExitedZero &&
-      plannerValidationPassed &&
-      coderValidationPassed &&
-      verifierCalled &&
-      remaskAwareFinalDecisions.has(children.orchestrator.finalDecision) &&
-      !anySkipped
+    readyForRunPodLiveValidation: forceRemask
+      ? forcedReadyForRunPodLiveValidation
+      : normalReadyForRunPodLiveValidation
   };
 }
 
@@ -264,11 +285,14 @@ function renderMarkdown(report) {
     `- OK: ${report.ok}`,
     `- Required mode: ${report.required}`,
     `- Configured endpoint: ${report.configured}`,
+    `- Force remask mode: ${report.forceRemask}`,
     `- Remask request builder passed: ${report.summary.remaskRequestBuilderPassed}`,
     `- Remask worker status: ${report.children.remaskWorker.status}`,
     `- Remask worker validation passed: ${report.children.remaskWorker.validationOk}`,
     `- Remask worker repairDraft checks passed: ${report.children.remaskWorker.repairDraftChecksOk}`,
     `- Orchestrator status: ${report.children.orchestrator.status}`,
+    `- Orchestrator force remask: ${report.children.orchestrator.forceRemask}`,
+    `- Orchestrator forced remask: ${report.children.orchestrator.forcedRemask}`,
     `- Orchestrator final decision: ${report.children.orchestrator.finalDecision || ""}`,
     `- Verifier decision: ${report.children.orchestrator.verifierDecision || ""}`,
     `- Remask requested: ${report.children.orchestrator.remaskRequested}`,
@@ -309,6 +333,7 @@ function writeReport(report) {
 function run() {
   const startedAt = new Date();
   const required = process.env.PHASE_R_REMASK_SUITE_REQUIRED === "1";
+  const forceRemask = process.env.PHASE_R_FORCE_REMASK === "1";
   const configured = configuredFromEnv(process.env);
   const workerEnv = buildWorkerEnv(process.env, required);
   const remaskRequestBuilder = runNpmScript(
@@ -346,7 +371,7 @@ function run() {
       orchestratorReport
     )
   };
-  const summary = buildSummary(children, configured);
+  const summary = buildSummary(children, configured, forceRemask);
   const status = determineStatus(children, required);
   const finishedAt = new Date();
   const ok =
@@ -360,6 +385,7 @@ function run() {
     status,
     suiteName: SUITE_NAME,
     required,
+    forceRemask,
     configured,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),

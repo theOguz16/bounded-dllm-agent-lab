@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "worker-backed-orchestrator-smoke.cjs");
-const { decide, emptyRemaskReport } = require(scriptPath);
+const { buildForcedRemaskVerifierResult, decide, emptyRemaskReport } = require(scriptPath);
 
 function runSmoke(env) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-orchestrator-smoke-"));
@@ -125,6 +125,28 @@ check("skipped report has remask.called false and remask.requested false", () =>
   assert.equal(report.remask.requested, false);
 });
 
+check("default mode has forceRemask false", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+
+  assert.equal(report.forceRemask, false);
+  assert.equal(report.orchestratorDecision.forcedRemask, false);
+});
+
+check("forced remask mode does not alter skipped endpoint behavior", () => {
+  const { result, report } = runSmoke({
+    WORKER_ORCHESTRATOR_FORCE_REMASK: "1",
+    WORKER_ORCHESTRATOR_REQUIRED: "0"
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(report.status, "skipped");
+  assert.equal(report.finalDecision, "skipped");
+  assert.equal(report.forceRemask, true);
+  assert.equal(report.planner.called, false);
+  assert.equal(report.verifier.called, false);
+  assert.equal(report.remask.called, false);
+});
+
 check("planner validation failure maps to blocked_before_coder", () => {
   const decision = decide({ ok: false }, { ok: false });
 
@@ -141,6 +163,17 @@ check("planner validation failure has remask.called false", () => {
   assert.equal(decision.remaskRequested, undefined);
 });
 
+check("forced remask mode does not run if planner validation fails", () => {
+  const decision = decide({ ok: false }, { ok: false }, null, null, null, {
+    forcedRemask: true
+  });
+  const remask = emptyRemaskReport();
+
+  assert.equal(decision.finalDecision, "blocked_before_coder");
+  assert.equal(remask.called, false);
+  assert.equal(decision.forcedRemask, undefined);
+});
+
 check("coder validation failure maps to blocked_before_verifier", () => {
   const decision = decide({ ok: true }, { ok: false });
 
@@ -155,6 +188,59 @@ check("coder validation failure has remask.called false", () => {
   assert.equal(decision.finalDecision, "blocked_before_verifier");
   assert.equal(remask.called, false);
   assert.equal(decision.remaskRequested, undefined);
+});
+
+check("forced remask mode does not run if coder validation fails", () => {
+  const decision = decide({ ok: true }, { ok: false }, null, null, null, {
+    forcedRemask: true
+  });
+  const remask = emptyRemaskReport();
+
+  assert.equal(decision.finalDecision, "blocked_before_verifier");
+  assert.equal(remask.called, false);
+  assert.equal(decision.forcedRemask, undefined);
+});
+
+check("forced remask mode can produce forced verifier finding", () => {
+  const result = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+
+  assert.equal(result.decision, "needs_review");
+  assert.equal(result.finding.role, "verifier");
+  assert.equal(result.finding.target, "verifierFinding");
+  assert.equal(result.finding.summary, "Forced repairable verifier finding for remask path smoke.");
+  assert.equal(result.issues[0].code, "missing_proposed_patch");
+  assert.deepEqual(result.finding.touchedFiles, ["packages/example/src/index.ts"]);
+});
+
+check("forced remask mode requests remask for repairable issue", () => {
+  const forcedVerifier = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    forcedVerifier,
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: ["packages/example/src/index.ts"],
+        confidence: 1
+      },
+      issues: []
+    },
+    null,
+    { forcedRemask: true }
+  );
+
+  assert.equal(decision.finalDecision, "remask_requested");
+  assert.equal(decision.remaskRequested, true);
+  assert.equal(decision.forcedRemask, true);
 });
 
 check("approved verifier result maps to approved_by_deterministic_verifier", () => {
@@ -268,6 +354,40 @@ check("needs_review repairable path can map to repair_draft_ready when remask va
   assert.equal(decision.repairDraftChecksOk, true);
 });
 
+check("forced remask mode maps successful remask validation/checks to repair_draft_ready", () => {
+  const forcedVerifier = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    forcedVerifier,
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: ["packages/example/src/index.ts"],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    },
+    { forcedRemask: true }
+  );
+
+  assert.equal(decision.finalDecision, "repair_draft_ready");
+  assert.equal(decision.forcedRemask, true);
+  assert.equal(decision.remaskValidationOk, true);
+  assert.equal(decision.repairDraftChecksOk, true);
+});
+
 check("needs_review repairable path can map to remask_repair_failed when remask validation fails", () => {
   const decision = decide(
     { ok: true },
@@ -293,6 +413,40 @@ check("needs_review repairable path can map to remask_repair_failed when remask 
   );
 
   assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.remaskValidationOk, false);
+  assert.equal(decision.repairDraftChecksOk, false);
+});
+
+check("forced remask mode maps failed remask validation/checks to remask_repair_failed", () => {
+  const forcedVerifier = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    forcedVerifier,
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: ["packages/example/src/index.ts"],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: false, blocked: true, issues: [{ code: "invalid_json", message: "bad" }], mutation: null },
+      repairDraftChecks: { ok: false, issues: [] }
+    },
+    { forcedRemask: true }
+  );
+
+  assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.forcedRemask, true);
   assert.equal(decision.remaskValidationOk, false);
   assert.equal(decision.repairDraftChecksOk, false);
 });
