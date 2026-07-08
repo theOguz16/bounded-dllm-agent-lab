@@ -1,4 +1,5 @@
 export * from "./model-mutation-validator.js";
+export * from "./deterministic-verifier-gate.js";
 export * from "./workspace-mutation.js";
 
 export type ReviewDecision =

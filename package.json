@@ -144,6 +144,7 @@
     "test:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token-smoke.cjs",
     "test:workspace-mutation-contract": "node scripts/workspace-mutation-contract-smoke.cjs",
     "test:model-mutation-validator": "node scripts/model-mutation-validator-smoke.cjs",
+    "test:deterministic-verifier-gate": "node scripts/deterministic-verifier-gate-smoke.cjs",
     "worker:planner-smoke": "node scripts/worker-backed-planner-smoke.cjs",
     "test:worker-backed-planner-smoke": "node scripts/worker-backed-planner-smoke-test.cjs",
     "worker:coder-smoke": "node scripts/worker-backed-coder-smoke.cjs",
