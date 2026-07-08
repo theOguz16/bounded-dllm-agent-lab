@@ -147,7 +147,9 @@
     "worker:planner-smoke": "node scripts/worker-backed-planner-smoke.cjs",
     "test:worker-backed-planner-smoke": "node scripts/worker-backed-planner-smoke-test.cjs",
     "worker:coder-smoke": "node scripts/worker-backed-coder-smoke.cjs",
-    "test:worker-backed-coder-smoke": "node scripts/worker-backed-coder-smoke-test.cjs"
+    "test:worker-backed-coder-smoke": "node scripts/worker-backed-coder-smoke-test.cjs",
+    "worker:orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke.cjs",
+    "test:worker-backed-orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke-test.cjs"
   },
   "workspaces": [
     "apps/*",
