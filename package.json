@@ -149,6 +149,8 @@
     "test:worker-backed-planner-smoke": "node scripts/worker-backed-planner-smoke-test.cjs",
     "worker:coder-smoke": "node scripts/worker-backed-coder-smoke.cjs",
     "test:worker-backed-coder-smoke": "node scripts/worker-backed-coder-smoke-test.cjs",
+    "worker:remask-smoke": "node scripts/worker-backed-remask-smoke.cjs",
+    "test:worker-backed-remask-smoke": "node scripts/worker-backed-remask-smoke-test.cjs",
     "worker:orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke.cjs",
     "test:worker-backed-orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke-test.cjs",
     "report:phase-p-worker-suite": "node scripts/phase-p-worker-suite-report.cjs",
