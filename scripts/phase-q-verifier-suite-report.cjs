@@ -4,6 +4,7 @@ const { spawnSync } = require("node:child_process");
 
 const SUITE_NAME = "phase-q-verifier-suite-report";
 const ORCHESTRATOR_REPORT_DIR = path.join("reports", "worker-backed-orchestrator-smoke");
+const VERIFIER_NEGATIVE_FIXTURE_REPORT_DIR = path.join("reports", "verifier-negative-fixture-suite");
 const SUITE_REPORT_DIR = path.join("reports", "phase-q-verifier-suite");
 
 const verifierFinalDecisions = new Set([
@@ -114,8 +115,35 @@ function summarizeOrchestrator(childResult, reportPath, report) {
   };
 }
 
+function summarizeVerifierNegativeFixtures(childResult, reportPath, report) {
+  const summary = report && report.summary ? report.summary : {};
+
+  return {
+    command: childResult.command,
+    exitCode: childResult.exitCode,
+    reportPath,
+    ok: Boolean(report && report.ok),
+    status: report ? report.status || "missing_report" : "missing_report",
+    total: typeof summary.total === "number" ? summary.total : 0,
+    passed: typeof summary.passed === "number" ? summary.passed : 0,
+    failed: typeof summary.failed === "number" ? summary.failed : 0,
+    approveCases: typeof summary.approveCases === "number" ? summary.approveCases : 0,
+    needsReviewCases: typeof summary.needsReviewCases === "number" ? summary.needsReviewCases : 0,
+    rejectCases: typeof summary.rejectCases === "number" ? summary.rejectCases : 0,
+    allExpectedDecisionsObserved: Boolean(summary.allExpectedDecisionsObserved)
+  };
+}
+
 function buildSummary(children, configured) {
   const verifierGateTestPassed = children.deterministicVerifierGate.exitCode === 0;
+  const negativeFixtureSuitePassed =
+    children.verifierNegativeFixtures.exitCode === 0 &&
+    children.verifierNegativeFixtures.ok;
+  const negativeFixtureAllExpectedDecisionsObserved =
+    Boolean(children.verifierNegativeFixtures.allExpectedDecisionsObserved);
+  const negativeFixtureApproveCases = children.verifierNegativeFixtures.approveCases;
+  const negativeFixtureNeedsReviewCases = children.verifierNegativeFixtures.needsReviewCases;
+  const negativeFixtureRejectCases = children.verifierNegativeFixtures.rejectCases;
   const orchestratorCommandExitedZero = children.orchestrator.exitCode === 0;
   const orchestratorConfigured = Boolean(children.orchestrator.configured);
   const plannerValidationPassed = Boolean(children.orchestrator.plannerValidationOk);
@@ -128,6 +156,11 @@ function buildSummary(children, configured) {
 
   return {
     verifierGateTestPassed,
+    negativeFixtureSuitePassed,
+    negativeFixtureAllExpectedDecisionsObserved,
+    negativeFixtureApproveCases,
+    negativeFixtureNeedsReviewCases,
+    negativeFixtureRejectCases,
     orchestratorCommandExitedZero,
     orchestratorConfigured,
     plannerValidationPassed,
@@ -140,6 +173,8 @@ function buildSummary(children, configured) {
     readyForRunPodLiveValidation:
       configured &&
       verifierGateTestPassed &&
+      negativeFixtureSuitePassed &&
+      negativeFixtureAllExpectedDecisionsObserved &&
       orchestratorCommandExitedZero &&
       plannerValidationPassed &&
       coderValidationPassed &&
@@ -152,6 +187,8 @@ function buildSummary(children, configured) {
 function determineStatus(children, required) {
   if (
     children.deterministicVerifierGate.exitCode !== 0 ||
+    children.verifierNegativeFixtures.exitCode !== 0 ||
+    !children.verifierNegativeFixtures.ok ||
     children.orchestrator.exitCode !== 0
   ) {
     return "failed";
@@ -181,6 +218,8 @@ function renderMarkdown(report) {
     `- Required mode: ${report.required}`,
     `- Configured endpoint: ${report.configured}`,
     `- Deterministic verifier gate test passed: ${report.summary.verifierGateTestPassed}`,
+    `- Negative fixture suite passed: ${report.summary.negativeFixtureSuitePassed}`,
+    `- Negative fixture decisions observed: ${report.summary.negativeFixtureAllExpectedDecisionsObserved}`,
     `- Orchestrator status: ${report.children.orchestrator.status}`,
     `- Planner validation passed: ${report.summary.plannerValidationPassed}`,
     `- Coder validation passed: ${report.summary.coderValidationPassed}`,
@@ -193,9 +232,23 @@ function renderMarkdown(report) {
     `- Finished at: ${report.finishedAt}`,
     `- Duration ms: ${report.durationMs}`,
     "",
+    "## Verifier Negative Fixtures",
+    "",
+    `- Status: ${report.children.verifierNegativeFixtures.status}`,
+    `- OK: ${report.children.verifierNegativeFixtures.ok}`,
+    `- Total: ${report.children.verifierNegativeFixtures.total}`,
+    `- Passed: ${report.children.verifierNegativeFixtures.passed}`,
+    `- Failed: ${report.children.verifierNegativeFixtures.failed}`,
+    `- Approve cases: ${report.children.verifierNegativeFixtures.approveCases}`,
+    `- Needs review cases: ${report.children.verifierNegativeFixtures.needsReviewCases}`,
+    `- Reject cases: ${report.children.verifierNegativeFixtures.rejectCases}`,
+    `- Expected decisions observed: ${report.children.verifierNegativeFixtures.allExpectedDecisionsObserved}`,
+    `- Report path: ${report.children.verifierNegativeFixtures.reportPath || ""}`,
+    "",
     "## Child Reports",
     "",
     `- Deterministic verifier gate: command=${report.children.deterministicVerifierGate.command}, exitCode=${report.children.deterministicVerifierGate.exitCode}`,
+    `- Verifier negative fixtures: command=${report.children.verifierNegativeFixtures.command}, exitCode=${report.children.verifierNegativeFixtures.exitCode}, report=${report.children.verifierNegativeFixtures.reportPath || ""}`,
     `- Orchestrator: command=${report.children.orchestrator.command}, exitCode=${report.children.orchestrator.exitCode}, report=${report.children.orchestrator.reportPath || ""}`,
     ""
   ].join("\n");
@@ -226,6 +279,10 @@ function run() {
     "npm run test:deterministic-verifier-gate",
     ["run", "test:deterministic-verifier-gate"]
   );
+  const verifierNegativeFixtures = runNpmScript(
+    "npm run report:verifier-negative-fixture-suite",
+    ["run", "report:verifier-negative-fixture-suite"]
+  );
   const orchestratorEnv = buildOrchestratorEnv(process.env, required);
   const orchestratorResult = runNpmScript(
     "npm run worker:orchestrator-smoke",
@@ -234,12 +291,23 @@ function run() {
   );
   const orchestratorReportPath = latestJsonReport(path.resolve(process.cwd(), ORCHESTRATOR_REPORT_DIR));
   const orchestratorReport = orchestratorReportPath ? readJson(orchestratorReportPath) : null;
+  const verifierNegativeFixtureReportPath = latestJsonReport(
+    path.resolve(process.cwd(), VERIFIER_NEGATIVE_FIXTURE_REPORT_DIR)
+  );
+  const verifierNegativeFixtureReport = verifierNegativeFixtureReportPath
+    ? readJson(verifierNegativeFixtureReportPath)
+    : null;
   const children = {
     deterministicVerifierGate: {
       command: deterministicVerifierGate.command,
       exitCode: deterministicVerifierGate.exitCode,
       ok: deterministicVerifierGate.exitCode === 0
     },
+    verifierNegativeFixtures: summarizeVerifierNegativeFixtures(
+      verifierNegativeFixtures,
+      verifierNegativeFixtureReportPath,
+      verifierNegativeFixtureReport
+    ),
     orchestrator: summarizeOrchestrator(
       orchestratorResult,
       orchestratorReportPath,
@@ -251,6 +319,8 @@ function run() {
   const finishedAt = new Date();
   const ok =
     children.deterministicVerifierGate.exitCode === 0 &&
+    children.verifierNegativeFixtures.exitCode === 0 &&
+    children.verifierNegativeFixtures.ok &&
     children.orchestrator.exitCode === 0 &&
     !(required && summary.anySkipped);
 

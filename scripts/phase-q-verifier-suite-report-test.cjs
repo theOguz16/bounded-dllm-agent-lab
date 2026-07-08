@@ -37,6 +37,20 @@ function syntheticChildren(finalDecision) {
       exitCode: 0,
       ok: true
     },
+    verifierNegativeFixtures: {
+      command: "npm run report:verifier-negative-fixture-suite",
+      exitCode: 0,
+      reportPath: "reports/verifier-negative-fixture-suite/synthetic.json",
+      ok: true,
+      status: "completed",
+      total: 6,
+      passed: 6,
+      failed: 0,
+      approveCases: 1,
+      needsReviewCases: 3,
+      rejectCases: 2,
+      allExpectedDecisionsObserved: true
+    },
     orchestrator: {
       command: "npm run worker:orchestrator-smoke",
       exitCode: 0,
@@ -99,11 +113,33 @@ check("deterministic verifier gate child exists", () => {
   assert.equal(report.children.deterministicVerifierGate.command, "npm run test:deterministic-verifier-gate");
 });
 
+check("verifier negative fixtures child exists", () => {
+  const { report } = runSuite({});
+
+  assert.ok(report.children.verifierNegativeFixtures);
+  assert.equal(report.children.verifierNegativeFixtures.command, "npm run report:verifier-negative-fixture-suite");
+});
+
 check("orchestrator child exists", () => {
   const { report } = runSuite({});
 
   assert.ok(report.children.orchestrator);
   assert.equal(report.children.orchestrator.command, "npm run worker:orchestrator-smoke");
+});
+
+check("negative fixture suite ok true", () => {
+  const { report } = runSuite({});
+
+  assert.equal(report.children.verifierNegativeFixtures.ok, true);
+});
+
+check("negative fixture suite observes approve needs_review and reject", () => {
+  const { report } = runSuite({});
+
+  assert.equal(report.children.verifierNegativeFixtures.approveCases > 0, true);
+  assert.equal(report.children.verifierNegativeFixtures.needsReviewCases > 0, true);
+  assert.equal(report.children.verifierNegativeFixtures.rejectCases > 0, true);
+  assert.equal(report.children.verifierNegativeFixtures.allExpectedDecisionsObserved, true);
 });
 
 check("readyForRunPodLiveValidation is false when no endpoint is configured", () => {
@@ -120,25 +156,39 @@ check("required mode fails when no endpoint is configured", () => {
   assert.equal(report.status, "failed");
 });
 
-check("synthetic completed configured verifier-approved summary is ready for live validation", () => {
+check("synthetic completed configured verifier-approved summary is ready for live validation only when negative fixtures passed", () => {
   const summary = buildSummary(syntheticChildren("approved_by_deterministic_verifier"), true);
 
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.verifierApproved, true);
+  assert.equal(summary.negativeFixtureSuitePassed, true);
 });
 
-check("synthetic completed configured verifier-needs-review summary is ready for live validation", () => {
+check("synthetic completed configured verifier-needs-review summary is ready for live validation only when negative fixtures passed", () => {
   const summary = buildSummary(syntheticChildren("needs_review_by_deterministic_verifier"), true);
 
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.verifierNeedsReview, true);
+  assert.equal(summary.negativeFixtureSuitePassed, true);
 });
 
-check("synthetic completed configured verifier-rejected summary is ready for live validation", () => {
+check("synthetic completed configured verifier-rejected summary is ready for live validation only when negative fixtures passed", () => {
   const summary = buildSummary(syntheticChildren("rejected_by_deterministic_verifier"), true);
 
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.verifierRejected, true);
+  assert.equal(summary.negativeFixtureSuitePassed, true);
+});
+
+check("synthetic completed configured summary is not ready when negative fixtures missed decisions", () => {
+  const children = syntheticChildren("approved_by_deterministic_verifier");
+  children.verifierNegativeFixtures.allExpectedDecisionsObserved = false;
+  children.verifierNegativeFixtures.rejectCases = 0;
+
+  const summary = buildSummary(children, true);
+
+  assert.equal(summary.negativeFixtureAllExpectedDecisionsObserved, false);
+  assert.equal(summary.readyForRunPodLiveValidation, false);
 });
 
 console.log("phase-q verifier suite report test passed");
