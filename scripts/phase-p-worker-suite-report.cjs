@@ -214,7 +214,6 @@ function buildSummary(childSummaries, required, configured) {
     anyBlocked,
     readyForRunPodLiveValidation:
       configured &&
-      !required &&
       allCommandsExitedZero &&
       allConfigured &&
       allValidationPassed &&
@@ -321,5 +320,6 @@ if (require.main === module) {
 module.exports = {
   SUITE_NAME,
   buildChildEnv,
+  buildSummary,
   run
 };

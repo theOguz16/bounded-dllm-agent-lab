@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "phase-p-worker-suite-report.cjs");
+const { buildSummary } = require(scriptPath);
 
 function runSuite(env) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "phase-p-worker-suite-"));
@@ -90,6 +91,44 @@ check("readyForRunPodLiveValidation is false when no endpoint is configured", ()
   const { report } = runSuite({ PHASE_P_WORKER_SUITE_REQUIRED: "0" });
 
   assert.equal(report.summary.readyForRunPodLiveValidation, false);
+});
+
+check("completed configured all-valid summary is ready in required mode", () => {
+  const summary = buildSummary(
+    {
+      planner: {
+        exitCode: 0,
+        configured: true,
+        validationOk: true,
+        blocked: false,
+        status: "completed"
+      },
+      coder: {
+        exitCode: 0,
+        configured: true,
+        validationOk: true,
+        blocked: false,
+        status: "completed"
+      },
+      orchestrator: {
+        exitCode: 0,
+        configured: true,
+        plannerValidationOk: true,
+        coderValidationOk: true,
+        finalDecision: "ready_for_deterministic_verifier",
+        status: "completed"
+      }
+    },
+    true,
+    true
+  );
+
+  assert.equal(summary.allCommandsExitedZero, true);
+  assert.equal(summary.allConfigured, true);
+  assert.equal(summary.allValidationPassed, true);
+  assert.equal(summary.anySkipped, false);
+  assert.equal(summary.anyBlocked, false);
+  assert.equal(summary.readyForRunPodLiveValidation, true);
 });
 
 check("required mode fails when no endpoint is configured", () => {
