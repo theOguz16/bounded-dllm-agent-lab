@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "worker-backed-orchestrator-smoke.cjs");
+const { decide } = require(scriptPath);
 
 function runSmoke(env) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-orchestrator-smoke-"));
@@ -69,6 +70,8 @@ check("script creates JSON and Markdown report", () => {
   assert.ok(markdown.includes("Worker-Backed Orchestrator Smoke"));
   assert.ok(markdown.includes("Status: skipped"));
   assert.ok(markdown.includes("Final decision: skipped"));
+  assert.ok(markdown.includes("## Verifier"));
+  assert.ok(markdown.includes("Verifier called: false"));
 });
 
 check("skipped report has suiteName phase-p-worker-backed-orchestrator-smoke", () => {
@@ -105,6 +108,62 @@ check("skipped report has coder.called false", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
 
   assert.equal(report.coder.called, false);
+});
+
+check("skipped report has verifier.called false", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+
+  assert.equal(report.verifier.called, false);
+});
+
+check("planner validation failure maps to blocked_before_coder", () => {
+  const decision = decide({ ok: false }, { ok: false });
+
+  assert.equal(decision.finalDecision, "blocked_before_coder");
+  assert.match(decision.reason, /planner validation failure/);
+});
+
+check("coder validation failure maps to blocked_before_verifier", () => {
+  const decision = decide({ ok: true }, { ok: false });
+
+  assert.equal(decision.finalDecision, "blocked_before_verifier");
+  assert.match(decision.reason, /coder validation failure/);
+});
+
+check("approved verifier result maps to approved_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "approve", issues: [] }
+  );
+
+  assert.equal(decision.finalDecision, "approved_by_deterministic_verifier");
+  assert.equal(decision.verifierDecision, "approve");
+  assert.equal(decision.verifierIssueCount, 0);
+});
+
+check("needs_review verifier result maps to needs_review_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "low_confidence", message: "low" }] }
+  );
+
+  assert.equal(decision.finalDecision, "needs_review_by_deterministic_verifier");
+  assert.equal(decision.verifierDecision, "needs_review");
+  assert.equal(decision.verifierIssueCount, 1);
+});
+
+check("rejected verifier result maps to rejected_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "reject", issues: [{ code: "unsafe_patch_content", message: "unsafe" }] }
+  );
+
+  assert.equal(decision.finalDecision, "rejected_by_deterministic_verifier");
+  assert.equal(decision.verifierDecision, "reject");
+  assert.equal(decision.verifierIssueCount, 1);
 });
 
 console.log("worker-backed orchestrator smoke test passed");

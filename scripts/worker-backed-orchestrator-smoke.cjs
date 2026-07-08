@@ -168,6 +168,17 @@ function emptyRoleReport() {
   };
 }
 
+function emptyVerifierReport() {
+  return {
+    called: false,
+    decision: null,
+    ok: false,
+    issueCount: 0,
+    issues: [],
+    finding: null
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -185,6 +196,7 @@ function baseReport(config, status) {
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
+    verifier: emptyVerifierReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -219,6 +231,25 @@ function touchedFiles(validation) {
   return validation && validation.mutation ? validation.mutation.touchedFiles.join(", ") : "";
 }
 
+function verifierFindingSummary(verifier) {
+  return verifier && verifier.finding ? verifier.finding.summary : "";
+}
+
+function verifierIssuesMarkdown(verifier) {
+  const issues = verifier && Array.isArray(verifier.issues) ? verifier.issues : [];
+
+  if (issues.length === 0) {
+    return "- verifier: No issues.";
+  }
+
+  return issues
+    .map((issue) => {
+      const location = issue.path || issue.file ? ` (${[issue.path, issue.file].filter(Boolean).join(", ")})` : "";
+      return `- verifier: ${issue.code}: ${issue.message}${location}`;
+    })
+    .join("\n");
+}
+
 function renderMarkdown(report, config) {
   return [
     "# Worker-Backed Orchestrator Smoke",
@@ -237,15 +268,31 @@ function renderMarkdown(report, config) {
     `- Coder called: ${report.coder.called}`,
     `- Coder validation OK: ${report.coder.validation.ok}`,
     `- Coder validation blocked: ${report.coder.validation.blocked}`,
+    `- Verifier called: ${report.verifier.called}`,
+    `- Verifier decision: ${report.verifier.decision ?? ""}`,
+    `- Verifier issue count: ${report.verifier.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
     `- Planner touched files: ${touchedFiles(report.planner.validation)}`,
     `- Coder touched files: ${touchedFiles(report.coder.validation)}`,
+    `- Verifier finding summary: ${verifierFindingSummary(report.verifier)}`,
     "",
     "## Issues",
     "",
     validationIssuesMarkdown("planner", report.planner.validation),
     validationIssuesMarkdown("coder", report.coder.validation),
+    verifierIssuesMarkdown(report.verifier),
+    "",
+    "## Verifier",
+    "",
+    `- Called: ${report.verifier.called}`,
+    `- Decision: ${report.verifier.decision ?? ""}`,
+    `- Issue count: ${report.verifier.issueCount}`,
+    `- Finding summary: ${verifierFindingSummary(report.verifier)}`,
+    "",
+    "### Verifier Issues",
+    "",
+    verifierIssuesMarkdown(report.verifier),
     "",
     "## Latency And Tokens",
     "",
@@ -315,6 +362,13 @@ async function loadValidator() {
   return import(validatorPath.href);
 }
 
+async function loadDeterministicVerifierGate() {
+  const gatePath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "deterministic-verifier-gate.js")
+  );
+  return import(gatePath.href);
+}
+
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -349,18 +403,45 @@ async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   }
 }
 
-function decide(plannerValidation, coderValidation) {
+function finalDecisionForVerifierDecision(verifierDecision) {
+  if (verifierDecision === "approve") {
+    return "approved_by_deterministic_verifier";
+  }
+
+  if (verifierDecision === "needs_review") {
+    return "needs_review_by_deterministic_verifier";
+  }
+
+  if (verifierDecision === "reject") {
+    return "rejected_by_deterministic_verifier";
+  }
+
+  return "blocked_before_verifier";
+}
+
+function decide(plannerValidation, coderValidation, verifierResult = null) {
   if (!plannerValidation.ok) {
     return {
-      finalDecision: "blocked",
-      reason: "planner mutation validation failure"
+      finalDecision: "blocked_before_coder",
+      reason: "planner validation failure blocked coder execution"
     };
   }
 
   if (!coderValidation.ok) {
     return {
-      finalDecision: "blocked",
-      reason: "coder mutation validation failure"
+      finalDecision: "blocked_before_verifier",
+      reason: "coder validation failure blocked deterministic verifier execution"
+    };
+  }
+
+  if (verifierResult) {
+    const finalDecision = finalDecisionForVerifierDecision(verifierResult.decision);
+
+    return {
+      finalDecision,
+      reason: `deterministic verifier decision: ${verifierResult.decision}`,
+      verifierDecision: verifierResult.decision,
+      verifierIssueCount: Array.isArray(verifierResult.issues) ? verifierResult.issues.length : 0
     };
   }
 
@@ -386,6 +467,7 @@ async function run() {
   }
 
   const { validateModelWorkspaceMutation } = await loadValidator();
+  const { verifyPatchDraftMutation } = await loadDeterministicVerifierGate();
   const report = baseReport(config, "completed");
 
   try {
@@ -440,9 +522,26 @@ async function run() {
     report.coder.rawOutputPreview = preview(rawCoderOutput);
     report.coder.validation = coderValidation;
 
+    let verifierResult = null;
+    if (coderValidation.ok) {
+      verifierResult = verifyPatchDraftMutation(coderValidation.mutation, {
+        allowedFiles: fixture.allowedFiles,
+        forbiddenFiles: fixture.forbiddenFiles,
+        minConfidence: 0.5
+      });
+      report.verifier = {
+        called: true,
+        decision: verifierResult.decision,
+        ok: verifierResult.ok,
+        issueCount: verifierResult.issues.length,
+        issues: verifierResult.issues,
+        finding: verifierResult.finding
+      };
+    }
+
     report.ok = true;
     report.status = "completed";
-    const decision = decide(plannerValidation, coderValidation);
+    const decision = decide(plannerValidation, coderValidation, verifierResult);
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
   } catch (error) {
@@ -477,6 +576,8 @@ module.exports = {
   buildCoderMessages,
   buildPlannerMessages,
   decide,
+  emptyVerifierReport,
   fixture,
+  finalDecisionForVerifierDecision,
   run
 };

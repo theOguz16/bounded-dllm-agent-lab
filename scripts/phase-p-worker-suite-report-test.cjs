@@ -87,6 +87,13 @@ check("children exist", () => {
   assert.ok(report.children.orchestrator);
 });
 
+check("orchestrator verifier fields are summarized when present", () => {
+  const { report } = runSuite({ PHASE_P_WORKER_SUITE_REQUIRED: "0" });
+
+  assert.equal(report.children.orchestrator.verifierDecision, null);
+  assert.equal(report.children.orchestrator.verifierIssueCount, 0);
+});
+
 check("readyForRunPodLiveValidation is false when no endpoint is configured", () => {
   const { report } = runSuite({ PHASE_P_WORKER_SUITE_REQUIRED: "0" });
 
@@ -115,7 +122,9 @@ check("completed configured all-valid summary is ready in required mode", () => 
         configured: true,
         plannerValidationOk: true,
         coderValidationOk: true,
-        finalDecision: "ready_for_deterministic_verifier",
+        finalDecision: "approved_by_deterministic_verifier",
+        verifierDecision: "approve",
+        verifierIssueCount: 0,
         status: "completed"
       }
     },
@@ -129,6 +138,42 @@ check("completed configured all-valid summary is ready in required mode", () => 
   assert.equal(summary.anySkipped, false);
   assert.equal(summary.anyBlocked, false);
   assert.equal(summary.readyForRunPodLiveValidation, true);
+});
+
+check("verifier fields do not break configured all-valid summary", () => {
+  const summary = buildSummary(
+    {
+      planner: {
+        exitCode: 0,
+        configured: true,
+        validationOk: true,
+        blocked: false,
+        status: "completed"
+      },
+      coder: {
+        exitCode: 0,
+        configured: true,
+        validationOk: true,
+        blocked: false,
+        status: "completed"
+      },
+      orchestrator: {
+        exitCode: 0,
+        configured: true,
+        plannerValidationOk: true,
+        coderValidationOk: true,
+        finalDecision: "needs_review_by_deterministic_verifier",
+        verifierDecision: "needs_review",
+        verifierIssueCount: 1,
+        status: "completed"
+      }
+    },
+    true,
+    true
+  );
+
+  assert.equal(summary.allValidationPassed, true);
+  assert.equal(summary.anyBlocked, false);
 });
 
 check("required mode fails when no endpoint is configured", () => {

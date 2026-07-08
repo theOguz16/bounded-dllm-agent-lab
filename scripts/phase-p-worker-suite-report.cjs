@@ -155,6 +155,7 @@ function summarizeOrchestrator(childResult) {
   const report = childResult.report || {};
   const plannerValidation = report.planner && report.planner.validation ? report.planner.validation : {};
   const coderValidation = report.coder && report.coder.validation ? report.coder.validation : {};
+  const verifier = report.verifier || {};
 
   return {
     command: childResult.command,
@@ -167,7 +168,9 @@ function summarizeOrchestrator(childResult) {
     plannerValidationOk: Boolean(plannerValidation.ok),
     coderValidationOk: Boolean(coderValidation.ok),
     plannerIssueCount: issueCount(plannerValidation),
-    coderIssueCount: issueCount(coderValidation)
+    coderIssueCount: issueCount(coderValidation),
+    verifierDecision: verifier.decision ?? null,
+    verifierIssueCount: typeof verifier.issueCount === "number" ? verifier.issueCount : null
   };
 }
 
@@ -204,7 +207,10 @@ function buildSummary(childSummaries, required, configured) {
   const anyBlocked =
     childSummaries.planner.blocked ||
     childSummaries.coder.blocked ||
-    childSummaries.orchestrator.finalDecision === "blocked";
+    childSummaries.orchestrator.finalDecision === "blocked" ||
+    childSummaries.orchestrator.finalDecision === "blocked_before_coder" ||
+    childSummaries.orchestrator.finalDecision === "blocked_before_verifier" ||
+    childSummaries.orchestrator.finalDecision === "rejected_by_deterministic_verifier";
 
   return {
     allCommandsExitedZero,
@@ -239,7 +245,7 @@ function renderMarkdown(report) {
     "",
     `- Planner: status=${report.children.planner.status}, ok=${report.children.planner.ok}, validationOk=${report.children.planner.validationOk}, blocked=${report.children.planner.blocked}, report=${report.children.planner.reportPath || ""}`,
     `- Coder: status=${report.children.coder.status}, ok=${report.children.coder.ok}, validationOk=${report.children.coder.validationOk}, blocked=${report.children.coder.blocked}, report=${report.children.coder.reportPath || ""}`,
-    `- Orchestrator: status=${report.children.orchestrator.status}, ok=${report.children.orchestrator.ok}, finalDecision=${report.children.orchestrator.finalDecision || ""}, plannerValidationOk=${report.children.orchestrator.plannerValidationOk}, coderValidationOk=${report.children.orchestrator.coderValidationOk}, report=${report.children.orchestrator.reportPath || ""}`,
+    `- Orchestrator: status=${report.children.orchestrator.status}, ok=${report.children.orchestrator.ok}, finalDecision=${report.children.orchestrator.finalDecision || ""}, plannerValidationOk=${report.children.orchestrator.plannerValidationOk}, coderValidationOk=${report.children.orchestrator.coderValidationOk}, verifierDecision=${report.children.orchestrator.verifierDecision || ""}, verifierIssueCount=${report.children.orchestrator.verifierIssueCount ?? ""}, report=${report.children.orchestrator.reportPath || ""}`,
     "",
     "## Summary",
     "",
