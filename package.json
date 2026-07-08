@@ -153,6 +153,8 @@
     "test:worker-backed-remask-smoke": "node scripts/worker-backed-remask-smoke-test.cjs",
     "worker:orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke.cjs",
     "test:worker-backed-orchestrator-smoke": "node scripts/worker-backed-orchestrator-smoke-test.cjs",
+    "report:phase-r-remask-suite": "node scripts/phase-r-remask-suite-report.cjs",
+    "test:phase-r-remask-suite": "node scripts/phase-r-remask-suite-report-test.cjs",
     "report:phase-p-worker-suite": "node scripts/phase-p-worker-suite-report.cjs",
     "test:phase-p-worker-suite": "node scripts/phase-p-worker-suite-report-test.cjs",
     "report:phase-q-verifier-suite": "node scripts/phase-q-verifier-suite-report.cjs",
