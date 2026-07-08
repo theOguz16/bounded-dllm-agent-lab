@@ -1,5 +1,6 @@
 export * from "./model-mutation-validator.js";
 export * from "./deterministic-verifier-gate.js";
+export * from "./remask-request-builder.js";
 export * from "./workspace-mutation.js";
 
 export type ReviewDecision =

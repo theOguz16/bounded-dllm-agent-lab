@@ -156,7 +156,8 @@
     "report:phase-q-verifier-suite": "node scripts/phase-q-verifier-suite-report.cjs",
     "test:phase-q-verifier-suite": "node scripts/phase-q-verifier-suite-report-test.cjs",
     "report:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite.cjs",
-    "test:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite-test.cjs"
+    "test:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite-test.cjs",
+    "test:remask-request-builder": "node scripts/remask-request-builder-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
