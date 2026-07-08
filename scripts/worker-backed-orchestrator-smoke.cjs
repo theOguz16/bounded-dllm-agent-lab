@@ -1,6 +1,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const {
+  buildRemaskMessages,
+  checkRepairDraftMutation,
+  emptyRepairDraftChecks
+} = require("./worker-backed-remask-smoke.cjs");
 
 const SUITE_NAME = "phase-p-worker-backed-orchestrator-smoke";
 
@@ -48,6 +53,7 @@ function configFromEnv() {
     timeoutMs: readIntegerEnv("WORKER_ORCHESTRATOR_TIMEOUT_MS", 120000),
     plannerMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_PLANNER_MAX_TOKENS", 256),
     coderMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_CODER_MAX_TOKENS", 512),
+    remaskMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_REMASK_MAX_TOKENS", 512),
     required: process.env.WORKER_ORCHESTRATOR_REQUIRED === "1",
     outDir: process.env.WORKER_ORCHESTRATOR_OUT_DIR || path.join("reports", "worker-backed-orchestrator-smoke")
   };
@@ -186,7 +192,14 @@ function emptyRemaskReport() {
     repairability: null,
     issueCount: 0,
     issues: [],
-    request: null
+    request: null,
+    latencyMs: null,
+    promptTokens: null,
+    completionTokens: null,
+    totalTokens: null,
+    rawOutputPreview: "",
+    validation: null,
+    repairDraftChecks: null
   };
 }
 
@@ -270,6 +283,18 @@ function remaskRequestTouchedFiles(remask) {
   return remask && remask.request ? remask.request.touchedFiles.join(", ") : "";
 }
 
+function remaskRepairDraftSummary(remask) {
+  return remask && remask.validation && remask.validation.mutation
+    ? remask.validation.mutation.summary
+    : "";
+}
+
+function remaskRepairDraftTouchedFiles(remask) {
+  return remask && remask.validation && remask.validation.mutation
+    ? remask.validation.mutation.touchedFiles.join(", ")
+    : "";
+}
+
 function remaskIssuesMarkdown(remask) {
   const issues = remask && Array.isArray(remask.issues) ? remask.issues : [];
 
@@ -282,6 +307,32 @@ function remaskIssuesMarkdown(remask) {
       const location = issue.path || issue.file ? ` (${[issue.path, issue.file].filter(Boolean).join(", ")})` : "";
       return `- remask: ${issue.code}: ${issue.message}${location}`;
     })
+    .join("\n");
+}
+
+function remaskValidationIssuesMarkdown(remask) {
+  const validation = remask && remask.validation ? remask.validation : null;
+  const issues = validation && Array.isArray(validation.issues) ? validation.issues : [];
+
+  if (issues.length === 0) {
+    return "- remask validation: No issues.";
+  }
+
+  return issues
+    .map((issue) => `- remask validation: ${issue.code}: ${issue.message}${issue.path ? ` (${issue.path})` : ""}`)
+    .join("\n");
+}
+
+function remaskRepairDraftCheckIssuesMarkdown(remask) {
+  const checks = remask && remask.repairDraftChecks ? remask.repairDraftChecks : null;
+  const issues = checks && Array.isArray(checks.issues) ? checks.issues : [];
+
+  if (issues.length === 0) {
+    return "- remask repairDraft checks: No issues.";
+  }
+
+  return issues
+    .map((issue) => `- remask repairDraft checks: ${issue.code}: ${issue.message}${issue.path ? ` (${issue.path})` : ""}`)
     .join("\n");
 }
 
@@ -309,6 +360,9 @@ function renderMarkdown(report, config) {
     `- Remask called: ${report.remask.called}`,
     `- Remask requested: ${report.remask.requested}`,
     `- Remask repairability: ${report.remask.repairability ?? ""}`,
+    `- Remask validation OK: ${report.remask.validation ? report.remask.validation.ok : ""}`,
+    `- Remask validation blocked: ${report.remask.validation ? report.remask.validation.blocked : ""}`,
+    `- RepairDraft checks OK: ${report.remask.repairDraftChecks ? report.remask.repairDraftChecks.ok : ""}`,
     `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
@@ -316,6 +370,7 @@ function renderMarkdown(report, config) {
     `- Coder touched files: ${touchedFiles(report.coder.validation)}`,
     `- Verifier finding summary: ${verifierFindingSummary(report.verifier)}`,
     `- Remask request summary: ${remaskRequestSummary(report.remask)}`,
+    `- RepairDraft summary: ${remaskRepairDraftSummary(report.remask)}`,
     "",
     "## Issues",
     "",
@@ -340,18 +395,32 @@ function renderMarkdown(report, config) {
     `- Called: ${report.remask.called}`,
     `- Requested: ${report.remask.requested}`,
     `- Repairability: ${report.remask.repairability ?? ""}`,
+    `- Validation OK: ${report.remask.validation ? report.remask.validation.ok : ""}`,
+    `- Validation blocked: ${report.remask.validation ? report.remask.validation.blocked : ""}`,
+    `- RepairDraft checks OK: ${report.remask.repairDraftChecks ? report.remask.repairDraftChecks.ok : ""}`,
     `- Issue count: ${report.remask.issueCount}`,
     `- Request summary: ${remaskRequestSummary(report.remask)}`,
+    `- RepairDraft summary: ${remaskRepairDraftSummary(report.remask)}`,
     `- Request touched files: ${remaskRequestTouchedFiles(report.remask)}`,
+    `- RepairDraft touched files: ${remaskRepairDraftTouchedFiles(report.remask)}`,
     "",
     "### Remask Issues",
     "",
     remaskIssuesMarkdown(report.remask),
+    remaskValidationIssuesMarkdown(report.remask),
+    remaskRepairDraftCheckIssuesMarkdown(report.remask),
+    "",
+    "### Remask Raw Output Preview",
+    "",
+    "```text",
+    report.remask.rawOutputPreview || "",
+    "```",
     "",
     "## Latency And Tokens",
     "",
     roleTokensMarkdown("planner", report.planner),
     roleTokensMarkdown("coder", report.coder),
+    roleTokensMarkdown("remask", report.remask),
     "",
     "## Planner Raw Output Preview",
     "",
@@ -480,7 +549,13 @@ function finalDecisionForVerifierDecision(verifierDecision) {
   return "blocked_before_verifier";
 }
 
-function decide(plannerValidation, coderValidation, verifierResult = null, remaskResult = null) {
+function decide(
+  plannerValidation,
+  coderValidation,
+  verifierResult = null,
+  remaskResult = null,
+  remaskReport = null
+) {
   if (!plannerValidation.ok) {
     return {
       finalDecision: "blocked_before_coder",
@@ -497,9 +572,19 @@ function decide(plannerValidation, coderValidation, verifierResult = null, remas
 
   if (verifierResult) {
     const remaskRequested = Boolean(remaskResult && remaskResult.remaskRequest);
+    const remaskValidationOk =
+      remaskReport && remaskReport.validation ? Boolean(remaskReport.validation.ok) : null;
+    const repairDraftChecksOk =
+      remaskReport && remaskReport.repairDraftChecks
+        ? Boolean(remaskReport.repairDraftChecks.ok)
+        : null;
     const finalDecision =
-      verifierResult.decision === "needs_review" && remaskRequested
-        ? "remask_requested"
+      verifierResult.decision === "needs_review" && remaskRequested && remaskReport && remaskReport.called
+        ? remaskValidationOk && repairDraftChecksOk
+          ? "repair_draft_ready"
+          : "remask_repair_failed"
+        : verifierResult.decision === "needs_review" && remaskRequested
+          ? "remask_requested"
         : finalDecisionForVerifierDecision(verifierResult.decision);
 
     return {
@@ -508,7 +593,9 @@ function decide(plannerValidation, coderValidation, verifierResult = null, remas
       verifierDecision: verifierResult.decision,
       verifierIssueCount: Array.isArray(verifierResult.issues) ? verifierResult.issues.length : 0,
       remaskRequested,
-      remaskRepairability: remaskResult ? remaskResult.repairability : null
+      remaskRepairability: remaskResult ? remaskResult.repairability : null,
+      remaskValidationOk,
+      repairDraftChecksOk
     };
   }
 
@@ -623,14 +710,68 @@ async function run() {
           repairability: remaskResult.repairability,
           issueCount: remaskResult.issues.length,
           issues: remaskResult.issues,
-          request: remaskResult.remaskRequest
+          request: remaskResult.remaskRequest,
+          latencyMs: null,
+          promptTokens: null,
+          completionTokens: null,
+          totalTokens: null,
+          rawOutputPreview: "",
+          validation: null,
+          repairDraftChecks: null
         };
+
+        if (remaskResult.remaskRequest) {
+          report.remask.called = true;
+          try {
+            const remaskResponse = await callOpenAiCompatibleEndpoint(
+              config,
+              buildRemaskMessages({
+                ...fixture,
+                originalPatchDraft: coderValidation.mutation,
+                verifierFinding: verifierResult.finding,
+                remaskRequest: remaskResult.remaskRequest
+              }),
+              config.remaskMaxTokens
+            );
+            const rawRemaskOutput = extractContent(remaskResponse.data);
+            const remaskUsage = tokenUsage(remaskResponse.data);
+            const remaskValidation = validateModelWorkspaceMutation(rawRemaskOutput, {
+              role: "remask",
+              allowedFiles: fixture.allowedFiles,
+              forbiddenFiles: fixture.forbiddenFiles
+            });
+            const repairDraftChecks = remaskValidation.ok
+              ? checkRepairDraftMutation(remaskValidation.mutation)
+              : emptyRepairDraftChecks();
+
+            report.remask.latencyMs = remaskResponse.latencyMs;
+            report.remask.promptTokens = remaskUsage.promptTokens;
+            report.remask.completionTokens = remaskUsage.completionTokens;
+            report.remask.totalTokens = remaskUsage.totalTokens;
+            report.remask.rawOutputPreview = preview(rawRemaskOutput);
+            report.remask.validation = remaskValidation;
+            report.remask.repairDraftChecks = repairDraftChecks;
+          } catch (error) {
+            report.remask.validation = {
+              ok: false,
+              blocked: true,
+              issues: [
+                {
+                  code: "invalid_shape",
+                  message: error instanceof Error ? error.message : String(error)
+                }
+              ],
+              mutation: null
+            };
+            report.remask.repairDraftChecks = emptyRepairDraftChecks();
+          }
+        }
       }
     }
 
     report.ok = true;
     report.status = "completed";
-    const decision = decide(plannerValidation, coderValidation, verifierResult, remaskResult);
+    const decision = decide(plannerValidation, coderValidation, verifierResult, remaskResult, report.remask);
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
   } catch (error) {

@@ -11,7 +11,9 @@ const verifierFinalDecisions = new Set([
   "approved_by_deterministic_verifier",
   "needs_review_by_deterministic_verifier",
   "rejected_by_deterministic_verifier",
-  "remask_requested"
+  "remask_requested",
+  "repair_draft_ready",
+  "remask_repair_failed"
 ]);
 
 function safeTimestamp(date = new Date()) {
@@ -123,7 +125,15 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     remaskRepairability:
       remask.repairability === undefined
         ? orchestratorDecision.remaskRepairability ?? null
-        : remask.repairability
+        : remask.repairability,
+    remaskValidationOk:
+      remask.validation === undefined || remask.validation === null
+        ? orchestratorDecision.remaskValidationOk ?? null
+        : Boolean(remask.validation.ok),
+    repairDraftChecksOk:
+      remask.repairDraftChecks === undefined || remask.repairDraftChecks === null
+        ? orchestratorDecision.repairDraftChecksOk ?? null
+        : Boolean(remask.repairDraftChecks.ok)
   };
 }
 
@@ -166,6 +176,8 @@ function buildSummary(children, configured) {
   const verifierRejected = children.orchestrator.finalDecision === "rejected_by_deterministic_verifier";
   const remaskRequested = Boolean(children.orchestrator.remaskRequested);
   const remaskRepairability = children.orchestrator.remaskRepairability ?? null;
+  const remaskValidationOk = children.orchestrator.remaskValidationOk ?? null;
+  const repairDraftChecksOk = children.orchestrator.repairDraftChecksOk ?? null;
   const anySkipped = children.orchestrator.status === "skipped";
 
   return {
@@ -185,6 +197,8 @@ function buildSummary(children, configured) {
     verifierRejected,
     remaskRequested,
     remaskRepairability,
+    remaskValidationOk,
+    repairDraftChecksOk,
     anySkipped,
     readyForRunPodLiveValidation:
       configured &&
@@ -244,6 +258,8 @@ function renderMarkdown(report) {
     `- Verifier issue count: ${report.children.orchestrator.verifierIssueCount ?? ""}`,
     `- Remask requested: ${report.children.orchestrator.remaskRequested}`,
     `- Remask repairability: ${report.children.orchestrator.remaskRepairability ?? ""}`,
+    `- Remask validation OK: ${report.children.orchestrator.remaskValidationOk ?? ""}`,
+    `- RepairDraft checks OK: ${report.children.orchestrator.repairDraftChecksOk ?? ""}`,
     `- Final decision: ${report.children.orchestrator.finalDecision || ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,

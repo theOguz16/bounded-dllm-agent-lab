@@ -66,6 +66,8 @@ function syntheticChildren(finalDecision, overrides = {}) {
       verifierIssueCount: finalDecision === "approved_by_deterministic_verifier" ? 0 : 1,
       remaskRequested: false,
       remaskRepairability: null,
+      remaskValidationOk: null,
+      repairDraftChecksOk: null,
       ...overrides.orchestrator
     }
   };
@@ -190,6 +192,48 @@ check("synthetic completed configured remask-requested summary is ready for live
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.remaskRequested, true);
   assert.equal(summary.remaskRepairability, "repairable");
+  assert.equal(summary.negativeFixtureSuitePassed, true);
+});
+
+check("synthetic completed configured repair-draft-ready summary is ready for live validation only when negative fixtures passed", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_draft_ready", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.remaskRequested, true);
+  assert.equal(summary.remaskValidationOk, true);
+  assert.equal(summary.repairDraftChecksOk, true);
+  assert.equal(summary.negativeFixtureSuitePassed, true);
+});
+
+check("synthetic completed configured remask-repair-failed summary is ready for live validation only when negative fixtures passed", () => {
+  const summary = buildSummary(
+    syntheticChildren("remask_repair_failed", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: false,
+        repairDraftChecksOk: false
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.remaskRequested, true);
+  assert.equal(summary.remaskValidationOk, false);
+  assert.equal(summary.repairDraftChecksOk, false);
   assert.equal(summary.negativeFixtureSuitePassed, true);
 });
 

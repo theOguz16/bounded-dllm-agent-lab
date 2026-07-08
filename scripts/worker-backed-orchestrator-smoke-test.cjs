@@ -175,7 +175,9 @@ check("approved verifier result does not request remask", () => {
     { ok: true },
     { decision: "approve", issues: [] }
   );
+  const remask = emptyRemaskReport();
 
+  assert.equal(remask.called, false);
   assert.equal(decision.remaskRequested, false);
   assert.equal(decision.remaskRepairability, null);
 });
@@ -237,6 +239,93 @@ check("needs_review repairable verifier result maps finalDecision to remask_requ
   assert.equal(decision.finalDecision, "remask_requested");
 });
 
+check("needs_review repairable path can map to repair_draft_ready when remask validation/checks pass", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "repair_draft_ready");
+  assert.equal(decision.remaskValidationOk, true);
+  assert.equal(decision.repairDraftChecksOk, true);
+});
+
+check("needs_review repairable path can map to remask_repair_failed when remask validation fails", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: false, blocked: true, issues: [{ code: "invalid_json", message: "bad" }], mutation: null },
+      repairDraftChecks: { ok: false, issues: [] }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.remaskValidationOk, false);
+  assert.equal(decision.repairDraftChecksOk, false);
+});
+
+check("needs_review repairable path can map to remask_repair_failed when repairDraft checks fail", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: false, issues: [{ code: "missing_proposed_patch", message: "missing" }] }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.remaskValidationOk, true);
+  assert.equal(decision.repairDraftChecksOk, false);
+});
+
 check("needs_review non-repairable verifier result does not request remask", () => {
   const decision = decide(
     { ok: true },
@@ -248,7 +337,9 @@ check("needs_review non-repairable verifier result does not request remask", () 
       issues: [{ code: "unsafe_or_forbidden_issue", message: "unsafe" }]
     }
   );
+  const remask = emptyRemaskReport();
 
+  assert.equal(remask.called, false);
   assert.equal(decision.finalDecision, "needs_review_by_deterministic_verifier");
   assert.equal(decision.remaskRequested, false);
   assert.equal(decision.remaskRepairability, "not_repairable");
@@ -272,7 +363,9 @@ check("rejected verifier result does not request remask", () => {
     { ok: true },
     { decision: "reject", issues: [{ code: "unsafe_patch_content", message: "unsafe" }] }
   );
+  const remask = emptyRemaskReport();
 
+  assert.equal(remask.called, false);
   assert.equal(decision.remaskRequested, false);
   assert.equal(decision.remaskRepairability, null);
 });
