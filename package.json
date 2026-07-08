@@ -143,7 +143,9 @@
     "report:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token.cjs",
     "test:live-mini-benchmark-decision-token": "node scripts/live-mini-benchmark-decision-token-smoke.cjs",
     "test:workspace-mutation-contract": "node scripts/workspace-mutation-contract-smoke.cjs",
-    "test:model-mutation-validator": "node scripts/model-mutation-validator-smoke.cjs"
+    "test:model-mutation-validator": "node scripts/model-mutation-validator-smoke.cjs",
+    "worker:planner-smoke": "node scripts/worker-backed-planner-smoke.cjs",
+    "test:worker-backed-planner-smoke": "node scripts/worker-backed-planner-smoke-test.cjs"
   },
   "workspaces": [
     "apps/*",
