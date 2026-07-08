@@ -179,6 +179,17 @@ function emptyVerifierReport() {
   };
 }
 
+function emptyRemaskReport() {
+  return {
+    called: false,
+    requested: false,
+    repairability: null,
+    issueCount: 0,
+    issues: [],
+    request: null
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -197,6 +208,7 @@ function baseReport(config, status) {
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
     verifier: emptyVerifierReport(),
+    remask: emptyRemaskReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -250,6 +262,29 @@ function verifierIssuesMarkdown(verifier) {
     .join("\n");
 }
 
+function remaskRequestSummary(remask) {
+  return remask && remask.request ? remask.request.summary : "";
+}
+
+function remaskRequestTouchedFiles(remask) {
+  return remask && remask.request ? remask.request.touchedFiles.join(", ") : "";
+}
+
+function remaskIssuesMarkdown(remask) {
+  const issues = remask && Array.isArray(remask.issues) ? remask.issues : [];
+
+  if (issues.length === 0) {
+    return "- remask: No issues.";
+  }
+
+  return issues
+    .map((issue) => {
+      const location = issue.path || issue.file ? ` (${[issue.path, issue.file].filter(Boolean).join(", ")})` : "";
+      return `- remask: ${issue.code}: ${issue.message}${location}`;
+    })
+    .join("\n");
+}
+
 function renderMarkdown(report, config) {
   return [
     "# Worker-Backed Orchestrator Smoke",
@@ -271,17 +306,23 @@ function renderMarkdown(report, config) {
     `- Verifier called: ${report.verifier.called}`,
     `- Verifier decision: ${report.verifier.decision ?? ""}`,
     `- Verifier issue count: ${report.verifier.issueCount}`,
+    `- Remask called: ${report.remask.called}`,
+    `- Remask requested: ${report.remask.requested}`,
+    `- Remask repairability: ${report.remask.repairability ?? ""}`,
+    `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
     `- Planner touched files: ${touchedFiles(report.planner.validation)}`,
     `- Coder touched files: ${touchedFiles(report.coder.validation)}`,
     `- Verifier finding summary: ${verifierFindingSummary(report.verifier)}`,
+    `- Remask request summary: ${remaskRequestSummary(report.remask)}`,
     "",
     "## Issues",
     "",
     validationIssuesMarkdown("planner", report.planner.validation),
     validationIssuesMarkdown("coder", report.coder.validation),
     verifierIssuesMarkdown(report.verifier),
+    remaskIssuesMarkdown(report.remask),
     "",
     "## Verifier",
     "",
@@ -293,6 +334,19 @@ function renderMarkdown(report, config) {
     "### Verifier Issues",
     "",
     verifierIssuesMarkdown(report.verifier),
+    "",
+    "## Remask",
+    "",
+    `- Called: ${report.remask.called}`,
+    `- Requested: ${report.remask.requested}`,
+    `- Repairability: ${report.remask.repairability ?? ""}`,
+    `- Issue count: ${report.remask.issueCount}`,
+    `- Request summary: ${remaskRequestSummary(report.remask)}`,
+    `- Request touched files: ${remaskRequestTouchedFiles(report.remask)}`,
+    "",
+    "### Remask Issues",
+    "",
+    remaskIssuesMarkdown(report.remask),
     "",
     "## Latency And Tokens",
     "",
@@ -369,6 +423,13 @@ async function loadDeterministicVerifierGate() {
   return import(gatePath.href);
 }
 
+async function loadRemaskRequestBuilder() {
+  const builderPath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "remask-request-builder.js")
+  );
+  return import(builderPath.href);
+}
+
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -419,7 +480,7 @@ function finalDecisionForVerifierDecision(verifierDecision) {
   return "blocked_before_verifier";
 }
 
-function decide(plannerValidation, coderValidation, verifierResult = null) {
+function decide(plannerValidation, coderValidation, verifierResult = null, remaskResult = null) {
   if (!plannerValidation.ok) {
     return {
       finalDecision: "blocked_before_coder",
@@ -435,13 +496,19 @@ function decide(plannerValidation, coderValidation, verifierResult = null) {
   }
 
   if (verifierResult) {
-    const finalDecision = finalDecisionForVerifierDecision(verifierResult.decision);
+    const remaskRequested = Boolean(remaskResult && remaskResult.remaskRequest);
+    const finalDecision =
+      verifierResult.decision === "needs_review" && remaskRequested
+        ? "remask_requested"
+        : finalDecisionForVerifierDecision(verifierResult.decision);
 
     return {
       finalDecision,
       reason: `deterministic verifier decision: ${verifierResult.decision}`,
       verifierDecision: verifierResult.decision,
-      verifierIssueCount: Array.isArray(verifierResult.issues) ? verifierResult.issues.length : 0
+      verifierIssueCount: Array.isArray(verifierResult.issues) ? verifierResult.issues.length : 0,
+      remaskRequested,
+      remaskRepairability: remaskResult ? remaskResult.repairability : null
     };
   }
 
@@ -468,6 +535,7 @@ async function run() {
 
   const { validateModelWorkspaceMutation } = await loadValidator();
   const { verifyPatchDraftMutation } = await loadDeterministicVerifierGate();
+  const { buildRemaskRequestFromVerifierFinding } = await loadRemaskRequestBuilder();
   const report = baseReport(config, "completed");
 
   try {
@@ -523,6 +591,7 @@ async function run() {
     report.coder.validation = coderValidation;
 
     let verifierResult = null;
+    let remaskResult = null;
     if (coderValidation.ok) {
       verifierResult = verifyPatchDraftMutation(coderValidation.mutation, {
         allowedFiles: fixture.allowedFiles,
@@ -537,11 +606,31 @@ async function run() {
         issues: verifierResult.issues,
         finding: verifierResult.finding
       };
+
+      if (verifierResult.decision === "needs_review") {
+        remaskResult = buildRemaskRequestFromVerifierFinding(
+          coderValidation.mutation,
+          verifierResult.finding,
+          {
+            allowedFiles: fixture.allowedFiles,
+            forbiddenFiles: fixture.forbiddenFiles,
+            maxRepairSteps: 3
+          }
+        );
+        report.remask = {
+          called: false,
+          requested: Boolean(remaskResult.remaskRequest),
+          repairability: remaskResult.repairability,
+          issueCount: remaskResult.issues.length,
+          issues: remaskResult.issues,
+          request: remaskResult.remaskRequest
+        };
+      }
     }
 
     report.ok = true;
     report.status = "completed";
-    const decision = decide(plannerValidation, coderValidation, verifierResult);
+    const decision = decide(plannerValidation, coderValidation, verifierResult, remaskResult);
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
   } catch (error) {
@@ -576,6 +665,7 @@ module.exports = {
   buildCoderMessages,
   buildPlannerMessages,
   decide,
+  emptyRemaskReport,
   emptyVerifierReport,
   fixture,
   finalDecisionForVerifierDecision,

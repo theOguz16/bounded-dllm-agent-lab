@@ -10,7 +10,8 @@ const SUITE_REPORT_DIR = path.join("reports", "phase-q-verifier-suite");
 const verifierFinalDecisions = new Set([
   "approved_by_deterministic_verifier",
   "needs_review_by_deterministic_verifier",
-  "rejected_by_deterministic_verifier"
+  "rejected_by_deterministic_verifier",
+  "remask_requested"
 ]);
 
 function safeTimestamp(date = new Date()) {
@@ -98,6 +99,9 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     ? report.coder.validation
     : {};
   const verifier = report && report.verifier ? report.verifier : {};
+  const remask = report && report.remask ? report.remask : {};
+  const orchestratorDecision =
+    report && report.orchestratorDecision ? report.orchestratorDecision : {};
 
   return {
     command: childResult.command,
@@ -111,7 +115,15 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     coderValidationOk: Boolean(coderValidation.ok),
     verifierCalled: Boolean(verifier.called),
     verifierDecision: verifier.decision ?? null,
-    verifierIssueCount: typeof verifier.issueCount === "number" ? verifier.issueCount : null
+    verifierIssueCount: typeof verifier.issueCount === "number" ? verifier.issueCount : null,
+    remaskRequested:
+      typeof remask.requested === "boolean"
+        ? remask.requested
+        : Boolean(orchestratorDecision.remaskRequested),
+    remaskRepairability:
+      remask.repairability === undefined
+        ? orchestratorDecision.remaskRepairability ?? null
+        : remask.repairability
   };
 }
 
@@ -152,6 +164,8 @@ function buildSummary(children, configured) {
   const verifierApproved = children.orchestrator.finalDecision === "approved_by_deterministic_verifier";
   const verifierNeedsReview = children.orchestrator.finalDecision === "needs_review_by_deterministic_verifier";
   const verifierRejected = children.orchestrator.finalDecision === "rejected_by_deterministic_verifier";
+  const remaskRequested = Boolean(children.orchestrator.remaskRequested);
+  const remaskRepairability = children.orchestrator.remaskRepairability ?? null;
   const anySkipped = children.orchestrator.status === "skipped";
 
   return {
@@ -169,6 +183,8 @@ function buildSummary(children, configured) {
     verifierApproved,
     verifierNeedsReview,
     verifierRejected,
+    remaskRequested,
+    remaskRepairability,
     anySkipped,
     readyForRunPodLiveValidation:
       configured &&
@@ -226,6 +242,8 @@ function renderMarkdown(report) {
     `- Verifier called: ${report.summary.verifierCalled}`,
     `- Verifier decision: ${report.children.orchestrator.verifierDecision || ""}`,
     `- Verifier issue count: ${report.children.orchestrator.verifierIssueCount ?? ""}`,
+    `- Remask requested: ${report.children.orchestrator.remaskRequested}`,
+    `- Remask repairability: ${report.children.orchestrator.remaskRepairability ?? ""}`,
     `- Final decision: ${report.children.orchestrator.finalDecision || ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,

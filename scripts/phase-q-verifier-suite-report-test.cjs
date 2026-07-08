@@ -30,7 +30,7 @@ function runSuite(env) {
   };
 }
 
-function syntheticChildren(finalDecision) {
+function syntheticChildren(finalDecision, overrides = {}) {
   return {
     deterministicVerifierGate: {
       command: "npm run test:deterministic-verifier-gate",
@@ -63,7 +63,10 @@ function syntheticChildren(finalDecision) {
       coderValidationOk: true,
       verifierCalled: true,
       verifierDecision: finalDecision.replace("_by_deterministic_verifier", "").replace("approved", "approve"),
-      verifierIssueCount: finalDecision === "approved_by_deterministic_verifier" ? 0 : 1
+      verifierIssueCount: finalDecision === "approved_by_deterministic_verifier" ? 0 : 1,
+      remaskRequested: false,
+      remaskRepairability: null,
+      ...overrides.orchestrator
     }
   };
 }
@@ -169,6 +172,24 @@ check("synthetic completed configured verifier-needs-review summary is ready for
 
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.verifierNeedsReview, true);
+  assert.equal(summary.negativeFixtureSuitePassed, true);
+});
+
+check("synthetic completed configured remask-requested summary is ready for live validation only when negative fixtures passed", () => {
+  const summary = buildSummary(
+    syntheticChildren("remask_requested", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable"
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.remaskRequested, true);
+  assert.equal(summary.remaskRepairability, "repairable");
   assert.equal(summary.negativeFixtureSuitePassed, true);
 });
 
