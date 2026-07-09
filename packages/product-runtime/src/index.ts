@@ -1,6 +1,7 @@
 export * from "./model-mutation-validator.js";
 export * from "./deterministic-verifier-gate.js";
 export * from "./repair-draft-verifier-gate.js";
+export * from "./patch-application-dry-run-gate.js";
 export * from "./remask-request-builder.js";
 export * from "./workspace-mutation.js";
 
