@@ -164,6 +164,7 @@
     "test:remask-request-builder": "node scripts/remask-request-builder-smoke.cjs",
     "test:repair-draft-verifier-gate": "node scripts/repair-draft-verifier-gate-smoke.cjs",
     "test:patch-application-dry-run-gate": "node scripts/patch-application-dry-run-gate-smoke.cjs",
+    "test:temporary-workspace-apply-gate": "node scripts/temporary-workspace-apply-gate-smoke.cjs",
     "report:patch-application-dry-run-fixture-suite": "node scripts/patch-application-dry-run-fixture-suite.cjs",
     "test:patch-application-dry-run-fixture-suite": "node scripts/patch-application-dry-run-fixture-suite-test.cjs",
     "report:phase-t-patch-dry-run-suite": "node scripts/phase-t-patch-dry-run-suite-report.cjs",
