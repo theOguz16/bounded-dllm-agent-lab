@@ -6,7 +6,12 @@ const { spawnSync } = require("node:child_process");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "worker-backed-orchestrator-smoke.cjs");
-const { buildForcedRemaskVerifierResult, decide, emptyRemaskReport } = require(scriptPath);
+const {
+  buildForcedRemaskVerifierResult,
+  decide,
+  emptyRemaskReport,
+  emptyRepairVerifierReport
+} = require(scriptPath);
 
 function runSmoke(env) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-orchestrator-smoke-"));
@@ -74,6 +79,8 @@ check("script creates JSON and Markdown report", () => {
   assert.ok(markdown.includes("Verifier called: false"));
   assert.ok(markdown.includes("## Remask"));
   assert.ok(markdown.includes("Remask requested: false"));
+  assert.ok(markdown.includes("## Repair Verifier"));
+  assert.ok(markdown.includes("Repair verifier called: false"));
 });
 
 check("skipped report has suiteName phase-p-worker-backed-orchestrator-smoke", () => {
@@ -125,6 +132,13 @@ check("skipped report has remask.called false and remask.requested false", () =>
   assert.equal(report.remask.requested, false);
 });
 
+check("skipped report has repairVerifier.called false", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+
+  assert.equal(report.repairVerifier.called, false);
+  assert.equal(report.repairVerifier.decision, null);
+});
+
 check("default mode has forceRemask false", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
 
@@ -157,10 +171,21 @@ check("planner validation failure maps to blocked_before_coder", () => {
 check("planner validation failure has remask.called false", () => {
   const decision = decide({ ok: false }, { ok: false });
   const remask = emptyRemaskReport();
+  const repairVerifier = emptyRepairVerifierReport();
 
   assert.equal(decision.finalDecision, "blocked_before_coder");
   assert.equal(remask.called, false);
+  assert.equal(repairVerifier.called, false);
   assert.equal(decision.remaskRequested, undefined);
+});
+
+check("planner validation failure has repairVerifier.called false", () => {
+  const decision = decide({ ok: false }, { ok: false });
+  const repairVerifier = emptyRepairVerifierReport();
+
+  assert.equal(decision.finalDecision, "blocked_before_coder");
+  assert.equal(repairVerifier.called, false);
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 check("forced remask mode does not run if planner validation fails", () => {
@@ -184,10 +209,21 @@ check("coder validation failure maps to blocked_before_verifier", () => {
 check("coder validation failure has remask.called false", () => {
   const decision = decide({ ok: true }, { ok: false });
   const remask = emptyRemaskReport();
+  const repairVerifier = emptyRepairVerifierReport();
 
   assert.equal(decision.finalDecision, "blocked_before_verifier");
   assert.equal(remask.called, false);
+  assert.equal(repairVerifier.called, false);
   assert.equal(decision.remaskRequested, undefined);
+});
+
+check("coder validation failure has repairVerifier.called false", () => {
+  const decision = decide({ ok: true }, { ok: false });
+  const repairVerifier = emptyRepairVerifierReport();
+
+  assert.equal(decision.finalDecision, "blocked_before_verifier");
+  assert.equal(repairVerifier.called, false);
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 check("forced remask mode does not run if coder validation fails", () => {
@@ -266,6 +302,19 @@ check("approved verifier result does not request remask", () => {
   assert.equal(remask.called, false);
   assert.equal(decision.remaskRequested, false);
   assert.equal(decision.remaskRepairability, null);
+});
+
+check("initial approve path does not call repairVerifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "approve", issues: [] }
+  );
+  const repairVerifier = emptyRepairVerifierReport();
+
+  assert.equal(decision.finalDecision, "approved_by_deterministic_verifier");
+  assert.equal(repairVerifier.called, false);
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 check("needs_review verifier result maps to needs_review_by_deterministic_verifier without remask request", () => {
@@ -354,6 +403,126 @@ check("needs_review repairable path can map to repair_draft_ready when remask va
   assert.equal(decision.repairDraftChecksOk, true);
 });
 
+check("successful remask repairDraft approve maps to repair_approved_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    },
+    {
+      repairVerifier: {
+        called: true,
+        decision: "approve",
+        ok: true,
+        issueCount: 0,
+        issues: [],
+        finding: { role: "verifier", target: "verifierFinding", summary: "approved" }
+      }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "repair_approved_by_deterministic_verifier");
+  assert.equal(decision.repairVerifierCalled, true);
+  assert.equal(decision.repairVerifierDecision, "approve");
+  assert.equal(decision.repairVerifierIssueCount, 0);
+});
+
+check("repairDraft verifier needs_review maps to repair_needs_review_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    },
+    {
+      repairVerifier: {
+        called: true,
+        decision: "needs_review",
+        ok: false,
+        issueCount: 1,
+        issues: [{ code: "required_issue_code_not_addressed", message: "missing" }],
+        finding: { role: "verifier", target: "verifierFinding", summary: "needs review" }
+      }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "repair_needs_review_by_deterministic_verifier");
+  assert.equal(decision.repairVerifierCalled, true);
+  assert.equal(decision.repairVerifierDecision, "needs_review");
+  assert.equal(decision.repairVerifierIssueCount, 1);
+});
+
+check("repairDraft verifier reject maps to repair_rejected_by_deterministic_verifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    },
+    {
+      repairVerifier: {
+        called: true,
+        decision: "reject",
+        ok: false,
+        issueCount: 1,
+        issues: [{ code: "unsafe_repair_patch_content", message: "unsafe" }],
+        finding: { role: "verifier", target: "verifierFinding", summary: "reject" }
+      }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "repair_rejected_by_deterministic_verifier");
+  assert.equal(decision.repairVerifierCalled, true);
+  assert.equal(decision.repairVerifierDecision, "reject");
+  assert.equal(decision.repairVerifierIssueCount, 1);
+});
+
 check("forced remask mode maps successful remask validation/checks to repair_draft_ready", () => {
   const forcedVerifier = buildForcedRemaskVerifierResult({
     touchedFiles: ["packages/example/src/index.ts"]
@@ -388,6 +557,49 @@ check("forced remask mode maps successful remask validation/checks to repair_dra
   assert.equal(decision.repairDraftChecksOk, true);
 });
 
+check("forced remask mode can reach repair_approved_by_deterministic_verifier", () => {
+  const forcedVerifier = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    forcedVerifier,
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: ["packages/example/src/index.ts"],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: true, issues: [] }
+    },
+    {
+      forcedRemask: true,
+      repairVerifier: {
+        called: true,
+        decision: "approve",
+        ok: true,
+        issueCount: 0,
+        issues: [],
+        finding: { role: "verifier", target: "verifierFinding", summary: "approved" }
+      }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "repair_approved_by_deterministic_verifier");
+  assert.equal(decision.forcedRemask, true);
+  assert.equal(decision.repairVerifierCalled, true);
+});
+
 check("needs_review repairable path can map to remask_repair_failed when remask validation fails", () => {
   const decision = decide(
     { ok: true },
@@ -415,6 +627,35 @@ check("needs_review repairable path can map to remask_repair_failed when remask 
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.remaskValidationOk, false);
   assert.equal(decision.repairDraftChecksOk, false);
+  assert.equal(decision.repairVerifierCalled, false);
+});
+
+check("remask validation failure has repairVerifier.called false", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: false, blocked: true, issues: [{ code: "invalid_json", message: "bad" }], mutation: null },
+      repairDraftChecks: { ok: false, issues: [] }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 check("forced remask mode maps failed remask validation/checks to remask_repair_failed", () => {
@@ -478,6 +719,35 @@ check("needs_review repairable path can map to remask_repair_failed when repairD
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.remaskValidationOk, true);
   assert.equal(decision.repairDraftChecksOk, false);
+  assert.equal(decision.repairVerifierCalled, false);
+});
+
+check("repairDraftChecks failure has repairVerifier.called false", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    {
+      repairability: "repairable",
+      remaskRequest: {
+        role: "verifier",
+        target: "remaskRequest",
+        summary: "Request a bounded remask repair for coder patchDraft.",
+        claims: [],
+        touchedFiles: [],
+        confidence: 1
+      },
+      issues: []
+    },
+    {
+      called: true,
+      validation: { ok: true, blocked: false, issues: [], mutation: { role: "remask", target: "repairDraft" } },
+      repairDraftChecks: { ok: false, issues: [{ code: "missing_proposed_patch", message: "missing" }] }
+    }
+  );
+
+  assert.equal(decision.finalDecision, "remask_repair_failed");
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 check("needs_review non-repairable verifier result does not request remask", () => {
@@ -522,6 +792,19 @@ check("rejected verifier result does not request remask", () => {
   assert.equal(remask.called, false);
   assert.equal(decision.remaskRequested, false);
   assert.equal(decision.remaskRepairability, null);
+});
+
+check("initial reject path does not call repairVerifier", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "reject", issues: [{ code: "unsafe_patch_content", message: "unsafe" }] }
+  );
+  const repairVerifier = emptyRepairVerifierReport();
+
+  assert.equal(decision.finalDecision, "rejected_by_deterministic_verifier");
+  assert.equal(repairVerifier.called, false);
+  assert.equal(decision.repairVerifierCalled, false);
 });
 
 console.log("worker-backed orchestrator smoke test passed");

@@ -13,8 +13,19 @@ const remaskAwareFinalDecisions = new Set([
   "needs_review_by_deterministic_verifier",
   "remask_requested",
   "repair_draft_ready",
+  "repair_approved_by_deterministic_verifier",
+  "repair_needs_review_by_deterministic_verifier",
+  "repair_rejected_by_deterministic_verifier",
   "remask_repair_failed"
 ]);
+
+const repairVerifierFinalDecisions = new Set([
+  "repair_approved_by_deterministic_verifier",
+  "repair_needs_review_by_deterministic_verifier",
+  "repair_rejected_by_deterministic_verifier"
+]);
+
+const repairVerifierDecisions = new Set(["approve", "needs_review", "reject"]);
 
 function safeTimestamp(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
@@ -147,8 +158,15 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     : {};
   const verifier = report && report.verifier ? report.verifier : {};
   const remask = report && report.remask ? report.remask : {};
+  const repairVerifier = report && report.repairVerifier ? report.repairVerifier : {};
   const orchestratorDecision =
     report && report.orchestratorDecision ? report.orchestratorDecision : {};
+  const repairVerifierFieldsPresent = Boolean(
+    (report && report.repairVerifier) ||
+      orchestratorDecision.repairVerifierCalled !== undefined ||
+      orchestratorDecision.repairVerifierDecision !== undefined ||
+      orchestratorDecision.repairVerifierIssueCount !== undefined
+  );
 
   return {
     command: childResult.command,
@@ -180,7 +198,20 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     repairDraftChecksOk:
       remask.repairDraftChecks === undefined || remask.repairDraftChecks === null
         ? orchestratorDecision.repairDraftChecksOk ?? null
-        : Boolean(remask.repairDraftChecks.ok)
+        : Boolean(remask.repairDraftChecks.ok),
+    repairVerifierFieldsPresent,
+    repairVerifierCalled:
+      typeof repairVerifier.called === "boolean"
+        ? repairVerifier.called
+        : Boolean(orchestratorDecision.repairVerifierCalled),
+    repairVerifierDecision:
+      repairVerifier.decision === undefined
+        ? orchestratorDecision.repairVerifierDecision ?? null
+        : repairVerifier.decision,
+    repairVerifierIssueCount:
+      typeof repairVerifier.issueCount === "number"
+        ? repairVerifier.issueCount
+        : orchestratorDecision.repairVerifierIssueCount ?? null
   };
 }
 
@@ -199,6 +230,11 @@ function buildSummary(children, configured, forceRemask = false) {
   const remaskRequested = Boolean(children.orchestrator.remaskRequested);
   const repairDraftReady = children.orchestrator.finalDecision === "repair_draft_ready";
   const remaskRepairFailed = children.orchestrator.finalDecision === "remask_repair_failed";
+  const repairVerifierFinalDecision = repairVerifierFinalDecisions.has(children.orchestrator.finalDecision);
+  const repairVerifierCalled = Boolean(children.orchestrator.repairVerifierCalled);
+  const repairVerifierDecisionValid = repairVerifierDecisions.has(children.orchestrator.repairVerifierDecision);
+  const repairVerifierSatisfied =
+    !repairVerifierFinalDecision || (repairVerifierCalled && repairVerifierDecisionValid);
   const anySkipped =
     children.remaskWorker.status === "skipped" || children.orchestrator.status === "skipped";
   const normalReadyForRunPodLiveValidation =
@@ -210,6 +246,7 @@ function buildSummary(children, configured, forceRemask = false) {
     coderValidationPassed &&
     verifierCalled &&
     remaskAwareFinalDecisions.has(children.orchestrator.finalDecision) &&
+    repairVerifierSatisfied &&
     !anySkipped;
   const forcedReadyForRunPodLiveValidation =
     configured &&
@@ -220,7 +257,8 @@ function buildSummary(children, configured, forceRemask = false) {
     coderValidationPassed &&
     verifierCalled &&
     remaskRequested &&
-    (repairDraftReady || remaskRepairFailed) &&
+    (repairDraftReady || remaskRepairFailed || repairVerifierFinalDecision) &&
+    repairVerifierSatisfied &&
     !anySkipped;
 
   return {
@@ -238,6 +276,9 @@ function buildSummary(children, configured, forceRemask = false) {
     remaskSupported,
     remaskRequested,
     repairDraftReady,
+    repairVerifierFinalDecision,
+    repairVerifierCalled,
+    repairVerifierDecisionValid,
     remaskRepairFailed,
     anySkipped,
     readyForRunPodLiveValidation: forceRemask
@@ -299,6 +340,9 @@ function renderMarkdown(report) {
     `- Remask repairability: ${report.children.orchestrator.remaskRepairability ?? ""}`,
     `- Remask validation OK: ${report.children.orchestrator.remaskValidationOk ?? ""}`,
     `- RepairDraft checks OK: ${report.children.orchestrator.repairDraftChecksOk ?? ""}`,
+    `- Repair verifier called: ${report.children.orchestrator.repairVerifierCalled}`,
+    `- Repair verifier decision: ${report.children.orchestrator.repairVerifierDecision || ""}`,
+    `- Repair verifier issue count: ${report.children.orchestrator.repairVerifierIssueCount ?? ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,
     `- Finished at: ${report.finishedAt}`,

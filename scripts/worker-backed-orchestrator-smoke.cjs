@@ -205,6 +205,17 @@ function emptyRemaskReport() {
   };
 }
 
+function emptyRepairVerifierReport() {
+  return {
+    called: false,
+    decision: null,
+    ok: null,
+    issueCount: 0,
+    issues: [],
+    finding: null
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -220,12 +231,16 @@ function baseReport(config, status) {
     orchestratorDecision: {
       finalDecision,
       reason: status === "skipped" ? "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured." : "",
-      forcedRemask: config.forceRemask
+      forcedRemask: config.forceRemask,
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: 0
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
     verifier: emptyVerifierReport(),
     remask: emptyRemaskReport(),
+    repairVerifier: emptyRepairVerifierReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -355,6 +370,31 @@ function remaskRepairDraftCheckIssuesMarkdown(remask) {
     .join("\n");
 }
 
+function repairVerifierFindingSummary(repairVerifier) {
+  return repairVerifier && repairVerifier.finding ? repairVerifier.finding.summary : "";
+}
+
+function repairVerifierIssueCodes(repairVerifier) {
+  const issues = repairVerifier && Array.isArray(repairVerifier.issues) ? repairVerifier.issues : [];
+
+  return issues.map((issue) => issue.code).join(", ");
+}
+
+function repairVerifierIssuesMarkdown(repairVerifier) {
+  const issues = repairVerifier && Array.isArray(repairVerifier.issues) ? repairVerifier.issues : [];
+
+  if (issues.length === 0) {
+    return "- repair verifier: No issues.";
+  }
+
+  return issues
+    .map((issue) => {
+      const location = issue.file ? ` (${issue.file})` : "";
+      return `- repair verifier: ${issue.code}: ${issue.message}${location}`;
+    })
+    .join("\n");
+}
+
 function renderMarkdown(report, config) {
   return [
     "# Worker-Backed Orchestrator Smoke",
@@ -384,6 +424,9 @@ function renderMarkdown(report, config) {
     `- Remask validation OK: ${report.remask.validation ? report.remask.validation.ok : ""}`,
     `- Remask validation blocked: ${report.remask.validation ? report.remask.validation.blocked : ""}`,
     `- RepairDraft checks OK: ${report.remask.repairDraftChecks ? report.remask.repairDraftChecks.ok : ""}`,
+    `- Repair verifier called: ${report.repairVerifier.called}`,
+    `- Repair verifier decision: ${report.repairVerifier.decision ?? ""}`,
+    `- Repair verifier issue count: ${report.repairVerifier.issueCount}`,
     `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
@@ -431,6 +474,19 @@ function renderMarkdown(report, config) {
     remaskIssuesMarkdown(report.remask),
     remaskValidationIssuesMarkdown(report.remask),
     remaskRepairDraftCheckIssuesMarkdown(report.remask),
+    "",
+    "## Repair Verifier",
+    "",
+    `- Called: ${report.repairVerifier.called}`,
+    `- Decision: ${report.repairVerifier.decision ?? ""}`,
+    `- Issue count: ${report.repairVerifier.issueCount}`,
+    `- Finding summary: ${repairVerifierFindingSummary(report.repairVerifier)}`,
+    `- Issue codes: ${repairVerifierIssueCodes(report.repairVerifier)}`,
+    `- Final repair decision: ${report.finalDecision}`,
+    "",
+    "### Repair Verifier Issues",
+    "",
+    repairVerifierIssuesMarkdown(report.repairVerifier),
     "",
     "### Remask Raw Output Preview",
     "",
@@ -521,6 +577,13 @@ async function loadRemaskRequestBuilder() {
   return import(builderPath.href);
 }
 
+async function loadRepairDraftVerifierGate() {
+  const gatePath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "repair-draft-verifier-gate.js")
+  );
+  return import(gatePath.href);
+}
+
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -571,6 +634,22 @@ function finalDecisionForVerifierDecision(verifierDecision) {
   return "blocked_before_verifier";
 }
 
+function finalDecisionForRepairVerifierDecision(repairVerifierDecision) {
+  if (repairVerifierDecision === "approve") {
+    return "repair_approved_by_deterministic_verifier";
+  }
+
+  if (repairVerifierDecision === "needs_review") {
+    return "repair_needs_review_by_deterministic_verifier";
+  }
+
+  if (repairVerifierDecision === "reject") {
+    return "repair_rejected_by_deterministic_verifier";
+  }
+
+  return "repair_draft_ready";
+}
+
 function buildForcedRemaskVerifierResult(mutation) {
   const issues = [
     {
@@ -602,6 +681,22 @@ function buildForcedRemaskVerifierResult(mutation) {
   };
 }
 
+function repairableIssueCodesFromRemaskRequest(remaskRequest) {
+  if (!remaskRequest || !Array.isArray(remaskRequest.claims)) {
+    return [];
+  }
+
+  const claim = remaskRequest.claims.find((candidate) => {
+    return candidate && typeof candidate === "object" && candidate.type === "remask_request";
+  });
+
+  if (!claim || !Array.isArray(claim.repairableIssueCodes)) {
+    return [];
+  }
+
+  return claim.repairableIssueCodes.filter((issueCode) => typeof issueCode === "string");
+}
+
 function decide(
   plannerValidation,
   coderValidation,
@@ -613,14 +708,20 @@ function decide(
   if (!plannerValidation.ok) {
     return {
       finalDecision: "blocked_before_coder",
-      reason: "planner validation failure blocked coder execution"
+      reason: "planner validation failure blocked coder execution",
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: 0
     };
   }
 
   if (!coderValidation.ok) {
     return {
       finalDecision: "blocked_before_verifier",
-      reason: "coder validation failure blocked deterministic verifier execution"
+      reason: "coder validation failure blocked deterministic verifier execution",
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: 0
     };
   }
 
@@ -632,10 +733,18 @@ function decide(
       remaskReport && remaskReport.repairDraftChecks
         ? Boolean(remaskReport.repairDraftChecks.ok)
         : null;
+    const repairVerifier = options.repairVerifier ?? null;
+    const repairVerifierCalled = Boolean(repairVerifier && repairVerifier.called);
+    const repairVerifierDecision =
+      repairVerifier && repairVerifier.decision !== undefined ? repairVerifier.decision : null;
+    const repairVerifierIssueCount =
+      repairVerifier && typeof repairVerifier.issueCount === "number" ? repairVerifier.issueCount : 0;
     const finalDecision =
       verifierResult.decision === "needs_review" && remaskRequested && remaskReport && remaskReport.called
         ? remaskValidationOk && repairDraftChecksOk
-          ? "repair_draft_ready"
+          ? repairVerifierCalled
+            ? finalDecisionForRepairVerifierDecision(repairVerifierDecision)
+            : "repair_draft_ready"
           : "remask_repair_failed"
         : verifierResult.decision === "needs_review" && remaskRequested
           ? "remask_requested"
@@ -650,13 +759,19 @@ function decide(
       remaskRepairability: remaskResult ? remaskResult.repairability : null,
       remaskValidationOk,
       repairDraftChecksOk,
+      repairVerifierCalled,
+      repairVerifierDecision,
+      repairVerifierIssueCount,
       forcedRemask: Boolean(options.forcedRemask)
     };
   }
 
   return {
     finalDecision: "ready_for_deterministic_verifier",
-    reason: "planner and coder workspace mutations validated"
+    reason: "planner and coder workspace mutations validated",
+    repairVerifierCalled: false,
+    repairVerifierDecision: null,
+    repairVerifierIssueCount: 0
   };
 }
 
@@ -670,7 +785,10 @@ async function run() {
     report.orchestratorDecision = {
       finalDecision: status,
       reason: "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured.",
-      forcedRemask: config.forceRemask
+      forcedRemask: config.forceRemask,
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: 0
     };
     report.finalDecision = status;
     return writeReport(report, config);
@@ -679,6 +797,7 @@ async function run() {
   const { validateModelWorkspaceMutation } = await loadValidator();
   const { verifyPatchDraftMutation } = await loadDeterministicVerifierGate();
   const { buildRemaskRequestFromVerifierFinding } = await loadRemaskRequestBuilder();
+  const { verifyRepairDraftMutation } = await loadRepairDraftVerifierGate();
   const report = baseReport(config, "completed");
 
   try {
@@ -810,6 +929,28 @@ async function run() {
             report.remask.rawOutputPreview = preview(rawRemaskOutput);
             report.remask.validation = remaskValidation;
             report.remask.repairDraftChecks = repairDraftChecks;
+
+            if (
+              remaskValidation.ok &&
+              remaskValidation.mutation &&
+              repairDraftChecks.ok
+            ) {
+              const repairVerifierResult = verifyRepairDraftMutation(remaskValidation.mutation, {
+                allowedFiles: fixture.allowedFiles,
+                forbiddenFiles: fixture.forbiddenFiles,
+                requiredIssueCodes: repairableIssueCodesFromRemaskRequest(remaskResult.remaskRequest),
+                minConfidence: 0.5
+              });
+
+              report.repairVerifier = {
+                called: true,
+                decision: repairVerifierResult.decision,
+                ok: repairVerifierResult.decision === "approve",
+                issueCount: repairVerifierResult.issues.length,
+                issues: repairVerifierResult.issues,
+                finding: repairVerifierResult.finding
+              };
+            }
           } catch (error) {
             report.remask.validation = {
               ok: false,
@@ -836,7 +977,10 @@ async function run() {
       verifierResult,
       remaskResult,
       report.remask,
-      { forcedRemask: config.forceRemask }
+      {
+        forcedRemask: config.forceRemask,
+        repairVerifier: report.repairVerifier
+      }
     );
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
@@ -846,7 +990,10 @@ async function run() {
     report.finalDecision = "blocked";
     report.orchestratorDecision = {
       finalDecision: "blocked",
-      reason: error instanceof Error ? error.message : String(error)
+      reason: error instanceof Error ? error.message : String(error),
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: 0
     };
   }
 
@@ -874,8 +1021,11 @@ module.exports = {
   buildPlannerMessages,
   decide,
   emptyRemaskReport,
+  emptyRepairVerifierReport,
   emptyVerifierReport,
   fixture,
   finalDecisionForVerifierDecision,
+  finalDecisionForRepairVerifierDecision,
+  repairableIssueCodesFromRemaskRequest,
   run
 };

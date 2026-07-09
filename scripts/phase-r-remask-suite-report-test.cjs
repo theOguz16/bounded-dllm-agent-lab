@@ -72,6 +72,10 @@ function syntheticChildren(finalDecision, overrides = {}) {
       remaskRepairability: null,
       remaskValidationOk: null,
       repairDraftChecksOk: null,
+      repairVerifierFieldsPresent: false,
+      repairVerifierCalled: false,
+      repairVerifierDecision: null,
+      repairVerifierIssueCount: null,
       ...overrides.orchestrator
     }
   };
@@ -243,6 +247,76 @@ check("synthetic completed configured repair_draft_ready path is ready for live 
   assert.equal(summary.repairDraftReady, true);
 });
 
+check("synthetic completed configured repair_approved summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_approved_by_deterministic_verifier", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierFieldsPresent: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.repairVerifierFinalDecision, true);
+  assert.equal(summary.repairVerifierCalled, true);
+  assert.equal(summary.repairVerifierDecisionValid, true);
+});
+
+check("synthetic completed configured repair_needs_review summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_needs_review_by_deterministic_verifier", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierFieldsPresent: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "needs_review",
+        repairVerifierIssueCount: 1
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.repairVerifierFinalDecision, true);
+  assert.equal(summary.repairVerifierDecisionValid, true);
+});
+
+check("synthetic completed configured repair_rejected summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_rejected_by_deterministic_verifier", {
+      orchestrator: {
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierFieldsPresent: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "reject",
+        repairVerifierIssueCount: 1
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.repairVerifierFinalDecision, true);
+  assert.equal(summary.repairVerifierDecisionValid, true);
+});
+
 check("synthetic forced remask repair_draft_ready summary is ready", () => {
   const summary = buildSummary(
     syntheticChildren("repair_draft_ready", {
@@ -264,6 +338,59 @@ check("synthetic forced remask repair_draft_ready summary is ready", () => {
   assert.equal(summary.forceRemask, true);
   assert.equal(summary.remaskRequested, true);
   assert.equal(summary.repairDraftReady, true);
+});
+
+check("forced remask repair_approved summary is ready and includes repairVerifierCalled true", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_approved_by_deterministic_verifier", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierFieldsPresent: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.forceRemask, true);
+  assert.equal(summary.repairVerifierCalled, true);
+});
+
+check("forced remask with repairVerifierCalled false is not ready when repair verifier fields are expected", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_approved_by_deterministic_verifier", {
+      orchestrator: {
+        forceRemask: true,
+        forcedRemask: true,
+        verifierDecision: "needs_review",
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierFieldsPresent: true,
+        repairVerifierCalled: false,
+        repairVerifierDecision: null,
+        repairVerifierIssueCount: 0
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.repairVerifierFinalDecision, true);
+  assert.equal(summary.repairVerifierCalled, false);
+  assert.equal(summary.repairVerifierDecisionValid, false);
 });
 
 check("repair_draft_ready path includes remaskRequested true and repairDraftChecksOk true", () => {
