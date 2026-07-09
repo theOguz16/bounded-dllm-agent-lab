@@ -19,7 +19,10 @@ const repairAwareFinalDecisions = new Set([
   "remask_repair_failed",
   "repair_approved_by_deterministic_verifier",
   "repair_needs_review_by_deterministic_verifier",
-  "repair_rejected_by_deterministic_verifier"
+  "repair_rejected_by_deterministic_verifier",
+  "patch_ready_to_apply",
+  "patch_dry_run_needs_review",
+  "patch_dry_run_rejected"
 ]);
 
 const forcedRepairFinalDecisions = new Set([
@@ -28,7 +31,14 @@ const forcedRepairFinalDecisions = new Set([
   "repair_rejected_by_deterministic_verifier"
 ]);
 
+const forcedPatchDryRunFinalDecisions = new Set([
+  "patch_ready_to_apply",
+  "patch_dry_run_needs_review",
+  "patch_dry_run_rejected"
+]);
+
 const repairVerifierDecisions = new Set(["approve", "needs_review", "reject"]);
+const patchDryRunDecisions = new Set(["ready_to_apply", "needs_review", "reject"]);
 
 function safeTimestamp(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
@@ -138,6 +148,7 @@ function summarizeOrchestrator(childResult, reportPath, report) {
   const verifier = report && report.verifier ? report.verifier : {};
   const remask = report && report.remask ? report.remask : {};
   const repairVerifier = report && report.repairVerifier ? report.repairVerifier : {};
+  const patchDryRun = report && report.patchDryRun ? report.patchDryRun : {};
   const orchestratorDecision =
     report && report.orchestratorDecision ? report.orchestratorDecision : {};
 
@@ -182,7 +193,23 @@ function summarizeOrchestrator(childResult, reportPath, report) {
     repairVerifierIssueCount:
       typeof repairVerifier.issueCount === "number"
         ? repairVerifier.issueCount
-        : orchestratorDecision.repairVerifierIssueCount ?? null
+        : orchestratorDecision.repairVerifierIssueCount ?? null,
+    patchDryRunCalled:
+      typeof patchDryRun.called === "boolean"
+        ? patchDryRun.called
+        : orchestratorDecision.patchDryRunCalled ?? null,
+    patchDryRunDecision:
+      patchDryRun.decision === undefined
+        ? orchestratorDecision.patchDryRunDecision ?? null
+        : patchDryRun.decision,
+    patchDryRunIssueCount:
+      typeof patchDryRun.issueCount === "number"
+        ? patchDryRun.issueCount
+        : orchestratorDecision.patchDryRunIssueCount ?? null,
+    patchDryRunChangedFiles:
+      patchDryRun.summary && typeof patchDryRun.summary.changedFiles === "number"
+        ? patchDryRun.summary.changedFiles
+        : orchestratorDecision.patchDryRunChangedFiles ?? null
   };
 }
 
@@ -209,6 +236,24 @@ function buildSummary(children, configured, forceRemask = false) {
   const finalRepairDecisionObserved = forcedRepairFinalDecisions.has(
     children.orchestrator.finalDecision
   );
+  const finalPatchDryRunDecisionObserved = forcedPatchDryRunFinalDecisions.has(
+    children.orchestrator.finalDecision
+  );
+  const finalRepairOrPatchDecisionObserved =
+    finalRepairDecisionObserved || finalPatchDryRunDecisionObserved;
+  const patchDryRunFieldsPresent =
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "patchDryRunCalled") ||
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "patchDryRunDecision") ||
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "patchDryRunIssueCount") ||
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "patchDryRunChangedFiles");
+  const patchDryRunCalled = Boolean(children.orchestrator.patchDryRunCalled);
+  const patchDryRunDecisionObserved = patchDryRunDecisions.has(
+    children.orchestrator.patchDryRunDecision
+  );
+  const patchDryRunReady =
+    !patchDryRunFieldsPresent ||
+    !repairVerifierApproved ||
+    (patchDryRunCalled && patchDryRunDecisionObserved);
   const anySkipped = children.orchestrator.status === "skipped";
   const baseReady =
     configured &&
@@ -220,6 +265,7 @@ function buildSummary(children, configured, forceRemask = false) {
     coderValidationPassed &&
     verifierCalled &&
     repairAwareFinalDecisions.has(children.orchestrator.finalDecision) &&
+    patchDryRunReady &&
     !anySkipped;
   const forcedReady =
     baseReady &&
@@ -228,7 +274,8 @@ function buildSummary(children, configured, forceRemask = false) {
     repairDraftChecksPassed &&
     repairVerifierCalled &&
     repairVerifierDecisions.has(children.orchestrator.repairVerifierDecision) &&
-    finalRepairDecisionObserved;
+    finalRepairOrPatchDecisionObserved &&
+    patchDryRunReady;
 
   return {
     repairDraftVerifierGatePassed,
@@ -247,6 +294,14 @@ function buildSummary(children, configured, forceRemask = false) {
     repairVerifierNeedsReview,
     repairVerifierRejected,
     finalRepairDecisionObserved,
+    finalPatchDryRunDecisionObserved,
+    finalRepairOrPatchDecisionObserved,
+    patchDryRunFieldsPresent,
+    patchDryRunCalled,
+    patchDryRunDecisionObserved,
+    patchDryRunDecision: children.orchestrator.patchDryRunDecision ?? null,
+    patchDryRunIssueCount: children.orchestrator.patchDryRunIssueCount ?? null,
+    patchDryRunChangedFiles: children.orchestrator.patchDryRunChangedFiles ?? null,
     anySkipped,
     readyForRunPodLiveValidation: forceRemask ? forcedReady : baseReady
   };
@@ -301,6 +356,10 @@ function renderMarkdown(report) {
     `- Repair verifier called: ${report.children.orchestrator.repairVerifierCalled}`,
     `- Repair verifier decision: ${report.children.orchestrator.repairVerifierDecision || ""}`,
     `- Repair verifier issue count: ${report.children.orchestrator.repairVerifierIssueCount ?? ""}`,
+    `- Patch dry run called: ${report.children.orchestrator.patchDryRunCalled ?? ""}`,
+    `- Patch dry run decision: ${report.children.orchestrator.patchDryRunDecision || ""}`,
+    `- Patch dry run issue count: ${report.children.orchestrator.patchDryRunIssueCount ?? ""}`,
+    `- Patch dry run changed files: ${report.children.orchestrator.patchDryRunChangedFiles ?? ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,
     `- Finished at: ${report.finishedAt}`,

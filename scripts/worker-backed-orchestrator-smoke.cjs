@@ -14,6 +14,9 @@ const fixture = {
   task: "Plan and draft a bounded change to add a small helper function.",
   allowedFiles: ["packages/example/src/index.ts"],
   forbiddenFiles: [".env", "infra/prod.tf", "secrets.json"],
+  fileContents: {
+    "packages/example/src/index.ts": "export function addOne(value: number): number {\n  return value + 1;\n}\n"
+  },
   proposedGoal: "Add an addOne helper function without touching unrelated files."
 };
 
@@ -216,6 +219,18 @@ function emptyRepairVerifierReport() {
   };
 }
 
+function emptyPatchDryRunReport() {
+  return {
+    called: false,
+    decision: null,
+    ok: null,
+    issueCount: 0,
+    issues: [],
+    summary: null,
+    previews: []
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -234,13 +249,18 @@ function baseReport(config, status) {
       forcedRemask: config.forceRemask,
       repairVerifierCalled: false,
       repairVerifierDecision: null,
-      repairVerifierIssueCount: 0
+      repairVerifierIssueCount: 0,
+      patchDryRunCalled: false,
+      patchDryRunDecision: null,
+      patchDryRunIssueCount: 0,
+      patchDryRunChangedFiles: null
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
     verifier: emptyVerifierReport(),
     remask: emptyRemaskReport(),
     repairVerifier: emptyRepairVerifierReport(),
+    patchDryRun: emptyPatchDryRunReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -395,7 +415,33 @@ function repairVerifierIssuesMarkdown(repairVerifier) {
     .join("\n");
 }
 
+function patchDryRunIssuesMarkdown(patchDryRun) {
+  const issues = patchDryRun && Array.isArray(patchDryRun.issues) ? patchDryRun.issues : [];
+
+  if (issues.length === 0) {
+    return "- patch dry run: No issues.";
+  }
+
+  return issues
+    .map((issue) => {
+      const location = issue.file ? ` (${issue.file})` : "";
+      return `- patch dry run: ${issue.code}: ${issue.message}${location}`;
+    })
+    .join("\n");
+}
+
+function firstPatchDryRunDiffPreview(patchDryRun) {
+  const previews = patchDryRun && Array.isArray(patchDryRun.previews) ? patchDryRun.previews : [];
+  const firstPreview = previews[0];
+
+  return firstPreview && typeof firstPreview.diffPreview === "string"
+    ? firstPreview.diffPreview
+    : "";
+}
+
 function renderMarkdown(report, config) {
+  const patchDryRunSummary = report.patchDryRun.summary;
+
   return [
     "# Worker-Backed Orchestrator Smoke",
     "",
@@ -427,6 +473,9 @@ function renderMarkdown(report, config) {
     `- Repair verifier called: ${report.repairVerifier.called}`,
     `- Repair verifier decision: ${report.repairVerifier.decision ?? ""}`,
     `- Repair verifier issue count: ${report.repairVerifier.issueCount}`,
+    `- Patch dry run called: ${report.patchDryRun.called}`,
+    `- Patch dry run decision: ${report.patchDryRun.decision ?? ""}`,
+    `- Patch dry run issue count: ${report.patchDryRun.issueCount}`,
     `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
@@ -487,6 +536,26 @@ function renderMarkdown(report, config) {
     "### Repair Verifier Issues",
     "",
     repairVerifierIssuesMarkdown(report.repairVerifier),
+    "",
+    "## Patch Dry Run",
+    "",
+    `- Called: ${report.patchDryRun.called}`,
+    `- Decision: ${report.patchDryRun.decision ?? ""}`,
+    `- Issue count: ${report.patchDryRun.issueCount}`,
+    `- Changed files: ${patchDryRunSummary ? patchDryRunSummary.changedFiles : ""}`,
+    `- Added lines: ${patchDryRunSummary ? patchDryRunSummary.totalAddedLines : ""}`,
+    `- Removed lines: ${patchDryRunSummary ? patchDryRunSummary.totalRemovedLines : ""}`,
+    `- Final decision: ${report.finalDecision}`,
+    "",
+    "### Patch Dry Run Issues",
+    "",
+    patchDryRunIssuesMarkdown(report.patchDryRun),
+    "",
+    "### First Patch Dry Run Diff Preview",
+    "",
+    "```diff",
+    firstPatchDryRunDiffPreview(report.patchDryRun),
+    "```",
     "",
     "### Remask Raw Output Preview",
     "",
@@ -584,6 +653,13 @@ async function loadRepairDraftVerifierGate() {
   return import(gatePath.href);
 }
 
+async function loadPatchApplicationDryRunGate() {
+  const gatePath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "patch-application-dry-run-gate.js")
+  );
+  return import(gatePath.href);
+}
+
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -650,6 +726,22 @@ function finalDecisionForRepairVerifierDecision(repairVerifierDecision) {
   return "repair_draft_ready";
 }
 
+function finalDecisionForPatchDryRunDecision(patchDryRunDecision) {
+  if (patchDryRunDecision === "ready_to_apply") {
+    return "patch_ready_to_apply";
+  }
+
+  if (patchDryRunDecision === "needs_review") {
+    return "patch_dry_run_needs_review";
+  }
+
+  if (patchDryRunDecision === "reject") {
+    return "patch_dry_run_rejected";
+  }
+
+  return "repair_approved_by_deterministic_verifier";
+}
+
 function buildForcedRemaskVerifierResult(mutation) {
   const issues = [
     {
@@ -711,7 +803,11 @@ function decide(
       reason: "planner validation failure blocked coder execution",
       repairVerifierCalled: false,
       repairVerifierDecision: null,
-      repairVerifierIssueCount: 0
+      repairVerifierIssueCount: 0,
+      patchDryRunCalled: false,
+      patchDryRunDecision: null,
+      patchDryRunIssueCount: 0,
+      patchDryRunChangedFiles: null
     };
   }
 
@@ -721,7 +817,11 @@ function decide(
       reason: "coder validation failure blocked deterministic verifier execution",
       repairVerifierCalled: false,
       repairVerifierDecision: null,
-      repairVerifierIssueCount: 0
+      repairVerifierIssueCount: 0,
+      patchDryRunCalled: false,
+      patchDryRunDecision: null,
+      patchDryRunIssueCount: 0,
+      patchDryRunChangedFiles: null
     };
   }
 
@@ -739,11 +839,23 @@ function decide(
       repairVerifier && repairVerifier.decision !== undefined ? repairVerifier.decision : null;
     const repairVerifierIssueCount =
       repairVerifier && typeof repairVerifier.issueCount === "number" ? repairVerifier.issueCount : 0;
+    const patchDryRun = options.patchDryRun ?? null;
+    const patchDryRunCalled = Boolean(patchDryRun && patchDryRun.called);
+    const patchDryRunDecision =
+      patchDryRun && patchDryRun.decision !== undefined ? patchDryRun.decision : null;
+    const patchDryRunIssueCount =
+      patchDryRun && typeof patchDryRun.issueCount === "number" ? patchDryRun.issueCount : 0;
+    const patchDryRunChangedFiles =
+      patchDryRun && patchDryRun.summary && typeof patchDryRun.summary.changedFiles === "number"
+        ? patchDryRun.summary.changedFiles
+        : null;
     const finalDecision =
       verifierResult.decision === "needs_review" && remaskRequested && remaskReport && remaskReport.called
         ? remaskValidationOk && repairDraftChecksOk
           ? repairVerifierCalled
-            ? finalDecisionForRepairVerifierDecision(repairVerifierDecision)
+            ? repairVerifierDecision === "approve" && patchDryRunCalled
+              ? finalDecisionForPatchDryRunDecision(patchDryRunDecision)
+              : finalDecisionForRepairVerifierDecision(repairVerifierDecision)
             : "repair_draft_ready"
           : "remask_repair_failed"
         : verifierResult.decision === "needs_review" && remaskRequested
@@ -762,6 +874,10 @@ function decide(
       repairVerifierCalled,
       repairVerifierDecision,
       repairVerifierIssueCount,
+      patchDryRunCalled,
+      patchDryRunDecision,
+      patchDryRunIssueCount,
+      patchDryRunChangedFiles,
       forcedRemask: Boolean(options.forcedRemask)
     };
   }
@@ -771,7 +887,11 @@ function decide(
     reason: "planner and coder workspace mutations validated",
     repairVerifierCalled: false,
     repairVerifierDecision: null,
-    repairVerifierIssueCount: 0
+    repairVerifierIssueCount: 0,
+    patchDryRunCalled: false,
+    patchDryRunDecision: null,
+    patchDryRunIssueCount: 0,
+    patchDryRunChangedFiles: null
   };
 }
 
@@ -788,7 +908,11 @@ async function run() {
       forcedRemask: config.forceRemask,
       repairVerifierCalled: false,
       repairVerifierDecision: null,
-      repairVerifierIssueCount: 0
+      repairVerifierIssueCount: 0,
+      patchDryRunCalled: false,
+      patchDryRunDecision: null,
+      patchDryRunIssueCount: 0,
+      patchDryRunChangedFiles: null
     };
     report.finalDecision = status;
     return writeReport(report, config);
@@ -798,6 +922,7 @@ async function run() {
   const { verifyPatchDraftMutation } = await loadDeterministicVerifierGate();
   const { buildRemaskRequestFromVerifierFinding } = await loadRemaskRequestBuilder();
   const { verifyRepairDraftMutation } = await loadRepairDraftVerifierGate();
+  const { dryRunPatchApplication } = await loadPatchApplicationDryRunGate();
   const report = baseReport(config, "completed");
 
   try {
@@ -950,6 +1075,31 @@ async function run() {
                 issues: repairVerifierResult.issues,
                 finding: repairVerifierResult.finding
               };
+
+              if (repairVerifierResult.decision === "approve") {
+                const patchDryRunResult = dryRunPatchApplication(
+                  remaskValidation.mutation,
+                  repairVerifierResult.finding,
+                  {
+                    allowedFiles: fixture.allowedFiles,
+                    forbiddenFiles: fixture.forbiddenFiles,
+                    fileContents: fixture.fileContents,
+                    requiredRepairVerifierDecision: "approve",
+                    maxProposedPatchChars: 20000,
+                    maxDiffPreviewLines: 80
+                  }
+                );
+
+                report.patchDryRun = {
+                  called: true,
+                  decision: patchDryRunResult.decision,
+                  ok: patchDryRunResult.decision === "ready_to_apply",
+                  issueCount: patchDryRunResult.issues.length,
+                  issues: patchDryRunResult.issues,
+                  summary: patchDryRunResult.summary,
+                  previews: patchDryRunResult.previews
+                };
+              }
             }
           } catch (error) {
             report.remask.validation = {
@@ -979,7 +1129,8 @@ async function run() {
       report.remask,
       {
         forcedRemask: config.forceRemask,
-        repairVerifier: report.repairVerifier
+        repairVerifier: report.repairVerifier,
+        patchDryRun: report.patchDryRun
       }
     );
     report.finalDecision = decision.finalDecision;
@@ -993,7 +1144,11 @@ async function run() {
       reason: error instanceof Error ? error.message : String(error),
       repairVerifierCalled: false,
       repairVerifierDecision: null,
-      repairVerifierIssueCount: 0
+      repairVerifierIssueCount: 0,
+      patchDryRunCalled: false,
+      patchDryRunDecision: null,
+      patchDryRunIssueCount: 0,
+      patchDryRunChangedFiles: null
     };
   }
 
@@ -1022,10 +1177,12 @@ module.exports = {
   decide,
   emptyRemaskReport,
   emptyRepairVerifierReport,
+  emptyPatchDryRunReport,
   emptyVerifierReport,
   fixture,
   finalDecisionForVerifierDecision,
   finalDecisionForRepairVerifierDecision,
+  finalDecisionForPatchDryRunDecision,
   repairableIssueCodesFromRemaskRequest,
   run
 };

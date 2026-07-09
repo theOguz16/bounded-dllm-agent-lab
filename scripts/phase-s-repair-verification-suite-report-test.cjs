@@ -283,6 +283,82 @@ check("synthetic completed configured repair_rejected path is ready", () => {
   assert.equal(summary.repairVerifierRejected, true);
 });
 
+check("synthetic completed configured patch_ready_to_apply summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("patch_ready_to_apply", {
+      orchestrator: {
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0,
+        patchDryRunCalled: true,
+        patchDryRunDecision: "ready_to_apply",
+        patchDryRunIssueCount: 0,
+        patchDryRunChangedFiles: 1
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.finalPatchDryRunDecisionObserved, true);
+  assert.equal(summary.patchDryRunCalled, true);
+  assert.equal(summary.patchDryRunDecisionObserved, true);
+});
+
+check("synthetic completed configured patch_dry_run_needs_review summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("patch_dry_run_needs_review", {
+      orchestrator: {
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0,
+        patchDryRunCalled: true,
+        patchDryRunDecision: "needs_review",
+        patchDryRunIssueCount: 1,
+        patchDryRunChangedFiles: 0
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.finalPatchDryRunDecisionObserved, true);
+  assert.equal(summary.patchDryRunDecision, "needs_review");
+});
+
+check("synthetic completed configured patch_dry_run_rejected summary is ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("patch_dry_run_rejected", {
+      orchestrator: {
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0,
+        patchDryRunCalled: true,
+        patchDryRunDecision: "reject",
+        patchDryRunIssueCount: 1,
+        patchDryRunChangedFiles: 1
+      }
+    }),
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.finalPatchDryRunDecisionObserved, true);
+  assert.equal(summary.patchDryRunDecision, "reject");
+});
+
 check("synthetic forced repair_approved summary is ready", () => {
   const summary = buildSummary(
     syntheticChildren("repair_approved_by_deterministic_verifier", {
@@ -304,6 +380,60 @@ check("synthetic forced repair_approved summary is ready", () => {
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.finalRepairDecisionObserved, true);
   assert.equal(summary.repairVerifierCalled, true);
+});
+
+check("forced remask patch_ready_to_apply summary is ready and includes patchDryRunCalled true", () => {
+  const summary = buildSummary(
+    syntheticChildren("patch_ready_to_apply", {
+      orchestrator: {
+        forceRemask: true,
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0,
+        patchDryRunCalled: true,
+        patchDryRunDecision: "ready_to_apply",
+        patchDryRunIssueCount: 0,
+        patchDryRunChangedFiles: 1
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.finalRepairOrPatchDecisionObserved, true);
+  assert.equal(summary.patchDryRunCalled, true);
+});
+
+check("forced remask with repairVerifier approve but patchDryRunCalled false is not ready when patch dry-run fields are expected", () => {
+  const summary = buildSummary(
+    syntheticChildren("repair_approved_by_deterministic_verifier", {
+      orchestrator: {
+        forceRemask: true,
+        remaskRequested: true,
+        remaskRepairability: "repairable",
+        remaskValidationOk: true,
+        repairDraftChecksOk: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        repairVerifierIssueCount: 0,
+        patchDryRunCalled: false,
+        patchDryRunDecision: null,
+        patchDryRunIssueCount: 0,
+        patchDryRunChangedFiles: null
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.patchDryRunFieldsPresent, true);
+  assert.equal(summary.patchDryRunCalled, false);
 });
 
 check("synthetic forced approve path without remask is not ready", () => {
