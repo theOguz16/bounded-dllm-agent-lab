@@ -162,7 +162,9 @@
     "report:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite.cjs",
     "test:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite-test.cjs",
     "test:remask-request-builder": "node scripts/remask-request-builder-smoke.cjs",
-    "test:repair-draft-verifier-gate": "node scripts/repair-draft-verifier-gate-smoke.cjs"
+    "test:repair-draft-verifier-gate": "node scripts/repair-draft-verifier-gate-smoke.cjs",
+    "report:repair-draft-verifier-negative-fixture-suite": "node scripts/repair-draft-verifier-negative-fixture-suite.cjs",
+    "test:repair-draft-verifier-negative-fixture-suite": "node scripts/repair-draft-verifier-negative-fixture-suite-test.cjs"
   },
   "workspaces": [
     "apps/*",
