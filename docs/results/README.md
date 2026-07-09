@@ -13,6 +13,9 @@ benchmark artifacts.
 - [`PHASE_S_REPAIR_VERIFICATION_RESULTS.md`](PHASE_S_REPAIR_VERIFICATION_RESULTS.md):
   deterministic repairDraft verification results, including local checks and
   live RunPod forced-remask validation.
+- [`PHASE_T_PATCH_DRY_RUN_RESULTS.md`](PHASE_T_PATCH_DRY_RUN_RESULTS.md):
+  deterministic patch application dry-run results, including local checks and
+  live RunPod forced-remask validation.
 
 Raw benchmark artifacts are generated under `reports/` during local or RunPod
 runs. Those artifacts are not the main documentation surface; this directory
