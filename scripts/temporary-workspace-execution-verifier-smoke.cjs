@@ -24,6 +24,51 @@ function removeIfExists(targetPath) {
   }
 }
 
+function isInsideTempRoot(targetPath) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const resolvedTarget = path.resolve(targetPath);
+  const relative = path.relative(tempRoot, resolvedTarget);
+
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function createWorkspaceOutsideTempRoot(prefix) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const candidates = [os.homedir(), process.cwd(), path.dirname(tempRoot)];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.length === 0) {
+      continue;
+    }
+
+    const resolvedCandidate = path.resolve(candidate);
+
+    if (isInsideTempRoot(resolvedCandidate)) {
+      continue;
+    }
+
+    try {
+      fs.mkdirSync(resolvedCandidate, { recursive: true });
+      const workspace = fs.mkdtempSync(path.join(resolvedCandidate, prefix));
+
+      if (!isInsideTempRoot(workspace)) {
+        return workspace;
+      }
+
+      fs.rmSync(workspace, { recursive: true, force: true });
+    } catch {
+      // Try the next writable candidate outside the OS temp root.
+    }
+  }
+
+  throw new Error(
+    `Could not create a writable fixture workspace outside ${tempRoot}`
+  );
+}
+
 function command(overrides = {}) {
   return {
     id: "node-check",
@@ -176,11 +221,23 @@ function withWorkspace(fn) {
   });
 
   check("workspace outside temp root needs_review", () => {
-    assertDecision(
-      verifyTemporaryWorkspaceExecution(context({ tempWorkspacePath: process.cwd() })),
-      "temp_validation_needs_review",
-      "workspace_outside_temp_root"
+    const workspace = createWorkspaceOutsideTempRoot(
+      "temp-execution-outside-root-"
     );
+
+    try {
+      assert.equal(isInsideTempRoot(workspace), false);
+      assertDecision(
+        verifyTemporaryWorkspaceExecution(
+          context({ tempWorkspacePath: workspace })
+        ),
+        "temp_validation_needs_review",
+        "workspace_outside_temp_root"
+      );
+    } finally {
+      removeIfExists(workspace);
+      assert.equal(fs.existsSync(workspace), false);
+    }
   });
 
   check("temp apply not ready needs_review", () => {

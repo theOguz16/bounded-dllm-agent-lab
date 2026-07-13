@@ -130,6 +130,8 @@ check("workspace outside temp root needs review", () => {
   assert.equal(testCase.actualDecision, "temp_validation_needs_review");
   assert.ok(testCase.issueCodes.includes("workspace_outside_temp_root"));
   assert.equal(testCase.commandCount, 0);
+  assert.equal(testCase.workspaceOutsideTempRoot, true);
+  assert.equal(testCase.workspaceDeletedAfterRun, true);
 });
 
 check("unsafe executable needs review", () => {

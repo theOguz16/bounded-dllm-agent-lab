@@ -188,9 +188,54 @@ function safeTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
+function isInsideTempRoot(targetPath) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const resolvedTarget = path.resolve(targetPath);
+  const relative = path.relative(tempRoot, resolvedTarget);
+
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function createWorkspaceOutsideTempRoot(prefix) {
+  const tempRoot = path.resolve(os.tmpdir());
+  const candidates = [os.homedir(), process.cwd(), path.dirname(tempRoot)];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || candidate.length === 0) {
+      continue;
+    }
+
+    const resolvedCandidate = path.resolve(candidate);
+
+    if (isInsideTempRoot(resolvedCandidate)) {
+      continue;
+    }
+
+    try {
+      fs.mkdirSync(resolvedCandidate, { recursive: true });
+      const workspace = fs.mkdtempSync(path.join(resolvedCandidate, prefix));
+
+      if (!isInsideTempRoot(workspace)) {
+        return workspace;
+      }
+
+      fs.rmSync(workspace, { recursive: true, force: true });
+    } catch {
+      // Try the next writable candidate outside the OS temp root.
+    }
+  }
+
+  throw new Error(
+    `Could not create a writable fixture workspace outside ${tempRoot}`
+  );
+}
+
 function workspaceForFixture(fixture, fixtureRoot, index) {
   if (fixture.workspaceKind === "outside-temp-root") {
-    return repoRoot;
+    return createWorkspaceOutsideTempRoot("phase-v-outside-temp-root-");
   }
 
   const workspacePath = path.join(fixtureRoot, `${String(index).padStart(2, "0")}`);
@@ -210,6 +255,7 @@ function workspaceForFixture(fixture, fixtureRoot, index) {
 
 function runFixture(fixture, fixtureRoot, index, verify) {
   const workspacePath = workspaceForFixture(fixture, fixtureRoot, index);
+  const outsideTempFixture = fixture.workspaceKind === "outside-temp-root";
   const context = {
     tempWorkspacePath: workspacePath,
     tempApplyDecision: "temp_apply_ready",
@@ -221,28 +267,54 @@ function runFixture(fixture, fixtureRoot, index, verify) {
     allowedExecutables: fixture.allowedExecutables ?? ["node"],
     ...(fixture.contextOverrides ?? {})
   };
-  const result = verify(context);
-  const issueCodes = result.issues.map((issue) => issue.code);
-  const expectedIssueCodes = fixture.expectedIssueCodes ?? [];
-  const passed =
-    result.decision === fixture.expectedDecision &&
-    expectedIssueCodes.every((code) => issueCodes.includes(code));
+  let caseResult;
 
-  return {
-    caseId: fixture.caseId,
-    expectedDecision: fixture.expectedDecision,
-    actualDecision: result.decision,
-    passed,
-    issueCodes,
-    commandCount: result.summary.totalCommands,
-    passedCommands: result.summary.passedCommands,
-    failedCommands: result.summary.failedCommands,
-    timedOutCommands: result.summary.timedOutCommands,
-    truncatedOutputs: result.summary.truncatedOutputs,
-    durationMs: result.summary.durationMs,
-    stdout: result.commandResults.map((commandResult) => commandResult.stdout),
-    stderr: result.commandResults.map((commandResult) => commandResult.stderr)
-  };
+  try {
+    const workspaceOutsideTempRoot = !isInsideTempRoot(workspacePath);
+
+    if (outsideTempFixture && !workspaceOutsideTempRoot) {
+      throw new Error(
+        `Outside-temp fixture resolved under os.tmpdir(): ${workspacePath}`
+      );
+    }
+
+    const result = verify(context);
+    const issueCodes = result.issues.map((issue) => issue.code);
+    const expectedIssueCodes = fixture.expectedIssueCodes ?? [];
+    const passed =
+      result.decision === fixture.expectedDecision &&
+      expectedIssueCodes.every((code) => issueCodes.includes(code));
+
+    caseResult = {
+      caseId: fixture.caseId,
+      expectedDecision: fixture.expectedDecision,
+      actualDecision: result.decision,
+      passed,
+      issueCodes,
+      commandCount: result.summary.totalCommands,
+      passedCommands: result.summary.passedCommands,
+      failedCommands: result.summary.failedCommands,
+      timedOutCommands: result.summary.timedOutCommands,
+      truncatedOutputs: result.summary.truncatedOutputs,
+      durationMs: result.summary.durationMs,
+      stdout: result.commandResults.map((commandResult) => commandResult.stdout),
+      stderr: result.commandResults.map((commandResult) => commandResult.stderr),
+      workspaceOutsideTempRoot: outsideTempFixture
+        ? workspaceOutsideTempRoot
+        : null,
+      workspaceDeletedAfterRun: null
+    };
+  } finally {
+    if (outsideTempFixture) {
+      fs.rmSync(workspacePath, { recursive: true, force: true });
+
+      if (caseResult) {
+        caseResult.workspaceDeletedAfterRun = !fs.existsSync(workspacePath);
+      }
+    }
+  }
+
+  return caseResult;
 }
 
 function buildReport(cases) {
