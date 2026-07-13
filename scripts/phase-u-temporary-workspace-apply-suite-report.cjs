@@ -25,13 +25,22 @@ const acceptedFinalDecisions = new Set([
   "patch_dry_run_rejected",
   "temp_apply_ready",
   "temp_apply_needs_review",
-  "temp_apply_rejected"
+  "temp_apply_rejected",
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
 ]);
 
 const tempApplyFinalDecisions = new Set([
   "temp_apply_ready",
   "temp_apply_needs_review",
   "temp_apply_rejected"
+]);
+
+const tempValidationFinalDecisions = new Set([
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
 ]);
 
 function safeTimestamp(date = new Date()) {
@@ -165,9 +174,12 @@ function summarizeOrchestrator(childResult, reportPath, report) {
   const tempWorkspaceApply = report && report.tempWorkspaceApply
     ? report.tempWorkspaceApply
     : {};
+  const tempWorkspaceExecution = report && report.tempWorkspaceExecution
+    ? report.tempWorkspaceExecution
+    : {};
   const decision = report && report.orchestratorDecision ? report.orchestratorDecision : {};
 
-  return {
+  const summary = {
     command: childResult.command,
     exitCode: childResult.exitCode,
     reportPath,
@@ -219,6 +231,39 @@ function summarizeOrchestrator(childResult, reportPath, report) {
         ? tempWorkspaceApply.cleanedUp
         : decision.tempWorkspaceApplyCleanedUp ?? null
   };
+  const hasTempWorkspaceExecutionFields =
+    Object.prototype.hasOwnProperty.call(report || {}, "tempWorkspaceExecution") ||
+    Object.prototype.hasOwnProperty.call(decision, "tempWorkspaceExecutionCalled") ||
+    Object.prototype.hasOwnProperty.call(decision, "tempWorkspaceExecutionDecision");
+
+  if (hasTempWorkspaceExecutionFields) {
+    summary.tempWorkspaceExecutionCalled =
+      typeof tempWorkspaceExecution.called === "boolean"
+        ? tempWorkspaceExecution.called
+        : Boolean(decision.tempWorkspaceExecutionCalled);
+    summary.tempWorkspaceExecutionDecision =
+      tempWorkspaceExecution.decision === undefined
+        ? decision.tempWorkspaceExecutionDecision ?? null
+        : tempWorkspaceExecution.decision;
+    summary.tempWorkspaceExecutionIssueCount =
+      typeof tempWorkspaceExecution.issueCount === "number"
+        ? tempWorkspaceExecution.issueCount
+        : decision.tempWorkspaceExecutionIssueCount ?? null;
+    summary.tempWorkspaceExecutionPassedCommands =
+      typeof tempWorkspaceExecution.passedCommands === "number"
+        ? tempWorkspaceExecution.passedCommands
+        : decision.tempWorkspaceExecutionPassedCommands ?? null;
+    summary.tempWorkspaceExecutionFailedCommands =
+      typeof tempWorkspaceExecution.failedCommands === "number"
+        ? tempWorkspaceExecution.failedCommands
+        : decision.tempWorkspaceExecutionFailedCommands ?? null;
+    summary.tempWorkspaceExecutionCleanupPerformed =
+      typeof tempWorkspaceExecution.cleanupPerformed === "boolean"
+        ? tempWorkspaceExecution.cleanupPerformed
+        : Boolean(decision.tempWorkspaceExecutionCleanupPerformed);
+  }
+
+  return summary;
 }
 
 function buildSummary(children, configured, forceRemask = false) {
@@ -246,6 +291,19 @@ function buildSummary(children, configured, forceRemask = false) {
   const tempWorkspaceApplyRejected =
     tempWorkspaceApplyCalled && orchestrator.tempWorkspaceApplyDecision === "temp_apply_rejected";
   const finalTempApplyDecisionObserved = tempApplyFinalDecisions.has(orchestrator.finalDecision);
+  const tempWorkspaceExecutionFieldsPresent =
+    Object.prototype.hasOwnProperty.call(orchestrator, "tempWorkspaceExecutionCalled") ||
+    Object.prototype.hasOwnProperty.call(orchestrator, "tempWorkspaceExecutionDecision");
+  const tempWorkspaceExecutionExpected =
+    tempWorkspaceExecutionFieldsPresent && tempWorkspaceApplyReady;
+  const tempWorkspaceExecutionReady =
+    !tempWorkspaceExecutionExpected ||
+    (orchestrator.tempWorkspaceExecutionCalled === true &&
+      tempValidationFinalDecisions.has(orchestrator.tempWorkspaceExecutionDecision) &&
+      orchestrator.tempWorkspaceExecutionCleanupPerformed === true);
+  const finalPostApplyDecisionObserved =
+    finalTempApplyDecisionObserved ||
+    tempValidationFinalDecisions.has(orchestrator.finalDecision);
   const anySkipped = orchestrator.status === "skipped";
   const baseReady =
     configured &&
@@ -266,7 +324,8 @@ function buildSummary(children, configured, forceRemask = false) {
     orchestrator.patchDryRunDecision === "ready_to_apply" &&
     tempWorkspaceApplyCalled &&
     tempApplyFinalDecisions.has(orchestrator.tempWorkspaceApplyDecision) &&
-    finalTempApplyDecisionObserved;
+    finalPostApplyDecisionObserved &&
+    tempWorkspaceExecutionReady;
 
   return {
     tempWorkspaceApplyGatePassed,
@@ -285,6 +344,19 @@ function buildSummary(children, configured, forceRemask = false) {
     tempWorkspaceApplyNeedsReview,
     tempWorkspaceApplyRejected,
     finalTempApplyDecisionObserved,
+    finalPostApplyDecisionObserved,
+    tempWorkspaceExecutionFieldsPresent,
+    tempWorkspaceExecutionExpected,
+    tempWorkspaceExecutionReady,
+    tempWorkspaceExecutionCalled: orchestrator.tempWorkspaceExecutionCalled ?? null,
+    tempWorkspaceExecutionDecision: orchestrator.tempWorkspaceExecutionDecision ?? null,
+    tempWorkspaceExecutionIssueCount: orchestrator.tempWorkspaceExecutionIssueCount ?? null,
+    tempWorkspaceExecutionPassedCommands:
+      orchestrator.tempWorkspaceExecutionPassedCommands ?? null,
+    tempWorkspaceExecutionFailedCommands:
+      orchestrator.tempWorkspaceExecutionFailedCommands ?? null,
+    tempWorkspaceExecutionCleanupPerformed:
+      orchestrator.tempWorkspaceExecutionCleanupPerformed ?? null,
     anySkipped,
     readyForRunPodLiveValidation: forceRemask ? forcedReady : baseReady
   };
@@ -338,6 +410,12 @@ function renderMarkdown(report) {
     `- Temporary workspace apply decision: ${report.children.orchestrator.tempWorkspaceApplyDecision || ""}`,
     `- Temporary workspace apply changed files: ${report.children.orchestrator.tempWorkspaceApplyChangedFiles ?? ""}`,
     `- Temporary workspace apply cleaned up: ${report.children.orchestrator.tempWorkspaceApplyCleanedUp ?? ""}`,
+    `- Temporary workspace execution called: ${report.children.orchestrator.tempWorkspaceExecutionCalled ?? ""}`,
+    `- Temporary workspace execution decision: ${report.children.orchestrator.tempWorkspaceExecutionDecision ?? ""}`,
+    `- Temporary workspace execution issue count: ${report.children.orchestrator.tempWorkspaceExecutionIssueCount ?? ""}`,
+    `- Temporary workspace execution passed commands: ${report.children.orchestrator.tempWorkspaceExecutionPassedCommands ?? ""}`,
+    `- Temporary workspace execution failed commands: ${report.children.orchestrator.tempWorkspaceExecutionFailedCommands ?? ""}`,
+    `- Temporary workspace execution cleanup performed: ${report.children.orchestrator.tempWorkspaceExecutionCleanupPerformed ?? ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,
     `- Finished at: ${report.finishedAt}`,

@@ -8,6 +8,15 @@ const {
 } = require("./worker-backed-remask-smoke.cjs");
 
 const SUITE_NAME = "phase-p-worker-backed-orchestrator-smoke";
+const expectedAppliedFiles = ["packages/example/src/index.ts"];
+const validateAppliedFilesSource = [
+  "const fs=require('node:fs');",
+  "const path=require('node:path');",
+  "for(const file of process.argv.slice(1)){",
+  "const full=path.resolve(process.cwd(),file);",
+  "if(!fs.existsSync(full))process.exit(2);",
+  "}"
+].join("");
 
 const fixture = {
   caseId: "phase-p-orchestrator-safe-helper",
@@ -17,7 +26,18 @@ const fixture = {
   fileContents: {
     "packages/example/src/index.ts": "export function addOne(value: number): number {\n  return value + 1;\n}\n"
   },
-  proposedGoal: "Add an addOne helper function without touching unrelated files."
+  proposedGoal: "Add an addOne helper function without touching unrelated files.",
+  validationCommands: [
+    {
+      id: "validate-applied-files",
+      executable: "node",
+      args: ["-e", validateAppliedFilesSource, ...expectedAppliedFiles],
+      timeoutMs: 10000,
+      expectedExitCodes: [0]
+    }
+  ],
+  validationAllowedExecutables: ["node"],
+  validationEnvironment: {}
 };
 
 function readIntegerEnv(name, defaultValue, { min = 1 } = {}) {
@@ -247,6 +267,39 @@ function emptyTemporaryWorkspaceApplyReport() {
   };
 }
 
+function emptyTemporaryWorkspaceExecutionReport() {
+  return {
+    called: false,
+    decision: null,
+    ok: null,
+    issueCount: 0,
+    issues: [],
+    commandCount: 0,
+    passedCommands: 0,
+    failedCommands: 0,
+    timedOutCommands: 0,
+    truncatedOutputs: 0,
+    durationMs: 0,
+    commandResults: [],
+    cleanupAttempted: false,
+    cleanupPerformed: false,
+    cleanupError: null
+  };
+}
+
+function emptyTemporaryWorkspaceExecutionDecision() {
+  return {
+    tempWorkspaceExecutionCalled: false,
+    tempWorkspaceExecutionDecision: null,
+    tempWorkspaceExecutionIssueCount: 0,
+    tempWorkspaceExecutionCommandCount: 0,
+    tempWorkspaceExecutionPassedCommands: 0,
+    tempWorkspaceExecutionFailedCommands: 0,
+    tempWorkspaceExecutionTimedOutCommands: 0,
+    tempWorkspaceExecutionCleanupPerformed: false
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -274,7 +327,8 @@ function baseReport(config, status) {
       tempWorkspaceApplyDecision: null,
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
-      tempWorkspaceApplyCleanedUp: null
+      tempWorkspaceApplyCleanedUp: null,
+      ...emptyTemporaryWorkspaceExecutionDecision()
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
@@ -283,6 +337,7 @@ function baseReport(config, status) {
     repairVerifier: emptyRepairVerifierReport(),
     patchDryRun: emptyPatchDryRunReport(),
     tempWorkspaceApply: emptyTemporaryWorkspaceApplyReport(),
+    tempWorkspaceExecution: emptyTemporaryWorkspaceExecutionReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -485,8 +540,36 @@ function temporaryWorkspaceApplyIssuesMarkdown(tempWorkspaceApply) {
     .join("\n");
 }
 
+function firstTemporaryWorkspaceExecutionCommand(tempWorkspaceExecution) {
+  const commandResults =
+    tempWorkspaceExecution && Array.isArray(tempWorkspaceExecution.commandResults)
+      ? tempWorkspaceExecution.commandResults
+      : [];
+  return commandResults[0] ?? null;
+}
+
+function temporaryWorkspaceExecutionIssuesMarkdown(tempWorkspaceExecution) {
+  const issues =
+    tempWorkspaceExecution && Array.isArray(tempWorkspaceExecution.issues)
+      ? tempWorkspaceExecution.issues
+      : [];
+
+  if (issues.length === 0) {
+    return "- temporary workspace execution: No issues.";
+  }
+
+  return issues
+    .map((issue) =>
+      `- temporary workspace execution: ${issue.code}: ${issue.message}`
+    )
+    .join("\n");
+}
+
 function renderMarkdown(report, config) {
   const patchDryRunSummary = report.patchDryRun.summary;
+  const firstExecutionCommand = firstTemporaryWorkspaceExecutionCommand(
+    report.tempWorkspaceExecution
+  );
 
   return [
     "# Worker-Backed Orchestrator Smoke",
@@ -527,6 +610,9 @@ function renderMarkdown(report, config) {
     `- Temporary workspace apply issue count: ${report.tempWorkspaceApply.issueCount}`,
     `- Temporary workspace apply changed files: ${report.tempWorkspaceApply.changedFiles}`,
     `- Temporary workspace apply cleaned up: ${report.tempWorkspaceApply.cleanedUp ?? ""}`,
+    `- Temporary workspace execution called: ${report.tempWorkspaceExecution.called}`,
+    `- Temporary workspace execution decision: ${report.tempWorkspaceExecution.decision ?? ""}`,
+    `- Temporary workspace execution cleanup performed: ${report.tempWorkspaceExecution.cleanupPerformed}`,
     `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
@@ -627,6 +713,31 @@ function renderMarkdown(report, config) {
     "```diff",
     firstTemporaryWorkspaceApplyDiffPreview(report.tempWorkspaceApply),
     "```",
+    "",
+    "## Temporary Workspace Execution Verification",
+    "",
+    `- Called: ${report.tempWorkspaceExecution.called}`,
+    `- Decision: ${report.tempWorkspaceExecution.decision ?? ""}`,
+    `- Issue count: ${report.tempWorkspaceExecution.issueCount}`,
+    `- Command count: ${report.tempWorkspaceExecution.commandCount}`,
+    `- Passed commands: ${report.tempWorkspaceExecution.passedCommands}`,
+    `- Failed commands: ${report.tempWorkspaceExecution.failedCommands}`,
+    `- Timed-out commands: ${report.tempWorkspaceExecution.timedOutCommands}`,
+    `- Truncated outputs: ${report.tempWorkspaceExecution.truncatedOutputs}`,
+    `- Execution duration ms: ${report.tempWorkspaceExecution.durationMs}`,
+    `- Cleanup attempted: ${report.tempWorkspaceExecution.cleanupAttempted}`,
+    `- Cleanup performed: ${report.tempWorkspaceExecution.cleanupPerformed}`,
+    `- Cleanup error: ${report.tempWorkspaceExecution.cleanupError ?? ""}`,
+    `- First command executable: ${firstExecutionCommand ? firstExecutionCommand.executable : ""}`,
+    `- First command args: ${firstExecutionCommand ? JSON.stringify(firstExecutionCommand.args) : ""}`,
+    `- First command exit code: ${firstExecutionCommand ? firstExecutionCommand.exitCode ?? "" : ""}`,
+    `- First command stdout: ${firstExecutionCommand ? preview(firstExecutionCommand.stdout, 1000) : ""}`,
+    `- First command stderr: ${firstExecutionCommand ? preview(firstExecutionCommand.stderr, 1000) : ""}`,
+    `- Final decision: ${report.finalDecision}`,
+    "",
+    "### Temporary Workspace Execution Issues",
+    "",
+    temporaryWorkspaceExecutionIssuesMarkdown(report.tempWorkspaceExecution),
     "",
     "### Remask Raw Output Preview",
     "",
@@ -736,6 +847,114 @@ async function loadTemporaryWorkspaceApplyGate() {
     path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "temporary-workspace-apply-gate.js")
   );
   return import(gatePath.href);
+}
+
+async function loadTemporaryWorkspaceExecutionVerifier() {
+  const verifierPath = pathToFileURL(
+    path.join(
+      process.cwd(),
+      "dist",
+      "packages",
+      "product-runtime",
+      "src",
+      "temporary-workspace-execution-verifier.js"
+    )
+  );
+  return import(verifierPath.href);
+}
+
+function canVerifyTemporaryWorkspaceExecution(tempWorkspaceApply) {
+  return Boolean(
+    tempWorkspaceApply &&
+      tempWorkspaceApply.called === true &&
+      tempWorkspaceApply.decision === "temp_apply_ready" &&
+      typeof tempWorkspaceApply.tempWorkspacePath === "string" &&
+      tempWorkspaceApply.tempWorkspacePath.length > 0 &&
+      tempWorkspaceApply.cleanedUp === false
+  );
+}
+
+function verifyAndCleanupTemporaryWorkspace(
+  tempWorkspaceApply,
+  trustedValidationConfig,
+  verifyTemporaryWorkspaceExecution,
+  options = {}
+) {
+  const report = emptyTemporaryWorkspaceExecutionReport();
+
+  if (!canVerifyTemporaryWorkspaceExecution(tempWorkspaceApply)) {
+    return report;
+  }
+
+  const tempWorkspacePath = tempWorkspaceApply.tempWorkspacePath;
+  const removeWorkspace = options.removeWorkspace ?? ((workspacePath) => {
+    fs.rmSync(workspacePath, { recursive: true, force: true });
+  });
+  const workspaceExists = options.workspaceExists ?? fs.existsSync;
+  report.called = true;
+
+  try {
+    const result = verifyTemporaryWorkspaceExecution({
+      tempWorkspacePath,
+      tempApplyDecision: "temp_apply_ready",
+      tempWorkspaceCleanedUp: false,
+      commands: trustedValidationConfig.validationCommands,
+      allowedExecutables: trustedValidationConfig.validationAllowedExecutables,
+      environment: trustedValidationConfig.validationEnvironment,
+      maxCommands: 5,
+      defaultTimeoutMs: 30000,
+      maxTimeoutMs: 120000,
+      maxOutputChars: options.maxOutputChars ?? 20000
+    });
+
+    report.decision = result.decision;
+    report.ok = result.decision === "temp_validation_passed";
+    report.issueCount = result.issues.length;
+    report.issues = [...result.issues];
+    report.commandCount = result.summary.totalCommands;
+    report.passedCommands = result.summary.passedCommands;
+    report.failedCommands = result.summary.failedCommands;
+    report.timedOutCommands = result.summary.timedOutCommands;
+    report.truncatedOutputs = result.summary.truncatedOutputs;
+    report.durationMs = result.summary.durationMs;
+    report.commandResults = result.commandResults.map((commandResult) => ({
+      ...commandResult,
+      args: [...commandResult.args]
+    }));
+  } catch (error) {
+    report.decision = "temp_validation_needs_review";
+    report.ok = false;
+    report.issues.push({
+      code: "temp_validation_execution_exception",
+      message: error instanceof Error ? error.message : String(error),
+      severity: "review"
+    });
+    report.issueCount = report.issues.length;
+  } finally {
+    report.cleanupAttempted = true;
+
+    try {
+      removeWorkspace(tempWorkspacePath);
+      report.cleanupPerformed = !workspaceExists(tempWorkspacePath);
+
+      if (!report.cleanupPerformed) {
+        throw new Error("Temporary workspace still exists after cleanup.");
+      }
+    } catch (error) {
+      report.cleanupPerformed = false;
+      report.cleanupError = error instanceof Error ? error.message : String(error);
+      report.issues.push({
+        code: "temp_workspace_cleanup_failed",
+        message: report.cleanupError,
+        severity: "review"
+      });
+      report.issueCount = report.issues.length;
+      report.decision = "temp_validation_needs_review";
+      report.ok = false;
+    }
+  }
+
+  return report;
 }
 
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
@@ -903,7 +1122,8 @@ function decide(
       tempWorkspaceApplyDecision: null,
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
-      tempWorkspaceApplyCleanedUp: null
+      tempWorkspaceApplyCleanedUp: null,
+      ...emptyTemporaryWorkspaceExecutionDecision()
     };
   }
 
@@ -922,7 +1142,8 @@ function decide(
       tempWorkspaceApplyDecision: null,
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
-      tempWorkspaceApplyCleanedUp: null
+      tempWorkspaceApplyCleanedUp: null,
+      ...emptyTemporaryWorkspaceExecutionDecision()
     };
   }
 
@@ -968,13 +1189,46 @@ function decide(
       tempWorkspaceApply && typeof tempWorkspaceApply.cleanedUp === "boolean"
         ? tempWorkspaceApply.cleanedUp
         : null;
+    const tempWorkspaceExecution = options.tempWorkspaceExecution ?? null;
+    const tempWorkspaceExecutionCalled = Boolean(
+      tempWorkspaceExecution && tempWorkspaceExecution.called
+    );
+    const tempWorkspaceExecutionDecision =
+      tempWorkspaceExecution && tempWorkspaceExecution.decision !== undefined
+        ? tempWorkspaceExecution.decision
+        : null;
+    const tempWorkspaceExecutionIssueCount =
+      tempWorkspaceExecution && typeof tempWorkspaceExecution.issueCount === "number"
+        ? tempWorkspaceExecution.issueCount
+        : 0;
+    const tempWorkspaceExecutionCommandCount =
+      tempWorkspaceExecution && typeof tempWorkspaceExecution.commandCount === "number"
+        ? tempWorkspaceExecution.commandCount
+        : 0;
+    const tempWorkspaceExecutionPassedCommands =
+      tempWorkspaceExecution && typeof tempWorkspaceExecution.passedCommands === "number"
+        ? tempWorkspaceExecution.passedCommands
+        : 0;
+    const tempWorkspaceExecutionFailedCommands =
+      tempWorkspaceExecution && typeof tempWorkspaceExecution.failedCommands === "number"
+        ? tempWorkspaceExecution.failedCommands
+        : 0;
+    const tempWorkspaceExecutionTimedOutCommands =
+      tempWorkspaceExecution && typeof tempWorkspaceExecution.timedOutCommands === "number"
+        ? tempWorkspaceExecution.timedOutCommands
+        : 0;
+    const tempWorkspaceExecutionCleanupPerformed = Boolean(
+      tempWorkspaceExecution && tempWorkspaceExecution.cleanupPerformed
+    );
     const finalDecision =
       verifierResult.decision === "needs_review" && remaskRequested && remaskReport && remaskReport.called
         ? remaskValidationOk && repairDraftChecksOk
             ? repairVerifierCalled
               ? repairVerifierDecision === "approve" && patchDryRunCalled
               ? patchDryRunDecision === "ready_to_apply" && tempWorkspaceApplyCalled
-                ? finalDecisionForTemporaryWorkspaceApplyDecision(tempWorkspaceApplyDecision)
+                ? tempWorkspaceApplyDecision === "temp_apply_ready" && tempWorkspaceExecutionCalled
+                  ? tempWorkspaceExecutionDecision
+                  : finalDecisionForTemporaryWorkspaceApplyDecision(tempWorkspaceApplyDecision)
                 : finalDecisionForPatchDryRunDecision(patchDryRunDecision)
               : finalDecisionForRepairVerifierDecision(repairVerifierDecision)
             : "repair_draft_ready"
@@ -1004,6 +1258,14 @@ function decide(
       tempWorkspaceApplyIssueCount,
       tempWorkspaceApplyChangedFiles,
       tempWorkspaceApplyCleanedUp,
+      tempWorkspaceExecutionCalled,
+      tempWorkspaceExecutionDecision,
+      tempWorkspaceExecutionIssueCount,
+      tempWorkspaceExecutionCommandCount,
+      tempWorkspaceExecutionPassedCommands,
+      tempWorkspaceExecutionFailedCommands,
+      tempWorkspaceExecutionTimedOutCommands,
+      tempWorkspaceExecutionCleanupPerformed,
       forcedRemask: Boolean(options.forcedRemask)
     };
   }
@@ -1022,7 +1284,8 @@ function decide(
     tempWorkspaceApplyDecision: null,
     tempWorkspaceApplyIssueCount: 0,
     tempWorkspaceApplyChangedFiles: null,
-    tempWorkspaceApplyCleanedUp: null
+    tempWorkspaceApplyCleanedUp: null,
+    ...emptyTemporaryWorkspaceExecutionDecision()
   };
 }
 
@@ -1048,7 +1311,8 @@ async function run() {
       tempWorkspaceApplyDecision: null,
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
-      tempWorkspaceApplyCleanedUp: null
+      tempWorkspaceApplyCleanedUp: null,
+      ...emptyTemporaryWorkspaceExecutionDecision()
     };
     report.finalDecision = status;
     return writeReport(report, config);
@@ -1060,6 +1324,8 @@ async function run() {
   const { verifyRepairDraftMutation } = await loadRepairDraftVerifierGate();
   const { dryRunPatchApplication } = await loadPatchApplicationDryRunGate();
   const { applyToTemporaryWorkspace } = await loadTemporaryWorkspaceApplyGate();
+  const { verifyTemporaryWorkspaceExecution } =
+    await loadTemporaryWorkspaceExecutionVerifier();
   const report = baseReport(config, "completed");
 
   try {
@@ -1246,7 +1512,7 @@ async function run() {
                       allowedFiles: fixture.allowedFiles,
                       forbiddenFiles: fixture.forbiddenFiles,
                       fileContents: fixture.fileContents,
-                      cleanup: true,
+                      cleanup: false,
                       maxFiles: 10,
                       maxFileBytes: 100000,
                       maxDiffPreviewLines: 80
@@ -1266,6 +1532,16 @@ async function run() {
                     summary: tempWorkspaceApplyResult.summary,
                     appliedFiles: tempWorkspaceApplyResult.appliedFiles
                   };
+
+                  report.tempWorkspaceExecution = verifyAndCleanupTemporaryWorkspace(
+                    report.tempWorkspaceApply,
+                    {
+                      validationCommands: fixture.validationCommands,
+                      validationAllowedExecutables: fixture.validationAllowedExecutables,
+                      validationEnvironment: fixture.validationEnvironment
+                    },
+                    verifyTemporaryWorkspaceExecution
+                  );
                 }
               }
             }
@@ -1299,7 +1575,8 @@ async function run() {
         forcedRemask: config.forceRemask,
         repairVerifier: report.repairVerifier,
         patchDryRun: report.patchDryRun,
-        tempWorkspaceApply: report.tempWorkspaceApply
+        tempWorkspaceApply: report.tempWorkspaceApply,
+        tempWorkspaceExecution: report.tempWorkspaceExecution
       }
     );
     report.finalDecision = decision.finalDecision;
@@ -1322,7 +1599,8 @@ async function run() {
       tempWorkspaceApplyDecision: null,
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
-      tempWorkspaceApplyCleanedUp: null
+      tempWorkspaceApplyCleanedUp: null,
+      ...emptyTemporaryWorkspaceExecutionDecision()
     };
   }
 
@@ -1348,11 +1626,13 @@ module.exports = {
   buildCoderMessages,
   buildForcedRemaskVerifierResult,
   buildPlannerMessages,
+  canVerifyTemporaryWorkspaceExecution,
   decide,
   emptyRemaskReport,
   emptyRepairVerifierReport,
   emptyPatchDryRunReport,
   emptyTemporaryWorkspaceApplyReport,
+  emptyTemporaryWorkspaceExecutionReport,
   emptyVerifierReport,
   fixture,
   finalDecisionForVerifierDecision,
@@ -1360,5 +1640,6 @@ module.exports = {
   finalDecisionForPatchDryRunDecision,
   finalDecisionForTemporaryWorkspaceApplyDecision,
   repairableIssueCodesFromRemaskRequest,
-  run
+  run,
+  verifyAndCleanupTemporaryWorkspace
 };

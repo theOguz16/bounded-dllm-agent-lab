@@ -510,4 +510,34 @@ for (const tempDecision of ["temp_apply_ready", "temp_apply_needs_review", "temp
   });
 }
 
+for (const executionDecision of [
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
+]) {
+  check(`synthetic ${executionDecision} summary is ready`, () => {
+    const summary = buildSummary(
+      syntheticChildren(executionDecision, {
+        orchestrator: {
+          tempWorkspaceApplyCalled: true,
+          tempWorkspaceApplyDecision: "temp_apply_ready",
+          tempWorkspaceExecutionCalled: true,
+          tempWorkspaceExecutionDecision: executionDecision,
+          tempWorkspaceExecutionIssueCount:
+            executionDecision === "temp_validation_passed" ? 0 : 1,
+          tempWorkspaceExecutionPassedCommands:
+            executionDecision === "temp_validation_passed" ? 1 : 0,
+          tempWorkspaceExecutionFailedCommands:
+            executionDecision === "temp_validation_failed" ? 1 : 0,
+          tempWorkspaceExecutionCleanupPerformed: true
+        }
+      }),
+      true
+    );
+
+    assert.equal(summary.readyForRunPodLiveValidation, true);
+    assert.equal(summary.tempWorkspaceExecutionReady, true);
+  });
+}
+
 console.log("phase-s repair verification suite report test passed");

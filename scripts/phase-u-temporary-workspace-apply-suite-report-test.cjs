@@ -9,7 +9,7 @@ const scriptPath = path.join(
   "scripts",
   "phase-u-temporary-workspace-apply-suite-report.cjs"
 );
-const { buildOrchestratorEnv, buildSummary } = require(scriptPath);
+const { buildOrchestratorEnv, buildSummary, summarizeOrchestrator } = require(scriptPath);
 
 function runSuite(env = {}) {
   const result = spawnSync(process.execPath, [scriptPath], {
@@ -208,6 +208,89 @@ check("forced temp_apply_ready is ready", () => {
   const summary = buildSummary(syntheticChildren("temp_apply_ready"), true, true);
   assert.equal(summary.readyForRunPodLiveValidation, true);
   assert.equal(summary.tempWorkspaceApplyReady, true);
+});
+
+check("legacy orchestrator reports preserve absent execution fields", () => {
+  const legacyReport = {
+    status: "completed",
+    ok: true,
+    configured: true,
+    finalDecision: "temp_apply_ready",
+    planner: { validation: { ok: true } },
+    coder: { validation: { ok: true } },
+    verifier: { called: true, decision: "needs_review" },
+    remask: { requested: true },
+    repairVerifier: { called: true, decision: "approve" },
+    patchDryRun: { called: true, decision: "ready_to_apply" },
+    tempWorkspaceApply: {
+      called: true,
+      decision: "temp_apply_ready",
+      issueCount: 0,
+      changedFiles: 1,
+      cleanedUp: true
+    },
+    orchestratorDecision: {}
+  };
+  const summary = summarizeOrchestrator(
+    { command: "synthetic", exitCode: 0 },
+    "synthetic.json",
+    legacyReport
+  );
+
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(summary, "tempWorkspaceExecutionCalled"),
+    false
+  );
+});
+
+for (const executionDecision of [
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
+]) {
+  check(`forced ${executionDecision} is ready when execution cleanup completes`, () => {
+    const summary = buildSummary(
+      syntheticChildren(executionDecision, {
+        orchestrator: {
+          tempWorkspaceApplyDecision: "temp_apply_ready",
+          tempWorkspaceApplyCleanedUp: false,
+          tempWorkspaceExecutionCalled: true,
+          tempWorkspaceExecutionDecision: executionDecision,
+          tempWorkspaceExecutionIssueCount:
+            executionDecision === "temp_validation_passed" ? 0 : 1,
+          tempWorkspaceExecutionPassedCommands:
+            executionDecision === "temp_validation_passed" ? 1 : 0,
+          tempWorkspaceExecutionFailedCommands:
+            executionDecision === "temp_validation_failed" ? 1 : 0,
+          tempWorkspaceExecutionCleanupPerformed: true
+        }
+      }),
+      true,
+      true
+    );
+
+    assert.equal(summary.readyForRunPodLiveValidation, true);
+    assert.equal(summary.tempWorkspaceExecutionReady, true);
+    assert.equal(summary.finalPostApplyDecisionObserved, true);
+  });
+}
+
+check("forced execution path requires cleanup performed", () => {
+  const summary = buildSummary(
+    syntheticChildren("temp_validation_passed", {
+      orchestrator: {
+        tempWorkspaceApplyDecision: "temp_apply_ready",
+        tempWorkspaceExecutionCalled: true,
+        tempWorkspaceExecutionDecision: "temp_validation_passed",
+        tempWorkspaceExecutionCleanupPerformed: false
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.tempWorkspaceExecutionReady, false);
 });
 
 for (const [name, overrides] of [

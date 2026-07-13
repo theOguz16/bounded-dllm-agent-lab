@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { pathToFileURL } = require("node:url");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "worker-backed-orchestrator-smoke.cjs");
@@ -11,7 +12,9 @@ const {
   decide,
   emptyRemaskReport,
   emptyPatchDryRunReport,
-  emptyRepairVerifierReport
+  emptyRepairVerifierReport,
+  fixture,
+  verifyAndCleanupTemporaryWorkspace
 } = require(scriptPath);
 
 function runSmoke(env) {
@@ -25,7 +28,8 @@ function runSmoke(env) {
       WORKER_ORCHESTRATOR_OUT_DIR: outDir,
       ...env
     },
-    encoding: "utf8"
+    encoding: "utf8",
+    shell: false
   });
 
   const report = JSON.parse(result.stdout);
@@ -84,6 +88,7 @@ check("script creates JSON and Markdown report", () => {
   assert.ok(markdown.includes("Repair verifier called: false"));
   assert.ok(markdown.includes("## Patch Dry Run"));
   assert.ok(markdown.includes("Patch dry run called: false"));
+  assert.ok(markdown.includes("## Temporary Workspace Execution Verification"));
 });
 
 check("skipped report has suiteName phase-p-worker-backed-orchestrator-smoke", () => {
@@ -157,6 +162,15 @@ check("skipped report has tempWorkspaceApply.called false", () => {
   assert.equal(report.orchestratorDecision.tempWorkspaceApplyCalled, false);
 });
 
+check("skipped report has tempWorkspaceExecution.called false", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+
+  assert.equal(report.tempWorkspaceExecution.called, false);
+  assert.equal(report.tempWorkspaceExecution.decision, null);
+  assert.equal(report.tempWorkspaceExecution.cleanupAttempted, false);
+  assert.equal(report.orchestratorDecision.tempWorkspaceExecutionCalled, false);
+});
+
 check("default mode has forceRemask false", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
 
@@ -214,6 +228,7 @@ check("planner validation failure has patchDryRun.called false", () => {
   assert.equal(patchDryRun.called, false);
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("forced remask mode does not run if planner validation fails", () => {
@@ -262,6 +277,7 @@ check("coder validation failure has patchDryRun.called false", () => {
   assert.equal(patchDryRun.called, false);
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("forced remask mode does not run if coder validation fails", () => {
@@ -365,6 +381,7 @@ check("initial approve path does not call patchDryRun", () => {
   assert.equal(decision.finalDecision, "approved_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("needs_review verifier result maps to needs_review_by_deterministic_verifier without remask request", () => {
@@ -581,7 +598,24 @@ function tempApplyDecisionFixture(decision) {
     ok: decision === "temp_apply_ready",
     issueCount: decision === "temp_apply_ready" ? 0 : 1,
     changedFiles: decision === "temp_apply_ready" ? 1 : 0,
-    cleanedUp: true
+    cleanedUp: decision === "temp_apply_ready" ? false : true,
+    tempWorkspacePath:
+      decision === "temp_apply_ready" ? path.join(os.tmpdir(), "decision-fixture") : null
+  };
+}
+
+function tempExecutionDecisionFixture(decision, overrides = {}) {
+  return {
+    called: true,
+    decision,
+    ok: decision === "temp_validation_passed",
+    issueCount: decision === "temp_validation_passed" ? 0 : 1,
+    commandCount: 1,
+    passedCommands: decision === "temp_validation_passed" ? 1 : 0,
+    failedCommands: decision === "temp_validation_failed" ? 1 : 0,
+    timedOutCommands: 0,
+    cleanupPerformed: true,
+    ...overrides
   };
 }
 
@@ -601,8 +635,42 @@ check("patch dry-run ready_to_apply calls tempWorkspaceApply and maps temp_apply
 
   assert.equal(decision.finalDecision, "temp_apply_ready");
   assert.equal(decision.tempWorkspaceApplyCalled, true);
-  assert.equal(decision.tempWorkspaceApplyCleanedUp, true);
+  assert.equal(decision.tempWorkspaceApplyCleanedUp, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
+
+for (const executionDecision of [
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
+]) {
+  check(`${executionDecision} maps final decision`, () => {
+    const decision = decide(
+      { ok: true },
+      { ok: true },
+      { decision: "needs_review", issues: [{ code: "missing_proposed_patch" }] },
+      { repairability: "repairable", remaskRequest: {}, issues: [] },
+      { called: true, validation: { ok: true }, repairDraftChecks: { ok: true } },
+      {
+        repairVerifier: { called: true, decision: "approve", issueCount: 0 },
+        patchDryRun: {
+          called: true,
+          decision: "ready_to_apply",
+          issueCount: 0,
+          summary: { changedFiles: 1 }
+        },
+        tempWorkspaceApply: tempApplyDecisionFixture("temp_apply_ready"),
+        tempWorkspaceExecution: tempExecutionDecisionFixture(executionDecision)
+      }
+    );
+
+    assert.equal(decision.finalDecision, executionDecision);
+    assert.equal(decision.tempWorkspaceExecutionCalled, true);
+    assert.equal(decision.tempWorkspaceExecutionDecision, executionDecision);
+    assert.equal(decision.tempWorkspaceExecutionCommandCount, 1);
+    assert.equal(decision.tempWorkspaceExecutionCleanupPerformed, true);
+  });
+}
 
 for (const tempDecision of ["temp_apply_needs_review", "temp_apply_rejected"]) {
   check(`temp workspace apply ${tempDecision} maps final decision`, () => {
@@ -621,6 +689,7 @@ for (const tempDecision of ["temp_apply_needs_review", "temp_apply_rejected"]) {
 
     assert.equal(decision.finalDecision, tempDecision);
     assert.equal(decision.tempWorkspaceApplyCalled, true);
+    assert.equal(decision.tempWorkspaceExecutionCalled, false);
   });
 }
 
@@ -655,6 +724,7 @@ check("patch dry-run needs_review maps to patch_dry_run_needs_review", () => {
 
   assert.equal(decision.finalDecision, "patch_dry_run_needs_review");
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("patch dry-run reject maps to patch_dry_run_rejected", () => {
@@ -688,6 +758,7 @@ check("patch dry-run reject maps to patch_dry_run_rejected", () => {
 
   assert.equal(decision.finalDecision, "patch_dry_run_rejected");
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("repairDraft verifier needs_review maps to repair_needs_review_by_deterministic_verifier", () => {
@@ -760,6 +831,7 @@ check("repairVerifier needs_review does not call patchDryRun", () => {
   assert.equal(decision.finalDecision, "repair_needs_review_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("repairDraft verifier reject maps to repair_rejected_by_deterministic_verifier", () => {
@@ -832,6 +904,7 @@ check("repairVerifier reject does not call patchDryRun", () => {
   assert.equal(decision.finalDecision, "repair_rejected_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("forced remask mode maps successful remask validation/checks to repair_draft_ready", () => {
@@ -963,7 +1036,7 @@ check("forced remask mode can reach patch_ready_to_apply", () => {
   assert.equal(decision.patchDryRunCalled, true);
 });
 
-check("forced remask mode can reach temp_apply_ready", () => {
+check("forced remask mode can reach temp_validation_passed", () => {
   const forcedVerifier = buildForcedRemaskVerifierResult({
     touchedFiles: ["packages/example/src/index.ts"]
   });
@@ -977,12 +1050,15 @@ check("forced remask mode can reach temp_apply_ready", () => {
       forcedRemask: true,
       repairVerifier: { called: true, decision: "approve", issueCount: 0 },
       patchDryRun: { called: true, decision: "ready_to_apply", issueCount: 0, summary: { changedFiles: 1 } },
-      tempWorkspaceApply: tempApplyDecisionFixture("temp_apply_ready")
+      tempWorkspaceApply: tempApplyDecisionFixture("temp_apply_ready"),
+      tempWorkspaceExecution: tempExecutionDecisionFixture("temp_validation_passed")
     }
   );
 
-  assert.equal(decision.finalDecision, "temp_apply_ready");
-  assert.equal(decision.tempWorkspaceApplyCleanedUp, true);
+  assert.equal(decision.finalDecision, "temp_validation_passed");
+  assert.equal(decision.tempWorkspaceApplyCleanedUp, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, true);
+  assert.equal(decision.tempWorkspaceExecutionCleanupPerformed, true);
 });
 
 check("needs_review repairable path can map to remask_repair_failed when remask validation fails", () => {
@@ -1063,6 +1139,7 @@ check("remask validation failure has patchDryRun.called false", () => {
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("forced remask mode maps failed remask validation/checks to remask_repair_failed", () => {
@@ -1177,6 +1254,7 @@ check("repairDraftChecks failure has patchDryRun.called false", () => {
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
 check("needs_review non-repairable verifier result does not request remask", () => {
@@ -1246,6 +1324,246 @@ check("initial reject path does not call patchDryRun", () => {
   assert.equal(decision.finalDecision, "rejected_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
   assert.equal(decision.tempWorkspaceApplyCalled, false);
+  assert.equal(decision.tempWorkspaceExecutionCalled, false);
 });
 
-console.log("worker-backed orchestrator smoke test passed");
+function createAppliedWorkspace() {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "orchestrator-execution-"));
+  const appliedFile = path.join(workspace, fixture.allowedFiles[0]);
+  fs.mkdirSync(path.dirname(appliedFile), { recursive: true });
+  fs.writeFileSync(appliedFile, fixture.fileContents[fixture.allowedFiles[0]]);
+  return workspace;
+}
+
+function readyTempApplyReport(workspace) {
+  return {
+    called: true,
+    decision: "temp_apply_ready",
+    tempWorkspacePath: workspace,
+    cleanedUp: false
+  };
+}
+
+function trustedValidationConfig(commands = fixture.validationCommands) {
+  return {
+    validationCommands: commands,
+    validationAllowedExecutables: fixture.validationAllowedExecutables,
+    validationEnvironment: fixture.validationEnvironment
+  };
+}
+
+async function runExecutionIntegrationChecks() {
+  const verifierPath = pathToFileURL(
+    path.join(
+      repoRoot,
+      "dist",
+      "packages",
+      "product-runtime",
+      "src",
+      "temporary-workspace-execution-verifier.js"
+    )
+  );
+  const { verifyTemporaryWorkspaceExecution } = await import(verifierPath.href);
+
+  check("non-ready temporary workspace apply outcomes do not call execution verifier", () => {
+    let calls = 0;
+    const verifier = () => {
+      calls += 1;
+      throw new Error("execution verifier should not be called");
+    };
+
+    for (const tempWorkspaceApply of [
+      { called: false, decision: null, tempWorkspacePath: null, cleanedUp: null },
+      {
+        called: true,
+        decision: "temp_apply_needs_review",
+        tempWorkspacePath: null,
+        cleanedUp: true
+      },
+      {
+        called: true,
+        decision: "temp_apply_rejected",
+        tempWorkspacePath: null,
+        cleanedUp: true
+      },
+      {
+        called: true,
+        decision: "temp_apply_ready",
+        tempWorkspacePath: "",
+        cleanedUp: false
+      },
+      {
+        called: true,
+        decision: "temp_apply_ready",
+        tempWorkspacePath: os.tmpdir(),
+        cleanedUp: true
+      }
+    ]) {
+      const result = verifyAndCleanupTemporaryWorkspace(
+        tempWorkspaceApply,
+        trustedValidationConfig(),
+        verifier
+      );
+      assert.equal(result.called, false);
+      assert.equal(result.cleanupAttempted, false);
+    }
+
+    assert.equal(calls, 0);
+  });
+
+  check("temp_apply_ready calls execution verifier with trusted fixture configuration", () => {
+    const workspace = createAppliedWorkspace();
+    let capturedContext = null;
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig(),
+      (context) => {
+        capturedContext = context;
+        assert.equal(fs.existsSync(workspace), true);
+        return verifyTemporaryWorkspaceExecution(context);
+      }
+    );
+
+    assert.equal(result.called, true);
+    assert.equal(result.decision, "temp_validation_passed");
+    assert.equal(capturedContext.commands, fixture.validationCommands);
+    assert.equal(capturedContext.allowedExecutables, fixture.validationAllowedExecutables);
+    assert.equal(capturedContext.environment, fixture.validationEnvironment);
+    assert.equal(result.cleanupPerformed, true);
+    assert.equal(fs.existsSync(workspace), false);
+  });
+
+  check("failed execution cleans temporary workspace", () => {
+    const workspace = createAppliedWorkspace();
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig([
+        {
+          id: "trusted-failure",
+          executable: "node",
+          args: ["-e", "process.exit(7)"],
+          timeoutMs: 10000,
+          expectedExitCodes: [0]
+        }
+      ]),
+      verifyTemporaryWorkspaceExecution
+    );
+
+    assert.equal(result.decision, "temp_validation_failed");
+    assert.equal(result.failedCommands, 1);
+    assert.equal(result.cleanupPerformed, true);
+    assert.equal(fs.existsSync(workspace), false);
+  });
+
+  check("needs_review execution cleans temporary workspace", () => {
+    const workspace = createAppliedWorkspace();
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig([
+        {
+          id: "trusted-truncation",
+          executable: "node",
+          args: ["-e", "process.stdout.write('x'.repeat(64))"],
+          timeoutMs: 10000,
+          expectedExitCodes: [0]
+        }
+      ]),
+      verifyTemporaryWorkspaceExecution,
+      { maxOutputChars: 8 }
+    );
+
+    assert.equal(result.decision, "temp_validation_needs_review");
+    assert.equal(result.truncatedOutputs, 1);
+    assert.equal(result.cleanupPerformed, true);
+    assert.equal(fs.existsSync(workspace), false);
+  });
+
+  check("timed-out execution cleans temporary workspace", () => {
+    const workspace = createAppliedWorkspace();
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig([
+        {
+          id: "trusted-timeout",
+          executable: "node",
+          args: ["-e", "setTimeout(()=>{},5000)"],
+          timeoutMs: 20,
+          expectedExitCodes: [0]
+        }
+      ]),
+      verifyTemporaryWorkspaceExecution
+    );
+
+    assert.equal(result.decision, "temp_validation_failed");
+    assert.equal(result.timedOutCommands, 1);
+    assert.equal(result.cleanupPerformed, true);
+    assert.equal(fs.existsSync(workspace), false);
+  });
+
+  check("execution verifier exception still cleans temporary workspace", () => {
+    const workspace = createAppliedWorkspace();
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig(),
+      () => {
+        throw new Error("forced verifier exception");
+      }
+    );
+
+    assert.equal(result.decision, "temp_validation_needs_review");
+    assert.ok(
+      result.issues.some((issue) => issue.code === "temp_validation_execution_exception")
+    );
+    assert.equal(result.cleanupPerformed, true);
+    assert.equal(fs.existsSync(workspace), false);
+  });
+
+  check("cleanup failure maps passing execution to temp_validation_needs_review", () => {
+    const workspace = createAppliedWorkspace();
+
+    try {
+      const result = verifyAndCleanupTemporaryWorkspace(
+        readyTempApplyReport(workspace),
+        trustedValidationConfig(),
+        verifyTemporaryWorkspaceExecution,
+        {
+          removeWorkspace() {
+            throw new Error("forced cleanup failure");
+          }
+        }
+      );
+
+      assert.equal(result.decision, "temp_validation_needs_review");
+      assert.equal(result.cleanupAttempted, true);
+      assert.equal(result.cleanupPerformed, false);
+      assert.match(result.cleanupError, /forced cleanup failure/);
+      assert.ok(result.issues.some((issue) => issue.code === "temp_workspace_cleanup_failed"));
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  check("execution verification leaves real repository fixture unchanged", () => {
+    const realFixturePath = path.join(repoRoot, "package.json");
+    const before = fs.readFileSync(realFixturePath, "utf8");
+    const workspace = createAppliedWorkspace();
+    const result = verifyAndCleanupTemporaryWorkspace(
+      readyTempApplyReport(workspace),
+      trustedValidationConfig(),
+      verifyTemporaryWorkspaceExecution
+    );
+    const after = fs.readFileSync(realFixturePath, "utf8");
+
+    assert.equal(result.decision, "temp_validation_passed");
+    assert.equal(after, before);
+  });
+}
+
+runExecutionIntegrationChecks()
+  .then(() => {
+    console.log("worker-backed orchestrator smoke test passed");
+  })
+  .catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : String(error));
+    process.exitCode = 1;
+  });

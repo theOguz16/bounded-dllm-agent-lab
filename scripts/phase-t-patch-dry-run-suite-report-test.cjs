@@ -417,6 +417,41 @@ for (const tempDecision of ["temp_apply_ready", "temp_apply_needs_review", "temp
   });
 }
 
+for (const executionDecision of [
+  "temp_validation_passed",
+  "temp_validation_failed",
+  "temp_validation_needs_review"
+]) {
+  check(`synthetic completed configured ${executionDecision} summary is ready`, () => {
+    const summary = buildSummary(
+      syntheticChildren(executionDecision, {
+        orchestrator: {
+          remaskRequested: true,
+          repairVerifierCalled: true,
+          repairVerifierDecision: "approve",
+          patchDryRunCalled: true,
+          patchDryRunDecision: "ready_to_apply",
+          tempWorkspaceApplyCalled: true,
+          tempWorkspaceApplyDecision: "temp_apply_ready",
+          tempWorkspaceExecutionCalled: true,
+          tempWorkspaceExecutionDecision: executionDecision,
+          tempWorkspaceExecutionIssueCount:
+            executionDecision === "temp_validation_passed" ? 0 : 1,
+          tempWorkspaceExecutionPassedCommands:
+            executionDecision === "temp_validation_passed" ? 1 : 0,
+          tempWorkspaceExecutionFailedCommands:
+            executionDecision === "temp_validation_failed" ? 1 : 0,
+          tempWorkspaceExecutionCleanupPerformed: true
+        }
+      }),
+      true
+    );
+
+    assert.equal(summary.readyForRunPodLiveValidation, true);
+    assert.equal(summary.tempWorkspaceExecutionReady, true);
+  });
+}
+
 check("forced remask temp_apply_ready summary is ready and includes tempWorkspaceApplyCalled true", () => {
   const summary = buildSummary(
     syntheticChildren("temp_apply_ready", {
