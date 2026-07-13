@@ -7,6 +7,7 @@ export * from "./temporary-workspace-execution-verifier.js";
 export * from "./remask-request-builder.js";
 export * from "./workspace-mutation.js";
 export * from "./agent-event-ledger.js";
+export * from "./agent-event-ledger-verifier.js";
 
 export type ReviewDecision =
   | "approve"
