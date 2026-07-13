@@ -176,7 +176,8 @@
     "report:repair-draft-verifier-negative-fixture-suite": "node scripts/repair-draft-verifier-negative-fixture-suite.cjs",
     "test:repair-draft-verifier-negative-fixture-suite": "node scripts/repair-draft-verifier-negative-fixture-suite-test.cjs",
     "report:phase-s-repair-verification-suite": "node scripts/phase-s-repair-verification-suite-report.cjs",
-    "test:phase-s-repair-verification-suite": "node scripts/phase-s-repair-verification-suite-report-test.cjs"
+    "test:phase-s-repair-verification-suite": "node scripts/phase-s-repair-verification-suite-report-test.cjs",
+    "test:temporary-workspace-execution-verifier": "node scripts/temporary-workspace-execution-verifier-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
