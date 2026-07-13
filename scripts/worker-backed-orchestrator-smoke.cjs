@@ -231,6 +231,22 @@ function emptyPatchDryRunReport() {
   };
 }
 
+function emptyTemporaryWorkspaceApplyReport() {
+  return {
+    called: false,
+    decision: null,
+    ok: null,
+    issueCount: 0,
+    issues: [],
+    tempWorkspacePath: null,
+    appliedFileCount: 0,
+    changedFiles: 0,
+    cleanedUp: null,
+    summary: null,
+    appliedFiles: []
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -253,7 +269,12 @@ function baseReport(config, status) {
       patchDryRunCalled: false,
       patchDryRunDecision: null,
       patchDryRunIssueCount: 0,
-      patchDryRunChangedFiles: null
+      patchDryRunChangedFiles: null,
+      tempWorkspaceApplyCalled: false,
+      tempWorkspaceApplyDecision: null,
+      tempWorkspaceApplyIssueCount: 0,
+      tempWorkspaceApplyChangedFiles: null,
+      tempWorkspaceApplyCleanedUp: null
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
@@ -261,6 +282,7 @@ function baseReport(config, status) {
     remask: emptyRemaskReport(),
     repairVerifier: emptyRepairVerifierReport(),
     patchDryRun: emptyPatchDryRunReport(),
+    tempWorkspaceApply: emptyTemporaryWorkspaceApplyReport(),
     jsonPath: "",
     markdownPath: ""
   };
@@ -439,6 +461,30 @@ function firstPatchDryRunDiffPreview(patchDryRun) {
     : "";
 }
 
+function firstTemporaryWorkspaceApplyDiffPreview(tempWorkspaceApply) {
+  const appliedFiles = tempWorkspaceApply && Array.isArray(tempWorkspaceApply.appliedFiles)
+    ? tempWorkspaceApply.appliedFiles
+    : [];
+  return appliedFiles[0] && typeof appliedFiles[0].diffPreview === "string"
+    ? appliedFiles[0].diffPreview
+    : "";
+}
+
+function temporaryWorkspaceApplyIssuesMarkdown(tempWorkspaceApply) {
+  const issues = tempWorkspaceApply && Array.isArray(tempWorkspaceApply.issues)
+    ? tempWorkspaceApply.issues
+    : [];
+  if (issues.length === 0) {
+    return "- temporary workspace apply: No issues.";
+  }
+  return issues
+    .map((issue) => {
+      const location = issue.file ? ` (${issue.file})` : "";
+      return `- temporary workspace apply: ${issue.code}: ${issue.message}${location}`;
+    })
+    .join("\n");
+}
+
 function renderMarkdown(report, config) {
   const patchDryRunSummary = report.patchDryRun.summary;
 
@@ -476,6 +522,11 @@ function renderMarkdown(report, config) {
     `- Patch dry run called: ${report.patchDryRun.called}`,
     `- Patch dry run decision: ${report.patchDryRun.decision ?? ""}`,
     `- Patch dry run issue count: ${report.patchDryRun.issueCount}`,
+    `- Temporary workspace apply called: ${report.tempWorkspaceApply.called}`,
+    `- Temporary workspace apply decision: ${report.tempWorkspaceApply.decision ?? ""}`,
+    `- Temporary workspace apply issue count: ${report.tempWorkspaceApply.issueCount}`,
+    `- Temporary workspace apply changed files: ${report.tempWorkspaceApply.changedFiles}`,
+    `- Temporary workspace apply cleaned up: ${report.tempWorkspaceApply.cleanedUp ?? ""}`,
     `- Remask issue count: ${report.remask.issueCount}`,
     `- Planner mutation summary: ${mutationSummary(report.planner.validation)}`,
     `- Coder mutation summary: ${mutationSummary(report.coder.validation)}`,
@@ -555,6 +606,26 @@ function renderMarkdown(report, config) {
     "",
     "```diff",
     firstPatchDryRunDiffPreview(report.patchDryRun),
+    "```",
+    "",
+    "## Temporary Workspace Apply",
+    "",
+    `- Called: ${report.tempWorkspaceApply.called}`,
+    `- Decision: ${report.tempWorkspaceApply.decision ?? ""}`,
+    `- Issue count: ${report.tempWorkspaceApply.issueCount}`,
+    `- Changed files: ${report.tempWorkspaceApply.changedFiles}`,
+    `- Cleaned up: ${report.tempWorkspaceApply.cleanedUp ?? ""}`,
+    `- Temp workspace path: ${report.tempWorkspaceApply.tempWorkspacePath ?? ""}`,
+    `- Final decision: ${report.finalDecision}`,
+    "",
+    "### Temporary Workspace Apply Issues",
+    "",
+    temporaryWorkspaceApplyIssuesMarkdown(report.tempWorkspaceApply),
+    "",
+    "### First Applied File Diff Preview",
+    "",
+    "```diff",
+    firstTemporaryWorkspaceApplyDiffPreview(report.tempWorkspaceApply),
     "```",
     "",
     "### Remask Raw Output Preview",
@@ -660,6 +731,13 @@ async function loadPatchApplicationDryRunGate() {
   return import(gatePath.href);
 }
 
+async function loadTemporaryWorkspaceApplyGate() {
+  const gatePath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "temporary-workspace-apply-gate.js")
+  );
+  return import(gatePath.href);
+}
+
 async function callOpenAiCompatibleEndpoint(config, messages, maxTokens) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -742,6 +820,19 @@ function finalDecisionForPatchDryRunDecision(patchDryRunDecision) {
   return "repair_approved_by_deterministic_verifier";
 }
 
+function finalDecisionForTemporaryWorkspaceApplyDecision(decision) {
+  if (decision === "temp_apply_ready") {
+    return "temp_apply_ready";
+  }
+  if (decision === "temp_apply_needs_review") {
+    return "temp_apply_needs_review";
+  }
+  if (decision === "temp_apply_rejected") {
+    return "temp_apply_rejected";
+  }
+  return "patch_ready_to_apply";
+}
+
 function buildForcedRemaskVerifierResult(mutation) {
   const issues = [
     {
@@ -807,7 +898,12 @@ function decide(
       patchDryRunCalled: false,
       patchDryRunDecision: null,
       patchDryRunIssueCount: 0,
-      patchDryRunChangedFiles: null
+      patchDryRunChangedFiles: null,
+      tempWorkspaceApplyCalled: false,
+      tempWorkspaceApplyDecision: null,
+      tempWorkspaceApplyIssueCount: 0,
+      tempWorkspaceApplyChangedFiles: null,
+      tempWorkspaceApplyCleanedUp: null
     };
   }
 
@@ -821,7 +917,12 @@ function decide(
       patchDryRunCalled: false,
       patchDryRunDecision: null,
       patchDryRunIssueCount: 0,
-      patchDryRunChangedFiles: null
+      patchDryRunChangedFiles: null,
+      tempWorkspaceApplyCalled: false,
+      tempWorkspaceApplyDecision: null,
+      tempWorkspaceApplyIssueCount: 0,
+      tempWorkspaceApplyChangedFiles: null,
+      tempWorkspaceApplyCleanedUp: null
     };
   }
 
@@ -849,12 +950,32 @@ function decide(
       patchDryRun && patchDryRun.summary && typeof patchDryRun.summary.changedFiles === "number"
         ? patchDryRun.summary.changedFiles
         : null;
+    const tempWorkspaceApply = options.tempWorkspaceApply ?? null;
+    const tempWorkspaceApplyCalled = Boolean(tempWorkspaceApply && tempWorkspaceApply.called);
+    const tempWorkspaceApplyDecision =
+      tempWorkspaceApply && tempWorkspaceApply.decision !== undefined
+        ? tempWorkspaceApply.decision
+        : null;
+    const tempWorkspaceApplyIssueCount =
+      tempWorkspaceApply && typeof tempWorkspaceApply.issueCount === "number"
+        ? tempWorkspaceApply.issueCount
+        : 0;
+    const tempWorkspaceApplyChangedFiles =
+      tempWorkspaceApply && typeof tempWorkspaceApply.changedFiles === "number"
+        ? tempWorkspaceApply.changedFiles
+        : null;
+    const tempWorkspaceApplyCleanedUp =
+      tempWorkspaceApply && typeof tempWorkspaceApply.cleanedUp === "boolean"
+        ? tempWorkspaceApply.cleanedUp
+        : null;
     const finalDecision =
       verifierResult.decision === "needs_review" && remaskRequested && remaskReport && remaskReport.called
         ? remaskValidationOk && repairDraftChecksOk
-          ? repairVerifierCalled
-            ? repairVerifierDecision === "approve" && patchDryRunCalled
-              ? finalDecisionForPatchDryRunDecision(patchDryRunDecision)
+            ? repairVerifierCalled
+              ? repairVerifierDecision === "approve" && patchDryRunCalled
+              ? patchDryRunDecision === "ready_to_apply" && tempWorkspaceApplyCalled
+                ? finalDecisionForTemporaryWorkspaceApplyDecision(tempWorkspaceApplyDecision)
+                : finalDecisionForPatchDryRunDecision(patchDryRunDecision)
               : finalDecisionForRepairVerifierDecision(repairVerifierDecision)
             : "repair_draft_ready"
           : "remask_repair_failed"
@@ -878,6 +999,11 @@ function decide(
       patchDryRunDecision,
       patchDryRunIssueCount,
       patchDryRunChangedFiles,
+      tempWorkspaceApplyCalled,
+      tempWorkspaceApplyDecision,
+      tempWorkspaceApplyIssueCount,
+      tempWorkspaceApplyChangedFiles,
+      tempWorkspaceApplyCleanedUp,
       forcedRemask: Boolean(options.forcedRemask)
     };
   }
@@ -891,7 +1017,12 @@ function decide(
     patchDryRunCalled: false,
     patchDryRunDecision: null,
     patchDryRunIssueCount: 0,
-    patchDryRunChangedFiles: null
+    patchDryRunChangedFiles: null,
+    tempWorkspaceApplyCalled: false,
+    tempWorkspaceApplyDecision: null,
+    tempWorkspaceApplyIssueCount: 0,
+    tempWorkspaceApplyChangedFiles: null,
+    tempWorkspaceApplyCleanedUp: null
   };
 }
 
@@ -912,7 +1043,12 @@ async function run() {
       patchDryRunCalled: false,
       patchDryRunDecision: null,
       patchDryRunIssueCount: 0,
-      patchDryRunChangedFiles: null
+      patchDryRunChangedFiles: null,
+      tempWorkspaceApplyCalled: false,
+      tempWorkspaceApplyDecision: null,
+      tempWorkspaceApplyIssueCount: 0,
+      tempWorkspaceApplyChangedFiles: null,
+      tempWorkspaceApplyCleanedUp: null
     };
     report.finalDecision = status;
     return writeReport(report, config);
@@ -923,6 +1059,7 @@ async function run() {
   const { buildRemaskRequestFromVerifierFinding } = await loadRemaskRequestBuilder();
   const { verifyRepairDraftMutation } = await loadRepairDraftVerifierGate();
   const { dryRunPatchApplication } = await loadPatchApplicationDryRunGate();
+  const { applyToTemporaryWorkspace } = await loadTemporaryWorkspaceApplyGate();
   const report = baseReport(config, "completed");
 
   try {
@@ -1099,6 +1236,37 @@ async function run() {
                   summary: patchDryRunResult.summary,
                   previews: patchDryRunResult.previews
                 };
+
+                if (patchDryRunResult.decision === "ready_to_apply") {
+                  const tempWorkspaceApplyResult = applyToTemporaryWorkspace(
+                    remaskValidation.mutation,
+                    repairVerifierResult.finding,
+                    patchDryRunResult,
+                    {
+                      allowedFiles: fixture.allowedFiles,
+                      forbiddenFiles: fixture.forbiddenFiles,
+                      fileContents: fixture.fileContents,
+                      cleanup: true,
+                      maxFiles: 10,
+                      maxFileBytes: 100000,
+                      maxDiffPreviewLines: 80
+                    }
+                  );
+
+                  report.tempWorkspaceApply = {
+                    called: true,
+                    decision: tempWorkspaceApplyResult.decision,
+                    ok: tempWorkspaceApplyResult.decision === "temp_apply_ready",
+                    issueCount: tempWorkspaceApplyResult.issues.length,
+                    issues: tempWorkspaceApplyResult.issues,
+                    tempWorkspacePath: tempWorkspaceApplyResult.tempWorkspacePath,
+                    appliedFileCount: tempWorkspaceApplyResult.appliedFiles.length,
+                    changedFiles: tempWorkspaceApplyResult.summary.changedFiles,
+                    cleanedUp: tempWorkspaceApplyResult.summary.cleanedUp,
+                    summary: tempWorkspaceApplyResult.summary,
+                    appliedFiles: tempWorkspaceApplyResult.appliedFiles
+                  };
+                }
               }
             }
           } catch (error) {
@@ -1130,7 +1298,8 @@ async function run() {
       {
         forcedRemask: config.forceRemask,
         repairVerifier: report.repairVerifier,
-        patchDryRun: report.patchDryRun
+        patchDryRun: report.patchDryRun,
+        tempWorkspaceApply: report.tempWorkspaceApply
       }
     );
     report.finalDecision = decision.finalDecision;
@@ -1148,7 +1317,12 @@ async function run() {
       patchDryRunCalled: false,
       patchDryRunDecision: null,
       patchDryRunIssueCount: 0,
-      patchDryRunChangedFiles: null
+      patchDryRunChangedFiles: null,
+      tempWorkspaceApplyCalled: false,
+      tempWorkspaceApplyDecision: null,
+      tempWorkspaceApplyIssueCount: 0,
+      tempWorkspaceApplyChangedFiles: null,
+      tempWorkspaceApplyCleanedUp: null
     };
   }
 
@@ -1178,11 +1352,13 @@ module.exports = {
   emptyRemaskReport,
   emptyRepairVerifierReport,
   emptyPatchDryRunReport,
+  emptyTemporaryWorkspaceApplyReport,
   emptyVerifierReport,
   fixture,
   finalDecisionForVerifierDecision,
   finalDecisionForRepairVerifierDecision,
   finalDecisionForPatchDryRunDecision,
+  finalDecisionForTemporaryWorkspaceApplyDecision,
   repairableIssueCodesFromRemaskRequest,
   run
 };

@@ -149,6 +149,14 @@ check("skipped report has patchDryRun.called false", () => {
   assert.equal(report.patchDryRun.decision, null);
 });
 
+check("skipped report has tempWorkspaceApply.called false", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+
+  assert.equal(report.tempWorkspaceApply.called, false);
+  assert.equal(report.tempWorkspaceApply.decision, null);
+  assert.equal(report.orchestratorDecision.tempWorkspaceApplyCalled, false);
+});
+
 check("default mode has forceRemask false", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
 
@@ -205,6 +213,7 @@ check("planner validation failure has patchDryRun.called false", () => {
   assert.equal(decision.finalDecision, "blocked_before_coder");
   assert.equal(patchDryRun.called, false);
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("forced remask mode does not run if planner validation fails", () => {
@@ -252,6 +261,7 @@ check("coder validation failure has patchDryRun.called false", () => {
   assert.equal(decision.finalDecision, "blocked_before_verifier");
   assert.equal(patchDryRun.called, false);
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("forced remask mode does not run if coder validation fails", () => {
@@ -354,6 +364,7 @@ check("initial approve path does not call patchDryRun", () => {
 
   assert.equal(decision.finalDecision, "approved_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("needs_review verifier result maps to needs_review_by_deterministic_verifier without remask request", () => {
@@ -563,6 +574,56 @@ check("patch dry-run ready_to_apply maps to patch_ready_to_apply", () => {
   assert.equal(decision.finalDecision, "patch_ready_to_apply");
 });
 
+function tempApplyDecisionFixture(decision) {
+  return {
+    called: true,
+    decision,
+    ok: decision === "temp_apply_ready",
+    issueCount: decision === "temp_apply_ready" ? 0 : 1,
+    changedFiles: decision === "temp_apply_ready" ? 1 : 0,
+    cleanedUp: true
+  };
+}
+
+check("patch dry-run ready_to_apply calls tempWorkspaceApply and maps temp_apply_ready", () => {
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+    { repairability: "repairable", remaskRequest: {}, issues: [] },
+    { called: true, validation: { ok: true }, repairDraftChecks: { ok: true } },
+    {
+      repairVerifier: { called: true, decision: "approve", issueCount: 0 },
+      patchDryRun: { called: true, decision: "ready_to_apply", issueCount: 0, summary: { changedFiles: 1 } },
+      tempWorkspaceApply: tempApplyDecisionFixture("temp_apply_ready")
+    }
+  );
+
+  assert.equal(decision.finalDecision, "temp_apply_ready");
+  assert.equal(decision.tempWorkspaceApplyCalled, true);
+  assert.equal(decision.tempWorkspaceApplyCleanedUp, true);
+});
+
+for (const tempDecision of ["temp_apply_needs_review", "temp_apply_rejected"]) {
+  check(`temp workspace apply ${tempDecision} maps final decision`, () => {
+    const decision = decide(
+      { ok: true },
+      { ok: true },
+      { decision: "needs_review", issues: [{ code: "missing_proposed_patch", message: "missing" }] },
+      { repairability: "repairable", remaskRequest: {}, issues: [] },
+      { called: true, validation: { ok: true }, repairDraftChecks: { ok: true } },
+      {
+        repairVerifier: { called: true, decision: "approve", issueCount: 0 },
+        patchDryRun: { called: true, decision: "ready_to_apply", issueCount: 0, summary: { changedFiles: 1 } },
+        tempWorkspaceApply: tempApplyDecisionFixture(tempDecision)
+      }
+    );
+
+    assert.equal(decision.finalDecision, tempDecision);
+    assert.equal(decision.tempWorkspaceApplyCalled, true);
+  });
+}
+
 check("patch dry-run needs_review maps to patch_dry_run_needs_review", () => {
   const decision = decide(
     { ok: true },
@@ -593,6 +654,7 @@ check("patch dry-run needs_review maps to patch_dry_run_needs_review", () => {
   );
 
   assert.equal(decision.finalDecision, "patch_dry_run_needs_review");
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("patch dry-run reject maps to patch_dry_run_rejected", () => {
@@ -625,6 +687,7 @@ check("patch dry-run reject maps to patch_dry_run_rejected", () => {
   );
 
   assert.equal(decision.finalDecision, "patch_dry_run_rejected");
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("repairDraft verifier needs_review maps to repair_needs_review_by_deterministic_verifier", () => {
@@ -696,6 +759,7 @@ check("repairVerifier needs_review does not call patchDryRun", () => {
 
   assert.equal(decision.finalDecision, "repair_needs_review_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("repairDraft verifier reject maps to repair_rejected_by_deterministic_verifier", () => {
@@ -767,6 +831,7 @@ check("repairVerifier reject does not call patchDryRun", () => {
 
   assert.equal(decision.finalDecision, "repair_rejected_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("forced remask mode maps successful remask validation/checks to repair_draft_ready", () => {
@@ -898,6 +963,28 @@ check("forced remask mode can reach patch_ready_to_apply", () => {
   assert.equal(decision.patchDryRunCalled, true);
 });
 
+check("forced remask mode can reach temp_apply_ready", () => {
+  const forcedVerifier = buildForcedRemaskVerifierResult({
+    touchedFiles: ["packages/example/src/index.ts"]
+  });
+  const decision = decide(
+    { ok: true },
+    { ok: true },
+    forcedVerifier,
+    { repairability: "repairable", remaskRequest: {}, issues: [] },
+    { called: true, validation: { ok: true }, repairDraftChecks: { ok: true } },
+    {
+      forcedRemask: true,
+      repairVerifier: { called: true, decision: "approve", issueCount: 0 },
+      patchDryRun: { called: true, decision: "ready_to_apply", issueCount: 0, summary: { changedFiles: 1 } },
+      tempWorkspaceApply: tempApplyDecisionFixture("temp_apply_ready")
+    }
+  );
+
+  assert.equal(decision.finalDecision, "temp_apply_ready");
+  assert.equal(decision.tempWorkspaceApplyCleanedUp, true);
+});
+
 check("needs_review repairable path can map to remask_repair_failed when remask validation fails", () => {
   const decision = decide(
     { ok: true },
@@ -975,6 +1062,7 @@ check("remask validation failure has patchDryRun.called false", () => {
 
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("forced remask mode maps failed remask validation/checks to remask_repair_failed", () => {
@@ -1088,6 +1176,7 @@ check("repairDraftChecks failure has patchDryRun.called false", () => {
 
   assert.equal(decision.finalDecision, "remask_repair_failed");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 check("needs_review non-repairable verifier result does not request remask", () => {
@@ -1156,6 +1245,7 @@ check("initial reject path does not call patchDryRun", () => {
 
   assert.equal(decision.finalDecision, "rejected_by_deterministic_verifier");
   assert.equal(decision.patchDryRunCalled, false);
+  assert.equal(decision.tempWorkspaceApplyCalled, false);
 });
 
 console.log("worker-backed orchestrator smoke test passed");

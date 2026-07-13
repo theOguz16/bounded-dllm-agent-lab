@@ -22,13 +22,19 @@ const patchAwareFinalDecisions = new Set([
   "repair_rejected_by_deterministic_verifier",
   "patch_ready_to_apply",
   "patch_dry_run_needs_review",
-  "patch_dry_run_rejected"
+  "patch_dry_run_rejected",
+  "temp_apply_ready",
+  "temp_apply_needs_review",
+  "temp_apply_rejected"
 ]);
 
 const patchDryRunFinalDecisions = new Set([
   "patch_ready_to_apply",
   "patch_dry_run_needs_review",
-  "patch_dry_run_rejected"
+  "patch_dry_run_rejected",
+  "temp_apply_ready",
+  "temp_apply_needs_review",
+  "temp_apply_rejected"
 ]);
 
 const patchDryRunDecisions = new Set(["ready_to_apply", "needs_review", "reject"]);
@@ -143,10 +149,12 @@ function summarizeOrchestrator(childResult, reportPath, report) {
   const remask = report && report.remask ? report.remask : {};
   const repairVerifier = report && report.repairVerifier ? report.repairVerifier : {};
   const patchDryRun = report && report.patchDryRun ? report.patchDryRun : {};
+  const tempWorkspaceApply = report && report.tempWorkspaceApply
+    ? report.tempWorkspaceApply
+    : {};
   const orchestratorDecision =
     report && report.orchestratorDecision ? report.orchestratorDecision : {};
-
-  return {
+  const summary = {
     command: childResult.command,
     exitCode: childResult.exitCode,
     reportPath,
@@ -197,6 +205,34 @@ function summarizeOrchestrator(childResult, reportPath, report) {
         ? patchDryRun.summary.changedFiles
         : orchestratorDecision.patchDryRunChangedFiles ?? null
   };
+
+  const hasTempWorkspaceApplyFields =
+    Object.prototype.hasOwnProperty.call(report || {}, "tempWorkspaceApply") ||
+    Object.prototype.hasOwnProperty.call(orchestratorDecision, "tempWorkspaceApplyCalled") ||
+    Object.prototype.hasOwnProperty.call(orchestratorDecision, "tempWorkspaceApplyDecision");
+  if (hasTempWorkspaceApplyFields) {
+    summary.tempWorkspaceApplyCalled =
+      typeof tempWorkspaceApply.called === "boolean"
+        ? tempWorkspaceApply.called
+        : Boolean(orchestratorDecision.tempWorkspaceApplyCalled);
+    summary.tempWorkspaceApplyDecision =
+      tempWorkspaceApply.decision === undefined
+        ? orchestratorDecision.tempWorkspaceApplyDecision ?? null
+        : tempWorkspaceApply.decision;
+    summary.tempWorkspaceApplyIssueCount =
+      typeof tempWorkspaceApply.issueCount === "number"
+        ? tempWorkspaceApply.issueCount
+        : orchestratorDecision.tempWorkspaceApplyIssueCount ?? null;
+    summary.tempWorkspaceApplyChangedFiles =
+      typeof tempWorkspaceApply.changedFiles === "number"
+        ? tempWorkspaceApply.changedFiles
+        : orchestratorDecision.tempWorkspaceApplyChangedFiles ?? null;
+    summary.tempWorkspaceApplyCleanedUp =
+      typeof tempWorkspaceApply.cleanedUp === "boolean"
+        ? tempWorkspaceApply.cleanedUp
+        : orchestratorDecision.tempWorkspaceApplyCleanedUp ?? null;
+  }
+  return summary;
 }
 
 function buildSummary(children, configured, forceRemask = false) {
@@ -219,6 +255,17 @@ function buildSummary(children, configured, forceRemask = false) {
   const patchDryRunDecisionObserved = patchDryRunDecisions.has(
     children.orchestrator.patchDryRunDecision
   );
+  const tempWorkspaceApplyFieldsPresent =
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "tempWorkspaceApplyCalled") ||
+    Object.prototype.hasOwnProperty.call(children.orchestrator, "tempWorkspaceApplyDecision");
+  const tempWorkspaceApplyExpected =
+    tempWorkspaceApplyFieldsPresent && patchDryRunReadyToApply;
+  const tempWorkspaceApplyReady =
+    !tempWorkspaceApplyExpected ||
+    (children.orchestrator.tempWorkspaceApplyCalled === true &&
+      ["temp_apply_ready", "temp_apply_needs_review", "temp_apply_rejected"].includes(
+        children.orchestrator.tempWorkspaceApplyDecision
+      ));
   const finalPatchDryRunDecisionObserved = patchDryRunFinalDecisions.has(
     children.orchestrator.finalDecision
   );
@@ -233,6 +280,7 @@ function buildSummary(children, configured, forceRemask = false) {
     coderValidationPassed &&
     verifierCalled &&
     patchAwareFinalDecisions.has(children.orchestrator.finalDecision) &&
+    tempWorkspaceApplyReady &&
     !anySkipped;
   const forcedReady =
     baseReady &&
@@ -258,6 +306,14 @@ function buildSummary(children, configured, forceRemask = false) {
     patchDryRunNeedsReview,
     patchDryRunRejected,
     finalPatchDryRunDecisionObserved,
+    tempWorkspaceApplyFieldsPresent,
+    tempWorkspaceApplyExpected,
+    tempWorkspaceApplyReady,
+    tempWorkspaceApplyCalled: children.orchestrator.tempWorkspaceApplyCalled ?? null,
+    tempWorkspaceApplyDecision: children.orchestrator.tempWorkspaceApplyDecision ?? null,
+    tempWorkspaceApplyIssueCount: children.orchestrator.tempWorkspaceApplyIssueCount ?? null,
+    tempWorkspaceApplyChangedFiles: children.orchestrator.tempWorkspaceApplyChangedFiles ?? null,
+    tempWorkspaceApplyCleanedUp: children.orchestrator.tempWorkspaceApplyCleanedUp ?? null,
     anySkipped,
     readyForRunPodLiveValidation: forceRemask ? forcedReady : baseReady
   };
@@ -312,6 +368,11 @@ function renderMarkdown(report) {
     `- Patch dry-run decision: ${report.children.orchestrator.patchDryRunDecision || ""}`,
     `- Patch dry-run issue count: ${report.children.orchestrator.patchDryRunIssueCount ?? ""}`,
     `- Patch dry-run changed files: ${report.children.orchestrator.patchDryRunChangedFiles ?? ""}`,
+    `- Temporary workspace apply called: ${report.children.orchestrator.tempWorkspaceApplyCalled ?? ""}`,
+    `- Temporary workspace apply decision: ${report.children.orchestrator.tempWorkspaceApplyDecision ?? ""}`,
+    `- Temporary workspace apply issue count: ${report.children.orchestrator.tempWorkspaceApplyIssueCount ?? ""}`,
+    `- Temporary workspace apply changed files: ${report.children.orchestrator.tempWorkspaceApplyChangedFiles ?? ""}`,
+    `- Temporary workspace apply cleaned up: ${report.children.orchestrator.tempWorkspaceApplyCleanedUp ?? ""}`,
     `- Ready for RunPod live validation: ${report.summary.readyForRunPodLiveValidation}`,
     `- Started at: ${report.startedAt}`,
     `- Finished at: ${report.finishedAt}`,

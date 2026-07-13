@@ -389,4 +389,80 @@ check("forced mode requires patchDryRunCalled true", () => {
   assert.equal(summary.patchDryRunCalled, false);
 });
 
+for (const tempDecision of ["temp_apply_ready", "temp_apply_needs_review", "temp_apply_rejected"]) {
+  check(`synthetic completed configured ${tempDecision} summary is ready`, () => {
+    const summary = buildSummary(
+      syntheticChildren(tempDecision, {
+        orchestrator: {
+          remaskRequested: true,
+          repairVerifierCalled: true,
+          repairVerifierDecision: "approve",
+          patchDryRunCalled: true,
+          patchDryRunDecision: "ready_to_apply",
+          patchDryRunIssueCount: 0,
+          patchDryRunChangedFiles: 1,
+          tempWorkspaceApplyCalled: true,
+          tempWorkspaceApplyDecision: tempDecision,
+          tempWorkspaceApplyIssueCount: tempDecision === "temp_apply_ready" ? 0 : 1,
+          tempWorkspaceApplyChangedFiles: tempDecision === "temp_apply_ready" ? 1 : 0,
+          tempWorkspaceApplyCleanedUp: true
+        }
+      }),
+      true
+    );
+
+    assert.equal(summary.readyForRunPodLiveValidation, true);
+    assert.equal(summary.tempWorkspaceApplyReady, true);
+    assert.equal(summary.tempWorkspaceApplyCalled, true);
+  });
+}
+
+check("forced remask temp_apply_ready summary is ready and includes tempWorkspaceApplyCalled true", () => {
+  const summary = buildSummary(
+    syntheticChildren("temp_apply_ready", {
+      orchestrator: {
+        forceRemask: true,
+        remaskRequested: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        patchDryRunCalled: true,
+        patchDryRunDecision: "ready_to_apply",
+        patchDryRunChangedFiles: 1,
+        tempWorkspaceApplyCalled: true,
+        tempWorkspaceApplyDecision: "temp_apply_ready",
+        tempWorkspaceApplyChangedFiles: 1,
+        tempWorkspaceApplyCleanedUp: true
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, true);
+  assert.equal(summary.tempWorkspaceApplyCalled, true);
+});
+
+check("forced remask with patchDryRun ready_to_apply but temp apply not called is not ready", () => {
+  const summary = buildSummary(
+    syntheticChildren("patch_ready_to_apply", {
+      orchestrator: {
+        forceRemask: true,
+        remaskRequested: true,
+        repairVerifierCalled: true,
+        repairVerifierDecision: "approve",
+        patchDryRunCalled: true,
+        patchDryRunDecision: "ready_to_apply",
+        patchDryRunChangedFiles: 1,
+        tempWorkspaceApplyCalled: false,
+        tempWorkspaceApplyDecision: null
+      }
+    }),
+    true,
+    true
+  );
+
+  assert.equal(summary.readyForRunPodLiveValidation, false);
+  assert.equal(summary.tempWorkspaceApplyExpected, true);
+});
+
 console.log("phase-t patch dry-run suite report test passed");

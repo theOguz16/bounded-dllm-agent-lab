@@ -490,4 +490,24 @@ check("forced mode requires repairVerifierCalled true", () => {
   assert.equal(summary.repairVerifierCalled, false);
 });
 
+for (const tempDecision of ["temp_apply_ready", "temp_apply_needs_review", "temp_apply_rejected"]) {
+  check(`synthetic ${tempDecision} summary is ready`, () => {
+    const summary = buildSummary(
+      syntheticChildren(tempDecision, {
+        orchestrator: {
+          tempWorkspaceApplyCalled: true,
+          tempWorkspaceApplyDecision: tempDecision,
+          tempWorkspaceApplyIssueCount: tempDecision === "temp_apply_ready" ? 0 : 1,
+          tempWorkspaceApplyChangedFiles: tempDecision === "temp_apply_ready" ? 1 : 0,
+          tempWorkspaceApplyCleanedUp: true
+        }
+      }),
+      true
+    );
+
+    assert.equal(summary.readyForRunPodLiveValidation, true);
+    assert.equal(summary.tempWorkspaceApplyReady, true);
+  });
+}
+
 console.log("phase-s repair verification suite report test passed");
