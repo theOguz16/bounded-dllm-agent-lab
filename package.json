@@ -167,6 +167,8 @@
     "test:temporary-workspace-apply-gate": "node scripts/temporary-workspace-apply-gate-smoke.cjs",
     "report:temporary-workspace-apply-fixture-suite": "node scripts/temporary-workspace-apply-fixture-suite.cjs",
     "test:temporary-workspace-apply-fixture-suite": "node scripts/temporary-workspace-apply-fixture-suite-test.cjs",
+    "report:phase-u-temporary-workspace-apply-suite": "node scripts/phase-u-temporary-workspace-apply-suite-report.cjs",
+    "test:phase-u-temporary-workspace-apply-suite": "node scripts/phase-u-temporary-workspace-apply-suite-report-test.cjs",
     "report:patch-application-dry-run-fixture-suite": "node scripts/patch-application-dry-run-fixture-suite.cjs",
     "test:patch-application-dry-run-fixture-suite": "node scripts/patch-application-dry-run-fixture-suite-test.cjs",
     "report:phase-t-patch-dry-run-suite": "node scripts/phase-t-patch-dry-run-suite-report.cjs",
