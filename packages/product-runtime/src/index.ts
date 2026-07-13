@@ -6,6 +6,7 @@ export * from "./temporary-workspace-apply-gate.js";
 export * from "./temporary-workspace-execution-verifier.js";
 export * from "./remask-request-builder.js";
 export * from "./workspace-mutation.js";
+export * from "./agent-event-ledger.js";
 
 export type ReviewDecision =
   | "approve"
