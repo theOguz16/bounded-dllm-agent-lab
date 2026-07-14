@@ -107,7 +107,7 @@ check("skipped report has configured false", () => {
   assert.equal(report.configured, false);
 });
 
-check("W.6 skipped report creates no ledger, trace, or Shadow stage", () => {
+check("W.10 skipped report creates no ledger or governed stages", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
   assert.equal(report.accountability.ledgerCreated, false);
   assert.equal(report.accountability.ledger, null);
@@ -118,6 +118,19 @@ check("W.6 skipped report creates no ledger, trace, or Shadow stage", () => {
   assert.equal(report.shadowObserver.decision, null);
   assert.equal(report.shadowObserver.eventAppended, false);
   assert.equal(report.shadowStageDecision, "shadow_not_called");
+  assert.equal(report.governance.evaluated, false);
+  assert.equal(report.governance.decision, null);
+  assert.equal(report.governance.assessment, null);
+  assert.equal(report.governance.eventAppended, false);
+  assert.equal(report.adminAgent.configured, false);
+  assert.equal(report.adminAgent.called, false);
+  assert.equal(report.adminAgent.adapterDecision, null);
+  assert.equal(report.adminAgent.decision, null);
+  assert.equal(report.adminAgent.eventAppended, false);
+  assert.equal(report.governanceStageDecision, "governance_not_evaluated");
+  assert.equal(report.adminStageDecision, "admin_not_called");
+  assert.equal(report.accountability.postGovernanceTrace, null);
+  assert.equal(report.accountability.postAdminTrace, null);
 });
 
 check("no live network call is required", () => {
@@ -1694,11 +1707,92 @@ async function runW6IntegrationChecks() {
     });
   });
 
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "http://shadow.example/v1",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: "shadow-model",
+    WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: undefined,
+    WORKER_ORCHESTRATOR_ADMIN_TIMEOUT_MS: "2345",
+    WORKER_ORCHESTRATOR_ADMIN_MAX_TRACE_EVENTS: "88",
+    WORKER_ORCHESTRATOR_ADMIN_MAX_PROMPT_CHARS: "9999",
+    WORKER_ORCHESTRATOR_ADMIN_MAX_RESPONSE_CHARS: "11111"
+  }, async () => {
+    const fallback = configFromEnv();
+    check("W.10 Admin configuration falls back to Shadow and maps exact limits", () => {
+      assert.equal(fallback.admin.upstreamUrl, "http://shadow.example/v1");
+      assert.equal(fallback.admin.modelId, "shadow-model");
+      assert.equal(fallback.admin.timeoutMs, 2345);
+      assert.equal(fallback.admin.maxTraceEvents, 88);
+      assert.equal(fallback.admin.maxPromptChars, 9999);
+      assert.equal(fallback.admin.maxResponseChars, 11111);
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: undefined,
+    WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: undefined
+  }, async () => {
+    const fallback = configFromEnv();
+    check("W.10 Admin configuration falls back to worker when Admin and Shadow are absent", () => {
+      assert.equal(fallback.admin.upstreamUrl, "http://worker.example/v1");
+      assert.equal(fallback.admin.modelId, "worker-model");
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "http://shadow.example/v1",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: "shadow-model",
+    WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: "",
+    WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: ""
+  }, async () => {
+    const explicit = configFromEnv();
+    check("W.10 explicitly empty Admin configuration prevents fallback", () => {
+      assert.equal(explicit.admin.upstreamUrl, "");
+      assert.equal(explicit.admin.modelId, "");
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: "",
+    WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: undefined
+  }, async () => {
+    const explicitShadow = configFromEnv();
+    check("W.10 explicitly empty Shadow fallback prevents worker fallback for Admin", () => {
+      assert.equal(explicitShadow.admin.upstreamUrl, "");
+      assert.equal(explicitShadow.admin.modelId, "");
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "http://shadow.example/v1",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: "shadow-model",
+    WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: "http://admin.example/v1",
+    WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: "admin-model"
+  }, async () => {
+    const explicit = configFromEnv();
+    check("W.10 Admin-specific URL and model have highest priority", () => {
+      assert.equal(explicit.admin.upstreamUrl, "http://admin.example/v1");
+      assert.equal(explicit.admin.modelId, "admin-model");
+    });
+  });
+
   const requests = [];
   let shadowCompletion = null;
   let workerScenario = "valid";
   let shadowScenario = "valid";
   let shadowRecommendation = "continue";
+  let shadowRiskOverride = null;
+  let adminScenario = "valid";
   let usageScenario = "valid";
   const server = http.createServer((request, response) => {
     const chunks = [];
@@ -1707,13 +1801,147 @@ async function runW6IntegrationChecks() {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       const userContent = body.messages.find((message) => message.role === "user").content;
       let shadowPayload = null;
+      let adminPayload = null;
       try {
         const parsed = JSON.parse(userContent);
         if (parsed.task === "shadow_observe_accountability_trace") shadowPayload = parsed;
+        if (parsed.task === "admin_evaluate_governed_change") adminPayload = parsed;
       } catch {
         // Worker role prompts are deliberately not canonical JSON payloads.
       }
-      requests.push({ body, shadow: shadowPayload !== null });
+      requests.push({
+        body,
+        shadow: shadowPayload !== null,
+        admin: adminPayload !== null
+      });
+
+      if (adminPayload !== null) {
+        if (adminScenario === "http_failure") {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end("{}");
+          return;
+        }
+        if (adminScenario === "timeout") {
+          setTimeout(() => {
+            if (!response.writableEnded) {
+              response.writeHead(200, { "content-type": "application/json" });
+              response.end("{}");
+            }
+          }, 100);
+          return;
+        }
+        const governanceDecision = adminPayload.governance.decision;
+        const profiles = {
+          governance_passed: ["admin_auto_approved", "low", 10, "info"],
+          governance_repair_required: ["admin_repair_required", "medium", 35, "warning"],
+          governance_replan_required: ["admin_replan_required", "medium", 35, "warning"],
+          governance_escalation_required: ["admin_human_escalation_required", "high", 60, "high"],
+          governance_terminated: ["admin_run_terminated", "critical", 90, "critical"]
+        };
+        let [decision, riskLevel, riskScore, severity] = profiles[governanceDecision];
+        if (adminPayload.shadowObservation &&
+            adminPayload.shadowObservation.riskLevel === "critical" &&
+            decision === "admin_human_escalation_required") {
+          riskLevel = "critical";
+          riskScore = 90;
+        }
+        if (adminScenario === "weak_auto") {
+          decision = "admin_auto_approved";
+          riskLevel = "low";
+          riskScore = 10;
+          severity = "info";
+        }
+        if (adminScenario === "weak_repair") {
+          decision = "admin_repair_required";
+          riskLevel = "medium";
+          riskScore = 35;
+          severity = "warning";
+        }
+        const ruleForDecision = {
+          admin_repair_required: "execution_outcome",
+          admin_replan_required: "planned_scope_consistency"
+        }[decision];
+        const triggeredRule = adminPayload.governance.ruleResults.find((rule) =>
+          adminPayload.governance.triggeredRuleIds.includes(rule.ruleId));
+        const evidenceRule = adminPayload.governance.ruleResults.find((rule) =>
+          rule.ruleId === ruleForDecision) || triggeredRule || adminPayload.governance.ruleResults[0];
+        const evidenceEventId = adminPayload.trace.events[0].eventId;
+        const evidenceFile = adminPayload.trace.files.allProposedFiles[0];
+        const needsFinding = decision !== "admin_auto_approved";
+        const finding = {
+          code: "admin_governed_evidence",
+          severity,
+          message: "Bounded governed workflow evidence.",
+          governanceRuleIds: [
+            ...new Set([evidenceRule.ruleId, ...(triggeredRule ? [triggeredRule.ruleId] : [])])
+          ],
+          governanceReasonCodes: triggeredRule ? [triggeredRule.reasonCode] : [],
+          governanceIssueCodes: adminPayload.governance.issues.length > 0
+            ? [adminPayload.governance.issues[0].code]
+            : [],
+          traceFindingCodes: [],
+          shadowFindingCodes: [],
+          evidenceEventIds: [evidenceEventId],
+          evidenceFilePaths: evidenceFile ? [evidenceFile] : []
+        };
+        const adminDecision = {
+          decisionVersion: "1",
+          runId: adminScenario === "wrong_run" ? "wrong-run" : adminPayload.bindings.runId,
+          traceHash: adminScenario === "wrong_trace_hash"
+            ? `sha256:${"c".repeat(64)}`
+            : adminPayload.bindings.traceHash,
+          observationHash: adminScenario === "wrong_observation_hash"
+            ? `sha256:${"d".repeat(64)}`
+            : adminPayload.bindings.observationHash,
+          governanceHash: adminScenario === "wrong_governance_hash"
+            ? `sha256:${"e".repeat(64)}`
+            : adminPayload.bindings.governanceHash,
+          decision,
+          riskLevel,
+          riskScore,
+          confidenceScore: 90,
+          findings: needsFinding ? [finding] : [],
+          rationaleCodes: ["bounded_admin_evaluation"]
+        };
+        if (adminScenario === "needs_review") {
+          const duplicate = {
+            ...finding,
+            governanceRuleIds: [...finding.governanceRuleIds],
+            evidenceEventIds: [
+              adminPayload.trace.events[0].eventId,
+              adminPayload.trace.events[1].eventId
+            ]
+          };
+          adminDecision.decision = "admin_repair_required";
+          adminDecision.riskLevel = "medium";
+          adminDecision.riskScore = 35;
+          duplicate.governanceRuleIds = ["execution_outcome"];
+          adminDecision.findings = [
+            duplicate,
+            {
+              ...duplicate,
+              governanceRuleIds: [...duplicate.governanceRuleIds].reverse(),
+              evidenceEventIds: [...duplicate.evidenceEventIds].reverse()
+            }
+          ];
+        }
+        const content = adminScenario === "malformed"
+          ? "RAW_ADMIN_COMPLETION_SENTINEL"
+          : JSON.stringify(adminDecision);
+        const body = adminScenario === "oversized"
+          ? "X".repeat(40000)
+          : JSON.stringify({
+            choices: [{ message: { content } }],
+            ...(usageScenario === "missing" ? {} : {
+              usage: usageScenario === "invalid"
+                ? { prompt_tokens: -1, completion_tokens: 8, total_tokens: 7 }
+                : { prompt_tokens: 13, completion_tokens: 8, total_tokens: 21 }
+            })
+          });
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(body);
+        return;
+      }
 
       if (shadowPayload !== null) {
         const trace = shadowPayload.trace;
@@ -1731,13 +1959,26 @@ async function runW6IntegrationChecks() {
           }, 100);
           return;
         }
-        const recommendationProfile = {
+        let recommendationProfile = {
           continue: { riskLevel: "low", riskScore: 10, severity: null },
-          request_repair: { riskLevel: "medium", riskScore: 35, severity: "warning" },
-          request_replan: { riskLevel: "high", riskScore: 60, severity: "high" },
+          request_repair: { riskLevel: "low", riskScore: 10, severity: "info" },
+          request_replan: { riskLevel: "low", riskScore: 10, severity: "info" },
           escalate: { riskLevel: "critical", riskScore: 90, severity: "critical" },
           terminate: { riskLevel: "critical", riskScore: 90, severity: "critical" }
         }[shadowRecommendation];
+        let effectiveRecommendation = shadowRecommendation;
+        if (shadowRiskOverride !== null) {
+          recommendationProfile = {
+            medium: { riskLevel: "medium", riskScore: 35, severity: "warning" },
+            high: { riskLevel: "high", riskScore: 60, severity: "high" },
+            critical: { riskLevel: "critical", riskScore: 90, severity: "critical" }
+          }[shadowRiskOverride];
+          effectiveRecommendation = shadowRiskOverride === "medium"
+            ? "continue"
+            : shadowRiskOverride === "high"
+              ? "request_repair"
+              : "escalate";
+        }
         const finding = recommendationProfile.severity === null ? null : {
           code: "advisory_risk",
           severity: recommendationProfile.severity,
@@ -1761,7 +2002,7 @@ async function runW6IntegrationChecks() {
           observedRepairLoop: false,
           observedSuspiciousRoleBehavior: false,
           observedEvidenceConflict: false,
-          recommendation: shadowRecommendation,
+          recommendation: effectiveRecommendation,
           rationaleCodes: ["trace_consistent"]
         };
         if (shadowScenario === "unknown_evidence") {
@@ -1818,6 +2059,15 @@ async function runW6IntegrationChecks() {
       let mutation = workerMutation(role);
       if (workerScenario === "planner_invalid" && role === "planner") mutation = {};
       if (workerScenario === "coder_invalid" && role === "coder") mutation = {};
+      if (workerScenario === "patch_noop" && role === "remask") {
+        mutation = {
+          ...workerMutation("remask"),
+          claims: [{
+            ...workerMutation("remask").claims[0],
+            proposedPatch: fixture.fileContents["packages/example/src/index.ts"]
+          }]
+        };
+      }
       if (workerScenario === "verifier_reject" && role === "coder") {
         mutation = {
           ...workerMutation("coder"),
@@ -1931,11 +2181,13 @@ async function runW6IntegrationChecks() {
       assert.equal(report.shadowObserver.requiredSatisfied, true);
       assert.equal(report.shadowObserver.eventAppended, true);
       assert.equal(report.accountability.eventCountAfterShadow, 10);
-      assert.equal(report.accountability.ledger.events.at(-1).actor, "shadow_observer");
-      assert.ok(report.accountability.ledger.events.at(-1).inputArtifactHashes.includes(
+      const shadowEvent = report.accountability.ledger.events.find((event) =>
+        event.actor === "shadow_observer");
+      assert.ok(shadowEvent);
+      assert.ok(shadowEvent.inputArtifactHashes.includes(
         report.accountability.preShadowTraceHash
       ));
-      assert.ok(report.accountability.ledger.events.at(-1).outputArtifactHashes.includes(
+      assert.ok(shadowEvent.outputArtifactHashes.includes(
         report.shadowObserver.observationHash
       ));
       assert.equal(report.accountability.postShadowLedgerVerificationDecision, "ledger_valid");
@@ -1949,6 +2201,66 @@ async function runW6IntegrationChecks() {
         report.accountability.preShadowTraceHash);
       assert.equal(report.finalDecision, "temp_validation_passed");
       assert.equal(report.shadowStageDecision, "shadow_observer_completed");
+    });
+
+    check("W.10 successful path preserves Phase V and appends governed audit stages", () => {
+      assert.equal(requests.filter((request) => request.admin).length, 1);
+      assert.equal(report.finalDecision, "temp_validation_passed");
+      assert.equal(report.governance.evaluated, true);
+      assert.equal(report.governance.decision, "governance_passed");
+      assert.equal(report.governanceStageDecision, "governance_passed");
+      assert.match(report.governance.policyHash, /^sha256:[0-9a-f]{64}$/);
+      assert.match(report.governance.governanceHash, /^sha256:[0-9a-f]{64}$/);
+      assert.equal(report.governance.eventAppended, true);
+      assert.equal(report.adminAgent.called, true);
+      assert.equal(report.adminAgent.adapterDecision, "admin_agent_completed");
+      assert.equal(report.adminAgent.validationDecision, "admin_decision_valid");
+      assert.equal(report.adminAgent.decision, "admin_auto_approved");
+      assert.match(report.adminAgent.adminDecisionHash, /^sha256:[0-9a-f]{64}$/);
+      assert.equal(report.adminAgent.eventAppended, true);
+      assert.equal(report.accountability.postGovernanceLedgerVerificationDecision,
+        "ledger_valid");
+      assert.equal(report.accountability.postAdminLedgerVerificationDecision, "ledger_valid");
+      assert.ok(report.accountability.postGovernanceTrace);
+      assert.ok(report.accountability.postAdminTrace);
+      assert.deepEqual(report.accountability.ledger.events.map((event) => event.actor), [
+        "planner", "coder", "deterministic_verifier", "masker", "repairer",
+        "repair_verifier", "patch_dry_run", "temp_workspace_apply",
+        "execution_verifier", "shadow_observer", "deterministic_governor", "admin_agent"
+      ]);
+      assert.equal(report.accountability.ledger.events.at(-1).actor, "admin_agent");
+      assert.equal(report.accountability.ledger.events.at(-1).eventId,
+        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000012");
+      assert.equal(report.accountability.ledger.rootHash,
+        report.accountability.ledger.events.at(-1).eventHash);
+      assert.equal(report.accountability.eventCountAfterGovernance, 11);
+      assert.equal(report.accountability.eventCountAfterAdmin, 12);
+      assert.equal(report.accountability.ledgerRootHashAfterAdmin,
+        report.accountability.ledger.rootHash);
+      assert.equal(report.orchestratorDecision.governanceEvaluated, true);
+      assert.equal(report.orchestratorDecision.governanceDecision,
+        "governance_passed");
+      assert.equal(report.orchestratorDecision.adminAgentCalled, true);
+      assert.equal(report.orchestratorDecision.adminDecision,
+        "admin_auto_approved");
+      assert.equal(report.orchestratorDecision.postAdminTraceHash,
+        report.accountability.postAdminTraceHash);
+      assert.equal(report.shadowObserver.observation.traceHash,
+        report.accountability.preShadowTraceHash);
+      assert.equal(report.governance.traceHash, report.accountability.preShadowTraceHash);
+      assert.equal(report.governance.observationHash, report.shadowObserver.observationHash);
+      assert.equal(report.adminAgent.adminDecision.traceHash,
+        report.accountability.preShadowTraceHash);
+      assert.equal(report.adminAgent.adminDecision.observationHash,
+        report.shadowObserver.observationHash);
+      assert.equal(report.adminAgent.adminDecision.governanceHash,
+        report.governance.governanceHash);
+      assert.notEqual(report.accountability.preShadowTraceHash,
+        report.accountability.postShadowTraceHash);
+      assert.notEqual(report.accountability.postShadowTraceHash,
+        report.accountability.postGovernanceTraceHash);
+      assert.notEqual(report.accountability.postGovernanceTraceHash,
+        report.accountability.postAdminTraceHash);
     });
 
     check("W.6 artifact chain links every adjacent bounded stage", () => {
@@ -1976,6 +2288,37 @@ async function runW6IntegrationChecks() {
       assert.equal(byActor.execution_verifier.tokenUsage, undefined);
       assert.deepEqual(byActor.shadow_observer.tokenUsage,
         { inputTokens: 11, outputTokens: 7, totalTokens: 18 });
+      assert.equal(byActor.deterministic_governor.action,
+        "deterministic_governor.evaluate");
+      assert.ok(byActor.deterministic_governor.inputArtifactHashes.includes(
+        report.accountability.preShadowTraceHash));
+      assert.ok(byActor.deterministic_governor.inputArtifactHashes.includes(
+        report.shadowObserver.observationHash));
+      assert.ok(byActor.deterministic_governor.inputArtifactHashes.includes(
+        report.governance.policyHash));
+      assert.deepEqual(byActor.deterministic_governor.outputArtifactHashes,
+        [report.governance.governanceHash]);
+      assert.equal(byActor.deterministic_governor.decision,
+        report.governance.decision);
+      assert.deepEqual(byActor.deterministic_governor.reasonCodes,
+        report.governance.reasonCodes);
+      assert.deepEqual(byActor.deterministic_governor.filesProposed, []);
+      assert.equal(byActor.deterministic_governor.tokenUsage, undefined);
+      assert.equal(byActor.admin_agent.action, "admin_agent.evaluate");
+      assert.ok(byActor.admin_agent.inputArtifactHashes.includes(
+        report.accountability.preShadowTraceHash));
+      assert.ok(byActor.admin_agent.inputArtifactHashes.includes(
+        report.shadowObserver.observationHash));
+      assert.ok(byActor.admin_agent.inputArtifactHashes.includes(
+        report.governance.governanceHash));
+      assert.ok(byActor.admin_agent.outputArtifactHashes.includes(
+        report.adminAgent.adminDecisionHash));
+      assert.ok(byActor.admin_agent.outputArtifactHashes.includes(
+        report.adminAgent.responseContentHash));
+      assert.equal(byActor.admin_agent.decision, report.adminAgent.decision);
+      assert.deepEqual(byActor.admin_agent.filesProposed, []);
+      assert.deepEqual(byActor.admin_agent.tokenUsage,
+        { inputTokens: 13, outputTokens: 8, totalTokens: 21 });
     });
 
     check("W.6 reports contain bounded evidence and no Shadow raw output or environment values", () => {
@@ -1997,13 +2340,25 @@ async function runW6IntegrationChecks() {
       assert.ok(!reportJson.includes(endpoint));
       assert.ok(!reportJson.includes("WORKER_MODEL_SENTINEL"));
       assert.ok(!reportJson.includes(shadowCompletion));
+      assert.ok(!reportJson.includes("helperReady"));
+      assert.ok(!reportJson.includes("return value + 1"));
       assert.ok(!markdown.includes(endpoint));
       assert.ok(!markdown.includes("WORKER_MODEL_SENTINEL"));
       assert.ok(!markdown.includes(shadowCompletion));
+      assert.ok(!markdown.includes("helperReady"));
+      assert.ok(!markdown.includes("return value + 1"));
       assert.ok(markdown.includes("## Agent Event Ledger"));
       assert.ok(markdown.includes("## Accountability Trace"));
       assert.ok(markdown.includes("## Shadow Observer"));
       assert.ok(markdown.includes("## Post-Shadow Audit State"));
+      assert.ok(markdown.includes("## Deterministic Governance"));
+      assert.ok(markdown.includes("## Admin Agent"));
+      assert.ok(markdown.includes("## Post-Governance Audit State"));
+      assert.ok(markdown.includes("## Post-Admin Audit State"));
+      assert.ok(!reportJson.includes("You are an evidence-bound Admin Agent"));
+      assert.ok(!markdown.includes("You are an evidence-bound Admin Agent"));
+      assert.ok(!reportJson.includes("ADMIN_MODEL_SENTINEL"));
+      assert.ok(!markdown.includes("ADMIN_MODEL_SENTINEL"));
     });
 
     const shadowCallsBeforePartialRuns = requests.filter((entry) => entry.shadow).length;
@@ -2032,6 +2387,12 @@ async function runW6IntegrationChecks() {
         assert.equal(partial.shadowObserver.called, false);
         assert.equal(partial.shadowStageDecision, "shadow_not_called");
         assert.equal(partial.shadowObserver.requiredSatisfied, true);
+        assert.equal(partial.governance.evaluated, false);
+        assert.equal(partial.governanceStageDecision, "governance_not_evaluated");
+        assert.equal(partial.governance.eventAppended, false);
+        assert.equal(partial.adminAgent.called, false);
+        assert.equal(partial.adminStageDecision, "admin_not_called");
+        assert.equal(partial.adminAgent.eventAppended, false);
       }
       assert.equal(requests.filter((entry) => entry.shadow).length,
         shadowCallsBeforePartialRuns);
@@ -2066,6 +2427,16 @@ async function runW6IntegrationChecks() {
         assert.equal(failed.accountability.postShadowLedgerVerificationDecision, "ledger_valid");
         assert.ok(failed.accountability.postShadowTrace);
         assert.equal(failed.finalDecision, "temp_validation_passed");
+        assert.equal(failed.governance.evaluated, true);
+        assert.equal(failed.governance.decision, "governance_escalation_required");
+        assert.equal(failed.governance.traceHash,
+          failed.accountability.preShadowTraceHash);
+        assert.equal(failed.governance.observationHash, null);
+        assert.equal(failed.adminAgent.called, true);
+        assert.equal(failed.adminAgent.decision,
+          "admin_human_escalation_required");
+        assert.equal(failed.accountability.postAdminLedgerVerificationDecision,
+          "ledger_valid");
       }
       assert.ok(timeout.shadowObserver.issueCodes.includes("shadow_upstream_timeout"));
       assert.equal(httpFailure.status, "failed_required_shadow");
@@ -2088,19 +2459,56 @@ async function runW6IntegrationChecks() {
       assert.equal(missingShadowConfiguration.status, "failed_required_shadow");
       assert.equal(missingShadowConfiguration.shadowObserver.called, false);
       assert.equal(missingShadowConfiguration.shadowObserver.requiredSatisfied, false);
+      assert.equal(missingShadowConfiguration.governance.decision,
+        "governance_escalation_required");
+      assert.equal(missingShadowConfiguration.adminAgent.configured, false);
+      assert.equal(missingShadowConfiguration.adminAgent.called, false);
       assert.equal(boundedReviewWithoutObservation.shadowObserver.decision,
         "shadow_observer_needs_review");
       assert.equal(boundedReviewWithoutObservation.shadowObserver.observation, null);
       assert.equal(boundedReviewWithoutObservation.shadowObserver.eventAppended, true);
       assert.equal(boundedReviewWithoutObservation.status, "failed_required_shadow");
+      assert.equal(boundedReviewWithoutObservation.governance.decision,
+        "governance_escalation_required");
+      assert.equal(boundedReviewWithoutObservation.governance.observationHash, null);
+      assert.equal(boundedReviewWithoutObservation.adminAgent.called, true);
+      assert.equal(boundedReviewWithoutObservation.adminAgent.adminDecision.observationHash,
+        null);
       assert.equal(boundedPreflightWithoutRequest.shadowObserver.called, false);
       assert.equal(boundedPreflightWithoutRequest.shadowObserver.decision,
         "shadow_observer_needs_review");
       assert.equal(boundedPreflightWithoutRequest.shadowObserver.eventAppended, false);
       assert.equal(boundedPreflightWithoutRequest.accountability.eventCountAfterShadow, 9);
       assert.equal(boundedPreflightWithoutRequest.accountability.postShadowTrace, null);
+      assert.equal(boundedPreflightWithoutRequest.governance.decision,
+        "governance_escalation_required");
+      assert.equal(boundedPreflightWithoutRequest.governance.observationHash, null);
+      assert.equal(boundedPreflightWithoutRequest.adminAgent.called, true);
+      assert.equal(boundedPreflightWithoutRequest.adminAgent.adminDecision.observationHash,
+        null);
       assert.equal(reviewedShadow.status, "completed");
+      assert.equal(reviewedShadow.governance.observationHash,
+        reviewedShadow.shadowObserver.observationHash);
+      assert.equal(reviewedShadow.adminAgent.called, true);
+      assert.ok(reviewedShadow.adminAgent.adminDecision);
       assert.equal(plannerInvalid.status, "completed");
+    });
+
+    const missingShadowWithAdmin = await execute({
+      WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "",
+      WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0",
+      WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: endpoint,
+      WORKER_ORCHESTRATOR_ADMIN_MODEL_ID: "ADMIN_MODEL_SENTINEL"
+    });
+    check("W.10 missing Shadow still governs and calls separately configured Admin with null", () => {
+      assert.equal(missingShadowWithAdmin.shadowObserver.called, false);
+      assert.equal(missingShadowWithAdmin.governance.decision,
+        "governance_escalation_required");
+      assert.equal(missingShadowWithAdmin.governance.observationHash, null);
+      assert.equal(missingShadowWithAdmin.adminAgent.called, true);
+      assert.equal(missingShadowWithAdmin.adminAgent.decision,
+        "admin_human_escalation_required");
+      assert.equal(missingShadowWithAdmin.adminAgent.adminDecision.observationHash, null);
     });
 
     const recommendationReports = [];
@@ -2121,9 +2529,50 @@ async function runW6IntegrationChecks() {
         recommendationReports.map((candidate) => candidate.shadowObserver.recommendation),
         ["continue", "request_repair", "request_replan", "escalate", "terminate"]
       );
+      assert.deepEqual(
+        recommendationReports.map((candidate) => candidate.governance.decision),
+        [
+          "governance_passed",
+          "governance_repair_required",
+          "governance_replan_required",
+          "governance_escalation_required",
+          "governance_escalation_required"
+        ]
+      );
+      assert.deepEqual(
+        recommendationReports.map((candidate) => candidate.adminAgent.decision),
+        [
+          "admin_auto_approved",
+          "admin_repair_required",
+          "admin_replan_required",
+          "admin_human_escalation_required",
+          "admin_human_escalation_required"
+        ]
+      );
       for (const candidate of recommendationReports) {
         assert.equal(candidate.finalDecision, "temp_validation_passed");
         assert.equal(candidate.shadowObserver.decision, "shadow_observer_completed");
+        assert.equal(candidate.status, "completed");
+        assert.equal(candidate.ok, true);
+      }
+    });
+
+    const shadowRiskReports = [];
+    for (const riskLevel of ["medium", "high", "critical"]) {
+      shadowRiskOverride = riskLevel;
+      shadowRiskReports.push(await execute());
+    }
+    shadowRiskOverride = null;
+    check("W.10 medium, high, and critical Shadow risk escalate without deterministic termination", () => {
+      assert.deepEqual(shadowRiskReports.map((candidate) =>
+        candidate.shadowObserver.riskLevel), ["medium", "high", "critical"]);
+      for (const candidate of shadowRiskReports) {
+        assert.equal(candidate.governance.decision,
+          "governance_escalation_required");
+        assert.notEqual(candidate.governance.decision, "governance_terminated");
+        assert.equal(candidate.adminAgent.decision,
+          "admin_human_escalation_required");
+        assert.equal(candidate.finalDecision, "temp_validation_passed");
       }
     });
 
@@ -2183,6 +2632,234 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.accountability.postShadowLedgerVerificationDecision,
           "ledger_valid");
       }
+      assert.equal(failedExecution.governance.decision,
+        "governance_repair_required");
+      assert.equal(failedExecution.adminAgent.decision, "admin_repair_required");
+      assert.equal(failedExecution.finalDecision, "temp_validation_failed");
+      assert.equal(reviewedExecution.governance.decision,
+        "governance_escalation_required");
+      assert.equal(reviewedExecution.adminAgent.decision,
+        "admin_human_escalation_required");
+      assert.equal(reviewedExecution.finalDecision, "temp_validation_needs_review");
+    });
+
+    const originalCleanupEvidenceMode = fixture.cleanupEvidenceMode;
+    let cleanupMissing;
+    let cleanupFailed;
+    let cleanupConflicting;
+    try {
+      fixture.cleanupEvidenceMode = "missing";
+      cleanupMissing = await execute();
+      fixture.cleanupEvidenceMode = "failed";
+      cleanupFailed = await execute();
+      fixture.cleanupEvidenceMode = "conflicting";
+      cleanupConflicting = await execute();
+    } finally {
+      fixture.cleanupEvidenceMode = originalCleanupEvidenceMode;
+    }
+    check("W.10 cleanup evidence is classified without changing Phase V", () => {
+      assert.deepEqual([
+        cleanupMissing.governance.decision,
+        cleanupFailed.governance.decision,
+        cleanupConflicting.governance.decision
+      ], [
+        "governance_escalation_required",
+        "governance_escalation_required",
+        "governance_terminated"
+      ]);
+      assert.deepEqual([
+        cleanupMissing.adminAgent.decision,
+        cleanupFailed.adminAgent.decision,
+        cleanupConflicting.adminAgent.decision
+      ], [
+        "admin_human_escalation_required",
+        "admin_human_escalation_required",
+        "admin_run_terminated"
+      ]);
+      for (const candidate of [cleanupMissing, cleanupFailed, cleanupConflicting]) {
+        assert.equal(candidate.finalDecision, "temp_validation_passed");
+        assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
+          "ledger_valid");
+      }
+    });
+
+    adminScenario = "weak_auto";
+    const terminatedWeakening = await (async () => {
+      const previous = fixture.cleanupEvidenceMode;
+      try {
+        fixture.cleanupEvidenceMode = "conflicting";
+        return await execute();
+      } finally {
+        fixture.cleanupEvidenceMode = previous;
+      }
+    })();
+    const repairWeakening = await (async () => {
+      const previousCommands = fixture.validationCommands;
+      try {
+        fixture.validationCommands = [{
+          id: "w10-repair-weakening",
+          executable: "node",
+          args: ["-e", "process.exit(9)"],
+          timeoutMs: 10000,
+          expectedExitCodes: [0]
+        }];
+        return await execute();
+      } finally {
+        fixture.validationCommands = previousCommands;
+      }
+    })();
+    adminScenario = "weak_repair";
+    shadowRecommendation = "request_replan";
+    const replanWeakening = await execute();
+    adminScenario = "valid";
+    shadowRecommendation = "continue";
+
+    check("W.10 deterministic authority rejects all weakening attempts but audits them", () => {
+      assert.equal(terminatedWeakening.governance.decision, "governance_terminated");
+      assert.equal(repairWeakening.governance.decision, "governance_repair_required");
+      assert.equal(replanWeakening.governance.decision, "governance_replan_required");
+      for (const candidate of [terminatedWeakening, repairWeakening, replanWeakening]) {
+        assert.equal(candidate.adminAgent.adapterDecision, "admin_agent_failed");
+        assert.equal(candidate.adminAgent.validationDecision, "admin_decision_invalid");
+        assert.ok(candidate.adminAgent.issueCodes.includes(
+          "admin_decision_validation_failed"));
+        assert.equal(candidate.adminAgent.eventAppended, true);
+        assert.equal(candidate.accountability.ledger.events.at(-1).actor, "admin_agent");
+        assert.equal(candidate.accountability.ledger.events.at(-1).decision,
+          "admin_agent_failed");
+        assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
+          "ledger_valid");
+      }
+    });
+
+    adminScenario = "needs_review";
+    const adminReviewed = await execute();
+    adminScenario = "wrong_run";
+    const adminWrongRun = await execute();
+    adminScenario = "wrong_trace_hash";
+    const adminWrongTrace = await execute();
+    adminScenario = "wrong_observation_hash";
+    const adminWrongObservation = await execute();
+    adminScenario = "wrong_governance_hash";
+    const adminWrongGovernance = await execute();
+    adminScenario = "malformed";
+    const adminMalformed = await execute();
+    adminScenario = "http_failure";
+    const adminHttpFailure = await execute();
+    adminScenario = "timeout";
+    const adminTimeout = await execute({ WORKER_ORCHESTRATOR_ADMIN_TIMEOUT_MS: "10" });
+    adminScenario = "oversized";
+    const adminOversized = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_MAX_RESPONSE_CHARS: "1000"
+    });
+    adminScenario = "valid";
+
+    check("W.10 Admin adapter outcomes are bounded and every attempted call is audited", () => {
+      assert.equal(adminReviewed.adminAgent.adapterDecision,
+        "admin_agent_needs_review");
+      assert.equal(adminReviewed.adminAgent.validationDecision,
+        "admin_decision_needs_review");
+      assert.ok(adminReviewed.adminAgent.adminDecision);
+      assert.equal(adminOversized.adminAgent.adapterDecision,
+        "admin_agent_needs_review");
+      assert.equal(adminOversized.adminAgent.adminDecision, null);
+      const failed = [
+        adminWrongRun, adminWrongTrace, adminWrongObservation,
+        adminWrongGovernance, adminMalformed, adminHttpFailure, adminTimeout
+      ];
+      for (const candidate of failed) {
+        assert.equal(candidate.adminAgent.adapterDecision, "admin_agent_failed");
+      }
+      for (const candidate of [adminReviewed, ...failed, adminOversized]) {
+        assert.equal(candidate.adminAgent.called, true);
+        assert.equal(candidate.adminAgent.eventAppended, true);
+        assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
+          "ledger_valid");
+        assert.equal(candidate.accountability.ledger.events.at(-1).actor, "admin_agent");
+        assert.equal(JSON.stringify(candidate).includes("RAW_ADMIN_COMPLETION_SENTINEL"),
+          false);
+      }
+      assert.ok(adminMalformed.adminAgent.issueCodes.includes(
+        "malformed_admin_completion_json"));
+      assert.ok(adminHttpFailure.adminAgent.issueCodes.includes(
+        "admin_upstream_http_error"));
+      assert.ok(adminTimeout.adminAgent.issueCodes.includes("admin_upstream_timeout"));
+      assert.ok(adminOversized.adminAgent.issueCodes.includes(
+        "admin_response_size_limit_exceeded"));
+    });
+
+    const requiredValid = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });
+    adminScenario = "needs_review";
+    const requiredReviewed = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });
+    adminScenario = "malformed";
+    const requiredFailed = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });
+    adminScenario = "oversized";
+    const requiredNullReview = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_ADMIN_MAX_RESPONSE_CHARS: "1000"
+    });
+    adminScenario = "valid";
+    const requiredMissing = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: ""
+    });
+    const requiredNotCalled = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_ADMIN_MAX_TRACE_EVENTS: "1"
+    });
+    workerScenario = "planner_invalid";
+    const requiredNotApplicable = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1"
+    });
+    workerScenario = "coder_invalid";
+    const requiredCoderBlocked = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1"
+    });
+    workerScenario = "verifier_reject";
+    const requiredVerifierBlocked = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_FORCE_REMASK: "0"
+    });
+    workerScenario = "patch_noop";
+    const requiredPatchBlocked = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1"
+    });
+    workerScenario = "valid";
+
+    check("W.10 Admin required mode distinguishes usable evidence and applicability", () => {
+      for (const candidate of [requiredValid, requiredReviewed]) {
+        assert.equal(candidate.adminAgent.requiredSatisfied, true);
+        assert.equal(candidate.status, "completed");
+        assert.ok(candidate.adminAgent.adminDecision);
+      }
+      for (const candidate of [
+        requiredFailed, requiredNullReview, requiredMissing, requiredNotCalled
+      ]) {
+        assert.equal(candidate.adminAgent.requiredSatisfied, false);
+        assert.equal(candidate.status, "failed_required_admin");
+        assert.equal(candidate.ok, false);
+      }
+      assert.equal(requiredMissing.adminAgent.configured, false);
+      assert.equal(requiredMissing.adminAgent.called, false);
+      assert.equal(requiredMissing.accountability.ledger.events.at(-1).actor,
+        "deterministic_governor");
+      assert.ok(requiredMissing.accountability.postGovernanceTrace);
+      assert.equal(requiredMissing.accountability.postAdminTrace, null);
+      assert.equal(requiredNotCalled.adminAgent.called, false);
+      assert.equal(requiredNotCalled.adminAgent.adapterDecision,
+        "admin_agent_needs_review");
+      assert.equal(requiredNotCalled.adminAgent.eventAppended, false);
+      for (const candidate of [
+        requiredNotApplicable, requiredCoderBlocked,
+        requiredVerifierBlocked, requiredPatchBlocked
+      ]) {
+        assert.equal(candidate.governance.evaluated, false);
+        assert.equal(candidate.adminAgent.called, false);
+        assert.equal(candidate.adminAgent.requiredSatisfied, true);
+        assert.equal(candidate.status, "completed");
+      }
+      assert.equal(requiredPatchBlocked.patchDryRun.called, true);
+      assert.equal(requiredPatchBlocked.tempWorkspaceExecution.called, false);
     });
   } finally {
     server.close();

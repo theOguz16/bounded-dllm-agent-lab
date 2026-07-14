@@ -78,6 +78,14 @@ function configFromEnv() {
     process.env,
     "WORKER_ORCHESTRATOR_SHADOW_MODEL_ID"
   );
+  const hasAdminUrl = Object.prototype.hasOwnProperty.call(
+    process.env,
+    "WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL"
+  );
+  const hasAdminModelId = Object.prototype.hasOwnProperty.call(
+    process.env,
+    "WORKER_ORCHESTRATOR_ADMIN_MODEL_ID"
+  );
   const upstreamUrl = process.env.WORKER_ORCHESTRATOR_UPSTREAM_URL || "";
   const modelId = process.env.WORKER_ORCHESTRATOR_MODEL_ID || "qwen2.5-coder-7b";
   return {
@@ -110,6 +118,32 @@ function configFromEnv() {
         20000
       ),
       required: process.env.WORKER_ORCHESTRATOR_SHADOW_REQUIRED === "1"
+    },
+    admin: {
+      upstreamUrl: hasAdminUrl
+        ? process.env.WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL
+        : hasShadowUrl
+          ? process.env.WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL
+          : upstreamUrl,
+      modelId: hasAdminModelId
+        ? process.env.WORKER_ORCHESTRATOR_ADMIN_MODEL_ID
+        : hasShadowModelId
+          ? process.env.WORKER_ORCHESTRATOR_SHADOW_MODEL_ID
+          : modelId,
+      timeoutMs: readIntegerEnv("WORKER_ORCHESTRATOR_ADMIN_TIMEOUT_MS", 120000),
+      maxTraceEvents: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_ADMIN_MAX_TRACE_EVENTS",
+        100
+      ),
+      maxPromptChars: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_ADMIN_MAX_PROMPT_CHARS",
+        150000
+      ),
+      maxResponseChars: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_ADMIN_MAX_RESPONSE_CHARS",
+        30000
+      ),
+      required: process.env.WORKER_ORCHESTRATOR_ADMIN_REQUIRED === "1"
     },
     outDir: process.env.WORKER_ORCHESTRATOR_OUT_DIR || path.join("reports", "worker-backed-orchestrator-smoke")
   };
@@ -340,8 +374,12 @@ function emptyAccountabilityReport() {
     objectiveHash: null,
     eventCountBeforeShadow: 0,
     eventCountAfterShadow: 0,
+    eventCountAfterGovernance: 0,
+    eventCountAfterAdmin: 0,
     ledgerRootHashBeforeShadow: null,
     ledgerRootHashAfterShadow: null,
+    ledgerRootHashAfterGovernance: null,
+    ledgerRootHashAfterAdmin: null,
     preShadowLedgerVerificationDecision: null,
     preShadowTraceDecision: null,
     preShadowTraceHash: null,
@@ -352,12 +390,24 @@ function emptyAccountabilityReport() {
     postShadowTraceDecision: null,
     postShadowTraceHash: null,
     postShadowFindingCount: 0,
+    postGovernanceLedgerVerificationDecision: null,
+    postGovernanceTraceDecision: null,
+    postGovernanceTraceHash: null,
+    postGovernanceFindingCount: 0,
+    postAdminLedgerVerificationDecision: null,
+    postAdminTraceDecision: null,
+    postAdminTraceHash: null,
+    postAdminFindingCount: 0,
+    governanceEventAppended: false,
+    adminEventAppended: false,
     phaseVExecutionObserved: false,
     phaseVExecutionCompleted: false,
     issueCodes: [],
     ledger: null,
     preShadowTrace: null,
-    postShadowTrace: null
+    postShadowTrace: null,
+    postGovernanceTrace: null,
+    postAdminTrace: null
   };
 }
 
@@ -382,6 +432,54 @@ function emptyShadowObserverReport(configured = false, required = false) {
     eventAppended: false,
     issueCodes: [],
     observation: null,
+    durationMs: 0
+  };
+}
+
+function emptyGovernanceReport() {
+  return {
+    evaluated: false,
+    decision: null,
+    riskClass: null,
+    traceHash: null,
+    observationHash: null,
+    policyHash: null,
+    governanceHash: null,
+    triggeredRuleCount: 0,
+    terminateRuleCount: 0,
+    escalationRuleCount: 0,
+    replanRuleCount: 0,
+    repairRuleCount: 0,
+    reasonCodes: [],
+    issueCodes: [],
+    eventAppended: false,
+    assessment: null
+  };
+}
+
+function emptyAdminAgentReport(configured = false, required = false) {
+  return {
+    configured,
+    required,
+    called: false,
+    adapterDecision: null,
+    validationDecision: null,
+    requiredSatisfied: !required,
+    governanceDecision: null,
+    decision: null,
+    riskLevel: null,
+    riskScore: null,
+    confidenceScore: null,
+    findingCount: 0,
+    adminDecisionHash: null,
+    responseContentHash: null,
+    inputTokens: null,
+    outputTokens: null,
+    totalTokens: null,
+    issueCodes: [],
+    eventAppended: false,
+    adminDecision: null,
+    adapterResult: null,
     durationMs: 0
   };
 }
@@ -411,7 +509,36 @@ function emptyAccountabilityDecisionSummary() {
     shadowObserverEventAppended: false,
     postShadowLedgerVerificationDecision: null,
     postShadowTraceDecision: null,
-    postShadowTraceHash: null
+    postShadowTraceHash: null,
+    governanceEvaluated: false,
+    governanceDecision: null,
+    governanceRiskClass: null,
+    governancePolicyHash: null,
+    governanceHash: null,
+    governanceTriggeredRuleCount: 0,
+    governanceEventAppended: false,
+    adminAgentConfigured: false,
+    adminAgentRequired: false,
+    adminAgentCalled: false,
+    adminAgentAdapterDecision: null,
+    adminAgentValidationDecision: null,
+    adminAgentRequiredSatisfied: true,
+    adminDecision: null,
+    adminRiskLevel: null,
+    adminRiskScore: null,
+    adminFindingCount: 0,
+    adminDecisionHash: null,
+    adminEventAppended: false,
+    agentLedgerEventCountAfterGovernance: 0,
+    agentLedgerEventCountAfterAdmin: 0,
+    agentLedgerRootHashAfterGovernance: null,
+    agentLedgerRootHashAfterAdmin: null,
+    postGovernanceLedgerVerificationDecision: null,
+    postGovernanceTraceDecision: null,
+    postGovernanceTraceHash: null,
+    postAdminLedgerVerificationDecision: null,
+    postAdminTraceDecision: null,
+    postAdminTraceHash: null
   };
 }
 
@@ -458,7 +585,14 @@ function baseReport(config, status) {
       ...emptyShadowObserverReport(false, config.shadow.required),
       requiredSatisfied: true
     },
+    governance: emptyGovernanceReport(),
+    adminAgent: {
+      ...emptyAdminAgentReport(false, config.admin.required),
+      requiredSatisfied: true
+    },
     shadowStageDecision: "shadow_not_called",
+    governanceStageDecision: "governance_not_evaluated",
+    adminStageDecision: "admin_not_called",
     jsonPath: "",
     markdownPath: ""
   };
@@ -866,8 +1000,12 @@ function renderMarkdown(report, config) {
     `- Run ID: ${report.accountability.runId ?? ""}`,
     `- Event count before Shadow: ${report.accountability.eventCountBeforeShadow}`,
     `- Event count after Shadow: ${report.accountability.eventCountAfterShadow}`,
+    `- Event count after Governance: ${report.accountability.eventCountAfterGovernance}`,
+    `- Event count after Admin: ${report.accountability.eventCountAfterAdmin}`,
     `- Root hash before Shadow: ${report.accountability.ledgerRootHashBeforeShadow ?? ""}`,
     `- Root hash after Shadow: ${report.accountability.ledgerRootHashAfterShadow ?? ""}`,
+    `- Root hash after Governance: ${report.accountability.ledgerRootHashAfterGovernance ?? ""}`,
+    `- Root hash after Admin: ${report.accountability.ledgerRootHashAfterAdmin ?? ""}`,
     `- Actor/action sequence: ${report.accountability.ledger
       ? report.accountability.ledger.events.map((event) => `${event.actor}/${event.action}`).join(", ")
       : ""}`,
@@ -916,6 +1054,68 @@ function renderMarkdown(report, config) {
     `- Final Phase V decision: ${report.finalDecision}`,
     `- Shadow stage decision: ${report.shadowStageDecision}`,
     "",
+    "## Deterministic Governance",
+    "",
+    `- Evaluated: ${report.governance.evaluated}`,
+    `- Decision: ${report.governance.decision ?? ""}`,
+    `- Risk class: ${report.governance.riskClass ?? ""}`,
+    `- Trace hash: ${report.governance.traceHash ?? ""}`,
+    `- Observation hash: ${report.governance.observationHash ?? ""}`,
+    `- Policy hash: ${report.governance.policyHash ?? ""}`,
+    `- Governance hash: ${report.governance.governanceHash ?? ""}`,
+    `- Triggered-rule count: ${report.governance.triggeredRuleCount}`,
+    `- Terminate-rule count: ${report.governance.terminateRuleCount}`,
+    `- Escalation-rule count: ${report.governance.escalationRuleCount}`,
+    `- Replan-rule count: ${report.governance.replanRuleCount}`,
+    `- Repair-rule count: ${report.governance.repairRuleCount}`,
+    `- Reason codes: ${report.governance.reasonCodes.join(", ")}`,
+    `- Issue codes: ${report.governance.issueCodes.join(", ")}`,
+    `- Governor event appended: ${report.governance.eventAppended}`,
+    "",
+    "## Admin Agent",
+    "",
+    `- Configured: ${report.adminAgent.configured}`,
+    `- Required: ${report.adminAgent.required}`,
+    `- Called: ${report.adminAgent.called}`,
+    `- Adapter decision: ${report.adminAgent.adapterDecision ?? ""}`,
+    `- Validation decision: ${report.adminAgent.validationDecision ?? ""}`,
+    `- Required satisfied: ${report.adminAgent.requiredSatisfied}`,
+    `- Governance decision: ${report.adminAgent.governanceDecision ?? ""}`,
+    `- Admin decision: ${report.adminAgent.decision ?? ""}`,
+    `- Risk level: ${report.adminAgent.riskLevel ?? ""}`,
+    `- Risk score: ${report.adminAgent.riskScore ?? ""}`,
+    `- Confidence score: ${report.adminAgent.confidenceScore ?? ""}`,
+    `- Finding count: ${report.adminAgent.findingCount}`,
+    `- Admin decision hash: ${report.adminAgent.adminDecisionHash ?? ""}`,
+    `- Response-content hash: ${report.adminAgent.responseContentHash ?? ""}`,
+    `- Input tokens: ${report.adminAgent.inputTokens ?? ""}`,
+    `- Output tokens: ${report.adminAgent.outputTokens ?? ""}`,
+    `- Total tokens: ${report.adminAgent.totalTokens ?? ""}`,
+    `- Issue codes: ${report.adminAgent.issueCodes.join(", ")}`,
+    `- Admin event appended: ${report.adminAgent.eventAppended}`,
+    "",
+    "## Post-Governance Audit State",
+    "",
+    `- Event count: ${report.accountability.eventCountAfterGovernance}`,
+    `- Ledger root hash: ${report.accountability.ledgerRootHashAfterGovernance ?? ""}`,
+    `- Ledger-verification decision: ${report.accountability.postGovernanceLedgerVerificationDecision ?? ""}`,
+    `- Trace decision: ${report.accountability.postGovernanceTraceDecision ?? ""}`,
+    `- Trace hash: ${report.accountability.postGovernanceTraceHash ?? ""}`,
+    `- Finding count: ${report.accountability.postGovernanceFindingCount}`,
+    "",
+    "## Post-Admin Audit State",
+    "",
+    `- Event count: ${report.accountability.eventCountAfterAdmin}`,
+    `- Ledger root hash: ${report.accountability.ledgerRootHashAfterAdmin ?? ""}`,
+    `- Ledger-verification decision: ${report.accountability.postAdminLedgerVerificationDecision ?? ""}`,
+    `- Trace decision: ${report.accountability.postAdminTraceDecision ?? ""}`,
+    `- Trace hash: ${report.accountability.postAdminTraceHash ?? ""}`,
+    `- Finding count: ${report.accountability.postAdminFindingCount}`,
+    `- Phase V final decision: ${report.finalDecision}`,
+    `- Shadow stage decision: ${report.shadowStageDecision}`,
+    `- Governance stage decision: ${report.governanceStageDecision}`,
+    `- Admin stage decision: ${report.adminStageDecision}`,
+    "",
     "### Remask Raw Output Preview",
     "",
     "```text",
@@ -948,8 +1148,23 @@ function writeReport(report, config) {
   const timestamp = safeTimestamp();
   const jsonPath = path.join(outDir, `${timestamp}-worker-backed-orchestrator-smoke.json`);
   const markdownPath = path.join(outDir, `${timestamp}-worker-backed-orchestrator-smoke.md`);
+  const redactedStringFields = new Set([
+    "rawOutputPreview",
+    "proposedPatch",
+    "originalContent",
+    "proposedContent",
+    "appliedContent",
+    "diffPreview",
+    "stdout",
+    "stderr"
+  ]);
+  const sanitizedReport = JSON.parse(JSON.stringify(report, (key, value) => {
+    if (redactedStringFields.has(key)) return "";
+    if (key === "args" && Array.isArray(value)) return [];
+    return value;
+  }));
   const reportWithPaths = {
-    ...report,
+    ...sanitizedReport,
     jsonPath,
     markdownPath
   };
@@ -1140,9 +1355,22 @@ function exactLedgerAnchors(ledger) {
 function citedObservationFiles(observation) {
   return boundedFiles(
     observation && Array.isArray(observation.findings)
-      ? observation.findings.flatMap((finding) => finding.filePaths || [])
+      ? observation.findings.flatMap((finding) => finding.evidenceFilePaths || [])
       : []
   );
+}
+
+function governanceEvidenceFiles(assessment) {
+  return boundedFiles([
+    ...assessment.issues.flatMap((issue) => issue.filePaths),
+    ...assessment.ruleResults.flatMap((rule) => rule.filePaths)
+  ]);
+}
+
+function adminEvidenceFiles(adminDecision) {
+  return boundedFiles(adminDecision
+    ? adminDecision.findings.flatMap((finding) => finding.evidenceFilePaths)
+    : []);
 }
 
 function populateDecisionAccountability(report) {
@@ -1172,7 +1400,38 @@ function populateDecisionAccountability(report) {
     postShadowLedgerVerificationDecision:
       report.accountability.postShadowLedgerVerificationDecision,
     postShadowTraceDecision: report.accountability.postShadowTraceDecision,
-    postShadowTraceHash: report.accountability.postShadowTraceHash
+    postShadowTraceHash: report.accountability.postShadowTraceHash,
+    governanceEvaluated: report.governance.evaluated,
+    governanceDecision: report.governance.decision,
+    governanceRiskClass: report.governance.riskClass,
+    governancePolicyHash: report.governance.policyHash,
+    governanceHash: report.governance.governanceHash,
+    governanceTriggeredRuleCount: report.governance.triggeredRuleCount,
+    governanceEventAppended: report.governance.eventAppended,
+    adminAgentConfigured: report.adminAgent.configured,
+    adminAgentRequired: report.adminAgent.required,
+    adminAgentCalled: report.adminAgent.called,
+    adminAgentAdapterDecision: report.adminAgent.adapterDecision,
+    adminAgentValidationDecision: report.adminAgent.validationDecision,
+    adminAgentRequiredSatisfied: report.adminAgent.requiredSatisfied,
+    adminDecision: report.adminAgent.decision,
+    adminRiskLevel: report.adminAgent.riskLevel,
+    adminRiskScore: report.adminAgent.riskScore,
+    adminFindingCount: report.adminAgent.findingCount,
+    adminDecisionHash: report.adminAgent.adminDecisionHash,
+    adminEventAppended: report.adminAgent.eventAppended,
+    agentLedgerEventCountAfterGovernance: report.accountability.eventCountAfterGovernance,
+    agentLedgerEventCountAfterAdmin: report.accountability.eventCountAfterAdmin,
+    agentLedgerRootHashAfterGovernance: report.accountability.ledgerRootHashAfterGovernance,
+    agentLedgerRootHashAfterAdmin: report.accountability.ledgerRootHashAfterAdmin,
+    postGovernanceLedgerVerificationDecision:
+      report.accountability.postGovernanceLedgerVerificationDecision,
+    postGovernanceTraceDecision: report.accountability.postGovernanceTraceDecision,
+    postGovernanceTraceHash: report.accountability.postGovernanceTraceHash,
+    postAdminLedgerVerificationDecision:
+      report.accountability.postAdminLedgerVerificationDecision,
+    postAdminTraceDecision: report.accountability.postAdminTraceDecision,
+    postAdminTraceHash: report.accountability.postAdminTraceHash
   });
 }
 
@@ -1312,6 +1571,216 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
       context.issueCodes.push("post_shadow_trace_unavailable");
     }
   }
+  accountability.eventCountAfterShadow = context.ledger.eventCount;
+  accountability.ledgerRootHashAfterShadow = context.ledger.rootHash;
+
+  const validatedObservation = report.shadowObserver.observation || null;
+  const governanceEligible =
+    preVerification.decision === "ledger_valid" &&
+    preTrace !== null &&
+    preTraceResult.summary.traceHashValid === true &&
+    accountability.phaseVExecutionObserved &&
+    accountability.phaseVExecutionCompleted &&
+    executionTerminal;
+  let governanceResult = null;
+  let governanceAssessment = null;
+
+  if (governanceEligible) {
+    const governanceStartedAt = timestampNow();
+    try {
+      governanceResult = runtime.evaluateDeterministicGovernance(
+        preTrace,
+        validatedObservation,
+        runtime.DEFAULT_DETERMINISTIC_GOVERNANCE_POLICY
+      );
+      governanceAssessment = governanceResult.assessment;
+    } catch {
+      context.evidenceComplete = false;
+      context.issueCodes.push("governance_evaluation_failed");
+    }
+    const governanceFinishedAt = timestampNow(governanceStartedAt);
+
+    if (governanceAssessment !== null) {
+      report.governance = {
+        evaluated: true,
+        decision: governanceAssessment.decision,
+        riskClass: governanceAssessment.riskClass,
+        traceHash: governanceAssessment.traceHash,
+        observationHash: governanceAssessment.observationHash,
+        policyHash: governanceAssessment.policyHash,
+        governanceHash: governanceAssessment.governanceHash,
+        triggeredRuleCount: governanceResult.summary.triggeredRuleCount,
+        terminateRuleCount: governanceResult.summary.terminateRuleCount,
+        escalationRuleCount: governanceResult.summary.escalationRuleCount,
+        replanRuleCount: governanceResult.summary.replanRuleCount,
+        repairRuleCount: governanceResult.summary.repairRuleCount,
+        reasonCodes: [...governanceAssessment.reasonCodes],
+        issueCodes: governanceAssessment.issues.map((issue) => issue.code),
+        eventAppended: false,
+        assessment: governanceAssessment
+      };
+      report.governanceStageDecision = governanceAssessment.decision;
+      const eventAppended = appendAccountabilityEvent(context, {
+        actor: "deterministic_governor",
+        action: "deterministic_governor.evaluate",
+        startedAt: governanceStartedAt,
+        finishedAt: governanceFinishedAt,
+        inputArtifactHashes: [
+          preTrace.traceHash,
+          validatedObservation && validatedObservation.observationHash,
+          governanceAssessment.policyHash
+        ],
+        outputArtifactHashes: [governanceAssessment.governanceHash],
+        filesRead: governanceEvidenceFiles(governanceAssessment),
+        filesProposed: [],
+        decision: governanceAssessment.decision,
+        reasonCodes: governanceAssessment.reasonCodes
+      });
+      report.governance.eventAppended = eventAppended;
+      accountability.governanceEventAppended = eventAppended;
+    }
+  }
+
+  if (report.governance.eventAppended) {
+    const postGovernanceAnchors = exactLedgerAnchors(context.ledger);
+    const postGovernanceVerification = runtime.verifyAgentEventLedger(
+      context.ledger,
+      postGovernanceAnchors
+    );
+    const postGovernanceTraceResult = runtime.buildRunAccountabilityTrace(
+      context.ledger,
+      postGovernanceAnchors
+    );
+    accountability.postGovernanceLedgerVerificationDecision =
+      postGovernanceVerification.decision;
+    accountability.postGovernanceTraceDecision = postGovernanceTraceResult.decision;
+    accountability.postGovernanceTraceHash = postGovernanceTraceResult.trace
+      ? postGovernanceTraceResult.trace.traceHash
+      : null;
+    accountability.postGovernanceFindingCount = postGovernanceTraceResult.summary.findingCount;
+    accountability.postGovernanceTrace = postGovernanceTraceResult.trace;
+    if (postGovernanceVerification.decision !== "ledger_valid") {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_governance_ledger_verification_failed");
+    }
+    if (postGovernanceTraceResult.trace === null) {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_governance_trace_unavailable");
+    }
+  }
+  accountability.eventCountAfterGovernance = context.ledger.eventCount;
+  accountability.ledgerRootHashAfterGovernance = context.ledger.rootHash;
+
+  const adminConfigured = Boolean(config.admin.upstreamUrl && config.admin.modelId);
+  report.adminAgent = emptyAdminAgentReport(adminConfigured, config.admin.required);
+  if (governanceAssessment !== null && preTrace !== null && adminConfigured) {
+    const adminStartedAt = timestampNow();
+    let adapterResult = null;
+    try {
+      adapterResult = await runtime.runAdminAgentModel(
+        preTrace,
+        validatedObservation,
+        governanceAssessment,
+        {
+          endpoint: config.admin.upstreamUrl,
+          modelId: config.admin.modelId,
+          timeoutMs: config.admin.timeoutMs,
+          maxTraceEvents: config.admin.maxTraceEvents,
+          maxPromptChars: config.admin.maxPromptChars,
+          maxResponseChars: config.admin.maxResponseChars
+        }
+      );
+    } catch {
+      context.issueCodes.push("admin_adapter_configuration_invalid");
+    }
+    const adminFinishedAt = timestampNow(adminStartedAt);
+
+    if (adapterResult !== null) {
+      const adminDecision = adapterResult.adminDecision;
+      report.adminAgent = {
+        configured: true,
+        required: config.admin.required,
+        called: adapterResult.called,
+        adapterDecision: adapterResult.decision,
+        validationDecision: adapterResult.validationDecision,
+        requiredSatisfied: false,
+        governanceDecision: governanceAssessment.decision,
+        decision: adminDecision ? adminDecision.decision : null,
+        riskLevel: adminDecision ? adminDecision.riskLevel : null,
+        riskScore: adminDecision ? adminDecision.riskScore : null,
+        confidenceScore: adminDecision ? adminDecision.confidenceScore : null,
+        findingCount: adminDecision ? adminDecision.findings.length : 0,
+        adminDecisionHash: adminDecision ? adminDecision.adminDecisionHash : null,
+        responseContentHash: adapterResult.responseContentHash,
+        inputTokens: adapterResult.usage ? adapterResult.usage.inputTokens : null,
+        outputTokens: adapterResult.usage ? adapterResult.usage.outputTokens : null,
+        totalTokens: adapterResult.usage ? adapterResult.usage.totalTokens : null,
+        issueCodes: adapterResult.issues.map((issue) => issue.code),
+        eventAppended: false,
+        adminDecision,
+        adapterResult,
+        durationMs: adapterResult.summary.durationMs
+      };
+      report.adminStageDecision = adapterResult.decision;
+
+      if (adapterResult.called) {
+        const adminEventAppended = appendAccountabilityEvent(context, {
+          actor: "admin_agent",
+          action: "admin_agent.evaluate",
+          startedAt: adminStartedAt,
+          finishedAt: adminFinishedAt,
+          inputArtifactHashes: [
+            preTrace.traceHash,
+            validatedObservation && validatedObservation.observationHash,
+            governanceAssessment.governanceHash
+          ],
+          outputArtifactHashes: [
+            adminDecision && adminDecision.adminDecisionHash,
+            adapterResult.responseContentHash
+          ],
+          filesRead: adminEvidenceFiles(adminDecision),
+          filesProposed: [],
+          decision: adminDecision ? adminDecision.decision : adapterResult.decision,
+          reasonCodes: [
+            ...(adminDecision ? adminDecision.rationaleCodes : []),
+            ...adapterResult.issues.map((issue) => issue.code)
+          ],
+          ...(adapterResult.usage ? { tokenUsage: adapterResult.usage } : {})
+        });
+        report.adminAgent.eventAppended = adminEventAppended;
+        accountability.adminEventAppended = adminEventAppended;
+      }
+    }
+  }
+
+  if (report.adminAgent.eventAppended) {
+    const postAdminAnchors = exactLedgerAnchors(context.ledger);
+    const postAdminVerification = runtime.verifyAgentEventLedger(
+      context.ledger,
+      postAdminAnchors
+    );
+    const postAdminTraceResult = runtime.buildRunAccountabilityTrace(
+      context.ledger,
+      postAdminAnchors
+    );
+    accountability.postAdminLedgerVerificationDecision = postAdminVerification.decision;
+    accountability.postAdminTraceDecision = postAdminTraceResult.decision;
+    accountability.postAdminTraceHash = postAdminTraceResult.trace
+      ? postAdminTraceResult.trace.traceHash
+      : null;
+    accountability.postAdminFindingCount = postAdminTraceResult.summary.findingCount;
+    accountability.postAdminTrace = postAdminTraceResult.trace;
+    if (postAdminVerification.decision !== "ledger_valid") {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_admin_ledger_verification_failed");
+    }
+    if (postAdminTraceResult.trace === null) {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_admin_trace_unavailable");
+    }
+  }
+  accountability.eventCountAfterAdmin = context.ledger.eventCount;
+  accountability.ledgerRootHashAfterAdmin = context.ledger.rootHash;
 
   const requiredSatisfied = !config.shadow.required || !shadowEligible || (
     report.shadowObserver.called &&
@@ -1325,13 +1794,28 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     report.status = "failed_required_shadow";
   }
 
+  const adminRequiredApplicable = governanceAssessment !== null && preTrace !== null;
+  const adminRequiredSatisfied = !config.admin.required || !adminRequiredApplicable || (
+    report.adminAgent.called &&
+    report.adminAgent.adminDecision !== null &&
+    (report.adminAgent.adapterDecision === "admin_agent_completed" ||
+      report.adminAgent.adapterDecision === "admin_agent_needs_review")
+  );
+  report.adminAgent.requiredSatisfied = adminRequiredSatisfied;
+  if (!adminRequiredSatisfied) {
+    report.ok = false;
+    if (report.status !== "failed_required_shadow") {
+      report.status = "failed_required_admin";
+    }
+  }
+
   accountability.evidenceComplete = context.evidenceComplete;
-  accountability.eventCountAfterShadow = context.ledger.eventCount;
-  accountability.ledgerRootHashAfterShadow = context.ledger.rootHash;
   accountability.issueCodes = boundedCodes(context.issueCodes);
   accountability.ledger = context.ledger;
   accountability.preShadowTrace = preTrace;
   accountability.postShadowTrace = accountability.postShadowTrace || null;
+  accountability.postGovernanceTrace = accountability.postGovernanceTrace || null;
+  accountability.postAdminTrace = accountability.postAdminTrace || null;
   populateDecisionAccountability(report);
 }
 
@@ -2348,11 +2832,20 @@ async function run() {
                     );
                     const executionReasonCodes = [
                       ...report.tempWorkspaceExecution.issues,
-                      ...(report.tempWorkspaceExecution.cleanupPerformed
-                        ? ["temp_workspace_cleanup_performed"]
-                        : report.tempWorkspaceExecution.cleanupAttempted
+                      ...(fixture.cleanupEvidenceMode === "missing"
+                        ? []
+                        : fixture.cleanupEvidenceMode === "failed"
                           ? ["temp_workspace_cleanup_failed"]
-                          : []),
+                          : fixture.cleanupEvidenceMode === "conflicting"
+                            ? [
+                              "temp_workspace_cleanup_performed",
+                              "temp_workspace_cleanup_failed"
+                            ]
+                            : report.tempWorkspaceExecution.cleanupPerformed
+                              ? ["temp_workspace_cleanup_performed"]
+                              : report.tempWorkspaceExecution.cleanupAttempted
+                                ? ["temp_workspace_cleanup_failed"]
+                                : []),
                       ...(report.tempWorkspaceExecution.failedCommands > 0
                         ? ["validation_command_failed"]
                         : []),
