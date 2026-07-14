@@ -9,6 +9,7 @@ export * from "./workspace-mutation.js";
 export * from "./agent-event-ledger.js";
 export * from "./agent-event-ledger-verifier.js";
 export * from "./run-accountability-trace.js";
+export * from "./shadow-observer-contract.js";
 
 export type ReviewDecision =
   | "approve"
