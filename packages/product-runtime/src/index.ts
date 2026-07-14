@@ -15,6 +15,7 @@ export * from "./deterministic-governance-policy.js";
 export * from "./admin-agent-contract.js";
 export * from "./admin-agent-model-adapter.js";
 export * from "./risk-based-approval-router.js";
+export * from "./governed-change-artifact.js";
 
 export type ReviewDecision =
   | "approve"

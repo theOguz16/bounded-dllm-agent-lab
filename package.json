@@ -187,6 +187,7 @@
     "test:admin-agent-contract": "node scripts/admin-agent-contract-smoke.cjs",
     "test:admin-agent-model-adapter": "node scripts/admin-agent-model-adapter-smoke.cjs",
     "test:risk-based-approval-router": "node scripts/risk-based-approval-router-smoke.cjs",
+    "test:governed-change-artifact": "node scripts/governed-change-artifact-smoke.cjs",
     "report:temporary-workspace-execution-verifier-fixture-suite": "node scripts/temporary-workspace-execution-verifier-fixture-suite.cjs",
     "test:temporary-workspace-execution-verifier-fixture-suite": "node scripts/temporary-workspace-execution-verifier-fixture-suite-test.cjs",
     "report:phase-v-temporary-workspace-execution-suite": "node scripts/phase-v-temporary-workspace-execution-suite-report.cjs",
