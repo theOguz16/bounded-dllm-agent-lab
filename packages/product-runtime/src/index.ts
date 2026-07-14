@@ -12,6 +12,7 @@ export * from "./run-accountability-trace.js";
 export * from "./shadow-observer-contract.js";
 export * from "./shadow-observer-model-adapter.js";
 export * from "./deterministic-governance-policy.js";
+export * from "./admin-agent-contract.js";
 
 export type ReviewDecision =
   | "approve"
