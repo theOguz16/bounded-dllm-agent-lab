@@ -11,6 +11,7 @@ export * from "./agent-event-ledger-verifier.js";
 export * from "./run-accountability-trace.js";
 export * from "./shadow-observer-contract.js";
 export * from "./shadow-observer-model-adapter.js";
+export * from "./deterministic-governance-policy.js";
 
 export type ReviewDecision =
   | "approve"
