@@ -1,19 +1,23 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const { once } = require("node:events");
 
 const repoRoot = path.resolve(__dirname, "..");
 const scriptPath = path.join(repoRoot, "scripts", "worker-backed-orchestrator-smoke.cjs");
 const {
   buildForcedRemaskVerifierResult,
+  configFromEnv,
   decide,
   emptyRemaskReport,
   emptyPatchDryRunReport,
   emptyRepairVerifierReport,
   fixture,
+  run,
   verifyAndCleanupTemporaryWorkspace
 } = require(scriptPath);
 
@@ -101,6 +105,19 @@ check("skipped report has configured false", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
 
   assert.equal(report.configured, false);
+});
+
+check("W.6 skipped report creates no ledger, trace, or Shadow stage", () => {
+  const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
+  assert.equal(report.accountability.ledgerCreated, false);
+  assert.equal(report.accountability.ledger, null);
+  assert.equal(report.accountability.preShadowTrace, null);
+  assert.equal(report.accountability.postShadowTrace, null);
+  assert.equal(report.shadowObserver.configured, false);
+  assert.equal(report.shadowObserver.called, false);
+  assert.equal(report.shadowObserver.decision, null);
+  assert.equal(report.shadowObserver.eventAppended, false);
+  assert.equal(report.shadowStageDecision, "shadow_not_called");
 });
 
 check("no live network call is required", () => {
@@ -1559,7 +1576,623 @@ async function runExecutionIntegrationChecks() {
   });
 }
 
+function workerMutation(role) {
+  if (role === "planner") {
+    return {
+      role: "planner",
+      target: "plan",
+      summary: "Plan the bounded helper change.",
+      claims: [{
+        type: "planned_step",
+        description: "Modify only packages/example/src/index.ts."
+      }],
+      touchedFiles: ["packages/example/src/index.ts"],
+      confidence: 0.9
+    };
+  }
+  if (role === "coder") {
+    return {
+      role: "coder",
+      target: "patchDraft",
+      summary: "Draft the bounded helper change.",
+      claims: [{
+        type: "patch_draft",
+        file: "packages/example/src/index.ts",
+        description: "Add the bounded helper."
+      }],
+      touchedFiles: ["packages/example/src/index.ts"],
+      confidence: 0.9
+    };
+  }
+  return {
+    role: "remask",
+    target: "repairDraft",
+    summary: "Repair only the missing proposed patch.",
+    claims: [{
+      type: "repair_draft",
+      file: "packages/example/src/index.ts",
+      description: "Supply the bounded proposed patch.",
+      proposedPatch: [
+        "export function addOne(value: number): number {",
+        "  return value + 1;",
+        "}",
+        "",
+        "export const helperReady = true;",
+        ""
+      ].join("\n"),
+      addressesIssueCodes: ["missing_proposed_patch"]
+    }],
+    touchedFiles: ["packages/example/src/index.ts"],
+    confidence: 0.9
+  };
+}
+
+async function withTemporaryEnvironment(values, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(values)) {
+    previous.set(key, Object.prototype.hasOwnProperty.call(process.env, key)
+      ? process.env[key]
+      : undefined);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function runW6IntegrationChecks() {
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: undefined,
+    WORKER_ORCHESTRATOR_SHADOW_TIMEOUT_MS: "1234",
+    WORKER_ORCHESTRATOR_SHADOW_MAX_TRACE_EVENTS: "77",
+    WORKER_ORCHESTRATOR_SHADOW_MAX_PROMPT_CHARS: "8888",
+    WORKER_ORCHESTRATOR_SHADOW_MAX_RESPONSE_CHARS: "9999"
+  }, async () => {
+    const fallback = configFromEnv();
+    check("W.6 absent Shadow environment values fall back and limits map exactly", () => {
+      assert.equal(fallback.shadow.upstreamUrl, "http://worker.example/v1");
+      assert.equal(fallback.shadow.modelId, "worker-model");
+      assert.equal(fallback.shadow.timeoutMs, 1234);
+      assert.equal(fallback.shadow.maxTraceEvents, 77);
+      assert.equal(fallback.shadow.maxPromptChars, 8888);
+      assert.equal(fallback.shadow.maxResponseChars, 9999);
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: ""
+  }, async () => {
+    const explicitEmpty = configFromEnv();
+    check("W.6 intentionally empty Shadow environment values are not overridden", () => {
+      assert.equal(explicitEmpty.shadow.upstreamUrl, "");
+      assert.equal(explicitEmpty.shadow.modelId, "");
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
+    WORKER_ORCHESTRATOR_MODEL_ID: "worker-model",
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: "http://shadow.example/v1",
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: "shadow-model"
+  }, async () => {
+    const explicit = configFromEnv();
+    check("W.6 explicit Shadow URL and model remain distinct from worker configuration", () => {
+      assert.equal(explicit.shadow.upstreamUrl, "http://shadow.example/v1");
+      assert.equal(explicit.shadow.modelId, "shadow-model");
+      assert.equal(explicit.upstreamUrl, "http://worker.example/v1");
+      assert.equal(explicit.modelId, "worker-model");
+    });
+  });
+
+  const requests = [];
+  let shadowCompletion = null;
+  let workerScenario = "valid";
+  let shadowScenario = "valid";
+  let shadowRecommendation = "continue";
+  let usageScenario = "valid";
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const userContent = body.messages.find((message) => message.role === "user").content;
+      let shadowPayload = null;
+      try {
+        const parsed = JSON.parse(userContent);
+        if (parsed.task === "shadow_observe_accountability_trace") shadowPayload = parsed;
+      } catch {
+        // Worker role prompts are deliberately not canonical JSON payloads.
+      }
+      requests.push({ body, shadow: shadowPayload !== null });
+
+      if (shadowPayload !== null) {
+        const trace = shadowPayload.trace;
+        if (shadowScenario === "http_failure") {
+          response.writeHead(500, { "content-type": "application/json" });
+          response.end("{}");
+          return;
+        }
+        if (shadowScenario === "timeout") {
+          setTimeout(() => {
+            if (!response.writableEnded) {
+              response.writeHead(200, { "content-type": "application/json" });
+              response.end("{}");
+            }
+          }, 100);
+          return;
+        }
+        const recommendationProfile = {
+          continue: { riskLevel: "low", riskScore: 10, severity: null },
+          request_repair: { riskLevel: "medium", riskScore: 35, severity: "warning" },
+          request_replan: { riskLevel: "high", riskScore: 60, severity: "high" },
+          escalate: { riskLevel: "critical", riskScore: 90, severity: "critical" },
+          terminate: { riskLevel: "critical", riskScore: 90, severity: "critical" }
+        }[shadowRecommendation];
+        const finding = recommendationProfile.severity === null ? null : {
+          code: "advisory_risk",
+          severity: recommendationProfile.severity,
+          message: "Bounded trace evidence warrants attention.",
+          evidenceEventIds: [trace.events[0].eventId],
+          evidenceFilePaths: [],
+          evidenceTraceFindingCodes: []
+        };
+        const observation = {
+          observationVersion: "1",
+          runId: shadowScenario === "wrong_run" ? "wrong-run" : trace.runId,
+          traceHash: shadowScenario === "wrong_hash"
+            ? `sha256:${"b".repeat(64)}`
+            : trace.traceHash,
+          riskLevel: recommendationProfile.riskLevel,
+          riskScore: recommendationProfile.riskScore,
+          confidenceScore: 90,
+          findings: finding === null ? [] : [finding],
+          observedScopeDrift: false,
+          observedPlanPatchMismatch: false,
+          observedRepairLoop: false,
+          observedSuspiciousRoleBehavior: false,
+          observedEvidenceConflict: false,
+          recommendation: shadowRecommendation,
+          rationaleCodes: ["trace_consistent"]
+        };
+        if (shadowScenario === "unknown_evidence") {
+          observation.riskLevel = "medium";
+          observation.riskScore = 35;
+          observation.recommendation = "request_repair";
+          observation.findings = [{
+            code: "advisory_risk",
+            severity: "warning",
+            message: "Unknown evidence fixture.",
+            evidenceEventIds: ["unknown:event"],
+            evidenceFilePaths: [],
+            evidenceTraceFindingCodes: []
+          }];
+        }
+        if (shadowScenario === "needs_review") {
+          observation.riskLevel = "medium";
+          observation.riskScore = 35;
+          observation.recommendation = "request_repair";
+          const duplicate = {
+            code: "advisory_risk",
+            severity: "warning",
+            message: "Bounded trace evidence warrants attention.",
+            evidenceEventIds: [trace.events[0].eventId, trace.events[1].eventId],
+            evidenceFilePaths: [],
+            evidenceTraceFindingCodes: []
+          };
+          observation.findings = [
+            duplicate,
+            { ...duplicate, evidenceEventIds: [...duplicate.evidenceEventIds].reverse() }
+          ];
+        }
+        shadowCompletion = shadowScenario === "malformed"
+          ? "not-json"
+          : JSON.stringify(observation);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({
+          choices: [{ message: { content: shadowCompletion } }],
+          ...(usageScenario === "missing" ? {} : {
+            usage: usageScenario === "invalid"
+              ? { prompt_tokens: -1, completion_tokens: 7, total_tokens: 6 }
+              : { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }
+          })
+        }));
+        return;
+      }
+
+      const system = body.messages.find((message) => message.role === "system").content;
+      const role = system.includes("planner role")
+        ? "planner"
+        : system.includes("coder role")
+          ? "coder"
+          : "remask";
+      let mutation = workerMutation(role);
+      if (workerScenario === "planner_invalid" && role === "planner") mutation = {};
+      if (workerScenario === "coder_invalid" && role === "coder") mutation = {};
+      if (workerScenario === "verifier_reject" && role === "coder") {
+        mutation = {
+          ...workerMutation("coder"),
+          claims: [{
+            type: "patch_draft",
+            file: "packages/example/src/index.ts",
+            description: "Unsafe fixture content for deterministic rejection.",
+            proposedPatch: "process.env.SECRET"
+          }]
+        };
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(mutation) } }],
+        ...(usageScenario === "missing" ? {} : {
+          usage: usageScenario === "invalid"
+            ? { prompt_tokens: 1.5, completion_tokens: 3, total_tokens: 4.5 }
+            : { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 }
+        })
+      }));
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  const endpoint = `http://127.0.0.1:${address.port}/v1/chat/completions`;
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-orchestrator-w6-"));
+  const execute = (overrides = {}) => withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_UPSTREAM_URL: endpoint,
+    WORKER_ORCHESTRATOR_MODEL_ID: "WORKER_MODEL_SENTINEL",
+    WORKER_ORCHESTRATOR_FORCE_REMASK: "1",
+    WORKER_ORCHESTRATOR_REQUIRED: "1",
+    WORKER_ORCHESTRATOR_OUT_DIR: outDir,
+    WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: undefined,
+    WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: undefined,
+    WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "1",
+    ...overrides
+  }, () => run());
+
+  try {
+    const report = await execute();
+
+    check("W.6 forced path records the exact pre-Shadow actor sequence", () => {
+      assert.deepEqual(
+        report.accountability.ledger.events.slice(0, 9).map((event) => event.actor),
+        [
+          "planner",
+          "coder",
+          "deterministic_verifier",
+          "masker",
+          "repairer",
+          "repair_verifier",
+          "patch_dry_run",
+          "temp_workspace_apply",
+          "execution_verifier"
+        ]
+      );
+      assert.deepEqual(
+        report.accountability.ledger.events.map((event) => event.sequence),
+        report.accountability.ledger.events.map((_, index) => index + 1)
+      );
+      assert.deepEqual(
+        report.accountability.ledger.events.slice(0, 9).map((event) => event.action),
+        [
+          "planner.plan",
+          "coder.patch_draft",
+          "deterministic_verifier.patch_draft",
+          "masker.repair_scope",
+          "repairer.repair_draft",
+          "repair_verifier.repair_draft",
+          "patch_dry_run.evaluate",
+          "temp_workspace_apply.apply",
+          "execution_verifier.validate"
+        ]
+      );
+    });
+
+    check("W.6 ledger chain and pre-Shadow trace are complete", () => {
+      const events = report.accountability.ledger.events;
+      for (let index = 1; index < events.length; index += 1) {
+        assert.equal(events[index].previousEventHash, events[index - 1].eventHash);
+      }
+      assert.equal(report.accountability.eventCountBeforeShadow, 9);
+      assert.equal(events[8].eventHash, report.accountability.ledgerRootHashBeforeShadow);
+      assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
+      assert.equal(events[0].eventId,
+        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000001");
+      assert.equal(report.accountability.preShadowLedgerVerificationDecision, "ledger_valid");
+      assert.equal(report.accountability.phaseVExecutionObserved, true);
+      assert.equal(report.accountability.phaseVExecutionCompleted, true);
+      assert.equal(report.accountability.preShadowTrace.repairActivity.remaskCount, 1);
+      assert.equal(report.accountability.preShadowTrace.repairActivity.repairCount, 1);
+      assert.deepEqual(report.accountability.preShadowTrace.files.temporaryAppliedFiles,
+        ["packages/example/src/index.ts"]);
+      assert.deepEqual(report.accountability.preShadowTrace.files.executionReadFiles,
+        ["packages/example/src/index.ts"]);
+      assert.deepEqual(report.accountability.preShadowTrace.files.plannedFiles,
+        ["packages/example/src/index.ts"]);
+      assert.deepEqual(report.accountability.preShadowTrace.files.coderProposedFiles,
+        ["packages/example/src/index.ts"]);
+      assert.deepEqual(report.accountability.preShadowTrace.files.repairProposedFiles,
+        ["packages/example/src/index.ts"]);
+    });
+
+    check("W.6 Shadow integration appends advisory evidence without changing Phase V", () => {
+      assert.equal(requests.filter((request) => request.shadow).length, 1);
+      assert.equal(report.shadowObserver.configured, true);
+      assert.equal(report.shadowObserver.called, true);
+      assert.equal(report.shadowObserver.decision, "shadow_observer_completed");
+      assert.equal(report.shadowObserver.validationDecision, "shadow_observation_valid");
+      assert.equal(report.shadowObserver.requiredSatisfied, true);
+      assert.equal(report.shadowObserver.eventAppended, true);
+      assert.equal(report.accountability.eventCountAfterShadow, 10);
+      assert.equal(report.accountability.ledger.events.at(-1).actor, "shadow_observer");
+      assert.ok(report.accountability.ledger.events.at(-1).inputArtifactHashes.includes(
+        report.accountability.preShadowTraceHash
+      ));
+      assert.ok(report.accountability.ledger.events.at(-1).outputArtifactHashes.includes(
+        report.shadowObserver.observationHash
+      ));
+      assert.equal(report.accountability.postShadowLedgerVerificationDecision, "ledger_valid");
+      assert.ok(report.accountability.postShadowTrace);
+      assert.ok(report.accountability.postShadowTrace.findings.some((finding) =>
+        finding.code === "pre_governance_trace_contains_governance_roles" &&
+        finding.severity === "info"));
+      assert.notEqual(report.accountability.preShadowTraceHash,
+        report.accountability.postShadowTraceHash);
+      assert.equal(report.shadowObserver.observation.traceHash,
+        report.accountability.preShadowTraceHash);
+      assert.equal(report.finalDecision, "temp_validation_passed");
+      assert.equal(report.shadowStageDecision, "shadow_observer_completed");
+    });
+
+    check("W.6 artifact chain links every adjacent bounded stage", () => {
+      const byActor = Object.fromEntries(
+        report.accountability.ledger.events.map((event) => [event.actor, event])
+      );
+      assert.ok(byActor.coder.inputArtifactHashes.some((hash) =>
+        byActor.planner.outputArtifactHashes.includes(hash)));
+      assert.ok(byActor.deterministic_verifier.inputArtifactHashes.some((hash) =>
+        byActor.coder.outputArtifactHashes.includes(hash)));
+      assert.ok(byActor.repairer.inputArtifactHashes.some((hash) =>
+        byActor.masker.outputArtifactHashes.includes(hash)));
+      assert.ok(byActor.patch_dry_run.inputArtifactHashes.some((hash) =>
+        byActor.repairer.outputArtifactHashes.includes(hash)));
+      assert.ok(byActor.temp_workspace_apply.inputArtifactHashes.some((hash) =>
+        byActor.patch_dry_run.outputArtifactHashes.includes(hash)));
+      assert.ok(byActor.execution_verifier.inputArtifactHashes.some((hash) =>
+        byActor.temp_workspace_apply.outputArtifactHashes.includes(hash)));
+      assert.deepEqual(byActor.planner.tokenUsage,
+        { inputTokens: 5, outputTokens: 3, totalTokens: 8 });
+      assert.deepEqual(byActor.coder.tokenUsage,
+        { inputTokens: 5, outputTokens: 3, totalTokens: 8 });
+      assert.deepEqual(byActor.repairer.tokenUsage,
+        { inputTokens: 5, outputTokens: 3, totalTokens: 8 });
+      assert.equal(byActor.execution_verifier.tokenUsage, undefined);
+      assert.deepEqual(byActor.shadow_observer.tokenUsage,
+        { inputTokens: 11, outputTokens: 7, totalTokens: 18 });
+    });
+
+    check("W.6 reports contain bounded evidence and no Shadow raw output or environment values", () => {
+      const ledgerJson = JSON.stringify(report.accountability.ledger);
+      const traceJson = JSON.stringify({
+        pre: report.accountability.preShadowTrace,
+        post: report.accountability.postShadowTrace
+      });
+      const reportJson = fs.readFileSync(report.jsonPath, "utf8");
+      const markdown = fs.readFileSync(report.markdownPath, "utf8");
+      assert.ok(!ledgerJson.includes("helperReady"));
+      assert.ok(!ledgerJson.includes("return value + 1"));
+      assert.ok(!ledgerJson.includes("stdout"));
+      assert.ok(!ledgerJson.includes("stderr"));
+      assert.ok(!traceJson.includes("helperReady"));
+      assert.ok(!traceJson.includes("return value + 1"));
+      assert.ok(!ledgerJson.includes("You are the planner role"));
+      assert.ok(!traceJson.includes("You are the planner role"));
+      assert.ok(!reportJson.includes(endpoint));
+      assert.ok(!reportJson.includes("WORKER_MODEL_SENTINEL"));
+      assert.ok(!reportJson.includes(shadowCompletion));
+      assert.ok(!markdown.includes(endpoint));
+      assert.ok(!markdown.includes("WORKER_MODEL_SENTINEL"));
+      assert.ok(!markdown.includes(shadowCompletion));
+      assert.ok(markdown.includes("## Agent Event Ledger"));
+      assert.ok(markdown.includes("## Accountability Trace"));
+      assert.ok(markdown.includes("## Shadow Observer"));
+      assert.ok(markdown.includes("## Post-Shadow Audit State"));
+    });
+
+    const shadowCallsBeforePartialRuns = requests.filter((entry) => entry.shadow).length;
+    workerScenario = "planner_invalid";
+    const plannerInvalid = await execute();
+    workerScenario = "coder_invalid";
+    const coderInvalid = await execute();
+    workerScenario = "verifier_reject";
+    const verifierReject = await execute({ WORKER_ORCHESTRATOR_FORCE_REMASK: "0" });
+    workerScenario = "valid";
+
+    check("W.6 partial paths produce valid bounded ledgers without calling Shadow", () => {
+      assert.equal(plannerInvalid.finalDecision, "blocked_before_coder");
+      assert.equal(plannerInvalid.accountability.ledger.eventCount, 1);
+      assert.deepEqual(plannerInvalid.accountability.ledger.events.map((event) => event.actor),
+        ["planner"]);
+      assert.equal(coderInvalid.finalDecision, "blocked_before_verifier");
+      assert.deepEqual(coderInvalid.accountability.ledger.events.map((event) => event.actor),
+        ["planner", "coder"]);
+      assert.equal(verifierReject.finalDecision, "rejected_by_deterministic_verifier");
+      assert.deepEqual(verifierReject.accountability.ledger.events.map((event) => event.actor),
+        ["planner", "coder", "deterministic_verifier"]);
+      for (const partial of [plannerInvalid, coderInvalid, verifierReject]) {
+        assert.equal(partial.accountability.preShadowLedgerVerificationDecision, "ledger_valid");
+        assert.equal(partial.accountability.preShadowTraceDecision, "trace_needs_review");
+        assert.equal(partial.shadowObserver.called, false);
+        assert.equal(partial.shadowStageDecision, "shadow_not_called");
+        assert.equal(partial.shadowObserver.requiredSatisfied, true);
+      }
+      assert.equal(requests.filter((entry) => entry.shadow).length,
+        shadowCallsBeforePartialRuns);
+    });
+
+    shadowScenario = "needs_review";
+    const reviewedShadow = await execute();
+    shadowScenario = "wrong_run";
+    const wrongRun = await execute({ WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0" });
+    shadowScenario = "wrong_hash";
+    const wrongHash = await execute({ WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0" });
+    shadowScenario = "unknown_evidence";
+    const unknownEvidence = await execute({ WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0" });
+    shadowScenario = "malformed";
+    const malformed = await execute({ WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0" });
+    shadowScenario = "http_failure";
+    const httpFailure = await execute();
+    shadowScenario = "timeout";
+    const timeout = await execute({
+      WORKER_ORCHESTRATOR_SHADOW_TIMEOUT_MS: "10"
+    });
+    shadowScenario = "valid";
+
+    check("W.6 Shadow review and failure outcomes append auditable events", () => {
+      assert.equal(reviewedShadow.shadowObserver.decision,
+        "shadow_observer_needs_review");
+      assert.ok(reviewedShadow.shadowObserver.observation);
+      assert.equal(reviewedShadow.shadowObserver.requiredSatisfied, true);
+      for (const failed of [wrongRun, wrongHash, unknownEvidence, malformed, httpFailure, timeout]) {
+        assert.equal(failed.shadowObserver.decision, "shadow_observer_failed");
+        assert.equal(failed.shadowObserver.eventAppended, true);
+        assert.equal(failed.accountability.postShadowLedgerVerificationDecision, "ledger_valid");
+        assert.ok(failed.accountability.postShadowTrace);
+        assert.equal(failed.finalDecision, "temp_validation_passed");
+      }
+      assert.ok(timeout.shadowObserver.issueCodes.includes("shadow_upstream_timeout"));
+      assert.equal(httpFailure.status, "failed_required_shadow");
+      assert.equal(timeout.status, "failed_required_shadow");
+    });
+
+    const missingShadowConfiguration = await execute({
+      WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: ""
+    });
+    const boundedReviewWithoutObservation = await execute({
+      WORKER_ORCHESTRATOR_SHADOW_MAX_RESPONSE_CHARS: "1"
+    });
+    const boundedPreflightWithoutRequest = await execute({
+      WORKER_ORCHESTRATOR_SHADOW_MAX_TRACE_EVENTS: "1",
+      WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "0"
+    });
+
+    check("W.6 required mode enforces only eligible terminal Shadow paths", () => {
+      assert.equal(missingShadowConfiguration.finalDecision, "temp_validation_passed");
+      assert.equal(missingShadowConfiguration.status, "failed_required_shadow");
+      assert.equal(missingShadowConfiguration.shadowObserver.called, false);
+      assert.equal(missingShadowConfiguration.shadowObserver.requiredSatisfied, false);
+      assert.equal(boundedReviewWithoutObservation.shadowObserver.decision,
+        "shadow_observer_needs_review");
+      assert.equal(boundedReviewWithoutObservation.shadowObserver.observation, null);
+      assert.equal(boundedReviewWithoutObservation.shadowObserver.eventAppended, true);
+      assert.equal(boundedReviewWithoutObservation.status, "failed_required_shadow");
+      assert.equal(boundedPreflightWithoutRequest.shadowObserver.called, false);
+      assert.equal(boundedPreflightWithoutRequest.shadowObserver.decision,
+        "shadow_observer_needs_review");
+      assert.equal(boundedPreflightWithoutRequest.shadowObserver.eventAppended, false);
+      assert.equal(boundedPreflightWithoutRequest.accountability.eventCountAfterShadow, 9);
+      assert.equal(boundedPreflightWithoutRequest.accountability.postShadowTrace, null);
+      assert.equal(reviewedShadow.status, "completed");
+      assert.equal(plannerInvalid.status, "completed");
+    });
+
+    const recommendationReports = [];
+    for (const recommendation of [
+      "continue",
+      "request_repair",
+      "request_replan",
+      "escalate",
+      "terminate"
+    ]) {
+      shadowRecommendation = recommendation;
+      recommendationReports.push(await execute());
+    }
+    shadowRecommendation = "continue";
+
+    check("W.6 every Shadow recommendation remains advisory", () => {
+      assert.deepEqual(
+        recommendationReports.map((candidate) => candidate.shadowObserver.recommendation),
+        ["continue", "request_repair", "request_replan", "escalate", "terminate"]
+      );
+      for (const candidate of recommendationReports) {
+        assert.equal(candidate.finalDecision, "temp_validation_passed");
+        assert.equal(candidate.shadowObserver.decision, "shadow_observer_completed");
+      }
+    });
+
+    usageScenario = "missing";
+    const missingUsage = await execute();
+    usageScenario = "invalid";
+    const invalidUsage = await execute();
+    usageScenario = "valid";
+
+    check("W.6 token usage is recorded only when valid and never guessed", () => {
+      for (const event of missingUsage.accountability.ledger.events) {
+        assert.equal(event.tokenUsage, undefined);
+      }
+      for (const event of invalidUsage.accountability.ledger.events) {
+        assert.equal(event.tokenUsage, undefined);
+      }
+      assert.equal(missingUsage.shadowObserver.decision, "shadow_observer_completed");
+      assert.equal(invalidUsage.shadowObserver.decision, "shadow_observer_needs_review");
+      assert.ok(invalidUsage.shadowObserver.observation);
+      assert.ok(invalidUsage.shadowObserver.issueCodes.includes(
+        "invalid_shadow_upstream_usage"));
+      assert.equal(invalidUsage.shadowObserver.requiredSatisfied, true);
+    });
+
+    const originalValidationCommands = fixture.validationCommands;
+    let failedExecution;
+    let reviewedExecution;
+    try {
+      fixture.validationCommands = [{
+        id: "w6-terminal-failure",
+        executable: "node",
+        args: ["-e", "process.exit(7)"],
+        timeoutMs: 10000,
+        expectedExitCodes: [0]
+      }];
+      failedExecution = await execute();
+      fixture.validationCommands = [{
+        id: "w6-terminal-review",
+        executable: "node",
+        args: ["-e", "process.stdout.write('x'.repeat(21000))"],
+        timeoutMs: 10000,
+        expectedExitCodes: [0]
+      }];
+      reviewedExecution = await execute();
+    } finally {
+      fixture.validationCommands = originalValidationCommands;
+    }
+
+    check("W.6 Shadow runs after failed and needs-review terminal execution cleanup", () => {
+      assert.equal(failedExecution.finalDecision, "temp_validation_failed");
+      assert.equal(reviewedExecution.finalDecision, "temp_validation_needs_review");
+      for (const candidate of [failedExecution, reviewedExecution]) {
+        assert.equal(candidate.tempWorkspaceExecution.cleanupPerformed, true);
+        assert.equal(candidate.shadowObserver.called, true);
+        assert.equal(candidate.shadowObserver.decision, "shadow_observer_completed");
+        assert.equal(candidate.shadowObserver.eventAppended, true);
+        assert.equal(candidate.accountability.postShadowLedgerVerificationDecision,
+          "ledger_valid");
+      }
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+    fs.rmSync(outDir, { recursive: true, force: true });
+  }
+}
+
 runExecutionIntegrationChecks()
+  .then(runW6IntegrationChecks)
   .then(() => {
     console.log("worker-backed orchestrator smoke test passed");
   })

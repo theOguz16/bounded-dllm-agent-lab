@@ -70,15 +70,47 @@ function preview(value, maxChars = 1000) {
 }
 
 function configFromEnv() {
+  const hasShadowUrl = Object.prototype.hasOwnProperty.call(
+    process.env,
+    "WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL"
+  );
+  const hasShadowModelId = Object.prototype.hasOwnProperty.call(
+    process.env,
+    "WORKER_ORCHESTRATOR_SHADOW_MODEL_ID"
+  );
+  const upstreamUrl = process.env.WORKER_ORCHESTRATOR_UPSTREAM_URL || "";
+  const modelId = process.env.WORKER_ORCHESTRATOR_MODEL_ID || "qwen2.5-coder-7b";
   return {
-    upstreamUrl: process.env.WORKER_ORCHESTRATOR_UPSTREAM_URL || "",
-    modelId: process.env.WORKER_ORCHESTRATOR_MODEL_ID || "qwen2.5-coder-7b",
+    upstreamUrl,
+    modelId,
     timeoutMs: readIntegerEnv("WORKER_ORCHESTRATOR_TIMEOUT_MS", 120000),
     plannerMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_PLANNER_MAX_TOKENS", 256),
     coderMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_CODER_MAX_TOKENS", 512),
     remaskMaxTokens: readIntegerEnv("WORKER_ORCHESTRATOR_REMASK_MAX_TOKENS", 512),
     forceRemask: process.env.WORKER_ORCHESTRATOR_FORCE_REMASK === "1",
     required: process.env.WORKER_ORCHESTRATOR_REQUIRED === "1",
+    shadow: {
+      upstreamUrl: hasShadowUrl
+        ? process.env.WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL
+        : upstreamUrl,
+      modelId: hasShadowModelId
+        ? process.env.WORKER_ORCHESTRATOR_SHADOW_MODEL_ID
+        : modelId,
+      timeoutMs: readIntegerEnv("WORKER_ORCHESTRATOR_SHADOW_TIMEOUT_MS", 120000),
+      maxTraceEvents: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_SHADOW_MAX_TRACE_EVENTS",
+        100
+      ),
+      maxPromptChars: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_SHADOW_MAX_PROMPT_CHARS",
+        100000
+      ),
+      maxResponseChars: readIntegerEnv(
+        "WORKER_ORCHESTRATOR_SHADOW_MAX_RESPONSE_CHARS",
+        20000
+      ),
+      required: process.env.WORKER_ORCHESTRATOR_SHADOW_REQUIRED === "1"
+    },
     outDir: process.env.WORKER_ORCHESTRATOR_OUT_DIR || path.join("reports", "worker-backed-orchestrator-smoke")
   };
 }
@@ -300,6 +332,89 @@ function emptyTemporaryWorkspaceExecutionDecision() {
   };
 }
 
+function emptyAccountabilityReport() {
+  return {
+    ledgerCreated: false,
+    evidenceComplete: false,
+    runId: null,
+    objectiveHash: null,
+    eventCountBeforeShadow: 0,
+    eventCountAfterShadow: 0,
+    ledgerRootHashBeforeShadow: null,
+    ledgerRootHashAfterShadow: null,
+    preShadowLedgerVerificationDecision: null,
+    preShadowTraceDecision: null,
+    preShadowTraceHash: null,
+    preShadowFindingCount: 0,
+    preShadowWarningCount: 0,
+    preShadowErrorCount: 0,
+    postShadowLedgerVerificationDecision: null,
+    postShadowTraceDecision: null,
+    postShadowTraceHash: null,
+    postShadowFindingCount: 0,
+    phaseVExecutionObserved: false,
+    phaseVExecutionCompleted: false,
+    issueCodes: [],
+    ledger: null,
+    preShadowTrace: null,
+    postShadowTrace: null
+  };
+}
+
+function emptyShadowObserverReport(configured = false, required = false) {
+  return {
+    configured,
+    required,
+    called: false,
+    decision: null,
+    validationDecision: null,
+    requiredSatisfied: !required,
+    riskLevel: null,
+    riskScore: null,
+    confidenceScore: null,
+    recommendation: null,
+    findingCount: 0,
+    observationHash: null,
+    responseContentHash: null,
+    inputTokens: null,
+    outputTokens: null,
+    totalTokens: null,
+    eventAppended: false,
+    issueCodes: [],
+    observation: null,
+    durationMs: 0
+  };
+}
+
+function emptyAccountabilityDecisionSummary() {
+  return {
+    agentLedgerCreated: false,
+    agentLedgerEvidenceComplete: false,
+    agentLedgerEventCountBeforeShadow: 0,
+    agentLedgerEventCountAfterShadow: 0,
+    agentLedgerRootHashBeforeShadow: null,
+    agentLedgerRootHashAfterShadow: null,
+    agentLedgerVerificationDecision: null,
+    accountabilityTraceDecision: null,
+    accountabilityTraceHash: null,
+    shadowObserverConfigured: false,
+    shadowObserverRequired: false,
+    shadowObserverCalled: false,
+    shadowObserverDecision: null,
+    shadowObserverValidationDecision: null,
+    shadowObserverRequiredSatisfied: true,
+    shadowObserverRiskLevel: null,
+    shadowObserverRiskScore: null,
+    shadowObserverRecommendation: null,
+    shadowObserverFindingCount: 0,
+    shadowObserverObservationHash: null,
+    shadowObserverEventAppended: false,
+    postShadowLedgerVerificationDecision: null,
+    postShadowTraceDecision: null,
+    postShadowTraceHash: null
+  };
+}
+
 function baseReport(config, status) {
   const finalDecision = status === "skipped" ? "skipped" : "blocked";
 
@@ -308,7 +423,6 @@ function baseReport(config, status) {
     status,
     suiteName: SUITE_NAME,
     caseId: fixture.caseId,
-    modelId: config.modelId,
     configured: Boolean(config.upstreamUrl),
     forceRemask: config.forceRemask,
     finalDecision,
@@ -328,7 +442,8 @@ function baseReport(config, status) {
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
       tempWorkspaceApplyCleanedUp: null,
-      ...emptyTemporaryWorkspaceExecutionDecision()
+      ...emptyTemporaryWorkspaceExecutionDecision(),
+      ...emptyAccountabilityDecisionSummary()
     },
     planner: emptyRoleReport(),
     coder: emptyRoleReport(),
@@ -338,6 +453,12 @@ function baseReport(config, status) {
     patchDryRun: emptyPatchDryRunReport(),
     tempWorkspaceApply: emptyTemporaryWorkspaceApplyReport(),
     tempWorkspaceExecution: emptyTemporaryWorkspaceExecutionReport(),
+    accountability: emptyAccountabilityReport(),
+    shadowObserver: {
+      ...emptyShadowObserverReport(false, config.shadow.required),
+      requiredSatisfied: true
+    },
+    shadowStageDecision: "shadow_not_called",
     jsonPath: "",
     markdownPath: ""
   };
@@ -576,8 +697,7 @@ function renderMarkdown(report, config) {
     "",
     `- Suite: ${report.suiteName}`,
     `- Case: ${report.caseId}`,
-    `- Configured endpoint: ${report.configured ? config.upstreamUrl : "not configured"}`,
-    `- Model id: ${report.modelId}`,
+    `- Configured endpoint: ${report.configured}`,
     `- Status: ${report.status}`,
     `- OK: ${report.ok}`,
     `- Final decision: ${report.finalDecision}`,
@@ -739,6 +859,63 @@ function renderMarkdown(report, config) {
     "",
     temporaryWorkspaceExecutionIssuesMarkdown(report.tempWorkspaceExecution),
     "",
+    "## Agent Event Ledger",
+    "",
+    `- Created: ${report.accountability.ledgerCreated}`,
+    `- Evidence complete: ${report.accountability.evidenceComplete}`,
+    `- Run ID: ${report.accountability.runId ?? ""}`,
+    `- Event count before Shadow: ${report.accountability.eventCountBeforeShadow}`,
+    `- Event count after Shadow: ${report.accountability.eventCountAfterShadow}`,
+    `- Root hash before Shadow: ${report.accountability.ledgerRootHashBeforeShadow ?? ""}`,
+    `- Root hash after Shadow: ${report.accountability.ledgerRootHashAfterShadow ?? ""}`,
+    `- Actor/action sequence: ${report.accountability.ledger
+      ? report.accountability.ledger.events.map((event) => `${event.actor}/${event.action}`).join(", ")
+      : ""}`,
+    "",
+    "## Accountability Trace",
+    "",
+    `- Pre-Shadow trace decision: ${report.accountability.preShadowTraceDecision ?? ""}`,
+    `- Pre-Shadow trace hash: ${report.accountability.preShadowTraceHash ?? ""}`,
+    `- Finding count: ${report.accountability.preShadowFindingCount}`,
+    `- Warning count: ${report.accountability.preShadowWarningCount}`,
+    `- Error count: ${report.accountability.preShadowErrorCount}`,
+    `- Planned file count: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.files.plannedFileCount : 0}`,
+    `- Proposed file count: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.files.proposedFileCount : 0}`,
+    `- Unplanned proposed file count: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.files.unplannedProposedFiles.length : 0}`,
+    `- Repair count: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.repairActivity.repairCount : 0}`,
+    `- Remask count: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.repairActivity.remaskCount : 0}`,
+    `- Execution terminal decision: ${report.accountability.preShadowTrace ? report.accountability.preShadowTrace.decisions.finalExecutionDecision ?? "" : ""}`,
+    "",
+    "## Shadow Observer",
+    "",
+    `- Configured: ${report.shadowObserver.configured}`,
+    `- Required: ${report.shadowObserver.required}`,
+    `- Called: ${report.shadowObserver.called}`,
+    `- Adapter decision: ${report.shadowObserver.decision ?? ""}`,
+    `- Validation decision: ${report.shadowObserver.validationDecision ?? ""}`,
+    `- Required satisfied: ${report.shadowObserver.requiredSatisfied}`,
+    `- Risk level: ${report.shadowObserver.riskLevel ?? ""}`,
+    `- Risk score: ${report.shadowObserver.riskScore ?? ""}`,
+    `- Confidence score: ${report.shadowObserver.confidenceScore ?? ""}`,
+    `- Recommendation: ${report.shadowObserver.recommendation ?? ""}`,
+    `- Finding count: ${report.shadowObserver.findingCount}`,
+    `- Observation hash: ${report.shadowObserver.observationHash ?? ""}`,
+    `- Response-content hash: ${report.shadowObserver.responseContentHash ?? ""}`,
+    `- Input tokens: ${report.shadowObserver.inputTokens ?? ""}`,
+    `- Output tokens: ${report.shadowObserver.outputTokens ?? ""}`,
+    `- Total tokens: ${report.shadowObserver.totalTokens ?? ""}`,
+    `- Issue codes: ${report.shadowObserver.issueCodes.join(", ")}`,
+    "",
+    "## Post-Shadow Audit State",
+    "",
+    `- Shadow event appended: ${report.shadowObserver.eventAppended}`,
+    `- Post-Shadow ledger decision: ${report.accountability.postShadowLedgerVerificationDecision ?? ""}`,
+    `- Post-Shadow root hash: ${report.accountability.ledgerRootHashAfterShadow ?? ""}`,
+    `- Post-Shadow trace decision: ${report.accountability.postShadowTraceDecision ?? ""}`,
+    `- Post-Shadow trace hash: ${report.accountability.postShadowTraceHash ?? ""}`,
+    `- Final Phase V decision: ${report.finalDecision}`,
+    `- Shadow stage decision: ${report.shadowStageDecision}`,
+    "",
     "### Remask Raw Output Preview",
     "",
     "```text",
@@ -861,6 +1038,301 @@ async function loadTemporaryWorkspaceExecutionVerifier() {
     )
   );
   return import(verifierPath.href);
+}
+
+async function loadAccountabilityRuntime() {
+  const runtimePath = pathToFileURL(
+    path.join(process.cwd(), "dist", "packages", "product-runtime", "src", "index.js")
+  );
+  return import(runtimePath.href);
+}
+
+function timestampNow(notBefore = null) {
+  const now = new Date().toISOString();
+  return notBefore !== null && Date.parse(now) < Date.parse(notBefore)
+    ? notBefore
+    : now;
+}
+
+function boundedCodes(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => value && typeof value === "object" ? value.code : value)
+    .filter((value) =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 128 &&
+      /^[A-Za-z0-9._:-]+$/.test(value)
+    ))].slice(0, 64);
+}
+
+function boundedFiles(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((value) => typeof value === "string" ? value : value && value.file)
+    .filter((value) =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      value.length <= 512 &&
+      value.trim() === value &&
+      !/[\u0000-\u001f\u007f]/.test(value)
+    ))].slice(0, 128);
+}
+
+function validTokenUsage(report) {
+  const inputTokens = report && report.promptTokens;
+  const outputTokens = report && report.completionTokens;
+  const totalTokens = report && report.totalTokens;
+  return Number.isSafeInteger(inputTokens) && inputTokens >= 0 &&
+    Number.isSafeInteger(outputTokens) && outputTokens >= 0 &&
+    Number.isSafeInteger(totalTokens) && totalTokens === inputTokens + outputTokens
+    ? { inputTokens, outputTokens, totalTokens }
+    : undefined;
+}
+
+function labeledHash(runtime, artifactType, value) {
+  return runtime.hashCanonicalJson({ artifactType, value });
+}
+
+function createAccountabilityContext(runtime) {
+  const objectiveHash = runtime.hashCanonicalJson({
+    artifactType: "worker_orchestrator_objective",
+    objective: fixture.task
+  });
+  return {
+    runtime,
+    ledger: runtime.createAgentEventLedger({
+      runId: `worker-orchestrator:${fixture.caseId}`,
+      objectiveHash
+    }),
+    objectiveHash,
+    issueCodes: [],
+    evidenceComplete: true,
+    hashes: {}
+  };
+}
+
+function appendAccountabilityEvent(context, draft) {
+  try {
+    context.ledger = context.runtime.appendAgentEvent(context.ledger, {
+      ...draft,
+      inputArtifactHashes: [...new Set(draft.inputArtifactHashes.filter(Boolean))],
+      outputArtifactHashes: [...new Set(draft.outputArtifactHashes.filter(Boolean))],
+      filesRead: boundedFiles(draft.filesRead),
+      filesProposed: boundedFiles(draft.filesProposed),
+      reasonCodes: boundedCodes(draft.reasonCodes)
+    });
+    return true;
+  } catch {
+    context.evidenceComplete = false;
+    context.issueCodes.push("accountability_event_append_failed");
+    return false;
+  }
+}
+
+function exactLedgerAnchors(ledger) {
+  return {
+    expectedRunId: ledger.runId,
+    expectedObjectiveHash: ledger.objectiveHash,
+    expectedRootHash: ledger.rootHash,
+    expectedEventCount: ledger.eventCount
+  };
+}
+
+function citedObservationFiles(observation) {
+  return boundedFiles(
+    observation && Array.isArray(observation.findings)
+      ? observation.findings.flatMap((finding) => finding.filePaths || [])
+      : []
+  );
+}
+
+function populateDecisionAccountability(report) {
+  Object.assign(report.orchestratorDecision, {
+    agentLedgerCreated: report.accountability.ledgerCreated,
+    agentLedgerEvidenceComplete: report.accountability.evidenceComplete,
+    agentLedgerEventCountBeforeShadow: report.accountability.eventCountBeforeShadow,
+    agentLedgerEventCountAfterShadow: report.accountability.eventCountAfterShadow,
+    agentLedgerRootHashBeforeShadow: report.accountability.ledgerRootHashBeforeShadow,
+    agentLedgerRootHashAfterShadow: report.accountability.ledgerRootHashAfterShadow,
+    agentLedgerVerificationDecision:
+      report.accountability.preShadowLedgerVerificationDecision,
+    accountabilityTraceDecision: report.accountability.preShadowTraceDecision,
+    accountabilityTraceHash: report.accountability.preShadowTraceHash,
+    shadowObserverConfigured: report.shadowObserver.configured,
+    shadowObserverRequired: report.shadowObserver.required,
+    shadowObserverCalled: report.shadowObserver.called,
+    shadowObserverDecision: report.shadowObserver.decision,
+    shadowObserverValidationDecision: report.shadowObserver.validationDecision,
+    shadowObserverRequiredSatisfied: report.shadowObserver.requiredSatisfied,
+    shadowObserverRiskLevel: report.shadowObserver.riskLevel,
+    shadowObserverRiskScore: report.shadowObserver.riskScore,
+    shadowObserverRecommendation: report.shadowObserver.recommendation,
+    shadowObserverFindingCount: report.shadowObserver.findingCount,
+    shadowObserverObservationHash: report.shadowObserver.observationHash,
+    shadowObserverEventAppended: report.shadowObserver.eventAppended,
+    postShadowLedgerVerificationDecision:
+      report.accountability.postShadowLedgerVerificationDecision,
+    postShadowTraceDecision: report.accountability.postShadowTraceDecision,
+    postShadowTraceHash: report.accountability.postShadowTraceHash
+  });
+}
+
+async function finalizeAccountabilityAndShadow(report, config, context) {
+  const { runtime } = context;
+  const accountability = report.accountability;
+  accountability.ledgerCreated = true;
+  accountability.runId = context.ledger.runId;
+  accountability.objectiveHash = context.objectiveHash;
+  accountability.eventCountBeforeShadow = context.ledger.eventCount;
+  accountability.ledgerRootHashBeforeShadow = context.ledger.rootHash;
+
+  const preAnchors = exactLedgerAnchors(context.ledger);
+  const preVerification = runtime.verifyAgentEventLedger(context.ledger, preAnchors);
+  const preTraceResult = runtime.buildRunAccountabilityTrace(context.ledger, preAnchors);
+  const preTrace = preTraceResult.trace;
+  accountability.preShadowLedgerVerificationDecision = preVerification.decision;
+  accountability.preShadowTraceDecision = preTraceResult.decision;
+  accountability.preShadowTraceHash = preTrace ? preTrace.traceHash : null;
+  accountability.preShadowFindingCount = preTraceResult.summary.findingCount;
+  accountability.preShadowWarningCount = preTraceResult.summary.warningCount;
+  accountability.preShadowErrorCount = preTraceResult.summary.errorCount;
+  accountability.phaseVExecutionObserved = Boolean(preTrace && preTrace.phaseVExecutionObserved);
+  accountability.phaseVExecutionCompleted = Boolean(preTrace && preTrace.phaseVExecutionCompleted);
+  if (preVerification.decision !== "ledger_valid") {
+    context.evidenceComplete = false;
+    context.issueCodes.push("pre_shadow_ledger_verification_failed");
+  }
+  if (preTrace === null) {
+    context.evidenceComplete = false;
+    context.issueCodes.push("pre_shadow_trace_unavailable");
+  }
+
+  const executionTerminal = new Set([
+    "temp_validation_passed",
+    "temp_validation_failed",
+    "temp_validation_needs_review"
+  ]).has(report.finalDecision);
+  const shadowEligible =
+    context.evidenceComplete &&
+    preVerification.decision === "ledger_valid" &&
+    preTrace !== null &&
+    preTraceResult.summary.traceHashValid === true &&
+    accountability.phaseVExecutionObserved &&
+    accountability.phaseVExecutionCompleted &&
+    executionTerminal &&
+    report.tempWorkspaceExecution.cleanupPerformed === true;
+  const shadowConfigured = Boolean(config.shadow.upstreamUrl && config.shadow.modelId);
+  report.shadowObserver = emptyShadowObserverReport(shadowConfigured, config.shadow.required);
+
+  if (shadowEligible && shadowConfigured) {
+    const shadowStartedAt = timestampNow();
+    let adapterResult = null;
+    try {
+      adapterResult = await runtime.runShadowObserverModel(preTrace, {
+        endpoint: config.shadow.upstreamUrl,
+        modelId: config.shadow.modelId,
+        timeoutMs: config.shadow.timeoutMs,
+        maxTraceEvents: config.shadow.maxTraceEvents,
+        maxPromptChars: config.shadow.maxPromptChars,
+        maxResponseChars: config.shadow.maxResponseChars
+      });
+    } catch {
+      context.evidenceComplete = false;
+      context.issueCodes.push("shadow_adapter_configuration_invalid");
+    }
+    const shadowFinishedAt = timestampNow(shadowStartedAt);
+
+    if (adapterResult !== null) {
+      const observation = adapterResult.observation;
+      report.shadowObserver = {
+        configured: true,
+        required: config.shadow.required,
+        called: adapterResult.called,
+        decision: adapterResult.decision,
+        validationDecision: adapterResult.validationDecision,
+        requiredSatisfied: false,
+        riskLevel: observation ? observation.riskLevel : null,
+        riskScore: observation ? observation.riskScore : null,
+        confidenceScore: observation ? observation.confidenceScore : null,
+        recommendation: observation ? observation.recommendation : null,
+        findingCount: observation ? observation.findings.length : 0,
+        observationHash: observation ? observation.observationHash : null,
+        responseContentHash: adapterResult.responseContentHash,
+        inputTokens: adapterResult.usage ? adapterResult.usage.inputTokens : null,
+        outputTokens: adapterResult.usage ? adapterResult.usage.outputTokens : null,
+        totalTokens: adapterResult.usage ? adapterResult.usage.totalTokens : null,
+        eventAppended: false,
+        issueCodes: adapterResult.issues.map((issue) => issue.code),
+        observation,
+        durationMs: adapterResult.summary.durationMs
+      };
+      report.shadowStageDecision = adapterResult.decision;
+
+      if (adapterResult.called) {
+        const shadowEventAppended = appendAccountabilityEvent(context, {
+          actor: "shadow_observer",
+          action: "shadow_observer.observe",
+          startedAt: shadowStartedAt,
+          finishedAt: shadowFinishedAt,
+          inputArtifactHashes: [preTrace.traceHash],
+          outputArtifactHashes: [
+            observation && observation.observationHash,
+            adapterResult.responseContentHash
+          ],
+          filesRead: citedObservationFiles(observation),
+          filesProposed: [],
+          decision: observation ? observation.recommendation : adapterResult.decision,
+          reasonCodes: [
+            ...(observation ? observation.rationaleCodes : []),
+            ...adapterResult.issues.map((issue) => issue.code)
+          ],
+          ...(adapterResult.usage ? { tokenUsage: adapterResult.usage } : {})
+        });
+        report.shadowObserver.eventAppended = shadowEventAppended;
+      }
+    }
+  }
+
+  if (report.shadowObserver.eventAppended) {
+    const postAnchors = exactLedgerAnchors(context.ledger);
+    const postVerification = runtime.verifyAgentEventLedger(context.ledger, postAnchors);
+    const postTraceResult = runtime.buildRunAccountabilityTrace(context.ledger, postAnchors);
+    accountability.postShadowLedgerVerificationDecision = postVerification.decision;
+    accountability.postShadowTraceDecision = postTraceResult.decision;
+    accountability.postShadowTraceHash = postTraceResult.trace
+      ? postTraceResult.trace.traceHash
+      : null;
+    accountability.postShadowFindingCount = postTraceResult.summary.findingCount;
+    accountability.postShadowTrace = postTraceResult.trace;
+    if (postVerification.decision !== "ledger_valid") {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_shadow_ledger_verification_failed");
+    }
+    if (postTraceResult.trace === null) {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_shadow_trace_unavailable");
+    }
+  }
+
+  const requiredSatisfied = !config.shadow.required || !shadowEligible || (
+    report.shadowObserver.called &&
+    report.shadowObserver.observation !== null &&
+    (report.shadowObserver.decision === "shadow_observer_completed" ||
+      report.shadowObserver.decision === "shadow_observer_needs_review")
+  );
+  report.shadowObserver.requiredSatisfied = requiredSatisfied;
+  if (!requiredSatisfied) {
+    report.ok = false;
+    report.status = "failed_required_shadow";
+  }
+
+  accountability.evidenceComplete = context.evidenceComplete;
+  accountability.eventCountAfterShadow = context.ledger.eventCount;
+  accountability.ledgerRootHashAfterShadow = context.ledger.rootHash;
+  accountability.issueCodes = boundedCodes(context.issueCodes);
+  accountability.ledger = context.ledger;
+  accountability.preShadowTrace = preTrace;
+  accountability.postShadowTrace = accountability.postShadowTrace || null;
+  populateDecisionAccountability(report);
 }
 
 function canVerifyTemporaryWorkspaceExecution(tempWorkspaceApply) {
@@ -1123,7 +1595,8 @@ function decide(
       tempWorkspaceApplyIssueCount: 0,
       tempWorkspaceApplyChangedFiles: null,
       tempWorkspaceApplyCleanedUp: null,
-      ...emptyTemporaryWorkspaceExecutionDecision()
+      ...emptyTemporaryWorkspaceExecutionDecision(),
+      ...emptyAccountabilityDecisionSummary()
     };
   }
 
@@ -1326,9 +1799,21 @@ async function run() {
   const { applyToTemporaryWorkspace } = await loadTemporaryWorkspaceApplyGate();
   const { verifyTemporaryWorkspaceExecution } =
     await loadTemporaryWorkspaceExecutionVerifier();
+  const accountabilityRuntime = await loadAccountabilityRuntime();
+  const accountabilityContext = createAccountabilityContext(accountabilityRuntime);
   const report = baseReport(config, "completed");
+  let activeAccountabilityStage = null;
 
   try {
+    const plannerStartedAt = timestampNow();
+    activeAccountabilityStage = {
+      actor: "planner",
+      action: "planner.plan",
+      startedAt: plannerStartedAt,
+      inputArtifactHashes: [accountabilityContext.objectiveHash],
+      filesRead: [],
+      filesProposed: []
+    };
     report.planner.called = true;
     const plannerResponse = await callOpenAiCompatibleEndpoint(
       config,
@@ -1349,6 +1834,40 @@ async function run() {
     report.planner.totalTokens = plannerUsage.totalTokens;
     report.planner.rawOutputPreview = preview(rawPlannerOutput);
     report.planner.validation = plannerValidation;
+    const plannerFinishedAt = timestampNow(plannerStartedAt);
+    if (plannerValidation.mutation) {
+      accountabilityContext.hashes.plannerMutationHash = labeledHash(
+        accountabilityRuntime,
+        "planner_validated_mutation",
+        plannerValidation.mutation
+      );
+    }
+    accountabilityContext.hashes.plannerValidationHash = labeledHash(
+      accountabilityRuntime,
+      "planner_validation_result",
+      plannerValidation
+    );
+    appendAccountabilityEvent(accountabilityContext, {
+      actor: "planner",
+      action: "planner.plan",
+      startedAt: plannerStartedAt,
+      finishedAt: plannerFinishedAt,
+      inputArtifactHashes: [accountabilityContext.objectiveHash],
+      outputArtifactHashes: [
+        accountabilityContext.hashes.plannerMutationHash,
+        accountabilityContext.hashes.plannerValidationHash
+      ],
+      filesRead: [],
+      filesProposed: plannerValidation.mutation
+        ? plannerValidation.mutation.touchedFiles
+        : [],
+      decision: plannerValidation.ok ? "planner_valid" : "planner_invalid",
+      reasonCodes: plannerValidation.issues,
+      ...(validTokenUsage(report.planner)
+        ? { tokenUsage: validTokenUsage(report.planner) }
+        : {})
+    });
+    activeAccountabilityStage = null;
 
     if (!plannerValidation.ok) {
       report.ok = true;
@@ -1356,9 +1875,23 @@ async function run() {
       const decision = decide(plannerValidation, report.coder.validation);
       report.finalDecision = decision.finalDecision;
       report.orchestratorDecision = decision;
+      await finalizeAccountabilityAndShadow(
+        report,
+        config,
+        accountabilityContext
+      );
       return writeReport(report, config);
     }
 
+    const coderStartedAt = timestampNow();
+    activeAccountabilityStage = {
+      actor: "coder",
+      action: "coder.patch_draft",
+      startedAt: coderStartedAt,
+      inputArtifactHashes: [accountabilityContext.hashes.plannerMutationHash],
+      filesRead: plannerValidation.mutation.touchedFiles,
+      filesProposed: []
+    };
     report.coder.called = true;
     const coderResponse = await callOpenAiCompatibleEndpoint(
       config,
@@ -1379,10 +1912,53 @@ async function run() {
     report.coder.totalTokens = coderUsage.totalTokens;
     report.coder.rawOutputPreview = preview(rawCoderOutput);
     report.coder.validation = coderValidation;
+    const coderFinishedAt = timestampNow(coderStartedAt);
+    if (coderValidation.mutation) {
+      accountabilityContext.hashes.coderMutationHash = labeledHash(
+        accountabilityRuntime,
+        "coder_validated_mutation",
+        coderValidation.mutation
+      );
+    }
+    accountabilityContext.hashes.coderValidationHash = labeledHash(
+      accountabilityRuntime,
+      "coder_validation_result",
+      coderValidation
+    );
+    appendAccountabilityEvent(accountabilityContext, {
+      actor: "coder",
+      action: "coder.patch_draft",
+      startedAt: coderStartedAt,
+      finishedAt: coderFinishedAt,
+      inputArtifactHashes: [accountabilityContext.hashes.plannerMutationHash],
+      outputArtifactHashes: [
+        accountabilityContext.hashes.coderMutationHash,
+        accountabilityContext.hashes.coderValidationHash
+      ],
+      filesRead: plannerValidation.mutation.touchedFiles,
+      filesProposed: coderValidation.mutation
+        ? coderValidation.mutation.touchedFiles
+        : [],
+      decision: coderValidation.ok ? "coder_valid" : "coder_invalid",
+      reasonCodes: coderValidation.issues,
+      ...(validTokenUsage(report.coder)
+        ? { tokenUsage: validTokenUsage(report.coder) }
+        : {})
+    });
+    activeAccountabilityStage = null;
 
     let verifierResult = null;
     let remaskResult = null;
     if (coderValidation.ok) {
+      const verifierStartedAt = timestampNow();
+      activeAccountabilityStage = {
+        actor: "deterministic_verifier",
+        action: "deterministic_verifier.patch_draft",
+        startedAt: verifierStartedAt,
+        inputArtifactHashes: [accountabilityContext.hashes.coderMutationHash],
+        filesRead: coderValidation.mutation.touchedFiles,
+        filesProposed: []
+      };
       verifierResult = config.forceRemask
         ? buildForcedRemaskVerifierResult(coderValidation.mutation)
         : verifyPatchDraftMutation(coderValidation.mutation, {
@@ -1399,8 +1975,36 @@ async function run() {
         issues: verifierResult.issues,
         finding: verifierResult.finding
       };
+      const verifierFinishedAt = timestampNow(verifierStartedAt);
+      accountabilityContext.hashes.initialVerifierResultHash = labeledHash(
+        accountabilityRuntime,
+        "initial_deterministic_verifier_result",
+        verifierResult
+      );
+      appendAccountabilityEvent(accountabilityContext, {
+        actor: "deterministic_verifier",
+        action: "deterministic_verifier.patch_draft",
+        startedAt: verifierStartedAt,
+        finishedAt: verifierFinishedAt,
+        inputArtifactHashes: [accountabilityContext.hashes.coderMutationHash],
+        outputArtifactHashes: [accountabilityContext.hashes.initialVerifierResultHash],
+        filesRead: coderValidation.mutation.touchedFiles,
+        filesProposed: [],
+        decision: verifierResult.decision,
+        reasonCodes: verifierResult.issues
+      });
+      activeAccountabilityStage = null;
 
       if (verifierResult.decision === "needs_review") {
+        const maskerStartedAt = timestampNow();
+        activeAccountabilityStage = {
+          actor: "masker",
+          action: "masker.repair_scope",
+          startedAt: maskerStartedAt,
+          inputArtifactHashes: [accountabilityContext.hashes.initialVerifierResultHash],
+          filesRead: coderValidation.mutation.touchedFiles,
+          filesProposed: []
+        };
         remaskResult = buildRemaskRequestFromVerifierFinding(
           coderValidation.mutation,
           verifierResult.finding,
@@ -1410,6 +2014,7 @@ async function run() {
             maxRepairSteps: 3
           }
         );
+        const maskerFinishedAt = timestampNow(maskerStartedAt);
         report.remask = {
           called: false,
           requested: Boolean(remaskResult.remaskRequest),
@@ -1426,8 +2031,43 @@ async function run() {
           repairDraftChecks: null
         };
 
+        if (remaskResult.remaskRequest || config.forceRemask) {
+          accountabilityContext.hashes.remaskRequestHash = labeledHash(
+            accountabilityRuntime,
+            "remask_request",
+            remaskResult.remaskRequest || {
+              forced: true,
+              repairability: remaskResult.repairability,
+              issues: remaskResult.issues.map((issue) => issue.code)
+            }
+          );
+          appendAccountabilityEvent(accountabilityContext, {
+            actor: "masker",
+            action: "masker.repair_scope",
+            startedAt: maskerStartedAt,
+            finishedAt: maskerFinishedAt,
+            inputArtifactHashes: [accountabilityContext.hashes.initialVerifierResultHash],
+            outputArtifactHashes: [accountabilityContext.hashes.remaskRequestHash],
+            filesRead: coderValidation.mutation.touchedFiles,
+            filesProposed: remaskResult.remaskRequest
+              ? remaskResult.remaskRequest.touchedFiles
+              : [],
+            decision: remaskResult.remaskRequest
+              ? "remask_requested"
+              : "remask_forced",
+            reasonCodes: [
+              ...verifierResult.issues,
+              ...remaskResult.issues,
+              ...repairableIssueCodesFromRemaskRequest(remaskResult.remaskRequest)
+            ]
+          });
+        }
+        activeAccountabilityStage = null;
+
         if (remaskResult.remaskRequest) {
           report.remask.called = true;
+          const repairerStartedAt = timestampNow();
+          let repairerEventAppended = false;
           try {
             const remaskResponse = await callOpenAiCompatibleEndpoint(
               config,
@@ -1457,12 +2097,59 @@ async function run() {
             report.remask.rawOutputPreview = preview(rawRemaskOutput);
             report.remask.validation = remaskValidation;
             report.remask.repairDraftChecks = repairDraftChecks;
+            const repairerFinishedAt = timestampNow(repairerStartedAt);
+            if (remaskValidation.mutation) {
+              accountabilityContext.hashes.repairDraftHash = labeledHash(
+                accountabilityRuntime,
+                "repair_draft_mutation",
+                remaskValidation.mutation
+              );
+            }
+            accountabilityContext.hashes.repairValidationHash = labeledHash(
+              accountabilityRuntime,
+              "repair_draft_validation",
+              { validation: remaskValidation, checks: repairDraftChecks }
+            );
+            repairerEventAppended = appendAccountabilityEvent(accountabilityContext, {
+              actor: "repairer",
+              action: "repairer.repair_draft",
+              startedAt: repairerStartedAt,
+              finishedAt: repairerFinishedAt,
+              inputArtifactHashes: [accountabilityContext.hashes.remaskRequestHash],
+              outputArtifactHashes: [
+                accountabilityContext.hashes.repairDraftHash,
+                accountabilityContext.hashes.repairValidationHash
+              ],
+              filesRead: remaskResult.remaskRequest.touchedFiles,
+              filesProposed: remaskValidation.mutation
+                ? remaskValidation.mutation.touchedFiles
+                : [],
+              decision: remaskValidation.ok
+                ? "repair_draft_valid"
+                : "repair_draft_invalid",
+              reasonCodes: [
+                ...remaskValidation.issues,
+                ...repairDraftChecks.issues
+              ],
+              ...(validTokenUsage(report.remask)
+                ? { tokenUsage: validTokenUsage(report.remask) }
+                : {})
+            });
 
             if (
               remaskValidation.ok &&
               remaskValidation.mutation &&
               repairDraftChecks.ok
             ) {
+              const repairVerifierStartedAt = timestampNow();
+              activeAccountabilityStage = {
+                actor: "repair_verifier",
+                action: "repair_verifier.repair_draft",
+                startedAt: repairVerifierStartedAt,
+                inputArtifactHashes: [accountabilityContext.hashes.repairDraftHash],
+                filesRead: remaskValidation.mutation.touchedFiles,
+                filesProposed: []
+              };
               const repairVerifierResult = verifyRepairDraftMutation(remaskValidation.mutation, {
                 allowedFiles: fixture.allowedFiles,
                 forbiddenFiles: fixture.forbiddenFiles,
@@ -1478,8 +2165,39 @@ async function run() {
                 issues: repairVerifierResult.issues,
                 finding: repairVerifierResult.finding
               };
+              const repairVerifierFinishedAt = timestampNow(repairVerifierStartedAt);
+              accountabilityContext.hashes.repairVerifierResultHash = labeledHash(
+                accountabilityRuntime,
+                "repair_deterministic_verifier_result",
+                repairVerifierResult
+              );
+              appendAccountabilityEvent(accountabilityContext, {
+                actor: "repair_verifier",
+                action: "repair_verifier.repair_draft",
+                startedAt: repairVerifierStartedAt,
+                finishedAt: repairVerifierFinishedAt,
+                inputArtifactHashes: [accountabilityContext.hashes.repairDraftHash],
+                outputArtifactHashes: [accountabilityContext.hashes.repairVerifierResultHash],
+                filesRead: remaskValidation.mutation.touchedFiles,
+                filesProposed: [],
+                decision: repairVerifierResult.decision,
+                reasonCodes: repairVerifierResult.issues
+              });
+              activeAccountabilityStage = null;
 
               if (repairVerifierResult.decision === "approve") {
+                const patchDryRunStartedAt = timestampNow();
+                activeAccountabilityStage = {
+                  actor: "patch_dry_run",
+                  action: "patch_dry_run.evaluate",
+                  startedAt: patchDryRunStartedAt,
+                  inputArtifactHashes: [
+                    accountabilityContext.hashes.repairDraftHash,
+                    accountabilityContext.hashes.repairVerifierResultHash
+                  ],
+                  filesRead: remaskValidation.mutation.touchedFiles,
+                  filesProposed: []
+                };
                 const patchDryRunResult = dryRunPatchApplication(
                   remaskValidation.mutation,
                   repairVerifierResult.finding,
@@ -1502,8 +2220,39 @@ async function run() {
                   summary: patchDryRunResult.summary,
                   previews: patchDryRunResult.previews
                 };
+                const patchDryRunFinishedAt = timestampNow(patchDryRunStartedAt);
+                accountabilityContext.hashes.patchDryRunResultHash = labeledHash(
+                  accountabilityRuntime,
+                  "patch_dry_run_result",
+                  patchDryRunResult
+                );
+                appendAccountabilityEvent(accountabilityContext, {
+                  actor: "patch_dry_run",
+                  action: "patch_dry_run.evaluate",
+                  startedAt: patchDryRunStartedAt,
+                  finishedAt: patchDryRunFinishedAt,
+                  inputArtifactHashes: [
+                    accountabilityContext.hashes.repairDraftHash,
+                    accountabilityContext.hashes.repairVerifierResultHash
+                  ],
+                  outputArtifactHashes: [accountabilityContext.hashes.patchDryRunResultHash],
+                  filesRead: remaskValidation.mutation.touchedFiles,
+                  filesProposed: patchDryRunResult.previews,
+                  decision: patchDryRunResult.decision,
+                  reasonCodes: patchDryRunResult.issues
+                });
+                activeAccountabilityStage = null;
 
                 if (patchDryRunResult.decision === "ready_to_apply") {
+                  const tempApplyStartedAt = timestampNow();
+                  activeAccountabilityStage = {
+                    actor: "temp_workspace_apply",
+                    action: "temp_workspace_apply.apply",
+                    startedAt: tempApplyStartedAt,
+                    inputArtifactHashes: [accountabilityContext.hashes.patchDryRunResultHash],
+                    filesRead: patchDryRunResult.previews,
+                    filesProposed: []
+                  };
                   const tempWorkspaceApplyResult = applyToTemporaryWorkspace(
                     remaskValidation.mutation,
                     repairVerifierResult.finding,
@@ -1532,7 +2281,45 @@ async function run() {
                     summary: tempWorkspaceApplyResult.summary,
                     appliedFiles: tempWorkspaceApplyResult.appliedFiles
                   };
+                  const tempApplyFinishedAt = timestampNow(tempApplyStartedAt);
+                  accountabilityContext.hashes.temporaryApplyResultHash = labeledHash(
+                    accountabilityRuntime,
+                    "temporary_workspace_apply_result",
+                    {
+                      decision: tempWorkspaceApplyResult.decision,
+                      issues: tempWorkspaceApplyResult.issues,
+                      appliedFiles: tempWorkspaceApplyResult.appliedFiles.map((file) => ({
+                        file: file.file,
+                        changed: file.changed,
+                        addedLines: file.addedLines,
+                        removedLines: file.removedLines
+                      })),
+                      summary: tempWorkspaceApplyResult.summary
+                    }
+                  );
+                  appendAccountabilityEvent(accountabilityContext, {
+                    actor: "temp_workspace_apply",
+                    action: "temp_workspace_apply.apply",
+                    startedAt: tempApplyStartedAt,
+                    finishedAt: tempApplyFinishedAt,
+                    inputArtifactHashes: [accountabilityContext.hashes.patchDryRunResultHash],
+                    outputArtifactHashes: [accountabilityContext.hashes.temporaryApplyResultHash],
+                    filesRead: patchDryRunResult.previews,
+                    filesProposed: tempWorkspaceApplyResult.appliedFiles,
+                    decision: tempWorkspaceApplyResult.decision,
+                    reasonCodes: tempWorkspaceApplyResult.issues
+                  });
+                  activeAccountabilityStage = null;
 
+                  const executionStartedAt = timestampNow();
+                  activeAccountabilityStage = {
+                    actor: "execution_verifier",
+                    action: "execution_verifier.validate",
+                    startedAt: executionStartedAt,
+                    inputArtifactHashes: [accountabilityContext.hashes.temporaryApplyResultHash],
+                    filesRead: tempWorkspaceApplyResult.appliedFiles,
+                    filesProposed: []
+                  };
                   report.tempWorkspaceExecution = verifyAndCleanupTemporaryWorkspace(
                     report.tempWorkspaceApply,
                     {
@@ -1542,6 +2329,56 @@ async function run() {
                     },
                     verifyTemporaryWorkspaceExecution
                   );
+                  const executionFinishedAt = timestampNow(executionStartedAt);
+                  if (report.tempWorkspaceExecution.called) {
+                    accountabilityContext.hashes.executionVerificationResultHash = labeledHash(
+                      accountabilityRuntime,
+                      "temporary_workspace_execution_result",
+                      {
+                        decision: report.tempWorkspaceExecution.decision,
+                        issues: report.tempWorkspaceExecution.issues,
+                        commandCount: report.tempWorkspaceExecution.commandCount,
+                        passedCommands: report.tempWorkspaceExecution.passedCommands,
+                        failedCommands: report.tempWorkspaceExecution.failedCommands,
+                        timedOutCommands: report.tempWorkspaceExecution.timedOutCommands,
+                        truncatedOutputs: report.tempWorkspaceExecution.truncatedOutputs,
+                        cleanupAttempted: report.tempWorkspaceExecution.cleanupAttempted,
+                        cleanupPerformed: report.tempWorkspaceExecution.cleanupPerformed
+                      }
+                    );
+                    const executionReasonCodes = [
+                      ...report.tempWorkspaceExecution.issues,
+                      ...(report.tempWorkspaceExecution.cleanupPerformed
+                        ? ["temp_workspace_cleanup_performed"]
+                        : report.tempWorkspaceExecution.cleanupAttempted
+                          ? ["temp_workspace_cleanup_failed"]
+                          : []),
+                      ...(report.tempWorkspaceExecution.failedCommands > 0
+                        ? ["validation_command_failed"]
+                        : []),
+                      ...(report.tempWorkspaceExecution.timedOutCommands > 0
+                        ? ["validation_command_timeout"]
+                        : []),
+                      ...(report.tempWorkspaceExecution.truncatedOutputs > 0
+                        ? ["validation_output_truncated"]
+                        : [])
+                    ];
+                    appendAccountabilityEvent(accountabilityContext, {
+                      actor: "execution_verifier",
+                      action: "execution_verifier.validate",
+                      startedAt: executionStartedAt,
+                      finishedAt: executionFinishedAt,
+                      inputArtifactHashes: [accountabilityContext.hashes.temporaryApplyResultHash],
+                      outputArtifactHashes: [
+                        accountabilityContext.hashes.executionVerificationResultHash
+                      ],
+                      filesRead: tempWorkspaceApplyResult.appliedFiles,
+                      filesProposed: [],
+                      decision: report.tempWorkspaceExecution.decision,
+                      reasonCodes: executionReasonCodes
+                    });
+                  }
+                  activeAccountabilityStage = null;
                 }
               }
             }
@@ -1552,12 +2389,31 @@ async function run() {
               issues: [
                 {
                   code: "invalid_shape",
-                  message: error instanceof Error ? error.message : String(error)
+                  message: "The repair model stage failed before bounded validation completed."
                 }
               ],
               mutation: null
             };
             report.remask.repairDraftChecks = emptyRepairDraftChecks();
+            if (!repairerEventAppended) {
+              accountabilityContext.hashes.repairValidationHash = labeledHash(
+                accountabilityRuntime,
+                "repair_draft_validation",
+                { ok: false, code: "invalid_shape" }
+              );
+              appendAccountabilityEvent(accountabilityContext, {
+                actor: "repairer",
+                action: "repairer.repair_draft",
+                startedAt: repairerStartedAt,
+                finishedAt: timestampNow(repairerStartedAt),
+                inputArtifactHashes: [accountabilityContext.hashes.remaskRequestHash],
+                outputArtifactHashes: [accountabilityContext.hashes.repairValidationHash],
+                filesRead: remaskResult.remaskRequest.touchedFiles,
+                filesProposed: [],
+                decision: "repair_draft_invalid",
+                reasonCodes: ["invalid_shape"]
+              });
+            }
           }
         }
       }
@@ -1582,12 +2438,27 @@ async function run() {
     report.finalDecision = decision.finalDecision;
     report.orchestratorDecision = decision;
   } catch (error) {
+    if (activeAccountabilityStage !== null) {
+      const failureHash = labeledHash(
+        accountabilityRuntime,
+        "orchestration_stage_failure",
+        { actor: activeAccountabilityStage.actor, action: activeAccountabilityStage.action }
+      );
+      appendAccountabilityEvent(accountabilityContext, {
+        ...activeAccountabilityStage,
+        finishedAt: timestampNow(activeAccountabilityStage.startedAt),
+        outputArtifactHashes: [failureHash],
+        decision: "stage_failed",
+        reasonCodes: ["stage_execution_failed"]
+      });
+      activeAccountabilityStage = null;
+    }
     report.ok = false;
     report.status = "failed";
     report.finalDecision = "blocked";
     report.orchestratorDecision = {
       finalDecision: "blocked",
-      reason: error instanceof Error ? error.message : String(error),
+      reason: "A worker-backed orchestration stage failed.",
       repairVerifierCalled: false,
       repairVerifierDecision: null,
       repairVerifierIssueCount: 0,
@@ -1603,6 +2474,8 @@ async function run() {
       ...emptyTemporaryWorkspaceExecutionDecision()
     };
   }
+
+  await finalizeAccountabilityAndShadow(report, config, accountabilityContext);
 
   return writeReport(report, config);
 }
@@ -1627,6 +2500,7 @@ module.exports = {
   buildForcedRemaskVerifierResult,
   buildPlannerMessages,
   canVerifyTemporaryWorkspaceExecution,
+  configFromEnv,
   decide,
   emptyRemaskReport,
   emptyRepairVerifierReport,
