@@ -376,10 +376,12 @@ function emptyAccountabilityReport() {
     eventCountAfterShadow: 0,
     eventCountAfterGovernance: 0,
     eventCountAfterAdmin: 0,
+    eventCountAfterRouter: 0,
     ledgerRootHashBeforeShadow: null,
     ledgerRootHashAfterShadow: null,
     ledgerRootHashAfterGovernance: null,
     ledgerRootHashAfterAdmin: null,
+    ledgerRootHashAfterRouter: null,
     preShadowLedgerVerificationDecision: null,
     preShadowTraceDecision: null,
     preShadowTraceHash: null,
@@ -398,8 +400,13 @@ function emptyAccountabilityReport() {
     postAdminTraceDecision: null,
     postAdminTraceHash: null,
     postAdminFindingCount: 0,
+    postRouterLedgerVerificationDecision: null,
+    postRouterTraceDecision: null,
+    postRouterTraceHash: null,
+    postRouterFindingCount: 0,
     governanceEventAppended: false,
     adminEventAppended: false,
+    approvalRouterEventAppended: false,
     phaseVExecutionObserved: false,
     phaseVExecutionCompleted: false,
     issueCodes: [],
@@ -407,7 +414,8 @@ function emptyAccountabilityReport() {
     preShadowTrace: null,
     postShadowTrace: null,
     postGovernanceTrace: null,
-    postAdminTrace: null
+    postAdminTrace: null,
+    postRouterTrace: null
   };
 }
 
@@ -484,6 +492,39 @@ function emptyAdminAgentReport(configured = false, required = false) {
   };
 }
 
+function emptyApprovalRouterReport() {
+  return {
+    evaluated: false,
+    required: false,
+    requiredSatisfied: true,
+    validationDecision: null,
+    route: null,
+    riskClass: null,
+    phaseVFinalDecision: null,
+    shadowStageDecision: null,
+    governanceDecision: null,
+    adminStageDecision: null,
+    adminDecision: null,
+    traceHash: null,
+    observationHash: null,
+    governanceHash: null,
+    adminDecisionHash: null,
+    policyHash: null,
+    routeHash: null,
+    triggeredRuleCount: 0,
+    repairRuleCount: 0,
+    replanRuleCount: 0,
+    humanRuleCount: 0,
+    terminateRuleCount: 0,
+    reasonCodes: [],
+    issueCodes: [],
+    deterministicAuthorityPreserved: false,
+    autoContinueEligible: false,
+    eventAppended: false,
+    assessment: null
+  };
+}
+
 function emptyAccountabilityDecisionSummary() {
   return {
     agentLedgerCreated: false,
@@ -538,7 +579,26 @@ function emptyAccountabilityDecisionSummary() {
     postGovernanceTraceHash: null,
     postAdminLedgerVerificationDecision: null,
     postAdminTraceDecision: null,
-    postAdminTraceHash: null
+    postAdminTraceHash: null,
+    approvalRouterEvaluated: false,
+    approvalRouterValidationDecision: null,
+    approvalWorkflowRoute: null,
+    approvalRouterRiskClass: null,
+    approvalRouterPolicyHash: null,
+    approvalRouteHash: null,
+    approvalRouterTriggeredRuleCount: 0,
+    approvalRouterRepairRuleCount: 0,
+    approvalRouterReplanRuleCount: 0,
+    approvalRouterHumanRuleCount: 0,
+    approvalRouterTerminateRuleCount: 0,
+    approvalRouterDeterministicAuthorityPreserved: false,
+    approvalRouterAutoContinueEligible: false,
+    approvalRouterEventAppended: false,
+    agentLedgerEventCountAfterRouter: 0,
+    agentLedgerRootHashAfterRouter: null,
+    postRouterLedgerVerificationDecision: null,
+    postRouterTraceDecision: null,
+    postRouterTraceHash: null
   };
 }
 
@@ -590,9 +650,12 @@ function baseReport(config, status) {
       ...emptyAdminAgentReport(false, config.admin.required),
       requiredSatisfied: true
     },
+    approvalRouter: emptyApprovalRouterReport(),
     shadowStageDecision: "shadow_not_called",
     governanceStageDecision: "governance_not_evaluated",
     adminStageDecision: "admin_not_called",
+    approvalRouterStageDecision: "approval_route_not_evaluated",
+    workflowRoute: null,
     jsonPath: "",
     markdownPath: ""
   };
@@ -1002,10 +1065,12 @@ function renderMarkdown(report, config) {
     `- Event count after Shadow: ${report.accountability.eventCountAfterShadow}`,
     `- Event count after Governance: ${report.accountability.eventCountAfterGovernance}`,
     `- Event count after Admin: ${report.accountability.eventCountAfterAdmin}`,
+    `- Event count after Router: ${report.accountability.eventCountAfterRouter}`,
     `- Root hash before Shadow: ${report.accountability.ledgerRootHashBeforeShadow ?? ""}`,
     `- Root hash after Shadow: ${report.accountability.ledgerRootHashAfterShadow ?? ""}`,
     `- Root hash after Governance: ${report.accountability.ledgerRootHashAfterGovernance ?? ""}`,
     `- Root hash after Admin: ${report.accountability.ledgerRootHashAfterAdmin ?? ""}`,
+    `- Root hash after Router: ${report.accountability.ledgerRootHashAfterRouter ?? ""}`,
     `- Actor/action sequence: ${report.accountability.ledger
       ? report.accountability.ledger.events.map((event) => `${event.actor}/${event.action}`).join(", ")
       : ""}`,
@@ -1115,6 +1180,51 @@ function renderMarkdown(report, config) {
     `- Shadow stage decision: ${report.shadowStageDecision}`,
     `- Governance stage decision: ${report.governanceStageDecision}`,
     `- Admin stage decision: ${report.adminStageDecision}`,
+    "",
+    "## Risk-Based Approval Router",
+    "",
+    `- Evaluated: ${report.approvalRouter.evaluated}`,
+    `- Required: ${report.approvalRouter.required}`,
+    `- Required satisfied: ${report.approvalRouter.requiredSatisfied}`,
+    `- Validation decision: ${report.approvalRouter.validationDecision ?? ""}`,
+    `- Workflow route: ${report.approvalRouter.route ?? ""}`,
+    `- Risk class: ${report.approvalRouter.riskClass ?? ""}`,
+    `- Phase V final decision: ${report.approvalRouter.phaseVFinalDecision ?? ""}`,
+    `- Shadow stage decision: ${report.approvalRouter.shadowStageDecision ?? ""}`,
+    `- Governance decision: ${report.approvalRouter.governanceDecision ?? ""}`,
+    `- Admin stage decision: ${report.approvalRouter.adminStageDecision ?? ""}`,
+    `- Admin decision: ${report.approvalRouter.adminDecision ?? ""}`,
+    `- Trace hash: ${report.approvalRouter.traceHash ?? ""}`,
+    `- Observation hash: ${report.approvalRouter.observationHash ?? ""}`,
+    `- Governance hash: ${report.approvalRouter.governanceHash ?? ""}`,
+    `- Admin decision hash: ${report.approvalRouter.adminDecisionHash ?? ""}`,
+    `- Policy hash: ${report.approvalRouter.policyHash ?? ""}`,
+    `- Route hash: ${report.approvalRouter.routeHash ?? ""}`,
+    `- Triggered-rule count: ${report.approvalRouter.triggeredRuleCount}`,
+    `- Repair-rule count: ${report.approvalRouter.repairRuleCount}`,
+    `- Replan-rule count: ${report.approvalRouter.replanRuleCount}`,
+    `- Human-rule count: ${report.approvalRouter.humanRuleCount}`,
+    `- Terminate-rule count: ${report.approvalRouter.terminateRuleCount}`,
+    `- Deterministic authority preserved: ${report.approvalRouter.deterministicAuthorityPreserved}`,
+    `- Auto-continue eligible: ${report.approvalRouter.autoContinueEligible}`,
+    `- Reason codes: ${report.approvalRouter.reasonCodes.join(", ")}`,
+    `- Issue codes: ${report.approvalRouter.issueCodes.join(", ")}`,
+    `- Router event appended: ${report.approvalRouter.eventAppended}`,
+    "",
+    "## Post-Router Final Audit State",
+    "",
+    `- Event count: ${report.accountability.eventCountAfterRouter}`,
+    `- Ledger root hash: ${report.accountability.ledgerRootHashAfterRouter ?? ""}`,
+    `- Ledger-verification decision: ${report.accountability.postRouterLedgerVerificationDecision ?? ""}`,
+    `- Trace decision: ${report.accountability.postRouterTraceDecision ?? ""}`,
+    `- Trace hash: ${report.accountability.postRouterTraceHash ?? ""}`,
+    `- Finding count: ${report.accountability.postRouterFindingCount}`,
+    `- Final Phase V decision: ${report.finalDecision}`,
+    `- Shadow stage decision: ${report.shadowStageDecision}`,
+    `- Governance stage decision: ${report.governanceStageDecision}`,
+    `- Admin stage decision: ${report.adminStageDecision}`,
+    `- Router validation decision: ${report.approvalRouterStageDecision}`,
+    `- Workflow route: ${report.workflowRoute ?? ""}`,
     "",
     "### Remask Raw Output Preview",
     "",
@@ -1373,6 +1483,18 @@ function adminEvidenceFiles(adminDecision) {
     : []);
 }
 
+function approvalRouterEvidenceFiles(assessment, result) {
+  if (assessment) {
+    return boundedFiles([
+      ...assessment.issues.flatMap((issue) => issue.filePaths),
+      ...assessment.ruleResults.flatMap((rule) => rule.filePaths)
+    ]);
+  }
+  return boundedFiles(result
+    ? result.issues.flatMap((issue) => issue.filePaths)
+    : []);
+}
+
 function populateDecisionAccountability(report) {
   Object.assign(report.orchestratorDecision, {
     agentLedgerCreated: report.accountability.ledgerCreated,
@@ -1431,7 +1553,28 @@ function populateDecisionAccountability(report) {
     postAdminLedgerVerificationDecision:
       report.accountability.postAdminLedgerVerificationDecision,
     postAdminTraceDecision: report.accountability.postAdminTraceDecision,
-    postAdminTraceHash: report.accountability.postAdminTraceHash
+    postAdminTraceHash: report.accountability.postAdminTraceHash,
+    approvalRouterEvaluated: report.approvalRouter.evaluated,
+    approvalRouterValidationDecision: report.approvalRouter.validationDecision,
+    approvalWorkflowRoute: report.approvalRouter.route,
+    approvalRouterRiskClass: report.approvalRouter.riskClass,
+    approvalRouterPolicyHash: report.approvalRouter.policyHash,
+    approvalRouteHash: report.approvalRouter.routeHash,
+    approvalRouterTriggeredRuleCount: report.approvalRouter.triggeredRuleCount,
+    approvalRouterRepairRuleCount: report.approvalRouter.repairRuleCount,
+    approvalRouterReplanRuleCount: report.approvalRouter.replanRuleCount,
+    approvalRouterHumanRuleCount: report.approvalRouter.humanRuleCount,
+    approvalRouterTerminateRuleCount: report.approvalRouter.terminateRuleCount,
+    approvalRouterDeterministicAuthorityPreserved:
+      report.approvalRouter.deterministicAuthorityPreserved,
+    approvalRouterAutoContinueEligible: report.approvalRouter.autoContinueEligible,
+    approvalRouterEventAppended: report.approvalRouter.eventAppended,
+    agentLedgerEventCountAfterRouter: report.accountability.eventCountAfterRouter,
+    agentLedgerRootHashAfterRouter: report.accountability.ledgerRootHashAfterRouter,
+    postRouterLedgerVerificationDecision:
+      report.accountability.postRouterLedgerVerificationDecision,
+    postRouterTraceDecision: report.accountability.postRouterTraceDecision,
+    postRouterTraceHash: report.accountability.postRouterTraceHash
   });
 }
 
@@ -1782,6 +1925,192 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
   accountability.eventCountAfterAdmin = context.ledger.eventCount;
   accountability.ledgerRootHashAfterAdmin = context.ledger.rootHash;
 
+  const approvalRouterEligible =
+    preVerification.decision === "ledger_valid" &&
+    preTrace !== null &&
+    preTraceResult.summary.traceHashValid === true &&
+    accountability.phaseVExecutionObserved &&
+    accountability.phaseVExecutionCompleted &&
+    executionTerminal &&
+    governanceAssessment !== null;
+  report.approvalRouter = emptyApprovalRouterReport();
+  report.approvalRouter.required = approvalRouterEligible;
+  let approvalRouterResult = null;
+  let approvalRouterAssessment = null;
+
+  if (approvalRouterEligible) {
+    let approvalRouterInput = {
+      phaseVFinalDecision: report.finalDecision,
+      trace: preTrace,
+      shadow: {
+        stageDecision: report.shadowStageDecision,
+        validationDecision: report.shadowObserver.validationDecision,
+        observation: validatedObservation
+      },
+      governance: governanceAssessment,
+      admin: {
+        stageDecision: report.adminStageDecision,
+        validationDecision: report.adminAgent.validationDecision,
+        decision: report.adminAgent.adminDecision
+      }
+    };
+    if (typeof fixture.approvalRouterInputMutation === "function") {
+      const mutatedInput = fixture.approvalRouterInputMutation(
+        approvalRouterInput,
+        runtime
+      );
+      if (mutatedInput !== undefined) approvalRouterInput = mutatedInput;
+    }
+    Object.assign(report.approvalRouter, {
+      evaluated: true,
+      required: true,
+      requiredSatisfied: false,
+      phaseVFinalDecision: approvalRouterInput.phaseVFinalDecision,
+      shadowStageDecision: approvalRouterInput.shadow.stageDecision,
+      governanceDecision: approvalRouterInput.governance.decision,
+      adminStageDecision: approvalRouterInput.admin.stageDecision,
+      adminDecision: approvalRouterInput.admin.decision
+        ? approvalRouterInput.admin.decision.decision
+        : null,
+      traceHash: approvalRouterInput.trace.traceHash,
+      observationHash: approvalRouterInput.shadow.observation
+        ? approvalRouterInput.shadow.observation.observationHash
+        : null,
+      governanceHash: approvalRouterInput.governance.governanceHash,
+      adminDecisionHash: approvalRouterInput.admin.decision
+        ? approvalRouterInput.admin.decision.adminDecisionHash
+        : null
+    });
+    const routerStartedAt = timestampNow();
+    try {
+      approvalRouterResult = runtime.evaluateRiskBasedApprovalRoute(
+        approvalRouterInput,
+        runtime.DEFAULT_RISK_BASED_APPROVAL_ROUTER_POLICY
+      );
+      approvalRouterAssessment = approvalRouterResult.assessment;
+    } catch {
+      context.evidenceComplete = false;
+      context.issueCodes.push("approval_router_evaluation_failed");
+    }
+    const routerFinishedAt = timestampNow(routerStartedAt);
+
+    if (approvalRouterResult !== null) {
+      report.approvalRouter = {
+        evaluated: true,
+        required: true,
+        requiredSatisfied: false,
+        validationDecision: approvalRouterResult.decision,
+        route: approvalRouterResult.route,
+        riskClass: approvalRouterAssessment ? approvalRouterAssessment.riskClass : null,
+        phaseVFinalDecision: approvalRouterInput.phaseVFinalDecision,
+        shadowStageDecision: approvalRouterInput.shadow.stageDecision,
+        governanceDecision: approvalRouterInput.governance.decision,
+        adminStageDecision: approvalRouterInput.admin.stageDecision,
+        adminDecision: approvalRouterInput.admin.decision
+          ? approvalRouterInput.admin.decision.decision
+          : null,
+        traceHash: approvalRouterAssessment
+          ? approvalRouterAssessment.traceHash
+          : approvalRouterInput.trace.traceHash,
+        observationHash: approvalRouterAssessment
+          ? approvalRouterAssessment.observationHash
+          : approvalRouterInput.shadow.observation
+            ? approvalRouterInput.shadow.observation.observationHash
+            : null,
+        governanceHash: approvalRouterAssessment
+          ? approvalRouterAssessment.governanceHash
+          : approvalRouterInput.governance.governanceHash,
+        adminDecisionHash: approvalRouterAssessment
+          ? approvalRouterAssessment.adminDecisionHash
+          : approvalRouterInput.admin.decision
+            ? approvalRouterInput.admin.decision.adminDecisionHash
+            : null,
+        policyHash: approvalRouterAssessment ? approvalRouterAssessment.policyHash : null,
+        routeHash: approvalRouterAssessment ? approvalRouterAssessment.routeHash : null,
+        triggeredRuleCount: approvalRouterResult.summary.triggeredRuleCount,
+        repairRuleCount: approvalRouterResult.summary.repairRuleCount,
+        replanRuleCount: approvalRouterResult.summary.replanRuleCount,
+        humanRuleCount: approvalRouterResult.summary.humanRuleCount,
+        terminateRuleCount: approvalRouterResult.summary.terminateRuleCount,
+        reasonCodes: approvalRouterAssessment
+          ? [...approvalRouterAssessment.reasonCodes]
+          : approvalRouterResult.issues.map((issue) => issue.code),
+        issueCodes: approvalRouterResult.issues.map((issue) => issue.code),
+        deterministicAuthorityPreserved:
+          approvalRouterResult.summary.deterministicAuthorityPreserved,
+        autoContinueEligible: approvalRouterResult.summary.autoContinueEligible,
+        eventAppended: false,
+        assessment: approvalRouterAssessment
+      };
+      report.approvalRouterStageDecision = approvalRouterResult.decision;
+      report.workflowRoute = approvalRouterResult.route;
+
+      const eventAppended = appendAccountabilityEvent(context, {
+        actor: "approval_router",
+        action: "approval_router.evaluate",
+        startedAt: routerStartedAt,
+        finishedAt: routerFinishedAt,
+        inputArtifactHashes: [
+          approvalRouterInput.trace.traceHash,
+          approvalRouterInput.shadow.observation &&
+            approvalRouterInput.shadow.observation.observationHash,
+          approvalRouterInput.governance.governanceHash,
+          approvalRouterInput.admin.decision &&
+            approvalRouterInput.admin.decision.adminDecisionHash,
+          approvalRouterAssessment && approvalRouterAssessment.policyHash
+        ],
+        outputArtifactHashes: [
+          approvalRouterAssessment && approvalRouterAssessment.routeHash
+        ],
+        filesRead: approvalRouterEvidenceFiles(
+          approvalRouterAssessment,
+          approvalRouterResult
+        ),
+        filesProposed: [],
+        decision: approvalRouterAssessment && approvalRouterResult.route
+          ? approvalRouterAssessment.route
+          : approvalRouterResult.decision,
+        reasonCodes: approvalRouterAssessment
+          ? approvalRouterAssessment.reasonCodes
+          : approvalRouterResult.issues.map((issue) => issue.code)
+      });
+      report.approvalRouter.eventAppended = eventAppended;
+      accountability.approvalRouterEventAppended = eventAppended;
+      if (!eventAppended) {
+        context.issueCodes.push("approval_router_event_append_failed");
+      }
+    }
+  }
+
+  if (report.approvalRouter.eventAppended) {
+    const postRouterAnchors = exactLedgerAnchors(context.ledger);
+    const postRouterVerification = runtime.verifyAgentEventLedger(
+      context.ledger,
+      postRouterAnchors
+    );
+    const postRouterTraceResult = runtime.buildRunAccountabilityTrace(
+      context.ledger,
+      postRouterAnchors
+    );
+    accountability.ledgerRootHashAfterRouter = context.ledger.rootHash;
+    accountability.postRouterLedgerVerificationDecision = postRouterVerification.decision;
+    accountability.postRouterTraceDecision = postRouterTraceResult.decision;
+    accountability.postRouterTraceHash = postRouterTraceResult.trace
+      ? postRouterTraceResult.trace.traceHash
+      : null;
+    accountability.postRouterFindingCount = postRouterTraceResult.summary.findingCount;
+    accountability.postRouterTrace = postRouterTraceResult.trace;
+    if (postRouterVerification.decision !== "ledger_valid") {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_router_ledger_verification_failed");
+    }
+    if (postRouterTraceResult.trace === null) {
+      context.evidenceComplete = false;
+      context.issueCodes.push("post_router_trace_unavailable");
+    }
+  }
+  accountability.eventCountAfterRouter = context.ledger.eventCount;
+
   const requiredSatisfied = !config.shadow.required || !shadowEligible || (
     report.shadowObserver.called &&
     report.shadowObserver.observation !== null &&
@@ -1809,6 +2138,24 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     }
   }
 
+  const approvalRouterRequiredSatisfied = !approvalRouterEligible || (
+    report.approvalRouter.validationDecision === "approval_route_valid" &&
+    report.approvalRouter.route !== null &&
+    report.approvalRouter.assessment !== null &&
+    report.approvalRouter.routeHash !== null &&
+    report.approvalRouter.eventAppended &&
+    accountability.postRouterLedgerVerificationDecision === "ledger_valid" &&
+    accountability.postRouterTrace !== null
+  );
+  report.approvalRouter.requiredSatisfied = approvalRouterRequiredSatisfied;
+  if (!approvalRouterRequiredSatisfied) {
+    report.ok = false;
+    if (report.status !== "failed_required_shadow" &&
+        report.status !== "failed_required_admin") {
+      report.status = "failed_required_approval_router";
+    }
+  }
+
   accountability.evidenceComplete = context.evidenceComplete;
   accountability.issueCodes = boundedCodes(context.issueCodes);
   accountability.ledger = context.ledger;
@@ -1816,6 +2163,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
   accountability.postShadowTrace = accountability.postShadowTrace || null;
   accountability.postGovernanceTrace = accountability.postGovernanceTrace || null;
   accountability.postAdminTrace = accountability.postAdminTrace || null;
+  accountability.postRouterTrace = accountability.postRouterTrace || null;
   populateDecisionAccountability(report);
 }
 
@@ -2254,6 +2602,7 @@ async function run() {
     const report = baseReport(config, status);
     report.ok = !config.required;
     report.orchestratorDecision = {
+      ...report.orchestratorDecision,
       finalDecision: status,
       reason: "WORKER_ORCHESTRATOR_UPSTREAM_URL is not configured.",
       forcedRemask: config.forceRemask,

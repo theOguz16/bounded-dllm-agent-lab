@@ -107,7 +107,7 @@ check("skipped report has configured false", () => {
   assert.equal(report.configured, false);
 });
 
-check("W.10 skipped report creates no ledger or governed stages", () => {
+check("W.12 skipped report creates no ledger or governed stages", () => {
   const { report } = runSmoke({ WORKER_ORCHESTRATOR_REQUIRED: "0" });
   assert.equal(report.accountability.ledgerCreated, false);
   assert.equal(report.accountability.ledger, null);
@@ -131,6 +131,16 @@ check("W.10 skipped report creates no ledger or governed stages", () => {
   assert.equal(report.adminStageDecision, "admin_not_called");
   assert.equal(report.accountability.postGovernanceTrace, null);
   assert.equal(report.accountability.postAdminTrace, null);
+  assert.equal(report.approvalRouter.evaluated, false);
+  assert.equal(report.approvalRouter.required, false);
+  assert.equal(report.approvalRouter.requiredSatisfied, true);
+  assert.equal(report.approvalRouter.validationDecision, null);
+  assert.equal(report.approvalRouter.route, null);
+  assert.equal(report.approvalRouter.assessment, null);
+  assert.equal(report.approvalRouter.eventAppended, false);
+  assert.equal(report.approvalRouterStageDecision, "approval_route_not_evaluated");
+  assert.equal(report.workflowRoute, null);
+  assert.equal(report.accountability.postRouterTrace, null);
 });
 
 check("no live network call is required", () => {
@@ -1857,6 +1867,18 @@ async function runW6IntegrationChecks() {
           riskScore = 35;
           severity = "warning";
         }
+        if (adminScenario === "strong_human") {
+          decision = "admin_human_escalation_required";
+          riskLevel = "high";
+          riskScore = 60;
+          severity = "high";
+        }
+        if (adminScenario === "strong_terminate") {
+          decision = "admin_run_terminated";
+          riskLevel = "critical";
+          riskScore = 90;
+          severity = "critical";
+        }
         const ruleForDecision = {
           admin_repair_required: "execution_outcome",
           admin_replan_required: "planned_scope_consistency"
@@ -2226,16 +2248,20 @@ async function runW6IntegrationChecks() {
       assert.deepEqual(report.accountability.ledger.events.map((event) => event.actor), [
         "planner", "coder", "deterministic_verifier", "masker", "repairer",
         "repair_verifier", "patch_dry_run", "temp_workspace_apply",
-        "execution_verifier", "shadow_observer", "deterministic_governor", "admin_agent"
+        "execution_verifier", "shadow_observer", "deterministic_governor", "admin_agent",
+        "approval_router"
       ]);
-      assert.equal(report.accountability.ledger.events.at(-1).actor, "admin_agent");
+      assert.equal(report.accountability.ledger.events.at(-1).actor, "approval_router");
       assert.equal(report.accountability.ledger.events.at(-1).eventId,
-        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000012");
+        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000013");
       assert.equal(report.accountability.ledger.rootHash,
         report.accountability.ledger.events.at(-1).eventHash);
       assert.equal(report.accountability.eventCountAfterGovernance, 11);
       assert.equal(report.accountability.eventCountAfterAdmin, 12);
-      assert.equal(report.accountability.ledgerRootHashAfterAdmin,
+      assert.equal(report.accountability.eventCountAfterRouter, 13);
+      assert.notEqual(report.accountability.ledgerRootHashAfterAdmin,
+        report.accountability.ledger.rootHash);
+      assert.equal(report.accountability.ledgerRootHashAfterRouter,
         report.accountability.ledger.rootHash);
       assert.equal(report.orchestratorDecision.governanceEvaluated, true);
       assert.equal(report.orchestratorDecision.governanceDecision,
@@ -2261,6 +2287,35 @@ async function runW6IntegrationChecks() {
         report.accountability.postGovernanceTraceHash);
       assert.notEqual(report.accountability.postGovernanceTraceHash,
         report.accountability.postAdminTraceHash);
+      assert.notEqual(report.accountability.postAdminTraceHash,
+        report.accountability.postRouterTraceHash);
+    });
+
+    check("W.12 successful path appends a valid auto-continue router audit", () => {
+      assert.equal(requests.length, 5);
+      assert.equal(report.approvalRouter.evaluated, true);
+      assert.equal(report.approvalRouter.required, true);
+      assert.equal(report.approvalRouter.requiredSatisfied, true);
+      assert.equal(report.approvalRouter.validationDecision, "approval_route_valid");
+      assert.equal(report.approvalRouterStageDecision, "approval_route_valid");
+      assert.equal(report.approvalRouter.route, "auto_continue");
+      assert.equal(report.workflowRoute, "auto_continue");
+      assert.equal(report.approvalRouter.riskClass, "low");
+      assert.equal(report.approvalRouter.autoContinueEligible, true);
+      assert.equal(report.approvalRouter.deterministicAuthorityPreserved, true);
+      assert.match(report.approvalRouter.policyHash, /^sha256:[0-9a-f]{64}$/);
+      assert.match(report.approvalRouter.routeHash, /^sha256:[0-9a-f]{64}$/);
+      assert.equal(report.approvalRouter.eventAppended, true);
+      assert.equal(report.accountability.postRouterLedgerVerificationDecision,
+        "ledger_valid");
+      assert.ok(report.accountability.postRouterTrace);
+      assert.equal(report.orchestratorDecision.approvalWorkflowRoute, "auto_continue");
+      assert.equal(report.orchestratorDecision.approvalRouteHash,
+        report.approvalRouter.routeHash);
+      assert.equal(report.accountability.ledger.events.filter((event) =>
+        event.actor === "planner").length, 1);
+      assert.equal(report.accountability.ledger.events.filter((event) =>
+        event.actor === "repairer").length, 1);
     });
 
     check("W.6 artifact chain links every adjacent bounded stage", () => {
@@ -2319,13 +2374,51 @@ async function runW6IntegrationChecks() {
       assert.deepEqual(byActor.admin_agent.filesProposed, []);
       assert.deepEqual(byActor.admin_agent.tokenUsage,
         { inputTokens: 13, outputTokens: 8, totalTokens: 21 });
+      assert.equal(byActor.approval_router.action, "approval_router.evaluate");
+      for (const hash of [
+        report.accountability.preShadowTraceHash,
+        report.shadowObserver.observationHash,
+        report.governance.governanceHash,
+        report.adminAgent.adminDecisionHash,
+        report.approvalRouter.policyHash
+      ]) assert.ok(byActor.approval_router.inputArtifactHashes.includes(hash));
+      assert.deepEqual(byActor.approval_router.outputArtifactHashes,
+        [report.approvalRouter.routeHash]);
+      assert.equal(byActor.approval_router.decision, "auto_continue");
+      assert.deepEqual(byActor.approval_router.reasonCodes,
+        report.approvalRouter.reasonCodes);
+      const expectedRouterFiles = [...new Set([
+        ...report.approvalRouter.assessment.issues.flatMap((issue) => issue.filePaths),
+        ...report.approvalRouter.assessment.ruleResults.flatMap((rule) => rule.filePaths)
+      ])];
+      assert.deepEqual(byActor.approval_router.filesRead, expectedRouterFiles);
+      assert.deepEqual(byActor.approval_router.filesProposed, []);
+      assert.equal(byActor.approval_router.tokenUsage, undefined);
+      assert.equal(report.approvalRouter.traceHash,
+        report.accountability.preShadowTraceHash);
+      assert.equal(report.approvalRouter.observationHash,
+        report.shadowObserver.observationHash);
+      assert.equal(report.approvalRouter.governanceHash,
+        report.governance.governanceHash);
+      assert.equal(report.approvalRouter.adminDecisionHash,
+        report.adminAgent.adminDecisionHash);
+      for (const laterHash of [
+        report.accountability.postShadowTraceHash,
+        report.accountability.postGovernanceTraceHash,
+        report.accountability.postAdminTraceHash,
+        report.accountability.postRouterTraceHash
+      ]) assert.notEqual(report.approvalRouter.traceHash, laterHash);
     });
 
     check("W.6 reports contain bounded evidence and no Shadow raw output or environment values", () => {
       const ledgerJson = JSON.stringify(report.accountability.ledger);
       const traceJson = JSON.stringify({
         pre: report.accountability.preShadowTrace,
-        post: report.accountability.postShadowTrace
+        postShadow: report.accountability.postShadowTrace,
+        postGovernance: report.accountability.postGovernanceTrace,
+        postAdmin: report.accountability.postAdminTrace,
+        postRouter: report.accountability.postRouterTrace,
+        router: report.approvalRouter.assessment
       });
       const reportJson = fs.readFileSync(report.jsonPath, "utf8");
       const markdown = fs.readFileSync(report.markdownPath, "utf8");
@@ -2355,10 +2448,14 @@ async function runW6IntegrationChecks() {
       assert.ok(markdown.includes("## Admin Agent"));
       assert.ok(markdown.includes("## Post-Governance Audit State"));
       assert.ok(markdown.includes("## Post-Admin Audit State"));
+      assert.ok(markdown.includes("## Risk-Based Approval Router"));
+      assert.ok(markdown.includes("## Post-Router Final Audit State"));
       assert.ok(!reportJson.includes("You are an evidence-bound Admin Agent"));
       assert.ok(!markdown.includes("You are an evidence-bound Admin Agent"));
       assert.ok(!reportJson.includes("ADMIN_MODEL_SENTINEL"));
       assert.ok(!markdown.includes("ADMIN_MODEL_SENTINEL"));
+      assert.ok(!reportJson.includes("ROUTE_EXECUTION_COMMAND_SENTINEL"));
+      assert.ok(!markdown.includes("ROUTE_EXECUTION_COMMAND_SENTINEL"));
     });
 
     const shadowCallsBeforePartialRuns = requests.filter((entry) => entry.shadow).length;
@@ -2393,6 +2490,16 @@ async function runW6IntegrationChecks() {
         assert.equal(partial.adminAgent.called, false);
         assert.equal(partial.adminStageDecision, "admin_not_called");
         assert.equal(partial.adminAgent.eventAppended, false);
+        assert.equal(partial.approvalRouter.evaluated, false);
+        assert.equal(partial.approvalRouter.required, false);
+        assert.equal(partial.approvalRouter.requiredSatisfied, true);
+        assert.equal(partial.approvalRouterStageDecision,
+          "approval_route_not_evaluated");
+        assert.equal(partial.workflowRoute, null);
+        assert.equal(partial.approvalRouter.eventAppended, false);
+        assert.equal(partial.accountability.postRouterTrace, null);
+        assert.equal(partial.accountability.eventCountAfterRouter,
+          partial.accountability.ledger.eventCount);
       }
       assert.equal(requests.filter((entry) => entry.shadow).length,
         shadowCallsBeforePartialRuns);
@@ -2441,6 +2548,12 @@ async function runW6IntegrationChecks() {
       assert.ok(timeout.shadowObserver.issueCodes.includes("shadow_upstream_timeout"));
       assert.equal(httpFailure.status, "failed_required_shadow");
       assert.equal(timeout.status, "failed_required_shadow");
+      assert.equal(reviewedShadow.workflowRoute, "human_required");
+      for (const failed of [wrongRun, wrongHash, unknownEvidence, malformed, httpFailure, timeout]) {
+        assert.equal(failed.approvalRouter.validationDecision, "approval_route_valid");
+        assert.equal(failed.workflowRoute, "human_required");
+        assert.equal(failed.approvalRouter.requiredSatisfied, true);
+      }
     });
 
     const missingShadowConfiguration = await execute({
@@ -2509,6 +2622,8 @@ async function runW6IntegrationChecks() {
       assert.equal(missingShadowWithAdmin.adminAgent.decision,
         "admin_human_escalation_required");
       assert.equal(missingShadowWithAdmin.adminAgent.adminDecision.observationHash, null);
+      assert.equal(missingShadowWithAdmin.workflowRoute, "human_required");
+      assert.equal(missingShadowWithAdmin.approvalRouter.requiredSatisfied, true);
     });
 
     const recommendationReports = [];
@@ -2549,12 +2664,139 @@ async function runW6IntegrationChecks() {
           "admin_human_escalation_required"
         ]
       );
+      assert.deepEqual(
+        recommendationReports.map((candidate) => candidate.workflowRoute),
+        ["auto_continue", "repair_required", "replan_required", "human_required",
+          "human_required"]
+      );
       for (const candidate of recommendationReports) {
         assert.equal(candidate.finalDecision, "temp_validation_passed");
+        assert.equal(candidate.approvalRouter.requiredSatisfied, true);
         assert.equal(candidate.shadowObserver.decision, "shadow_observer_completed");
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
       }
+    });
+
+    const precedenceValidationCommands = fixture.validationCommands;
+    let phaseRepairGovernanceReplan;
+    let phaseRepairGovernanceHuman;
+    try {
+      fixture.validationCommands = [{
+        id: "w12-precedence-failure",
+        executable: "node",
+        args: ["-e", "process.exit(11)"],
+        timeoutMs: 10000,
+        expectedExitCodes: [0]
+      }];
+      shadowRecommendation = "request_replan";
+      phaseRepairGovernanceReplan = await execute();
+      shadowRecommendation = "escalate";
+      phaseRepairGovernanceHuman = await execute();
+    } finally {
+      fixture.validationCommands = precedenceValidationCommands;
+      shadowRecommendation = "continue";
+    }
+    adminScenario = "strong_human";
+    shadowRecommendation = "request_replan";
+    const governanceReplanAdminHuman = await execute();
+    adminScenario = "strong_terminate";
+    shadowRecommendation = "continue";
+    const governancePassedAdminTerminate = await execute();
+    adminScenario = "valid";
+    shadowRecommendation = "continue";
+
+    check("W.12 mixed evidence preserves explicit route precedence", () => {
+      assert.equal(phaseRepairGovernanceReplan.finalDecision,
+        "temp_validation_failed");
+      assert.equal(phaseRepairGovernanceReplan.governance.decision,
+        "governance_replan_required");
+      assert.equal(phaseRepairGovernanceReplan.workflowRoute, "replan_required");
+      assert.equal(phaseRepairGovernanceHuman.finalDecision,
+        "temp_validation_failed");
+      assert.equal(phaseRepairGovernanceHuman.governance.decision,
+        "governance_escalation_required");
+      assert.equal(phaseRepairGovernanceHuman.workflowRoute, "human_required");
+      assert.equal(governanceReplanAdminHuman.governance.decision,
+        "governance_replan_required");
+      assert.equal(governanceReplanAdminHuman.adminAgent.decision,
+        "admin_human_escalation_required");
+      assert.equal(governanceReplanAdminHuman.workflowRoute, "human_required");
+      assert.equal(governancePassedAdminTerminate.governance.decision,
+        "governance_passed");
+      assert.equal(governancePassedAdminTerminate.adminAgent.decision,
+        "admin_run_terminated");
+      assert.equal(governancePassedAdminTerminate.workflowRoute, "terminated");
+      for (const candidate of [
+        phaseRepairGovernanceReplan,
+        phaseRepairGovernanceHuman,
+        governanceReplanAdminHuman,
+        governancePassedAdminTerminate
+      ]) {
+        assert.equal(candidate.approvalRouter.validationDecision,
+          "approval_route_valid");
+        assert.equal(candidate.approvalRouter.requiredSatisfied, true);
+        assert.equal(candidate.status, "completed");
+        assert.equal(candidate.ok, true);
+      }
+    });
+
+    let weakenedAdminRouterReport;
+    let reviewedAutoRouterReport;
+    try {
+      shadowRecommendation = "request_replan";
+      fixture.approvalRouterInputMutation = (input, runtime) => {
+        const copy = structuredClone(input);
+        copy.admin.decision.decision = "admin_repair_required";
+        copy.admin.decision.riskLevel = "medium";
+        copy.admin.decision.riskScore = 35;
+        delete copy.admin.decision.adminDecisionHash;
+        copy.admin.decision.adminDecisionHash = runtime.hashCanonicalJson(
+          copy.admin.decision
+        );
+        return copy;
+      };
+      weakenedAdminRouterReport = await execute();
+
+      shadowRecommendation = "continue";
+      fixture.approvalRouterInputMutation = (input) => {
+        const copy = structuredClone(input);
+        copy.admin.stageDecision = "admin_agent_needs_review";
+        copy.admin.validationDecision = "admin_decision_needs_review";
+        return copy;
+      };
+      reviewedAutoRouterReport = await execute();
+    } finally {
+      delete fixture.approvalRouterInputMutation;
+      shadowRecommendation = "continue";
+    }
+
+    check("W.12 router enforces deterministic authority and defensive review", () => {
+      assert.equal(weakenedAdminRouterReport.governance.decision,
+        "governance_replan_required");
+      assert.equal(weakenedAdminRouterReport.approvalRouter.adminDecision,
+        "admin_repair_required");
+      assert.equal(weakenedAdminRouterReport.approvalRouter.validationDecision,
+        "approval_route_invalid");
+      assert.equal(weakenedAdminRouterReport.workflowRoute, null);
+      assert.equal(weakenedAdminRouterReport.approvalRouter.requiredSatisfied, false);
+      assert.equal(weakenedAdminRouterReport.status,
+        "failed_required_approval_router");
+      assert.ok(weakenedAdminRouterReport.approvalRouter.issueCodes.includes(
+        "approval_router_deterministic_authority_violation"
+      ));
+      assert.equal(weakenedAdminRouterReport.approvalRouter.eventAppended, true);
+
+      assert.equal(reviewedAutoRouterReport.approvalRouter.adminStageDecision,
+        "admin_agent_needs_review");
+      assert.equal(reviewedAutoRouterReport.approvalRouter.adminDecision,
+        "admin_auto_approved");
+      assert.equal(reviewedAutoRouterReport.approvalRouter.validationDecision,
+        "approval_route_valid");
+      assert.equal(reviewedAutoRouterReport.workflowRoute, "human_required");
+      assert.equal(reviewedAutoRouterReport.approvalRouter.requiredSatisfied, true);
+      assert.equal(reviewedAutoRouterReport.status, "completed");
+      assert.equal(reviewedAutoRouterReport.ok, true);
     });
 
     const shadowRiskReports = [];
@@ -2573,6 +2815,8 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.adminAgent.decision,
           "admin_human_escalation_required");
         assert.equal(candidate.finalDecision, "temp_validation_passed");
+        assert.equal(candidate.workflowRoute, "human_required");
+        assert.equal(candidate.approvalRouter.requiredSatisfied, true);
       }
     });
 
@@ -2623,7 +2867,9 @@ async function runW6IntegrationChecks() {
 
     check("W.6 Shadow runs after failed and needs-review terminal execution cleanup", () => {
       assert.equal(failedExecution.finalDecision, "temp_validation_failed");
+      assert.equal(failedExecution.workflowRoute, "repair_required");
       assert.equal(reviewedExecution.finalDecision, "temp_validation_needs_review");
+      assert.equal(reviewedExecution.workflowRoute, "human_required");
       for (const candidate of [failedExecution, reviewedExecution]) {
         assert.equal(candidate.tempWorkspaceExecution.cleanupPerformed, true);
         assert.equal(candidate.shadowObserver.called, true);
@@ -2681,6 +2927,18 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
           "ledger_valid");
       }
+      assert.deepEqual([
+        cleanupMissing.workflowRoute,
+        cleanupFailed.workflowRoute,
+        cleanupConflicting.workflowRoute
+      ], ["human_required", "human_required", "terminated"]);
+      for (const candidate of [cleanupMissing, cleanupFailed, cleanupConflicting]) {
+        assert.equal(candidate.approvalRouter.requiredSatisfied, true);
+        assert.equal(candidate.status, "completed");
+        assert.equal(candidate.ok, true);
+        assert.equal(candidate.accountability.ledger.events.at(-1).actor,
+          "approval_router");
+      }
     });
 
     adminScenario = "weak_auto";
@@ -2724,12 +2982,17 @@ async function runW6IntegrationChecks() {
         assert.ok(candidate.adminAgent.issueCodes.includes(
           "admin_decision_validation_failed"));
         assert.equal(candidate.adminAgent.eventAppended, true);
-        assert.equal(candidate.accountability.ledger.events.at(-1).actor, "admin_agent");
-        assert.equal(candidate.accountability.ledger.events.at(-1).decision,
+        const adminEvent = candidate.accountability.ledger.events.find((event) =>
+          event.actor === "admin_agent");
+        assert.ok(adminEvent);
+        assert.equal(adminEvent.decision,
           "admin_agent_failed");
         assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
           "ledger_valid");
       }
+      assert.equal(terminatedWeakening.workflowRoute, "terminated");
+      assert.equal(repairWeakening.workflowRoute, "human_required");
+      assert.equal(replanWeakening.workflowRoute, "human_required");
     });
 
     adminScenario = "needs_review";
@@ -2775,9 +3038,18 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.adminAgent.eventAppended, true);
         assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
           "ledger_valid");
-        assert.equal(candidate.accountability.ledger.events.at(-1).actor, "admin_agent");
+        assert.ok(candidate.accountability.ledger.events.some((event) =>
+          event.actor === "admin_agent"));
         assert.equal(JSON.stringify(candidate).includes("RAW_ADMIN_COMPLETION_SENTINEL"),
           false);
+      }
+      assert.equal(adminReviewed.workflowRoute, "human_required");
+      assert.equal(adminReviewed.approvalRouter.validationDecision,
+        "approval_route_valid");
+      for (const candidate of failed) {
+        assert.equal(candidate.workflowRoute, "human_required");
+        assert.equal(candidate.approvalRouter.validationDecision,
+          "approval_route_valid");
       }
       assert.ok(adminMalformed.adminAgent.issueCodes.includes(
         "malformed_admin_completion_json"));
@@ -2786,6 +3058,132 @@ async function runW6IntegrationChecks() {
       assert.ok(adminTimeout.adminAgent.issueCodes.includes("admin_upstream_timeout"));
       assert.ok(adminOversized.adminAgent.issueCodes.includes(
         "admin_response_size_limit_exceeded"));
+    });
+
+    const routerInvalidMutations = [
+      (input) => {
+        const copy = structuredClone(input);
+        copy.phaseVFinalDecision = "temp_validation_failed";
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.trace.resources.totalTokens += 1;
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.shadow.observation.riskScore += 1;
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.governance.riskClass = "high";
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.admin.decision.riskScore += 1;
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.shadow.stageDecision = "shadow_not_called";
+        return copy;
+      },
+      (input) => {
+        const copy = structuredClone(input);
+        copy.admin.stageDecision = "admin_not_called";
+        return copy;
+      },
+      (input, runtime) => {
+        const copy = structuredClone(input);
+        copy.governance.observationHash = `sha256:${"a".repeat(64)}`;
+        delete copy.governance.governanceHash;
+        copy.governance.governanceHash = runtime.hashCanonicalJson(copy.governance);
+        copy.admin.decision.governanceHash = copy.governance.governanceHash;
+        delete copy.admin.decision.adminDecisionHash;
+        copy.admin.decision.adminDecisionHash = runtime.hashCanonicalJson(copy.admin.decision);
+        return copy;
+      },
+      (input, runtime) => {
+        const copy = structuredClone(input);
+        copy.admin.decision.governanceHash = `sha256:${"b".repeat(64)}`;
+        delete copy.admin.decision.adminDecisionHash;
+        copy.admin.decision.adminDecisionHash = runtime.hashCanonicalJson(copy.admin.decision);
+        return copy;
+      }
+    ];
+    const routerInvalidReports = [];
+    try {
+      for (const mutation of routerInvalidMutations) {
+        fixture.approvalRouterInputMutation = mutation;
+        routerInvalidReports.push(await execute());
+      }
+    } finally {
+      delete fixture.approvalRouterInputMutation;
+    }
+
+    check("W.12 invalid router results are audited before required failure", () => {
+      for (const candidate of routerInvalidReports) {
+        assert.equal(candidate.finalDecision, "temp_validation_passed");
+        assert.equal(candidate.shadowStageDecision, "shadow_observer_completed");
+        assert.equal(candidate.governanceStageDecision, "governance_passed");
+        assert.equal(candidate.adminStageDecision, "admin_agent_completed");
+        assert.equal(candidate.approvalRouter.evaluated, true);
+        assert.equal(candidate.approvalRouter.validationDecision,
+          "approval_route_invalid");
+        assert.equal(candidate.approvalRouter.route, null);
+        assert.equal(candidate.workflowRoute, null);
+        assert.equal(candidate.approvalRouter.assessment, null);
+        assert.equal(candidate.approvalRouter.routeHash, null);
+        assert.equal(candidate.approvalRouter.requiredSatisfied, false);
+        assert.equal(candidate.status, "failed_required_approval_router");
+        assert.equal(candidate.ok, false);
+        assert.equal(candidate.approvalRouter.eventAppended, true);
+        assert.equal(candidate.accountability.postRouterLedgerVerificationDecision,
+          "ledger_valid");
+        assert.ok(candidate.accountability.postRouterTrace);
+        const event = candidate.accountability.ledger.events.at(-1);
+        assert.equal(event.actor, "approval_router");
+        assert.equal(event.action, "approval_router.evaluate");
+        assert.equal(event.decision, "approval_route_invalid");
+        assert.deepEqual(event.outputArtifactHashes, []);
+        assert.deepEqual(event.reasonCodes, candidate.approvalRouter.issueCodes);
+        assert.deepEqual(event.filesProposed, []);
+        assert.ok(fs.existsSync(candidate.jsonPath));
+        assert.ok(fs.existsSync(candidate.markdownPath));
+      }
+    });
+
+    let routerNeedsReview;
+    try {
+      fixture.approvalRouterInputMutation = (input) => {
+        const copy = structuredClone(input);
+        copy.governance.ruleResults = new Array(100001).fill(null);
+        return copy;
+      };
+      routerNeedsReview = await execute();
+    } finally {
+      delete fixture.approvalRouterInputMutation;
+    }
+
+    check("W.12 bounded router review is audited without route execution", () => {
+      assert.equal(routerNeedsReview.approvalRouter.validationDecision,
+        "approval_route_needs_review");
+      assert.equal(routerNeedsReview.approvalRouter.route, null);
+      assert.equal(routerNeedsReview.workflowRoute, null);
+      assert.equal(routerNeedsReview.approvalRouter.assessment, null);
+      assert.equal(routerNeedsReview.approvalRouter.requiredSatisfied, false);
+      assert.equal(routerNeedsReview.status, "failed_required_approval_router");
+      assert.equal(routerNeedsReview.approvalRouter.eventAppended, true);
+      assert.equal(routerNeedsReview.accountability.ledger.events.at(-1).decision,
+        "approval_route_needs_review");
+      assert.equal(routerNeedsReview.accountability.postRouterLedgerVerificationDecision,
+        "ledger_valid");
+      assert.ok(routerNeedsReview.accountability.postRouterTrace);
+      assert.ok(fs.existsSync(routerNeedsReview.jsonPath));
+      assert.ok(fs.existsSync(routerNeedsReview.markdownPath));
     });
 
     const requiredValid = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });
@@ -2841,8 +3239,14 @@ async function runW6IntegrationChecks() {
       }
       assert.equal(requiredMissing.adminAgent.configured, false);
       assert.equal(requiredMissing.adminAgent.called, false);
+      assert.ok(requiredMissing.accountability.ledger.events.some((event) =>
+        event.actor === "deterministic_governor"));
       assert.equal(requiredMissing.accountability.ledger.events.at(-1).actor,
-        "deterministic_governor");
+        "approval_router");
+      assert.equal(requiredMissing.approvalRouter.validationDecision,
+        "approval_route_valid");
+      assert.equal(requiredMissing.workflowRoute, "human_required");
+      assert.equal(requiredMissing.approvalRouter.requiredSatisfied, true);
       assert.ok(requiredMissing.accountability.postGovernanceTrace);
       assert.equal(requiredMissing.accountability.postAdminTrace, null);
       assert.equal(requiredNotCalled.adminAgent.called, false);
