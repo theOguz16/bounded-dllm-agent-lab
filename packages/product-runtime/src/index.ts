@@ -21,6 +21,7 @@ export * from "./controlled-apply-handoff.js";
 export * from "./controlled-repository-inspection.js";
 export * from "./controlled-rollback-bundle.js";
 export * from "./controlled-apply-execution-gate.js";
+export * from "./controlled-repository-apply.js";
 
 export type ReviewDecision =
   | "approve"
