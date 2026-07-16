@@ -86,6 +86,28 @@ function configFromEnv() {
     process.env,
     "WORKER_ORCHESTRATOR_ADMIN_MODEL_ID"
   );
+  const handoffTargetNames = [
+    "WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH",
+    "WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH",
+    "WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH"
+  ];
+  const handoffTargetPresence = handoffTargetNames.map((name) =>
+    Object.prototype.hasOwnProperty.call(process.env, name));
+  const handoffTargetValues = handoffTargetNames.map((name) => process.env[name]);
+  const handoffTargetConfigured = handoffTargetPresence.every(Boolean) &&
+    handoffTargetValues.every((value) => typeof value === "string" && value.length > 0);
+  const handoffTargetIncomplete = handoffTargetPresence.some(Boolean) &&
+    !handoffTargetConfigured;
+  const hasHandoffConsumptionStatus = Object.prototype.hasOwnProperty.call(
+    process.env,
+    "WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS"
+  );
+  const configuredHandoffConsumptionStatus = hasHandoffConsumptionStatus
+    ? process.env.WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS
+    : "unknown";
+  const handoffConsumptionStatusValid = new Set([
+    "not_consumed", "already_consumed", "unknown"
+  ]).has(configuredHandoffConsumptionStatus);
   const upstreamUrl = process.env.WORKER_ORCHESTRATOR_UPSTREAM_URL || "";
   const modelId = process.env.WORKER_ORCHESTRATOR_MODEL_ID || "qwen2.5-coder-7b";
   return {
@@ -144,6 +166,21 @@ function configFromEnv() {
         30000
       ),
       required: process.env.WORKER_ORCHESTRATOR_ADMIN_REQUIRED === "1"
+    },
+    handoff: {
+      targetConfigured: handoffTargetConfigured,
+      targetIncomplete: handoffTargetIncomplete,
+      target: handoffTargetConfigured ? {
+        repositoryIdentityHash: handoffTargetValues[0],
+        baseRevisionHash: handoffTargetValues[1],
+        worktreeStateHash: handoffTargetValues[2]
+      } : null,
+      consumptionStatus: handoffConsumptionStatusValid
+        ? configuredHandoffConsumptionStatus
+        : "unknown",
+      consumptionStatusValid: handoffConsumptionStatusValid,
+      consumptionStatusExternallySupplied: hasHandoffConsumptionStatus,
+      required: process.env.WORKER_ORCHESTRATOR_HANDOFF_REQUIRED === "1"
     },
     outDir: process.env.WORKER_ORCHESTRATOR_OUT_DIR || path.join("reports", "worker-backed-orchestrator-smoke")
   };
@@ -570,6 +607,52 @@ function emptyGovernedChangeFreshnessReport() {
   };
 }
 
+function emptyControlledApplyHandoffReport() {
+  return {
+    evaluated: false,
+    applicable: false,
+    configured: false,
+    required: false,
+    requiredSatisfied: true,
+    decision: null,
+    handoffBuilt: false,
+    mutationHash: null,
+    changedFileCount: 0,
+    governedArtifactHash: null,
+    currentSnapshotHash: null,
+    repositoryIdentityHash: null,
+    baseRevisionHash: null,
+    worktreeStateHash: null,
+    constraintsHash: null,
+    consumptionKey: null,
+    handoffHash: null,
+    externalConsumptionRegistryRequired: false,
+    issueCodes: [],
+    handoff: null,
+    durationMs: 0,
+    applyExecuted: false,
+    registryWritten: false,
+    rollbackPrepared: false
+  };
+}
+
+function emptyControlledApplyHandoffVerificationReport() {
+  return {
+    evaluated: false,
+    decision: null,
+    consumptionStatus: "unknown",
+    consumptionStatusExternallySupplied: false,
+    handoffIntegrityVerified: false,
+    artifactIntegrityVerified: false,
+    currentSnapshotHash: null,
+    currentMutationHash: null,
+    staleFields: [],
+    reasonCodes: [],
+    executionEligible: false,
+    result: null
+  };
+}
+
 function emptyAccountabilityDecisionSummary() {
   return {
     agentLedgerCreated: false,
@@ -662,7 +745,28 @@ function emptyAccountabilityDecisionSummary() {
     governedChangeFreshnessCurrent: false,
     governedChangeHandoffEligible: false,
     governedChangeCurrentSnapshotHash: null,
-    governedChangeStaleFieldCount: 0
+    governedChangeStaleFieldCount: 0,
+    controlledApplyHandoffApplicable: false,
+    controlledApplyHandoffConfigured: false,
+    controlledApplyHandoffRequired: false,
+    controlledApplyHandoffRequiredSatisfied: true,
+    controlledApplyHandoffEvaluated: false,
+    controlledApplyHandoffDecision: null,
+    controlledApplyHandoffBuilt: false,
+    controlledApplyHandoffRepositoryIdentityHash: null,
+    controlledApplyHandoffBaseRevisionHash: null,
+    controlledApplyHandoffWorktreeStateHash: null,
+    controlledApplyHandoffConstraintsHash: null,
+    controlledApplyHandoffConsumptionKey: null,
+    controlledApplyHandoffHash: null,
+    controlledApplyHandoffVerificationEvaluated: false,
+    controlledApplyHandoffVerificationDecision: null,
+    controlledApplyHandoffConsumptionStatus: "unknown",
+    controlledApplyHandoffExecutionEligible: false,
+    controlledApplyHandoffStaleFieldCount: 0,
+    controlledApplyApplyExecuted: false,
+    controlledApplyRegistryWritten: false,
+    controlledApplyRollbackPrepared: false
   };
 }
 
@@ -717,12 +821,18 @@ function baseReport(config, status) {
     approvalRouter: emptyApprovalRouterReport(),
     governedChangeArtifact: emptyGovernedChangeArtifactReport(),
     governedChangeFreshness: emptyGovernedChangeFreshnessReport(),
+    controlledApplyHandoff: emptyControlledApplyHandoffReport(),
+    controlledApplyHandoffVerification:
+      emptyControlledApplyHandoffVerificationReport(),
     shadowStageDecision: "shadow_not_called",
     governanceStageDecision: "governance_not_evaluated",
     adminStageDecision: "admin_not_called",
     approvalRouterStageDecision: "approval_route_not_evaluated",
     governedChangeArtifactStageDecision: "governed_change_artifact_not_built",
     governedChangeFreshnessStageDecision: "governed_change_freshness_not_verified",
+    controlledApplyHandoffStageDecision: "controlled_apply_handoff_not_built",
+    controlledApplyHandoffVerificationStageDecision:
+      "controlled_apply_handoff_not_verified",
     workflowRoute: null,
     jsonPath: "",
     markdownPath: ""
@@ -1336,6 +1446,54 @@ function renderMarkdown(report, config) {
     "Handoff eligibility is evidence only.",
     "No repository application or handoff was executed.",
     "",
+    "## Controlled Apply Handoff",
+    "",
+    `- Evaluated: ${report.controlledApplyHandoff.evaluated}`,
+    `- Applicable: ${report.controlledApplyHandoff.applicable}`,
+    `- Configured: ${report.controlledApplyHandoff.configured}`,
+    `- Required: ${report.controlledApplyHandoff.required}`,
+    `- Required satisfied: ${report.controlledApplyHandoff.requiredSatisfied}`,
+    `- Decision: ${report.controlledApplyHandoff.decision ?? ""}`,
+    `- Handoff built: ${report.controlledApplyHandoff.handoffBuilt}`,
+    `- Mutation hash: ${report.controlledApplyHandoff.mutationHash ?? ""}`,
+    `- Changed-file count: ${report.controlledApplyHandoff.changedFileCount}`,
+    `- Governed artifact hash: ${report.controlledApplyHandoff.governedArtifactHash ?? ""}`,
+    `- Current snapshot hash: ${report.controlledApplyHandoff.currentSnapshotHash ?? ""}`,
+    `- Repository identity hash: ${report.controlledApplyHandoff.repositoryIdentityHash ?? ""}`,
+    `- Base revision hash: ${report.controlledApplyHandoff.baseRevisionHash ?? ""}`,
+    `- Worktree state hash: ${report.controlledApplyHandoff.worktreeStateHash ?? ""}`,
+    `- Constraints hash: ${report.controlledApplyHandoff.constraintsHash ?? ""}`,
+    `- Consumption key: ${report.controlledApplyHandoff.consumptionKey ?? ""}`,
+    `- Handoff hash: ${report.controlledApplyHandoff.handoffHash ?? ""}`,
+    `- External consumption registry required: ${report.controlledApplyHandoff.externalConsumptionRegistryRequired}`,
+    `- Issue codes: ${report.controlledApplyHandoff.issueCodes.join(", ")}`,
+    `- Duration (ms): ${report.controlledApplyHandoff.durationMs}`,
+    `- Apply executed: ${report.controlledApplyHandoff.applyExecuted}`,
+    `- Registry written: ${report.controlledApplyHandoff.registryWritten}`,
+    `- Rollback prepared: ${report.controlledApplyHandoff.rollbackPrepared}`,
+    "",
+    "## Controlled Apply Handoff Verification",
+    "",
+    `- Evaluated: ${report.controlledApplyHandoffVerification.evaluated}`,
+    `- Decision: ${report.controlledApplyHandoffVerification.decision ?? ""}`,
+    `- Consumption status: ${report.controlledApplyHandoffVerification.consumptionStatus}`,
+    `- Consumption status externally supplied: ${report.controlledApplyHandoffVerification.consumptionStatusExternallySupplied}`,
+    `- Handoff integrity verified: ${report.controlledApplyHandoffVerification.handoffIntegrityVerified}`,
+    `- Artifact integrity verified: ${report.controlledApplyHandoffVerification.artifactIntegrityVerified}`,
+    `- Current snapshot hash: ${report.controlledApplyHandoffVerification.currentSnapshotHash ?? ""}`,
+    `- Current mutation hash: ${report.controlledApplyHandoffVerification.currentMutationHash ?? ""}`,
+    `- Stale fields: ${report.controlledApplyHandoffVerification.staleFields.join(", ")}`,
+    `- Reason codes: ${report.controlledApplyHandoffVerification.reasonCodes.join(", ")}`,
+    `- Execution eligible: ${report.controlledApplyHandoffVerification.executionEligible}`,
+    "",
+    "No repository application was executed.",
+    "",
+    "No consumption key was persisted or reserved.",
+    "",
+    "Execution eligibility requires a future executor,",
+    "a fresh repository-state check, rollback preparation,",
+    "and a durable external consumption registry.",
+    "",
     "### Remask Raw Output Preview",
     "",
     "```text",
@@ -1734,8 +1892,244 @@ function populateDecisionAccountability(report) {
     governedChangeHandoffEligible: report.governedChangeFreshness.handoffEligible,
     governedChangeCurrentSnapshotHash:
       report.governedChangeFreshness.currentSnapshotHash,
-    governedChangeStaleFieldCount: report.governedChangeFreshness.staleFields.length
+    governedChangeStaleFieldCount: report.governedChangeFreshness.staleFields.length,
+    controlledApplyHandoffApplicable: report.controlledApplyHandoff.applicable,
+    controlledApplyHandoffConfigured: report.controlledApplyHandoff.configured,
+    controlledApplyHandoffRequired: report.controlledApplyHandoff.required,
+    controlledApplyHandoffRequiredSatisfied:
+      report.controlledApplyHandoff.requiredSatisfied,
+    controlledApplyHandoffEvaluated: report.controlledApplyHandoff.evaluated,
+    controlledApplyHandoffDecision: report.controlledApplyHandoff.decision,
+    controlledApplyHandoffBuilt: report.controlledApplyHandoff.handoffBuilt,
+    controlledApplyHandoffRepositoryIdentityHash:
+      report.controlledApplyHandoff.repositoryIdentityHash,
+    controlledApplyHandoffBaseRevisionHash:
+      report.controlledApplyHandoff.baseRevisionHash,
+    controlledApplyHandoffWorktreeStateHash:
+      report.controlledApplyHandoff.worktreeStateHash,
+    controlledApplyHandoffConstraintsHash:
+      report.controlledApplyHandoff.constraintsHash,
+    controlledApplyHandoffConsumptionKey:
+      report.controlledApplyHandoff.consumptionKey,
+    controlledApplyHandoffHash: report.controlledApplyHandoff.handoffHash,
+    controlledApplyHandoffVerificationEvaluated:
+      report.controlledApplyHandoffVerification.evaluated,
+    controlledApplyHandoffVerificationDecision:
+      report.controlledApplyHandoffVerification.decision,
+    controlledApplyHandoffConsumptionStatus:
+      report.controlledApplyHandoffVerification.consumptionStatus,
+    controlledApplyHandoffExecutionEligible:
+      report.controlledApplyHandoffVerification.executionEligible,
+    controlledApplyHandoffStaleFieldCount:
+      report.controlledApplyHandoffVerification.staleFields.length,
+    controlledApplyApplyExecuted: report.controlledApplyHandoff.applyExecuted,
+    controlledApplyRegistryWritten: report.controlledApplyHandoff.registryWritten,
+    controlledApplyRollbackPrepared: report.controlledApplyHandoff.rollbackPrepared
   });
+}
+
+function integrateControlledApplyHandoff(
+  report,
+  config,
+  context,
+  activeGovernedMutation,
+  currentGovernedChangeFreshnessSnapshot
+) {
+  const { runtime } = context;
+  const artifact = report.governedChangeArtifact.artifact;
+  const applicable = Boolean(
+    artifact !== null &&
+    report.governedChangeArtifact.decision === "governed_change_artifact_ready" &&
+    artifact.applyEligibility.eligible === true &&
+    report.governedChangeFreshness.decision === "governed_change_current" &&
+    report.governedChangeFreshness.handoffEligible === true &&
+    report.workflowRoute === "auto_continue" &&
+    report.finalDecision === "temp_validation_passed" &&
+    activeGovernedMutation !== null &&
+    currentGovernedChangeFreshnessSnapshot !== null
+  );
+  Object.assign(report.controlledApplyHandoff, {
+    applicable,
+    configured: config.handoff.targetConfigured,
+    required: applicable && config.handoff.required,
+    requiredSatisfied: !(applicable && config.handoff.required)
+  });
+  Object.assign(report.controlledApplyHandoffVerification, {
+    consumptionStatus: config.handoff.consumptionStatus,
+    consumptionStatusExternallySupplied:
+      config.handoff.consumptionStatusExternallySupplied
+  });
+
+  if (!applicable) return;
+
+  if (!config.handoff.targetConfigured) {
+    const issueCode = config.handoff.targetIncomplete
+      ? "controlled_apply_target_configuration_incomplete"
+      : "controlled_apply_target_not_configured";
+    report.controlledApplyHandoff.issueCodes = [issueCode];
+    context.issueCodes.push(issueCode);
+    return;
+  }
+
+  const finalEvent = context.ledger.events.at(-1) || null;
+  const ledgerInvariant = {
+    eventCount: context.ledger.eventCount,
+    rootHash: context.ledger.rootHash,
+    finalEventId: finalEvent ? finalEvent.eventId : null,
+    finalEventHash: finalEvent ? finalEvent.eventHash : null
+  };
+  let handoffInput = {
+    artifact,
+    currentFreshnessSnapshot: currentGovernedChangeFreshnessSnapshot,
+    mutation: activeGovernedMutation,
+    target: config.handoff.target
+  };
+  if (typeof fixture.controlledApplyHandoffInputMutation === "function") {
+    const mutatedInput = fixture.controlledApplyHandoffInputMutation(
+      handoffInput,
+      runtime,
+      context
+    );
+    if (mutatedInput !== undefined) handoffInput = mutatedInput;
+  }
+
+  const startedAt = Date.now();
+  let result = null;
+  report.controlledApplyHandoff.evaluated = true;
+  try {
+    result = runtime.buildControlledApplyHandoff(handoffInput);
+  } catch {
+    report.controlledApplyHandoff.issueCodes = [
+      "controlled_apply_handoff_evaluation_failed"
+    ];
+    context.issueCodes.push("controlled_apply_handoff_evaluation_failed");
+  }
+  report.controlledApplyHandoff.durationMs = Date.now() - startedAt;
+
+  if (result !== null) {
+    const handoff = result.handoff;
+    Object.assign(report.controlledApplyHandoff, {
+      evaluated: true,
+      decision: result.decision,
+      handoffBuilt: handoff !== null,
+      mutationHash: handoff ? handoff.mutation.mutationHash : null,
+      changedFileCount: result.summary.changedFileCount,
+      governedArtifactHash: handoff ? handoff.evidence.governedArtifactHash : null,
+      currentSnapshotHash: result.summary.currentSnapshotHash,
+      repositoryIdentityHash: handoff ? handoff.target.repositoryIdentityHash : null,
+      baseRevisionHash: handoff ? handoff.target.baseRevisionHash : null,
+      worktreeStateHash: handoff ? handoff.target.worktreeStateHash : null,
+      constraintsHash: result.summary.constraintsHash,
+      consumptionKey: result.summary.consumptionKey,
+      handoffHash: result.summary.handoffHash,
+      externalConsumptionRegistryRequired:
+        result.summary.externalConsumptionRegistryRequired,
+      issueCodes: boundedCodes([
+        ...result.issues.map((issue) => issue.code),
+        ...(!config.handoff.consumptionStatusValid
+          ? ["controlled_apply_consumption_status_invalid"]
+          : [])
+      ]),
+      handoff
+    });
+    report.controlledApplyHandoffStageDecision = result.decision;
+
+    if (!config.handoff.consumptionStatusValid) {
+      context.issueCodes.push("controlled_apply_consumption_status_invalid");
+    }
+
+    if (handoff !== null) {
+      let handoffForVerification = handoff;
+      if (typeof fixture.controlledApplyHandoffMutation === "function") {
+        const mutatedHandoff = fixture.controlledApplyHandoffMutation(
+          handoff,
+          runtime,
+          context
+        );
+        if (mutatedHandoff !== undefined) handoffForVerification = mutatedHandoff;
+      }
+      let verificationInput = {
+        handoff: handoffForVerification,
+        artifact,
+        currentFreshnessSnapshot: currentGovernedChangeFreshnessSnapshot,
+        mutation: activeGovernedMutation,
+        currentTarget: config.handoff.target,
+        consumptionStatus: config.handoff.consumptionStatus
+      };
+      if (typeof fixture.controlledApplyHandoffVerificationInputMutation === "function") {
+        const mutatedInput = fixture.controlledApplyHandoffVerificationInputMutation(
+          verificationInput,
+          runtime,
+          context
+        );
+        if (mutatedInput !== undefined) verificationInput = mutatedInput;
+      }
+      let verification = null;
+      try {
+        verification = runtime.verifyControlledApplyHandoff(verificationInput);
+      } catch {
+        context.issueCodes.push("controlled_apply_handoff_verification_failed");
+      }
+      if (verification !== null) {
+        const reasonCodes = boundedCodes([
+          ...verification.reasonCodes,
+          ...(!config.handoff.consumptionStatusValid
+            ? ["controlled_apply_consumption_status_invalid"]
+            : [])
+        ]);
+        report.controlledApplyHandoffVerification = {
+          evaluated: true,
+          decision: verification.decision,
+          consumptionStatus: config.handoff.consumptionStatus,
+          consumptionStatusExternallySupplied:
+            config.handoff.consumptionStatusExternallySupplied,
+          handoffIntegrityVerified: verification.handoffIntegrityVerified,
+          artifactIntegrityVerified: verification.artifactIntegrityVerified,
+          currentSnapshotHash: verification.currentSnapshotHash,
+          currentMutationHash: verification.currentMutationHash,
+          staleFields: [...verification.staleFields],
+          reasonCodes,
+          executionEligible: verification.executionEligible &&
+            config.handoff.consumptionStatusValid,
+          result: verification
+        };
+        report.controlledApplyHandoffVerificationStageDecision =
+          verification.decision;
+      }
+    }
+  }
+
+  const finalEventAfter = context.ledger.events.at(-1) || null;
+  const ledgerUnchanged =
+    context.ledger.eventCount === ledgerInvariant.eventCount &&
+    context.ledger.rootHash === ledgerInvariant.rootHash &&
+    (finalEventAfter ? finalEventAfter.eventId : null) === ledgerInvariant.finalEventId &&
+    (finalEventAfter ? finalEventAfter.eventHash : null) === ledgerInvariant.finalEventHash &&
+    finalEventAfter !== null &&
+    finalEventAfter.actor === "approval_router" &&
+    finalEventAfter.action === "approval_router.evaluate";
+  if (!ledgerUnchanged) {
+    report.controlledApplyHandoff.issueCodes = boundedCodes([
+      ...report.controlledApplyHandoff.issueCodes,
+      "controlled_apply_final_ledger_mutated"
+    ]);
+    context.issueCodes.push("controlled_apply_final_ledger_mutated");
+  }
+
+  if (report.controlledApplyHandoff.required) {
+    report.controlledApplyHandoff.requiredSatisfied = Boolean(
+      ledgerUnchanged &&
+      report.controlledApplyHandoff.configured &&
+      report.controlledApplyHandoff.decision === "controlled_apply_handoff_ready" &&
+      report.controlledApplyHandoff.handoff !== null &&
+      report.controlledApplyHandoff.handoffHash !== null &&
+      report.controlledApplyHandoff.consumptionKey !== null &&
+      report.controlledApplyHandoffVerification.evaluated &&
+      report.controlledApplyHandoffVerification.decision ===
+        "controlled_apply_handoff_current" &&
+      report.controlledApplyHandoffVerification.executionEligible === true
+    );
+  }
 }
 
 async function finalizeAccountabilityAndShadow(report, config, context) {
@@ -2285,6 +2679,9 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     postRouterVerification.decision === "ledger_valid" &&
     context.ledger !== null;
 
+  let activeGovernedMutation = null;
+  let currentGovernedChangeFreshnessSnapshot = null;
+
   if (governedChangeEligible) {
     const finalEvent = context.ledger.events.at(-1) || null;
     const ledgerInvariant = {
@@ -2350,6 +2747,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
       ];
       context.issueCodes.push("governed_change_active_mutation_unavailable");
     } else {
+      activeGovernedMutation = activeChange.mutation;
       const finalLedgerAnchors = exactLedgerAnchors(context.ledger);
       let governedChangeArtifactInput = {
         finalLedger: context.ledger,
@@ -2444,6 +2842,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
               currentFreshnessSnapshot = mutatedSnapshot;
             }
           }
+          currentGovernedChangeFreshnessSnapshot = currentFreshnessSnapshot;
           let artifactForFreshness = artifact;
           if (typeof fixture.governedChangeArtifactMutation === "function") {
             const mutatedArtifact = fixture.governedChangeArtifactMutation(
@@ -2516,6 +2915,14 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     );
   }
 
+  integrateControlledApplyHandoff(
+    report,
+    config,
+    context,
+    activeGovernedMutation,
+    currentGovernedChangeFreshnessSnapshot
+  );
+
   const requiredSatisfied = !config.shadow.required || !shadowEligible || (
     report.shadowObserver.called &&
     report.shadowObserver.observation !== null &&
@@ -2568,6 +2975,17 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
         report.status !== "failed_required_admin" &&
         report.status !== "failed_required_approval_router") {
       report.status = "failed_required_governed_change_artifact";
+    }
+  }
+
+  if (report.controlledApplyHandoff.required &&
+      !report.controlledApplyHandoff.requiredSatisfied) {
+    report.ok = false;
+    if (report.status !== "failed_required_shadow" &&
+        report.status !== "failed_required_admin" &&
+        report.status !== "failed_required_approval_router" &&
+        report.status !== "failed_required_governed_change_artifact") {
+      report.status = "failed_required_controlled_apply_handoff";
     }
   }
 
@@ -3779,6 +4197,8 @@ module.exports = {
   emptyVerifierReport,
   emptyGovernedChangeArtifactReport,
   emptyGovernedChangeFreshnessReport,
+  emptyControlledApplyHandoffReport,
+  emptyControlledApplyHandoffVerificationReport,
   fixture,
   finalDecisionForVerifierDecision,
   finalDecisionForRepairVerifierDecision,

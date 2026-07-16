@@ -18,11 +18,19 @@ const {
   emptyRepairVerifierReport,
   emptyGovernedChangeArtifactReport,
   emptyGovernedChangeFreshnessReport,
+  emptyControlledApplyHandoffReport,
+  emptyControlledApplyHandoffVerificationReport,
   fixture,
   run,
   setActiveGovernedChange,
   verifyAndCleanupTemporaryWorkspace
 } = require(scriptPath);
+
+const handoffTarget = {
+  repositoryIdentityHash: `sha256:${"1".repeat(64)}`,
+  baseRevisionHash: `sha256:${"2".repeat(64)}`,
+  worktreeStateHash: `sha256:${"3".repeat(64)}`
+};
 
 function runSmoke(env) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "worker-orchestrator-smoke-"));
@@ -98,8 +106,13 @@ check("script creates JSON and Markdown report", () => {
   assert.ok(markdown.includes("## Temporary Workspace Execution Verification"));
   assert.ok(markdown.includes("## Governed Change Artifact"));
   assert.ok(markdown.includes("## Governed Change Freshness"));
+  assert.ok(markdown.includes("## Controlled Apply Handoff"));
+  assert.ok(markdown.includes("## Controlled Apply Handoff Verification"));
   assert.ok(markdown.includes("Handoff eligibility is evidence only."));
   assert.ok(markdown.includes("No repository application or handoff was executed."));
+  assert.ok(markdown.includes("No repository application was executed."));
+  assert.ok(markdown.includes("No consumption key was persisted or reserved."));
+  assert.ok(markdown.includes("a durable external consumption registry."));
 });
 
 check("skipped report has suiteName phase-p-worker-backed-orchestrator-smoke", () => {
@@ -150,10 +163,34 @@ check("W.12 skipped report creates no ledger or governed stages", () => {
   assert.equal(report.accountability.postRouterTrace, null);
   assert.deepEqual(report.governedChangeArtifact, emptyGovernedChangeArtifactReport());
   assert.deepEqual(report.governedChangeFreshness, emptyGovernedChangeFreshnessReport());
+  assert.deepEqual(report.controlledApplyHandoff, emptyControlledApplyHandoffReport());
+  assert.deepEqual(report.controlledApplyHandoffVerification,
+    emptyControlledApplyHandoffVerificationReport());
   assert.equal(report.governedChangeArtifactStageDecision,
     "governed_change_artifact_not_built");
   assert.equal(report.governedChangeFreshnessStageDecision,
     "governed_change_freshness_not_verified");
+  assert.equal(report.controlledApplyHandoffStageDecision,
+    "controlled_apply_handoff_not_built");
+  assert.equal(report.controlledApplyHandoffVerificationStageDecision,
+    "controlled_apply_handoff_not_verified");
+});
+
+check("W.16 required mode is not applicable to a skipped run", () => {
+  const { report } = runSmoke({
+    WORKER_ORCHESTRATOR_REQUIRED: "0",
+    WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+    WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH:
+      handoffTarget.repositoryIdentityHash,
+    WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH:
+      handoffTarget.baseRevisionHash,
+    WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH:
+      handoffTarget.worktreeStateHash
+  });
+  assert.equal(report.controlledApplyHandoff.applicable, false);
+  assert.equal(report.controlledApplyHandoff.required, false);
+  assert.equal(report.controlledApplyHandoff.requiredSatisfied, true);
+  assert.equal(report.status, "skipped");
 });
 
 check("W.14 active mutation selection follows the mutation sent to patch dry-run", () => {
@@ -1721,6 +1758,65 @@ async function withTemporaryEnvironment(values, fn) {
   }
 }
 
+async function runW16ConfigurationChecks() {
+  const names = [
+    "WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH",
+    "WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH",
+    "WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH"
+  ];
+  await withTemporaryEnvironment({
+    [names[0]]: undefined,
+    [names[1]]: undefined,
+    [names[2]]: undefined,
+    WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: undefined,
+    WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: undefined
+  }, async () => {
+    const config = configFromEnv().handoff;
+    check("W.16 absent target and consumption status remain safely unconfigured", () => {
+      assert.equal(config.targetConfigured, false);
+      assert.equal(config.targetIncomplete, false);
+      assert.equal(config.target, null);
+      assert.equal(config.consumptionStatus, "unknown");
+      assert.equal(config.consumptionStatusExternallySupplied, false);
+      assert.equal(config.consumptionStatusValid, true);
+      assert.equal(config.required, false);
+    });
+  });
+  await withTemporaryEnvironment({
+    [names[0]]: "",
+    [names[1]]: handoffTarget.baseRevisionHash,
+    [names[2]]: handoffTarget.worktreeStateHash,
+    WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "invalid-status",
+    WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+  }, async () => {
+    const config = configFromEnv().handoff;
+    check("W.16 explicit empty and invalid status use presence semantics", () => {
+      assert.equal(config.targetConfigured, false);
+      assert.equal(config.targetIncomplete, true);
+      assert.equal(config.target, null);
+      assert.equal(config.consumptionStatus, "unknown");
+      assert.equal(config.consumptionStatusExternallySupplied, true);
+      assert.equal(config.consumptionStatusValid, false);
+      assert.equal(config.required, true);
+    });
+  });
+  await withTemporaryEnvironment({
+    [names[0]]: handoffTarget.repositoryIdentityHash,
+    [names[1]]: handoffTarget.baseRevisionHash,
+    [names[2]]: handoffTarget.worktreeStateHash,
+    WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "not_consumed"
+  }, async () => {
+    const config = configFromEnv().handoff;
+    check("W.16 complete target retains only the three opaque hashes", () => {
+      assert.equal(config.targetConfigured, true);
+      assert.equal(config.targetIncomplete, false);
+      assert.deepEqual(config.target, handoffTarget);
+      assert.equal(config.consumptionStatus, "not_consumed");
+      assert.equal(config.consumptionStatusExternallySupplied, true);
+    });
+  });
+}
+
 async function runW6IntegrationChecks() {
   await withTemporaryEnvironment({
     WORKER_ORCHESTRATOR_UPSTREAM_URL: "http://worker.example/v1",
@@ -2178,6 +2274,14 @@ async function runW6IntegrationChecks() {
     WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: undefined,
     WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: undefined,
     WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "1",
+    WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH:
+      handoffTarget.repositoryIdentityHash,
+    WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH:
+      handoffTarget.baseRevisionHash,
+    WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH:
+      handoffTarget.worktreeStateHash,
+    WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "not_consumed",
+    WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "0",
     ...overrides
   }, () => run());
 
@@ -2430,6 +2534,320 @@ async function runW6IntegrationChecks() {
       assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
       assert.equal(report.status, "completed");
       assert.equal(report.ok, true);
+    });
+
+    check("W.16 successful repair path builds and verifies an unexecuted handoff", () => {
+      const handoff = report.controlledApplyHandoff.handoff;
+      const artifact = report.governedChangeArtifact.artifact;
+      const events = report.accountability.ledger.events;
+      assert.equal(report.controlledApplyHandoff.evaluated, true);
+      assert.equal(report.controlledApplyHandoff.applicable, true);
+      assert.equal(report.controlledApplyHandoff.configured, true);
+      assert.equal(report.controlledApplyHandoff.required, false);
+      assert.equal(report.controlledApplyHandoff.requiredSatisfied, true);
+      assert.equal(report.controlledApplyHandoff.decision,
+        "controlled_apply_handoff_ready");
+      assert.equal(report.controlledApplyHandoffStageDecision,
+        "controlled_apply_handoff_ready");
+      assert.equal(report.controlledApplyHandoff.handoffBuilt, true);
+      assert.equal(report.controlledApplyHandoff.mutationHash,
+        artifact.change.mutationHash);
+      assert.equal(report.controlledApplyHandoff.changedFileCount,
+        artifact.change.changedFiles.length);
+      assert.equal(report.controlledApplyHandoff.governedArtifactHash,
+        artifact.governedArtifactHash);
+      assert.equal(report.controlledApplyHandoff.currentSnapshotHash,
+        report.governedChangeFreshness.currentSnapshotHash);
+      assert.deepEqual(handoff.target, handoffTarget);
+      assert.equal(report.controlledApplyHandoff.repositoryIdentityHash,
+        handoffTarget.repositoryIdentityHash);
+      assert.equal(report.controlledApplyHandoff.baseRevisionHash,
+        handoffTarget.baseRevisionHash);
+      assert.equal(report.controlledApplyHandoff.worktreeStateHash,
+        handoffTarget.worktreeStateHash);
+      assert.match(report.controlledApplyHandoff.constraintsHash,
+        /^sha256:[0-9a-f]{64}$/);
+      assert.match(report.controlledApplyHandoff.consumptionKey,
+        /^sha256:[0-9a-f]{64}$/);
+      assert.match(report.controlledApplyHandoff.handoffHash,
+        /^sha256:[0-9a-f]{64}$/);
+      assert.equal(report.controlledApplyHandoff.externalConsumptionRegistryRequired,
+        true);
+      assert.equal(report.controlledApplyHandoff.applyExecuted, false);
+      assert.equal(report.controlledApplyHandoff.registryWritten, false);
+      assert.equal(report.controlledApplyHandoff.rollbackPrepared, false);
+      assert.equal(report.controlledApplyHandoffVerification.evaluated, true);
+      assert.equal(report.controlledApplyHandoffVerification.decision,
+        "controlled_apply_handoff_current");
+      assert.equal(report.controlledApplyHandoffVerificationStageDecision,
+        "controlled_apply_handoff_current");
+      assert.equal(report.controlledApplyHandoffVerification.consumptionStatus,
+        "not_consumed");
+      assert.equal(report.controlledApplyHandoffVerification
+        .consumptionStatusExternallySupplied, true);
+      assert.equal(report.controlledApplyHandoffVerification.executionEligible, true);
+      assert.equal(events.length, 13);
+      assert.equal(events.at(-1).actor, "approval_router");
+      assert.equal(events.at(-1).action, "approval_router.evaluate");
+      assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
+      assert.equal(report.orchestratorDecision.controlledApplyHandoffDecision,
+        "controlled_apply_handoff_ready");
+      assert.equal(report.orchestratorDecision
+        .controlledApplyHandoffVerificationDecision,
+      "controlled_apply_handoff_current");
+      assert.equal(report.orchestratorDecision.controlledApplyHandoffExecutionEligible,
+        true);
+      assert.equal(report.orchestratorDecision.controlledApplyApplyExecuted, false);
+      assert.equal(report.orchestratorDecision.controlledApplyRegistryWritten, false);
+      assert.equal(report.orchestratorDecision.controlledApplyRollbackPrepared, false);
+    });
+
+    let handoffInputCalls = 0;
+    let handoffVerificationCalls = 0;
+    let retainedHandoffMutation = null;
+    let singleHandoffEvaluation;
+    try {
+      fixture.controlledApplyHandoffInputMutation = (input) => {
+        handoffInputCalls += 1;
+        retainedHandoffMutation = input.mutation;
+        return input;
+      };
+      fixture.controlledApplyHandoffVerificationInputMutation = (input) => {
+        handoffVerificationCalls += 1;
+        assert.strictEqual(input.mutation, retainedHandoffMutation);
+        return input;
+      };
+      singleHandoffEvaluation = await execute();
+    } finally {
+      delete fixture.controlledApplyHandoffInputMutation;
+      delete fixture.controlledApplyHandoffVerificationInputMutation;
+    }
+    check("W.16 planner and verifier are each invoked once", () => {
+      assert.equal(handoffInputCalls, 1);
+      assert.equal(handoffVerificationCalls, 1);
+      assert.equal(singleHandoffEvaluation.controlledApplyHandoff.decision,
+        "controlled_apply_handoff_ready");
+    });
+
+    const missingTargetHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH: undefined,
+      WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH: undefined,
+      WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH: undefined
+    });
+    const partialTargetHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH:
+        handoffTarget.repositoryIdentityHash,
+      WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH: undefined,
+      WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH: undefined
+    });
+    check("W.16 missing and partial optional target configuration do not build", () => {
+      assert.equal(missingTargetHandoff.controlledApplyHandoff.applicable, true);
+      assert.equal(missingTargetHandoff.controlledApplyHandoff.configured, false);
+      assert.deepEqual(missingTargetHandoff.controlledApplyHandoff.issueCodes,
+        ["controlled_apply_target_not_configured"]);
+      assert.equal(missingTargetHandoff.controlledApplyHandoff.evaluated, false);
+      assert.equal(missingTargetHandoff.status, "completed");
+      assert.equal(partialTargetHandoff.controlledApplyHandoff.configured, false);
+      assert.deepEqual(partialTargetHandoff.controlledApplyHandoff.issueCodes,
+        ["controlled_apply_target_configuration_incomplete"]);
+      assert.equal(partialTargetHandoff.controlledApplyHandoff.evaluated, false);
+      assert.equal(partialTargetHandoff.status, "completed");
+    });
+
+    const invalidTargetValues = [
+      ["WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH", "bad"],
+      ["WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH", "sha256:abcd"],
+      ["WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH",
+        `sha256:${"A".repeat(64)}`],
+      ["WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH", repoRoot]
+    ];
+    const invalidTargetReports = [];
+    for (const [name, value] of invalidTargetValues) {
+      invalidTargetReports.push(await execute({ [name]: value }));
+    }
+    check("W.16 complete but malformed target hashes are delegated to W.15", () => {
+      for (const candidate of invalidTargetReports) {
+        assert.equal(candidate.controlledApplyHandoff.configured, true);
+        assert.equal(candidate.controlledApplyHandoff.evaluated, true);
+        assert.equal(candidate.controlledApplyHandoff.decision,
+          "controlled_apply_handoff_invalid");
+        assert.equal(candidate.controlledApplyHandoff.handoff, null);
+        assert.equal(candidate.controlledApplyHandoffVerification.evaluated, false);
+        assert.equal(candidate.controlledApplyHandoff.applyExecuted, false);
+        assert.equal(candidate.status, "completed");
+        assert.ok(!JSON.stringify(candidate).includes(repoRoot));
+      }
+    });
+
+    const consumedHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "already_consumed"
+    });
+    const unknownHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "unknown"
+    });
+    const absentStatusHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: undefined
+    });
+    const invalidStatusHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "not-trusted"
+    });
+    check("W.16 external consumption states cannot imply availability", () => {
+      assert.equal(consumedHandoff.controlledApplyHandoff.handoffBuilt, true);
+      assert.equal(consumedHandoff.controlledApplyHandoffVerification.decision,
+        "controlled_apply_handoff_consumed");
+      assert.equal(consumedHandoff.controlledApplyHandoffVerification.executionEligible,
+        false);
+      for (const candidate of [unknownHandoff, absentStatusHandoff]) {
+        assert.equal(candidate.controlledApplyHandoffVerification.consumptionStatus,
+          "unknown");
+        assert.equal(candidate.controlledApplyHandoffVerification.decision,
+          "controlled_apply_handoff_verification_invalid");
+        assert.equal(candidate.controlledApplyHandoffVerification.executionEligible,
+          false);
+      }
+      assert.equal(absentStatusHandoff.controlledApplyHandoffVerification
+        .consumptionStatusExternallySupplied, false);
+      assert.equal(invalidStatusHandoff.controlledApplyHandoffVerification
+        .consumptionStatus, "unknown");
+      assert.equal(invalidStatusHandoff.controlledApplyHandoffVerification
+        .executionEligible, false);
+      assert.ok(invalidStatusHandoff.controlledApplyHandoff.issueCodes.includes(
+        "controlled_apply_consumption_status_invalid"));
+      assert.ok(invalidStatusHandoff.controlledApplyHandoffVerification.reasonCodes
+        .includes("controlled_apply_consumption_status_invalid"));
+      for (const candidate of [consumedHandoff, unknownHandoff, absentStatusHandoff,
+        invalidStatusHandoff]) {
+        assert.equal(candidate.status, "completed");
+      }
+    });
+
+    const requiredHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+    });
+    const requiredMissingHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH: undefined,
+      WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH: undefined,
+      WORKER_ORCHESTRATOR_HANDOFF_WORKTREE_STATE_HASH: undefined
+    });
+    const requiredConsumedHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "already_consumed"
+    });
+    const requiredPartialHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH: undefined
+    });
+    const requiredInvalidTargetHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH: "invalid"
+    });
+    const requiredUnknownHandoff = await execute({
+      WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1",
+      WORKER_ORCHESTRATOR_HANDOFF_CONSUMPTION_STATUS: "unknown"
+    });
+    check("W.16 required mode succeeds only for a current available handoff", () => {
+      assert.equal(requiredHandoff.controlledApplyHandoff.required, true);
+      assert.equal(requiredHandoff.controlledApplyHandoff.requiredSatisfied, true);
+      assert.equal(requiredHandoff.status, "completed");
+      for (const candidate of [requiredMissingHandoff, requiredPartialHandoff,
+        requiredInvalidTargetHandoff, requiredConsumedHandoff,
+        requiredUnknownHandoff]) {
+        assert.equal(candidate.controlledApplyHandoff.required, true);
+        assert.equal(candidate.controlledApplyHandoff.requiredSatisfied, false);
+        assert.equal(candidate.status, "failed_required_controlled_apply_handoff");
+        assert.equal(candidate.ok, false);
+        assert.ok(fs.existsSync(candidate.jsonPath));
+        assert.ok(fs.existsSync(candidate.markdownPath));
+      }
+    });
+
+    let mutationMismatch;
+    try {
+      fixture.controlledApplyHandoffInputMutation = (input) => ({
+        ...input,
+        mutation: { ...input.mutation, confidence: 0.8 }
+      });
+      mutationMismatch = await execute({
+        WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+      });
+    } finally {
+      delete fixture.controlledApplyHandoffInputMutation;
+    }
+    let staleTarget;
+    try {
+      fixture.controlledApplyHandoffVerificationInputMutation = (input) => ({
+        ...input,
+        currentTarget: {
+          ...input.currentTarget,
+          worktreeStateHash: `sha256:${"4".repeat(64)}`
+        }
+      });
+      staleTarget = await execute({
+        WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+      });
+    } finally {
+      delete fixture.controlledApplyHandoffVerificationInputMutation;
+    }
+    let tamperedHandoff;
+    try {
+      fixture.controlledApplyHandoffMutation = (handoff) => ({
+        ...handoff,
+        handoffHash: `sha256:${"5".repeat(64)}`
+      });
+      tamperedHandoff = await execute({
+        WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+      });
+    } finally {
+      delete fixture.controlledApplyHandoffMutation;
+    }
+    let ledgerMutationDetected;
+    try {
+      fixture.controlledApplyHandoffInputMutation = (input, _runtime, context) => {
+        context.ledger = {
+          ...context.ledger,
+          eventCount: context.ledger.eventCount + 1
+        };
+        return input;
+      };
+      ledgerMutationDetected = await execute({
+        WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+      });
+    } finally {
+      delete fixture.controlledApplyHandoffInputMutation;
+    }
+    check("W.16 rejects mutation mismatch, target staleness, and handoff tampering", () => {
+      assert.equal(mutationMismatch.controlledApplyHandoff.decision,
+        "controlled_apply_handoff_invalid");
+      assert.ok(mutationMismatch.controlledApplyHandoff.issueCodes.includes(
+        "controlled_apply_mutation_hash_mismatch"));
+      assert.equal(staleTarget.controlledApplyHandoffVerification.decision,
+        "controlled_apply_handoff_stale");
+      assert.ok(staleTarget.controlledApplyHandoffVerification.staleFields.includes(
+        "worktreeStateHash"));
+      assert.equal(staleTarget.controlledApplyHandoffVerification.executionEligible,
+        false);
+      assert.equal(tamperedHandoff.controlledApplyHandoffVerification.decision,
+        "controlled_apply_handoff_verification_invalid");
+      assert.equal(tamperedHandoff.controlledApplyHandoffVerification.executionEligible,
+        false);
+      for (const candidate of [mutationMismatch, staleTarget, tamperedHandoff]) {
+        assert.equal(candidate.controlledApplyHandoff.required, true);
+        assert.equal(candidate.controlledApplyHandoff.requiredSatisfied, false);
+        assert.equal(candidate.status, "failed_required_controlled_apply_handoff");
+      }
+    });
+    check("W.16 detects any final-ledger anchor mutation", () => {
+      assert.ok(ledgerMutationDetected.controlledApplyHandoff.issueCodes.includes(
+        "controlled_apply_final_ledger_mutated"));
+      assert.equal(ledgerMutationDetected.controlledApplyHandoff.requiredSatisfied,
+        false);
+      assert.equal(ledgerMutationDetected.status,
+        "failed_required_controlled_apply_handoff");
+      assert.equal(ledgerMutationDetected.accountability.ledger.events.at(-1).actor,
+        "approval_router");
+      assert.equal(ledgerMutationDetected.accountability.ledger.events.at(-1).action,
+        "approval_router.evaluate");
     });
 
     let artifactInputCalls = 0;
@@ -2993,7 +3411,9 @@ async function runW6IntegrationChecks() {
       "terminate"
     ]) {
       shadowRecommendation = recommendation;
-      recommendationReports.push(await execute());
+      recommendationReports.push(await execute({
+        WORKER_ORCHESTRATOR_HANDOFF_REQUIRED: "1"
+      }));
     }
     shadowRecommendation = "continue";
 
@@ -3041,6 +3461,17 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.governedChangeFreshness.decision,
           "governed_change_current");
         assert.equal(candidate.governedChangeFreshness.handoffEligible, index === 0);
+        assert.equal(candidate.controlledApplyHandoff.applicable, index === 0);
+        assert.equal(candidate.controlledApplyHandoff.evaluated, index === 0);
+        assert.equal(candidate.controlledApplyHandoff.decision, index === 0
+          ? "controlled_apply_handoff_ready"
+          : null);
+        assert.equal(candidate.controlledApplyHandoffVerification.evaluated,
+          index === 0);
+        assert.equal(candidate.controlledApplyHandoffVerification.executionEligible,
+          index === 0);
+        assert.equal(candidate.controlledApplyHandoff.required, index === 0);
+        assert.equal(candidate.controlledApplyHandoff.requiredSatisfied, true);
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
       }
@@ -3112,6 +3543,13 @@ async function runW6IntegrationChecks() {
           "governed_change_current");
         assert.equal(candidate.governedChangeFreshness.handoffEligible, false);
         assert.equal(candidate.governedChangeArtifact.requiredSatisfied, true);
+        assert.equal(candidate.controlledApplyHandoff.applicable, false);
+        assert.equal(candidate.controlledApplyHandoff.evaluated, false);
+        assert.equal(candidate.controlledApplyHandoff.required, false);
+        assert.equal(candidate.controlledApplyHandoff.requiredSatisfied, true);
+        assert.equal(candidate.controlledApplyHandoffVerification.evaluated, false);
+        assert.equal(candidate.controlledApplyHandoffVerification.executionEligible,
+          false);
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
       }
@@ -3261,6 +3699,11 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.governedChangeFreshness.decision,
           "governed_change_current");
         assert.equal(candidate.governedChangeFreshness.handoffEligible, false);
+        assert.equal(candidate.controlledApplyHandoff.applicable, false);
+        assert.equal(candidate.controlledApplyHandoff.evaluated, false);
+        assert.equal(candidate.controlledApplyHandoff.required, false);
+        assert.equal(candidate.controlledApplyHandoff.requiredSatisfied, true);
+        assert.equal(candidate.controlledApplyHandoffVerification.evaluated, false);
       }
       assert.equal(failedExecution.governance.decision,
         "governance_repair_required");
@@ -3692,6 +4135,7 @@ async function runW6IntegrationChecks() {
 }
 
 runExecutionIntegrationChecks()
+  .then(runW16ConfigurationChecks)
   .then(runW6IntegrationChecks)
   .then(() => {
     console.log("worker-backed orchestrator smoke test passed");
