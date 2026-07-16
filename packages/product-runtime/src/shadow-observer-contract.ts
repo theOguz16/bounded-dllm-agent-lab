@@ -145,6 +145,7 @@ const AGENT_ROLES = new Set<AgentRole>([
   "execution_verifier",
   "shadow_observer",
   "deterministic_governor",
+  "admin_invocation_policy",
   "admin_agent",
   "approval_router"
 ]);

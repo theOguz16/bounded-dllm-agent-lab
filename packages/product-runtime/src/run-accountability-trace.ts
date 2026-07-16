@@ -187,6 +187,7 @@ const AGENT_ROLE_ORDER: readonly AgentRole[] = Object.freeze([
   "execution_verifier",
   "shadow_observer",
   "deterministic_governor",
+  "admin_invocation_policy",
   "admin_agent",
   "approval_router"
 ]);
@@ -194,6 +195,7 @@ const AGENT_ROLE_ORDER: readonly AgentRole[] = Object.freeze([
 const GOVERNANCE_ROLES = new Set<AgentRole>([
   "shadow_observer",
   "deterministic_governor",
+  "admin_invocation_policy",
   "admin_agent",
   "approval_router"
 ]);

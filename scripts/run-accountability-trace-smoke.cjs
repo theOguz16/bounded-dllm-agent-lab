@@ -51,6 +51,7 @@ function assertDeepFrozen(value, seen = new Set()) {
     "execution_verifier",
     "shadow_observer",
     "deterministic_governor",
+    "admin_invocation_policy",
     "admin_agent",
     "approval_router"
   ];
