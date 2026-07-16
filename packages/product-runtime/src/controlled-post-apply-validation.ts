@@ -276,6 +276,25 @@ export type ControlledPostApplyFinalReceiptVerificationResult = {
   summary: FinalVerificationSummary;
 };
 
+/** Narrow compatibility helpers for read-only recovery boundaries. */
+export function computeControlledPostApplyValidationIntentHash(
+  intent: ControlledPostApplyValidationIntent
+): string {
+  return hashWithout(intent as unknown as PlainRecord, "intentHash");
+}
+
+export function computeControlledPostApplyValidationRecordHash(
+  record: ControlledPostApplyValidationRecord
+): string {
+  return hashWithout(record as unknown as PlainRecord, "recordHash");
+}
+
+export function computeControlledPostApplyFinalReceiptHash(
+  receipt: ControlledPostApplyFinalReceipt
+): string {
+  return hashWithout(receipt as unknown as PlainRecord, "receiptHash");
+}
+
 type ValidationSummary = {
   inputValid: boolean; policyValid: boolean;
   x4ReceiptCurrent: boolean; x4TransactionCommitted: boolean;
@@ -1717,6 +1736,25 @@ function validateFinalReceipt(value: unknown): ControlledPostApplyFinalReceipt {
     "Final execution receipt outcome is inconsistent."
   );
   return receipt as unknown as ControlledPostApplyFinalReceipt;
+}
+
+/** Bounded read-only registry validators reused by transaction recovery. */
+export function verifyControlledPostApplyValidationIntentRecord(
+  value: unknown
+): ControlledPostApplyValidationIntent {
+  return deepFreeze(validateIntent(value));
+}
+
+export function verifyControlledPostApplyValidationResultRecord(
+  value: unknown
+): ControlledPostApplyValidationRecord {
+  return deepFreeze(validateRecord(value));
+}
+
+export function verifyControlledPostApplyFinalReceiptRecord(
+  value: unknown
+): ControlledPostApplyFinalReceipt {
+  return deepFreeze(validateFinalReceipt(value));
 }
 
 async function terminalFor(paths: ValidationPaths): Promise<

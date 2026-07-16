@@ -709,6 +709,12 @@ async function main() {
       assert.equal(typeof runtime.verifyControlledPostApplyFinalReceipt, "function");
       assert.equal(typeof runtime.computeTemporaryWorkspaceExecutionSpecificationHash, "function");
       assert.equal(typeof runtime.restoreControlledRepositoryFromRollbackBundle, "function");
+      assert.equal(typeof runtime.computeControlledPostApplyValidationIntentHash, "function");
+      assert.equal(typeof runtime.computeControlledPostApplyValidationRecordHash, "function");
+      assert.equal(typeof runtime.computeControlledPostApplyFinalReceiptHash, "function");
+      assert.equal(typeof runtime.verifyControlledPostApplyValidationIntentRecord, "function");
+      assert.equal(typeof runtime.verifyControlledPostApplyValidationResultRecord, "function");
+      assert.equal(typeof runtime.verifyControlledPostApplyFinalReceiptRecord, "function");
       assert.equal(Object.isFrozen(runtime.DEFAULT_CONTROLLED_POST_APPLY_VALIDATION_POLICY), true);
     });
   } finally {

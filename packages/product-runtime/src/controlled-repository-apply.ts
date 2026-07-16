@@ -299,6 +299,25 @@ export type ControlledRepositoryFileStateEvidence = {
   stateHash: string;
 };
 
+/** Narrow compatibility helpers for read-only recovery boundaries. */
+export function computeControlledApplyConsumptionReservationHash(
+  reservation: ControlledApplyConsumptionReservation
+): string {
+  return hashWithout(reservation as unknown as PlainRecord, "reservationHash");
+}
+
+export function computeControlledRepositoryApplyTransactionHash(
+  transaction: ControlledRepositoryApplyTransactionIntent
+): string {
+  return hashWithout(transaction as unknown as PlainRecord, "transactionHash");
+}
+
+export function computeControlledRepositoryApplyReceiptHash(
+  receipt: ControlledRepositoryApplyReceipt
+): string {
+  return hashWithout(receipt as unknown as PlainRecord, "receiptHash");
+}
+
 type ApplySummary = {
   inputValid: boolean;
   policyValid: boolean;
@@ -2064,6 +2083,45 @@ function validateTransactionRecord(value: unknown): ControlledRepositoryApplyTra
     "controlled_repository_apply_transaction_hash_mismatch", "Transaction hash mismatched."
   );
   return record as unknown as ControlledRepositoryApplyTransactionIntent;
+}
+
+/** Bounded read-only registry validators reused by transaction recovery. */
+export function verifyControlledApplyConsumptionReservationRecord(
+  value: unknown
+): ControlledApplyConsumptionReservation {
+  return deepFreeze(validateReservationRecord(value));
+}
+
+export function verifyControlledRepositoryApplyTransactionRecord(
+  value: unknown
+): ControlledRepositoryApplyTransactionIntent {
+  return deepFreeze(validateTransactionRecord(value));
+}
+
+export function verifyControlledRepositoryApplyReceiptRecord(
+  value: unknown
+): ControlledRepositoryApplyReceipt {
+  return deepFreeze(validateReceipt(value));
+}
+
+export function verifyControlledRepositoryApplyStepRecord(
+  value: unknown
+): ControlledRepositoryApplyStepRecord {
+  const record = exactObject(value, [
+    "stepVersion", "index", "filePath", "operation", "actualAfterStateHash",
+    "expectedAfterStateHash", "matched", "stepHash"
+  ], "Apply step record");
+  if (record.stepVersion !== "1" || !Number.isSafeInteger(record.index) ||
+      (record.index as number) < 0 || typeof record.filePath !== "string" ||
+      !["create", "update", "delete"].includes(record.operation as string) ||
+      record.matched !== true || !HASH.test(record.actualAfterStateHash as string) ||
+      !HASH.test(record.expectedAfterStateHash as string) ||
+      !HASH.test(record.stepHash as string) ||
+      record.actualAfterStateHash !== record.expectedAfterStateHash ||
+      record.stepHash !== hashWithout(record, "stepHash")) throw new ApplyFailure(
+    "controlled_repository_apply_registry_record_invalid", "Apply step record is invalid."
+  );
+  return deepFreeze(record as unknown as ControlledRepositoryApplyStepRecord);
 }
 
 export async function verifyControlledRepositoryApplyReceipt(
