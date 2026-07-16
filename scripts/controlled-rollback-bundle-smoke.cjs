@@ -96,11 +96,11 @@ async function main() {
     };
   }
 
-  function artifactFor(mutation) {
+  function artifactFor(mutation, { policySkip = true } = {}) {
     const mutationHash = computeGovernedMutationHash("repair_draft", mutation);
     const changedFiles = [...new Set(mutation.touchedFiles)].sort();
     const material = {
-      artifactVersion: "1",
+      artifactVersion: "2",
       change: {
         changeKind: "repair_draft",
         mutationHash,
@@ -115,7 +115,8 @@ async function main() {
           executionVerifierEventId: "run:event:000009",
           shadowObserverEventId: "run:event:000010",
           deterministicGovernorEventId: "run:event:000011",
-          adminAgentEventId: "run:event:000012",
+          adminInvocationPolicyEventId: "run:event:000012",
+          adminAgentEventId: policySkip ? null : "run:event:000013",
           approvalRouterEventId: "run:event:000013"
         }
       },
@@ -127,21 +128,28 @@ async function main() {
         preShadowTraceHash: hash("trace"),
         observationHash: hash("observation"),
         governanceHash: hash("governance"),
-        adminDecisionHash: hash("admin"),
+        adminInvocationPolicyHash: hash("admin-invocation-policy"),
+        adminInvocationAssessmentHash: hash("admin-invocation-assessment"),
+        adminDecisionHash: policySkip ? null : hash("admin"),
         routeHash: hash("route"),
         governancePolicyHash: hash("governance-policy"),
         routerPolicyHash: hash("router-policy"),
         finalLedgerRootHash: hash("final-root"),
-        finalLedgerEventCount: 13
+        finalLedgerEventCount: policySkip ? 13 : 14
       },
       decisions: {
         phaseVFinalDecision: "temp_validation_passed",
         shadowStageDecision: "shadow_observer_completed",
         shadowValidationDecision: "shadow_observation_valid",
         governanceDecision: "governance_passed",
-        adminStageDecision: "admin_agent_completed",
-        adminValidationDecision: "admin_decision_valid",
-        adminDecision: "admin_auto_approved",
+        adminInvocationMode: policySkip ? "conditional" : "always",
+        adminInvocationDecision: policySkip
+          ? "admin_invocation_skipped" : "admin_invocation_required",
+        adminInvocationSkipKind: policySkip ? "clean_path" : null,
+        adminResolutionKind: policySkip ? "verified_policy_skip" : "model_decision",
+        adminStageDecision: policySkip ? "admin_skipped_by_policy" : "admin_agent_completed",
+        adminValidationDecision: policySkip ? null : "admin_decision_valid",
+        adminDecision: policySkip ? null : "admin_auto_approved",
         routerValidationDecision: "approval_route_valid",
         workflowRoute: "auto_continue"
       },
@@ -162,6 +170,8 @@ async function main() {
       preShadowTraceHash: artifact.evidence.preShadowTraceHash,
       observationHash: artifact.evidence.observationHash,
       governanceHash: artifact.evidence.governanceHash,
+      adminInvocationPolicyHash: artifact.evidence.adminInvocationPolicyHash,
+      adminInvocationAssessmentHash: artifact.evidence.adminInvocationAssessmentHash,
       adminDecisionHash: artifact.evidence.adminDecisionHash,
       routeHash: artifact.evidence.routeHash,
       governancePolicyHash: artifact.evidence.governancePolicyHash,
@@ -186,6 +196,17 @@ async function main() {
       target: inspectionResult.inspection.target
     });
     assert.equal(handoffResult.decision, "controlled_apply_handoff_ready");
+    const verifiedInspection = await inspectControlledRepository({
+      repositoryPath: root,
+      changedFiles: files,
+      handoff: handoffResult.handoff,
+      artifact,
+      currentFreshnessSnapshot,
+      mutation,
+      consumptionStatus: "not_consumed"
+    });
+    assert.equal(verifiedInspection.decision, "repository_inspection_ready");
+    assert.equal(verifiedInspection.summary.handoffExecutionEligible, true);
     return {
       expectedInspection: inspectionResult.inspection,
       handoff: handoffResult.handoff,
@@ -217,6 +238,25 @@ async function main() {
     const repositoryBefore = snapshot(root);
     const result = await materializeControlledRollbackBundle(input);
 
+    const modelArtifact = artifactFor(fixture.mutation, { policySkip: false });
+    const modelFreshness = freshnessFrom(modelArtifact);
+    const modelHandoff = buildControlledApplyHandoff({
+      artifact: modelArtifact,
+      currentFreshnessSnapshot: modelFreshness,
+      mutation: fixture.mutation,
+      target: fixture.expectedInspection.target
+    });
+    assert.equal(modelHandoff.decision, "controlled_apply_handoff_ready");
+    const modelInspection = await inspectControlledRepository({
+      repositoryPath: root,
+      changedFiles: files,
+      handoff: modelHandoff.handoff,
+      artifact: modelArtifact,
+      currentFreshnessSnapshot: modelFreshness,
+      mutation: fixture.mutation,
+      consumptionStatus: "not_consumed"
+    });
+
     check("clean governed evidence materializes an atomically sealed rollback bundle", () => {
       assert.equal(CONTROLLED_ROLLBACK_BUNDLE_VERSION, "1");
       assert.equal(result.decision, "rollback_bundle_ready");
@@ -226,6 +266,13 @@ async function main() {
       assert.equal(result.summary.finalBundleVerified, true);
       assert.equal(fs.existsSync(path.join(parent, "bundle")), true);
       assert.equal(fs.existsSync(path.join(parent, "bundle.partial")), false);
+    });
+
+    check("X.1 accepts both policy-skip and model-backed W.17 handoffs", () => {
+      assert.equal(fixture.artifact.evidence.adminDecisionHash, null);
+      assert.equal(modelArtifact.evidence.adminDecisionHash !== null, true);
+      assert.equal(modelInspection.decision, "repository_inspection_ready");
+      assert.equal(modelInspection.summary.handoffExecutionEligible, true);
     });
 
     check("tracked, executable, symlink, and absent actions are exact", () => {
@@ -536,6 +583,20 @@ async function main() {
       assert.ok(invalidHandoffResult.issues.some((issue) =>
         issue.code === "rollback_handoff_not_current"));
       assert.equal(fs.existsSync(invalidHandoffOutput), false);
+    });
+
+    const oldEvidence = structuredClone(fixture);
+    oldEvidence.handoff.evidence.governedArtifactHash = hash("pre-w17-artifact");
+    oldEvidence.handoff.evidence.currentSnapshotHash = hash("pre-w17-snapshot");
+    delete oldEvidence.handoff.handoffHash;
+    oldEvidence.handoff.handoffHash = hashCanonicalJson(oldEvidence.handoff);
+    const oldEvidenceOutput = path.join(parent, "old-admin-evidence");
+    const oldEvidenceResult = await materializeControlledRollbackBundle(
+      materialInput(root, oldEvidenceOutput, files, oldEvidence)
+    );
+    check("pre-W.17 Admin-always handoff evidence cannot be reused for a bundle", () => {
+      assert.equal(oldEvidenceResult.decision, "rollback_bundle_blocked");
+      assert.equal(fs.existsSync(oldEvidenceOutput), false);
     });
 
     const tamperParent = externalParent();

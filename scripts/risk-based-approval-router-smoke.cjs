@@ -11,7 +11,8 @@ const RULE_ORDER = [
   "trace_integrity", "phase_v_binding", "shadow_observation_integrity",
   "shadow_observation_trace_binding", "shadow_stage_consistency", "shadow_stage_health",
   "governance_policy_integrity", "governance_integrity", "governance_trace_binding",
-  "governance_observation_binding", "governance_route", "admin_decision_integrity",
+  "governance_observation_binding", "governance_route", "admin_invocation_integrity",
+  "admin_decision_integrity",
   "admin_trace_binding", "admin_observation_binding", "admin_governance_binding",
   "admin_governance_decision_binding", "admin_stage_consistency", "admin_stage_health",
   "admin_route", "phase_v_outcome", "auto_continue_eligibility",
@@ -28,7 +29,9 @@ async function main() {
     appendAgentEvent,
     buildRunAccountabilityTrace,
     createAgentEventLedger,
+    DEFAULT_ADMIN_INVOCATION_POLICY,
     evaluateDeterministicGovernance,
+    evaluateAdminInvocationPolicy,
     evaluateRiskBasedApprovalRoute,
     hashCanonicalJson,
     validateAdminDecision,
@@ -174,8 +177,33 @@ async function main() {
     const governance = options.governance ?? governanceVariant(
       evaluated, options.governanceDecision ?? evaluated.decision
     );
+    const invocationResult = evaluateAdminInvocationPolicy({
+      phaseVFinalDecision,
+      trace,
+      shadow: {
+        stageDecision: options.shadowStage ?? "shadow_observer_completed",
+        validationDecision: Object.prototype.hasOwnProperty.call(options, "shadowValidation")
+          ? options.shadowValidation : "shadow_observation_valid",
+        observation
+      },
+      governance
+    }, { ...DEFAULT_ADMIN_INVOCATION_POLICY, mode: options.invocationMode ?? "always" });
+    const fallbackInvocation = invocationResult.assessment === null
+      ? evaluateAdminInvocationPolicy({
+        phaseVFinalDecision, trace,
+        shadow: observation === null
+          ? { stageDecision: "shadow_not_called", validationDecision: null, observation: null }
+          : { stageDecision: "shadow_observer_completed",
+            validationDecision: "shadow_observation_valid", observation },
+        governance
+      }, { ...DEFAULT_ADMIN_INVOCATION_POLICY, mode: options.invocationMode ?? "always" }).assessment
+      : null;
+    const invocation = options.invocation ?? invocationResult.assessment ?? fallbackInvocation;
+    assert.ok(invocation, JSON.stringify({ options, invocationResult }));
+    const invocationSkipped = invocation.decision === "admin_invocation_skipped";
     const adminDecision = Object.prototype.hasOwnProperty.call(options, "adminDecision")
       ? options.adminDecision
+      : invocationSkipped ? null
       : makeAdmin(trace, observation, governance, options.adminSemanticDecision ??
         ({ governance_passed: "admin_auto_approved",
           governance_repair_required: "admin_repair_required",
@@ -192,19 +220,33 @@ async function main() {
       },
       governance,
       admin: {
-        stageDecision: options.adminStage ?? "admin_agent_completed",
+        invocation,
+        stageDecision: options.adminStage ?? (invocationSkipped
+          ? "admin_skipped_by_policy" : "admin_agent_completed"),
         validationDecision: Object.prototype.hasOwnProperty.call(options, "adminValidation")
-          ? options.adminValidation : "admin_decision_valid",
+          ? options.adminValidation : invocationSkipped ? null : "admin_decision_valid",
         decision: adminDecision
       }
     };
+  }
+
+  function refreshInvocation(input, mode = "always") {
+    const result = evaluateAdminInvocationPolicy({
+      phaseVFinalDecision: input.phaseVFinalDecision,
+      trace: input.trace,
+      shadow: input.shadow,
+      governance: input.governance
+    }, { ...DEFAULT_ADMIN_INVOCATION_POLICY, mode });
+    assert.ok(result.assessment, JSON.stringify(result));
+    input.admin.invocation = result.assessment;
   }
 
   const cleanInput = makeInput();
   const clean = evaluateRiskBasedApprovalRoute(cleanInput);
 
   check("clean complete low-risk evidence auto-continues", () => {
-    assert.equal(RISK_BASED_APPROVAL_ROUTER_VERSION, "1");
+    assert.equal(RISK_BASED_APPROVAL_ROUTER_VERSION, "2");
+    assert.equal(clean.assessment.adminResolutionKind, "model_decision");
     assert.equal(clean.decision, "approval_route_valid");
     assert.equal(clean.route, "auto_continue");
     assert.equal(clean.assessment.riskClass, "low");
@@ -214,6 +256,75 @@ async function main() {
     assert.equal(clean.summary.routeHashValid, true);
     const material = structuredClone(clean.assessment); delete material.routeHash;
     assert.equal(hashCanonicalJson(material), clean.assessment.routeHash);
+  });
+
+  check("verified conditional clean-path skip auto-continues without an Admin decision", () => {
+    const input = makeInput({ invocationMode: "conditional" });
+    assert.equal(input.admin.invocation.decision, "admin_invocation_skipped");
+    assert.equal(input.admin.invocation.skipKind, "clean_path");
+    assert.equal(input.admin.stageDecision, "admin_skipped_by_policy");
+    assert.equal(input.admin.decision, null);
+    const result = evaluateRiskBasedApprovalRoute(input);
+    assert.equal(result.decision, "approval_route_valid");
+    assert.equal(result.route, "auto_continue");
+    assert.equal(result.assessment.adminResolutionKind, "verified_policy_skip");
+    assert.equal(result.assessment.adminDecisionHash, null);
+  });
+
+  check("invocation claims are mandatory, bound, and cannot contradict Admin execution", () => {
+    const missing = makeInput();
+    delete missing.admin.invocation;
+    assert.equal(evaluateRiskBasedApprovalRoute(missing).decision, "approval_route_invalid");
+
+    const tampered = structuredClone(makeInput());
+    tampered.admin.invocation.decision = "admin_invocation_skipped";
+    assert.equal(evaluateRiskBasedApprovalRoute(tampered).decision, "approval_route_invalid");
+
+    const wrongBinding = structuredClone(makeInput());
+    wrongBinding.admin.invocation = rehash(
+      wrongBinding.admin.invocation,
+      "assessmentHash",
+      (value) => { value.traceHash = hashCanonicalJson({ wrong: "trace" }); }
+    );
+    assert.equal(evaluateRiskBasedApprovalRoute(wrongBinding).decision,
+      "approval_route_invalid");
+
+    const wrongGovernanceBinding = structuredClone(makeInput());
+    wrongGovernanceBinding.admin.invocation = rehash(
+      wrongGovernanceBinding.admin.invocation,
+      "assessmentHash",
+      (value) => { value.governanceHash = hashCanonicalJson({ wrong: "governance" }); }
+    );
+    assert.equal(evaluateRiskBasedApprovalRoute(wrongGovernanceBinding).decision,
+      "approval_route_invalid");
+
+    const skippedButCalled = structuredClone(makeInput({ invocationMode: "conditional" }));
+    skippedButCalled.admin.stageDecision = "admin_agent_completed";
+    skippedButCalled.admin.validationDecision = "admin_decision_valid";
+    skippedButCalled.admin.decision = cleanInput.admin.decision;
+    assert.equal(evaluateRiskBasedApprovalRoute(skippedButCalled).decision,
+      "approval_route_invalid");
+
+    const falseAlwaysSkip = structuredClone(makeInput({ invocationMode: "conditional" }));
+    falseAlwaysSkip.admin.invocation.policy.mode = "always";
+    falseAlwaysSkip.admin.invocation.policyHash = hashCanonicalJson(
+      falseAlwaysSkip.admin.invocation.policy
+    );
+    delete falseAlwaysSkip.admin.invocation.assessmentHash;
+    falseAlwaysSkip.admin.invocation.assessmentHash = hashCanonicalJson(
+      falseAlwaysSkip.admin.invocation
+    );
+    assert.equal(evaluateRiskBasedApprovalRoute(falseAlwaysSkip).decision,
+      "approval_route_invalid");
+  });
+
+  check("route hashes bind invocation mode and assessment evidence", () => {
+    const conditional = evaluateRiskBasedApprovalRoute(makeInput({
+      invocationMode: "conditional"
+    })).assessment;
+    assert.notEqual(conditional.routeHash, clean.assessment.routeHash);
+    assert.notEqual(conditional.adminInvocationAssessmentHash,
+      clean.assessment.adminInvocationAssessmentHash);
   });
 
   check("Phase V terminal outcomes map without being weakened", () => {
@@ -432,20 +543,22 @@ async function main() {
   });
 
   check("governance termination survives every Admin outcome", () => {
+    const terminated = makeInput({ governanceDecision: "governance_terminated" });
+    const baseline = evaluateRiskBasedApprovalRoute(terminated);
+    assert.equal(baseline.route, "terminated");
+    assert.equal(terminated.admin.invocation.skipKind, "deterministic_hard_stop");
+    assert.equal(terminated.admin.decision, null);
     const semantics = [
       "admin_auto_approved", "admin_repair_required", "admin_replan_required",
       "admin_human_escalation_required", "admin_run_terminated"
     ];
     for (const semantic of semantics) {
-      if (semantic === "admin_run_terminated") {
-        assert.equal(evaluateRiskBasedApprovalRoute(makeInput({
-          governanceDecision: "governance_terminated",
-          adminSemanticDecision: semantic
-        })).route, "terminated");
-        continue;
-      }
-      const input = makeInput({ governanceDecision: "governance_terminated" });
-      input.admin.decision = rehash(input.admin.decision, "adminDecisionHash", (value) => {
+      const input = structuredClone(terminated);
+      input.admin.stageDecision = "admin_agent_completed";
+      input.admin.validationDecision = "admin_decision_valid";
+      input.admin.decision = rehash(cleanInput.admin.decision, "adminDecisionHash", (value) => {
+        value.governanceHash = input.governance.governanceHash;
+        value.governanceDecision = "governance_terminated";
         value.decision = semantic;
         const risk = semantic === "admin_auto_approved" ? ["low", 10] :
           semantic === "admin_human_escalation_required" ? ["high", 60] : ["medium", 35];
@@ -478,6 +591,7 @@ async function main() {
       rule.triggered = true; rule.reasonCode = "governance_shadow_medium_risk";
       value.triggeredRuleIds = [rule.ruleId]; value.reasonCodes = [rule.reasonCode];
     });
+    refreshInvocation(triggeredGovernance);
     triggeredGovernance.admin.decision = rehash(
       triggeredGovernance.admin.decision, "adminDecisionHash",
       (value) => { value.governanceHash = triggeredGovernance.governance.governanceHash; }
@@ -491,6 +605,7 @@ async function main() {
         severity: "info", effect: "none", eventIds: [], filePaths: [],
         traceFindingCodes: [], shadowFindingCodes: [] }];
     });
+    refreshInvocation(issueGovernance);
     issueGovernance.admin.decision = rehash(issueGovernance.admin.decision, "adminDecisionHash",
       (value) => { value.governanceHash = issueGovernance.governance.governanceHash; });
     assert.equal(evaluateRiskBasedApprovalRoute(issueGovernance).route, "human_required");
@@ -559,7 +674,7 @@ async function main() {
     assert.throws(() => evaluateRiskBasedApprovalRoute(cleanInput, accessorPolicy), TypeError);
     const symbolPolicy = { ...base }; symbolPolicy[Symbol("secret")] = true;
     assert.throws(() => evaluateRiskBasedApprovalRoute(cleanInput, symbolPolicy), TypeError);
-    const future = { ...base, policyVersion: "2" };
+    const future = { ...base, policyVersion: "3" };
     assert.equal(evaluateRiskBasedApprovalRoute(cleanInput, future).decision,
       "approval_route_needs_review");
   });
@@ -693,8 +808,8 @@ async function main() {
     ]) assert.equal(serialized.includes(sentinel), false, sentinel);
   });
 
-  check("runtime exports the complete W.11 value API", () => {
-    assert.equal(runtime.RISK_BASED_APPROVAL_ROUTER_VERSION, "1");
+  check("runtime exports the complete W.17 router value API", () => {
+    assert.equal(runtime.RISK_BASED_APPROVAL_ROUTER_VERSION, "2");
     assert.equal(typeof runtime.DEFAULT_RISK_BASED_APPROVAL_ROUTER_POLICY, "object");
     assert.equal(typeof runtime.evaluateRiskBasedApprovalRoute, "function");
     assert.equal(Object.isFrozen(runtime.DEFAULT_RISK_BASED_APPROVAL_ROUTER_POLICY), true);

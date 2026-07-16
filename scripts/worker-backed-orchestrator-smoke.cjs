@@ -110,6 +110,9 @@ function configFromEnv() {
   ]).has(configuredHandoffConsumptionStatus);
   const upstreamUrl = process.env.WORKER_ORCHESTRATOR_UPSTREAM_URL || "";
   const modelId = process.env.WORKER_ORCHESTRATOR_MODEL_ID || "qwen2.5-coder-7b";
+  const configuredAdminMode = process.env.WORKER_ORCHESTRATOR_ADMIN_MODE || "conditional";
+  const adminModeValid = new Set(["disabled", "conditional", "always"])
+    .has(configuredAdminMode);
   return {
     upstreamUrl,
     modelId,
@@ -142,6 +145,8 @@ function configFromEnv() {
       required: process.env.WORKER_ORCHESTRATOR_SHADOW_REQUIRED === "1"
     },
     admin: {
+      mode: adminModeValid ? configuredAdminMode : null,
+      modeValid: adminModeValid,
       upstreamUrl: hasAdminUrl
         ? process.env.WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL
         : hasShadowUrl
@@ -442,6 +447,7 @@ function emptyAccountabilityReport() {
     postRouterTraceHash: null,
     postRouterFindingCount: 0,
     governanceEventAppended: false,
+    adminInvocationPolicyEventAppended: false,
     adminEventAppended: false,
     approvalRouterEventAppended: false,
     phaseVExecutionObserved: false,
@@ -507,6 +513,9 @@ function emptyAdminAgentReport(configured = false, required = false) {
     configured,
     required,
     called: false,
+    skippedByPolicy: false,
+    resolutionKind: "unresolved",
+    callAvoided: false,
     adapterDecision: null,
     validationDecision: null,
     requiredSatisfied: !required,
@@ -529,6 +538,24 @@ function emptyAdminAgentReport(configured = false, required = false) {
   };
 }
 
+function emptyAdminInvocationPolicyReport(mode = null) {
+  return {
+    evaluated: false,
+    mode,
+    validationDecision: null,
+    decision: null,
+    skipKind: null,
+    cleanPath: false,
+    autoContinueWithoutAdminEligible: false,
+    policyHash: null,
+    assessmentHash: null,
+    reasonCodes: [],
+    triggerCodes: [],
+    eventAppended: false,
+    assessment: null
+  };
+}
+
 function emptyApprovalRouterReport() {
   return {
     evaluated: false,
@@ -545,6 +572,11 @@ function emptyApprovalRouterReport() {
     traceHash: null,
     observationHash: null,
     governanceHash: null,
+    adminInvocationMode: null,
+    adminInvocationDecision: null,
+    adminInvocationPolicyHash: null,
+    adminInvocationAssessmentHash: null,
+    adminResolutionKind: "unresolved",
     adminDecisionHash: null,
     policyHash: null,
     routeHash: null,
@@ -579,6 +611,8 @@ function emptyGovernedChangeArtifactReport() {
     preShadowTraceHash: null,
     observationHash: null,
     governanceHash: null,
+    adminInvocationPolicyHash: null,
+    adminInvocationAssessmentHash: null,
     adminDecisionHash: null,
     routeHash: null,
     governancePolicyHash: null,
@@ -686,6 +720,19 @@ function emptyAccountabilityDecisionSummary() {
     governanceHash: null,
     governanceTriggeredRuleCount: 0,
     governanceEventAppended: false,
+    adminInvocationPolicyEvaluated: false,
+    adminInvocationMode: null,
+    adminInvocationPolicyDecision: null,
+    adminInvocationSkipKind: null,
+    adminInvocationCleanPath: false,
+    adminInvocationRequired: false,
+    adminInvocationSkipped: false,
+    adminInvocationAutoContinueWithoutAdminEligible: false,
+    adminInvocationPolicyHash: null,
+    adminInvocationAssessmentHash: null,
+    adminInvocationPolicyEventAppended: false,
+    adminResolutionKind: "unresolved",
+    adminCallAvoided: false,
     adminAgentConfigured: false,
     adminAgentRequired: false,
     adminAgentCalled: false,
@@ -814,6 +861,7 @@ function baseReport(config, status) {
       requiredSatisfied: true
     },
     governance: emptyGovernanceReport(),
+    adminInvocationPolicy: emptyAdminInvocationPolicyReport(config.admin.mode),
     adminAgent: {
       ...emptyAdminAgentReport(false, config.admin.required),
       requiredSatisfied: true
@@ -1315,11 +1363,30 @@ function renderMarkdown(report, config) {
     `- Issue codes: ${report.governance.issueCodes.join(", ")}`,
     `- Governor event appended: ${report.governance.eventAppended}`,
     "",
+    "## Admin Invocation Policy",
+    `- Mode: ${report.adminInvocationPolicy.mode ?? ""}`,
+    `- Evaluated: ${report.adminInvocationPolicy.evaluated}`,
+    `- Validation decision: ${report.adminInvocationPolicy.validationDecision ?? ""}`,
+    `- Invocation decision: ${report.adminInvocationPolicy.decision ?? ""}`,
+    `- Skip kind: ${report.adminInvocationPolicy.skipKind ?? ""}`,
+    `- Clean path: ${report.adminInvocationPolicy.cleanPath}`,
+    `- Auto-continue without Admin eligible: ${report.adminInvocationPolicy.autoContinueWithoutAdminEligible}`,
+    `- Policy hash: ${report.adminInvocationPolicy.policyHash ?? ""}`,
+    `- Assessment hash: ${report.adminInvocationPolicy.assessmentHash ?? ""}`,
+    `- Reason codes: ${report.adminInvocationPolicy.reasonCodes.join(", ")}`,
+    `- Trigger codes: ${report.adminInvocationPolicy.triggerCodes.join(", ")}`,
+    `- Invocation-policy event appended: ${report.adminInvocationPolicy.eventAppended}`,
+    `- Admin call avoided: ${report.adminAgent.callAvoided}`,
+    "- A policy skip is not an Admin approval. It is a deterministic decision that Admin semantic adjudication is unnecessary for this evidence state.",
+    "",
     "## Admin Agent",
     "",
     `- Configured: ${report.adminAgent.configured}`,
     `- Required: ${report.adminAgent.required}`,
     `- Called: ${report.adminAgent.called}`,
+    `- Skipped by policy: ${report.adminAgent.skippedByPolicy}`,
+    `- Resolution kind: ${report.adminAgent.resolutionKind}`,
+    `- Call avoided: ${report.adminAgent.callAvoided}`,
     `- Adapter decision: ${report.adminAgent.adapterDecision ?? ""}`,
     `- Validation decision: ${report.adminAgent.validationDecision ?? ""}`,
     `- Required satisfied: ${report.adminAgent.requiredSatisfied}`,
@@ -1375,6 +1442,11 @@ function renderMarkdown(report, config) {
     `- Trace hash: ${report.approvalRouter.traceHash ?? ""}`,
     `- Observation hash: ${report.approvalRouter.observationHash ?? ""}`,
     `- Governance hash: ${report.approvalRouter.governanceHash ?? ""}`,
+    `- Admin invocation mode: ${report.approvalRouter.adminInvocationMode ?? ""}`,
+    `- Admin invocation decision: ${report.approvalRouter.adminInvocationDecision ?? ""}`,
+    `- Admin invocation policy hash: ${report.approvalRouter.adminInvocationPolicyHash ?? ""}`,
+    `- Admin invocation assessment hash: ${report.approvalRouter.adminInvocationAssessmentHash ?? ""}`,
+    `- Admin resolution kind: ${report.approvalRouter.adminResolutionKind}`,
     `- Admin decision hash: ${report.approvalRouter.adminDecisionHash ?? ""}`,
     `- Policy hash: ${report.approvalRouter.policyHash ?? ""}`,
     `- Route hash: ${report.approvalRouter.routeHash ?? ""}`,
@@ -1824,6 +1896,22 @@ function populateDecisionAccountability(report) {
     governanceHash: report.governance.governanceHash,
     governanceTriggeredRuleCount: report.governance.triggeredRuleCount,
     governanceEventAppended: report.governance.eventAppended,
+    adminInvocationPolicyEvaluated: report.adminInvocationPolicy.evaluated,
+    adminInvocationMode: report.adminInvocationPolicy.mode,
+    adminInvocationPolicyDecision: report.adminInvocationPolicy.decision,
+    adminInvocationSkipKind: report.adminInvocationPolicy.skipKind,
+    adminInvocationCleanPath: report.adminInvocationPolicy.cleanPath,
+    adminInvocationRequired:
+      report.adminInvocationPolicy.decision === "admin_invocation_required",
+    adminInvocationSkipped:
+      report.adminInvocationPolicy.decision === "admin_invocation_skipped",
+    adminInvocationAutoContinueWithoutAdminEligible:
+      report.adminInvocationPolicy.autoContinueWithoutAdminEligible,
+    adminInvocationPolicyHash: report.adminInvocationPolicy.policyHash,
+    adminInvocationAssessmentHash: report.adminInvocationPolicy.assessmentHash,
+    adminInvocationPolicyEventAppended: report.adminInvocationPolicy.eventAppended,
+    adminResolutionKind: report.adminAgent.resolutionKind,
+    adminCallAvoided: report.adminAgent.callAvoided,
     adminAgentConfigured: report.adminAgent.configured,
     adminAgentRequired: report.adminAgent.required,
     adminAgentCalled: report.adminAgent.called,
@@ -2369,8 +2457,102 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
   accountability.ledgerRootHashAfterGovernance = context.ledger.rootHash;
 
   const adminConfigured = Boolean(config.admin.upstreamUrl && config.admin.modelId);
-  report.adminAgent = emptyAdminAgentReport(adminConfigured, config.admin.required);
-  if (governanceAssessment !== null && preTrace !== null && adminConfigured) {
+  report.adminInvocationPolicy = emptyAdminInvocationPolicyReport(config.admin.mode);
+  let adminInvocationAssessment = null;
+  if (!config.admin.modeValid) {
+    context.evidenceComplete = false;
+    context.issueCodes.push("admin_invocation_mode_invalid");
+    report.workflowRoute = "human_required";
+  } else if (governanceAssessment !== null && preTrace !== null) {
+    const invocationStartedAt = timestampNow();
+    let invocationResult = null;
+    try {
+      invocationResult = runtime.evaluateAdminInvocationPolicy({
+        phaseVFinalDecision: report.finalDecision,
+        trace: preTrace,
+        shadow: {
+          stageDecision: report.shadowStageDecision,
+          validationDecision: report.shadowObserver.validationDecision,
+          observation: validatedObservation
+        },
+        governance: governanceAssessment
+      }, {
+        ...runtime.DEFAULT_ADMIN_INVOCATION_POLICY,
+        mode: config.admin.mode
+      });
+      adminInvocationAssessment = invocationResult.assessment;
+    } catch {
+      context.evidenceComplete = false;
+      context.issueCodes.push("admin_invocation_policy_evaluation_failed");
+    }
+    const invocationFinishedAt = timestampNow(invocationStartedAt);
+    if (invocationResult !== null) {
+      report.adminInvocationPolicy = {
+        evaluated: true,
+        mode: config.admin.mode,
+        validationDecision: invocationResult.decision,
+        decision: adminInvocationAssessment ? adminInvocationAssessment.decision : null,
+        skipKind: adminInvocationAssessment ? adminInvocationAssessment.skipKind : null,
+        cleanPath: invocationResult.summary.cleanPath,
+        autoContinueWithoutAdminEligible:
+          invocationResult.summary.autoContinueWithoutAdminEligible,
+        policyHash: adminInvocationAssessment ? adminInvocationAssessment.policyHash : null,
+        assessmentHash: adminInvocationAssessment
+          ? adminInvocationAssessment.assessmentHash : null,
+        reasonCodes: adminInvocationAssessment
+          ? [...adminInvocationAssessment.reasonCodes]
+          : invocationResult.issues.map((issue) => issue.code),
+        triggerCodes: adminInvocationAssessment
+          ? [...adminInvocationAssessment.triggerCodes] : [],
+        eventAppended: false,
+        assessment: adminInvocationAssessment
+      };
+      if (adminInvocationAssessment !== null) {
+        const eventAppended = appendAccountabilityEvent(context, {
+          actor: "admin_invocation_policy",
+          action: "admin_invocation_policy.evaluate",
+          startedAt: invocationStartedAt,
+          finishedAt: invocationFinishedAt,
+          inputArtifactHashes: [
+            preTrace.traceHash,
+            validatedObservation && validatedObservation.observationHash,
+            governanceAssessment.governanceHash,
+            adminInvocationAssessment.policyHash
+          ],
+          outputArtifactHashes: [adminInvocationAssessment.assessmentHash],
+          filesRead: boundedFiles([
+            ...citedObservationFiles(validatedObservation),
+            ...governanceEvidenceFiles(governanceAssessment)
+          ]),
+          filesProposed: [],
+          decision: adminInvocationAssessment.decision,
+          reasonCodes: adminInvocationAssessment.reasonCodes
+        });
+        report.adminInvocationPolicy.eventAppended = eventAppended;
+        accountability.adminInvocationPolicyEventAppended = eventAppended;
+        if (!eventAppended) context.issueCodes.push("admin_invocation_policy_event_append_failed");
+      }
+    }
+  }
+
+  const adminRequiredByPolicy = adminInvocationAssessment !== null &&
+    adminInvocationAssessment.decision === "admin_invocation_required";
+  report.adminAgent = emptyAdminAgentReport(
+    adminConfigured,
+    adminRequiredByPolicy && config.admin.required
+  );
+  if (adminInvocationAssessment !== null && !adminRequiredByPolicy) {
+    Object.assign(report.adminAgent, {
+      skippedByPolicy: true,
+      resolutionKind: "verified_policy_skip",
+      callAvoided: true,
+      required: false,
+      requiredSatisfied: true,
+      governanceDecision: governanceAssessment.decision
+    });
+    report.adminStageDecision = "admin_skipped_by_policy";
+  }
+  if (adminRequiredByPolicy && governanceAssessment !== null && preTrace !== null && adminConfigured) {
     const adminStartedAt = timestampNow();
     let adapterResult = null;
     try {
@@ -2398,6 +2580,9 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
         configured: true,
         required: config.admin.required,
         called: adapterResult.called,
+        skippedByPolicy: false,
+        resolutionKind: adminDecision ? "model_decision" : "unresolved",
+        callAvoided: false,
         adapterDecision: adapterResult.decision,
         validationDecision: adapterResult.validationDecision,
         requiredSatisfied: false,
@@ -2486,7 +2671,9 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     accountability.phaseVExecutionObserved &&
     accountability.phaseVExecutionCompleted &&
     executionTerminal &&
-    governanceAssessment !== null;
+    governanceAssessment !== null &&
+    adminInvocationAssessment !== null &&
+    report.adminInvocationPolicy.eventAppended === true;
   report.approvalRouter = emptyApprovalRouterReport();
   report.approvalRouter.required = approvalRouterEligible;
   let approvalRouterResult = null;
@@ -2504,6 +2691,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
       },
       governance: governanceAssessment,
       admin: {
+        invocation: adminInvocationAssessment,
         stageDecision: report.adminStageDecision,
         validationDecision: report.adminAgent.validationDecision,
         decision: report.adminAgent.adminDecision
@@ -2532,6 +2720,10 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
         ? approvalRouterInput.shadow.observation.observationHash
         : null,
       governanceHash: approvalRouterInput.governance.governanceHash,
+      adminInvocationMode: approvalRouterInput.admin.invocation.policy.mode,
+      adminInvocationDecision: approvalRouterInput.admin.invocation.decision,
+      adminInvocationPolicyHash: approvalRouterInput.admin.invocation.policyHash,
+      adminInvocationAssessmentHash: approvalRouterInput.admin.invocation.assessmentHash,
       adminDecisionHash: approvalRouterInput.admin.decision
         ? approvalRouterInput.admin.decision.adminDecisionHash
         : null
@@ -2580,6 +2772,19 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
           : approvalRouterInput.admin.decision
             ? approvalRouterInput.admin.decision.adminDecisionHash
             : null,
+        adminInvocationMode: approvalRouterAssessment
+          ? approvalRouterAssessment.adminInvocationMode
+          : approvalRouterInput.admin.invocation.policy.mode,
+        adminInvocationDecision: approvalRouterAssessment
+          ? approvalRouterAssessment.adminInvocationDecision
+          : approvalRouterInput.admin.invocation.decision,
+        adminInvocationPolicyHash: approvalRouterAssessment
+          ? approvalRouterAssessment.adminInvocationPolicyHash
+          : approvalRouterInput.admin.invocation.policyHash,
+        adminInvocationAssessmentHash: approvalRouterAssessment
+          ? approvalRouterAssessment.adminInvocationAssessmentHash
+          : approvalRouterInput.admin.invocation.assessmentHash,
+        adminResolutionKind: approvalRouterResult.summary.adminResolutionKind,
         policyHash: approvalRouterAssessment ? approvalRouterAssessment.policyHash : null,
         routeHash: approvalRouterAssessment ? approvalRouterAssessment.routeHash : null,
         triggeredRuleCount: approvalRouterResult.summary.triggeredRuleCount,
@@ -2589,8 +2794,8 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
         terminateRuleCount: approvalRouterResult.summary.terminateRuleCount,
         reasonCodes: approvalRouterAssessment
           ? [...approvalRouterAssessment.reasonCodes]
-          : approvalRouterResult.issues.map((issue) => issue.code),
-        issueCodes: approvalRouterResult.issues.map((issue) => issue.code),
+          : boundedCodes(approvalRouterResult.issues).sort(),
+        issueCodes: boundedCodes(approvalRouterResult.issues).sort(),
         deterministicAuthorityPreserved:
           approvalRouterResult.summary.deterministicAuthorityPreserved,
         autoContinueEligible: approvalRouterResult.summary.autoContinueEligible,
@@ -2610,6 +2815,8 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
           approvalRouterInput.shadow.observation &&
             approvalRouterInput.shadow.observation.observationHash,
           approvalRouterInput.governance.governanceHash,
+          approvalRouterInput.admin.invocation.policyHash,
+          approvalRouterInput.admin.invocation.assessmentHash,
           approvalRouterInput.admin.decision &&
             approvalRouterInput.admin.decision.adminDecisionHash,
           approvalRouterAssessment && approvalRouterAssessment.policyHash
@@ -2720,6 +2927,8 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
       preShadowTraceHash: preTrace.traceHash,
       observationHash: validatedObservation ? validatedObservation.observationHash : null,
       governanceHash: governanceAssessment.governanceHash,
+      adminInvocationPolicyHash: adminInvocationAssessment.policyHash,
+      adminInvocationAssessmentHash: adminInvocationAssessment.assessmentHash,
       adminDecisionHash: report.adminAgent.adminDecision
         ? report.adminAgent.adminDecision.adminDecisionHash
         : null,
@@ -2755,6 +2964,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
         preShadowTrace: preTrace,
         shadowObservation: validatedObservation,
         governanceAssessment,
+        adminInvocationAssessment,
         adminDecision: report.adminAgent.adminDecision || null,
         approvalRouterAssessment,
         change: {
@@ -2821,6 +3031,8 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
               ? validatedObservation.observationHash
               : null,
             governanceHash: governanceAssessment.governanceHash,
+            adminInvocationPolicyHash: adminInvocationAssessment.policyHash,
+            adminInvocationAssessmentHash: adminInvocationAssessment.assessmentHash,
             adminDecisionHash: report.adminAgent.adminDecision
               ? report.adminAgent.adminDecision.adminDecisionHash
               : null,
@@ -2935,7 +3147,8 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     report.status = "failed_required_shadow";
   }
 
-  const adminRequiredApplicable = governanceAssessment !== null && preTrace !== null;
+  const adminRequiredApplicable = adminInvocationAssessment !== null &&
+    adminInvocationAssessment.decision === "admin_invocation_required";
   const adminRequiredSatisfied = !config.admin.required || !adminRequiredApplicable || (
     report.adminAgent.called &&
     report.adminAgent.adminDecision !== null &&

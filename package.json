@@ -186,6 +186,7 @@
     "test:deterministic-governance-policy": "node scripts/deterministic-governance-policy-smoke.cjs",
     "test:admin-agent-contract": "node scripts/admin-agent-contract-smoke.cjs",
     "test:admin-agent-model-adapter": "node scripts/admin-agent-model-adapter-smoke.cjs",
+    "test:admin-invocation-policy": "node scripts/admin-invocation-policy-smoke.cjs",
     "test:risk-based-approval-router": "node scripts/risk-based-approval-router-smoke.cjs",
     "test:governed-change-artifact": "node scripts/governed-change-artifact-smoke.cjs",
     "test:controlled-apply-handoff": "node scripts/controlled-apply-handoff-smoke.cjs",

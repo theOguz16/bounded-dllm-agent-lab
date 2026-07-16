@@ -1,4 +1,4 @@
-import { hashCanonicalJson } from "./agent-event-ledger.js";
+import { canonicalizeJson, hashCanonicalJson } from "./agent-event-ledger.js";
 import type { RunAccountabilityTrace } from "./run-accountability-trace.js";
 import type {
   ShadowObservation,
@@ -13,6 +13,12 @@ import type {
   AdminDecisionValidationDecision,
   ValidatedAdminDecision
 } from "./admin-agent-contract.js";
+import {
+  evaluateAdminInvocationPolicy,
+  type AdminInvocationAssessment,
+  type AdminInvocationDecision,
+  type AdminInvocationMode
+} from "./admin-invocation-policy.js";
 
 /**
  * This router executes no workflow action: it only classifies the next route.
@@ -23,7 +29,7 @@ import type {
  * independently hash-verified, and this module performs no repository mutation.
  */
 
-export const RISK_BASED_APPROVAL_ROUTER_VERSION = "1" as const;
+export const RISK_BASED_APPROVAL_ROUTER_VERSION = "2" as const;
 
 export type ApprovalWorkflowRoute =
   | "auto_continue"
@@ -49,7 +55,8 @@ export type AdminRoutingStageDecision =
   | "admin_agent_completed"
   | "admin_agent_needs_review"
   | "admin_agent_failed"
-  | "admin_not_called";
+  | "admin_not_called"
+  | "admin_skipped_by_policy";
 
 export type PhaseVTerminalDecision =
   | "temp_validation_passed"
@@ -57,7 +64,7 @@ export type PhaseVTerminalDecision =
   | "temp_validation_needs_review";
 
 export type RiskBasedApprovalRouterPolicy = {
-  policyVersion: "1";
+  policyVersion: "2";
   requireShadowCompletedForAutoContinue: boolean;
   requireShadowValidationValidForAutoContinue: boolean;
   requireGovernancePassedForAutoContinue: boolean;
@@ -81,6 +88,7 @@ export type RiskBasedApprovalRouterInput = {
   };
   governance: DeterministicGovernanceAssessment;
   admin: {
+    invocation: AdminInvocationAssessment;
     stageDecision: AdminRoutingStageDecision;
     validationDecision: AdminDecisionValidationDecision | null;
     decision: ValidatedAdminDecision | null;
@@ -115,7 +123,7 @@ export type ApprovalRouterIssue = RouterEvidence & {
 };
 
 export type RiskBasedApprovalAssessment = {
-  routerVersion: "1";
+  routerVersion: "2";
   runId: string;
   phaseVFinalDecision: PhaseVTerminalDecision;
   traceHash: string;
@@ -125,6 +133,11 @@ export type RiskBasedApprovalAssessment = {
   shadowStageDecision: ShadowRoutingStageDecision;
   shadowValidationDecision: ShadowObservationValidationDecision | null;
   governanceDecision: DeterministicGovernanceDecision;
+  adminInvocationMode: AdminInvocationMode;
+  adminInvocationDecision: AdminInvocationDecision;
+  adminInvocationPolicyHash: string;
+  adminInvocationAssessmentHash: string;
+  adminResolutionKind: "model_decision" | "verified_policy_skip";
   adminStageDecision: AdminRoutingStageDecision;
   adminValidationDecision: AdminDecisionValidationDecision | null;
   adminDecision: AdminDecision | null;
@@ -154,6 +167,8 @@ export type RiskBasedApprovalRouterResult = {
     governanceIntegrityVerified: boolean;
     governanceBoundToTrace: boolean;
     governanceBoundToObservation: boolean;
+    adminInvocationIntegrityVerified: boolean;
+    adminInvocationReproduced: boolean;
     adminDecisionProvided: boolean;
     adminDecisionIntegrityVerified: boolean;
     adminDecisionBoundToTrace: boolean;
@@ -161,6 +176,7 @@ export type RiskBasedApprovalRouterResult = {
     adminDecisionBoundToGovernance: boolean;
     shadowStageConsistent: boolean;
     adminStageConsistent: boolean;
+    adminResolutionKind: "model_decision" | "verified_policy_skip" | "unresolved";
     deterministicAuthorityPreserved: boolean;
     autoContinueEligible: boolean;
     phaseVEffect: ApprovalRouteEffect;
@@ -232,6 +248,7 @@ const RULE_DEFINITIONS = [
   ["governance_trace_binding", "approval_router_governance_trace_mismatch", "critical", "terminate"],
   ["governance_observation_binding", "approval_router_governance_observation_mismatch", "critical", "terminate"],
   ["governance_route", "approval_router_governance_passed", "info", "none"],
+  ["admin_invocation_integrity", "approval_router_admin_invocation_integrity_mismatch", "critical", "terminate"],
   ["admin_decision_integrity", "approval_router_admin_integrity_mismatch", "critical", "terminate"],
   ["admin_trace_binding", "approval_router_admin_trace_mismatch", "critical", "terminate"],
   ["admin_observation_binding", "approval_router_admin_observation_mismatch", "critical", "terminate"],
@@ -312,9 +329,11 @@ function initialSummary(): MutableSummary {
     observationIntegrityVerified: false, observationBoundToTrace: false,
     governanceIntegrityVerified: false, governanceBoundToTrace: false,
     governanceBoundToObservation: false, adminDecisionProvided: false,
+    adminInvocationIntegrityVerified: false, adminInvocationReproduced: false,
     adminDecisionIntegrityVerified: false, adminDecisionBoundToTrace: false,
     adminDecisionBoundToObservation: false, adminDecisionBoundToGovernance: false,
     shadowStageConsistent: false, adminStageConsistent: false,
+    adminResolutionKind: "unresolved",
     deterministicAuthorityPreserved: false, autoContinueEligible: false,
     phaseVEffect: "none", shadowEffect: "none", governanceEffect: "none",
     adminEffect: "none", finalEffect: "none", triggeredRuleCount: 0,
@@ -586,6 +605,7 @@ const RULE_MESSAGES: Record<RuleId, string> = {
   governance_trace_binding: "The governance assessment is not bound to this trace.",
   governance_observation_binding: "The governance assessment is not bound to the supplied observation.",
   governance_route: "Deterministic governance requires this workflow effect.",
+  admin_invocation_integrity: "The Admin invocation assessment failed independent verification.",
   admin_decision_integrity: "The Admin decision failed independent integrity verification.",
   admin_trace_binding: "The Admin decision is not bound to this trace.",
   admin_observation_binding: "The Admin decision is not bound to the supplied observation.",
@@ -660,7 +680,7 @@ export function evaluateRiskBasedApprovalRoute(
       "stageDecision", "validationDecision", "observation"
     ], "Shadow router input");
     const adminRecord = exactObject(top.admin, [
-      "stageDecision", "validationDecision", "decision"
+      "invocation", "stageDecision", "validationDecision", "decision"
     ], "Admin router input");
     const traceRecord = exactObject(top.trace, [
       "traceVersion", "runId", "objectiveHash", "ledgerRootHash", "ledgerEventCount",
@@ -677,6 +697,7 @@ export function evaluateRiskBasedApprovalRoute(
     const trace = traceRecord as unknown as RunAccountabilityTrace;
     const observation = shadowRecord.observation as ShadowObservation | null;
     const governance = governanceRecord as unknown as DeterministicGovernanceAssessment;
+    const invocation = adminRecord.invocation as AdminInvocationAssessment;
     const adminDecision = adminRecord.decision as ValidatedAdminDecision | null;
     const rules = makeRules();
 
@@ -746,7 +767,8 @@ export function evaluateRiskBasedApprovalRoute(
       (shadowStage === "shadow_observer_completed" &&
         shadowValidation === "shadow_observation_valid" && observation !== null) ||
       (shadowStage === "shadow_observer_needs_review" &&
-        shadowValidation === "shadow_observation_needs_review") ||
+        (shadowValidation === "shadow_observation_needs_review" ||
+          (shadowValidation === null && observation === null))) ||
       (shadowStage === "shadow_observer_failed" && observation === null &&
         (shadowValidation === null || shadowValidation === "shadow_observation_invalid"));
     if (!summary.shadowStageConsistent) applyRule(rules, "shadow_stage_consistency");
@@ -770,6 +792,39 @@ export function evaluateRiskBasedApprovalRoute(
     const observationHash = observation?.observationHash ?? null;
     summary.governanceBoundToObservation = governance.observationHash === observationHash;
     if (!summary.governanceBoundToObservation) applyRule(rules, "governance_observation_binding");
+
+    let reproducedInvocation: AdminInvocationAssessment | null = null;
+    try {
+      const invocationResult = evaluateAdminInvocationPolicy({
+        phaseVFinalDecision: phaseDecision,
+        trace,
+        shadow: {
+          stageDecision: shadowStage,
+          validationDecision: shadowValidation,
+          observation
+        },
+        governance
+      }, invocation.policy);
+      reproducedInvocation = invocationResult.assessment;
+      summary.adminInvocationIntegrityVerified =
+        invocationResult.decision === "admin_invocation_policy_valid" &&
+        reproducedInvocation !== null &&
+        hashCanonicalJson(invocation.policy) === invocation.policyHash &&
+        hashWithoutField(invocation as unknown as Record<string, unknown>, "assessmentHash") ===
+          invocation.assessmentHash;
+      summary.adminInvocationReproduced = reproducedInvocation !== null &&
+        canonicalizeJson(reproducedInvocation) === canonicalizeJson(invocation);
+    } catch {
+      summary.adminInvocationIntegrityVerified = false;
+      summary.adminInvocationReproduced = false;
+    }
+    if (!summary.adminInvocationIntegrityVerified || !summary.adminInvocationReproduced ||
+        invocation.traceHash !== trace.traceHash ||
+        invocation.observationHash !== observationHash ||
+        invocation.governanceHash !== governance.governanceHash ||
+        invocation.phaseVFinalDecision !== phaseDecision) {
+      applyRule(rules, "admin_invocation_integrity");
+    }
 
     summary.adminDecisionProvided = adminDecision !== null;
     if (adminDecision === null) {
@@ -807,12 +862,20 @@ export function evaluateRiskBasedApprovalRoute(
     const adminStage = adminRecord.stageDecision as AdminRoutingStageDecision;
     const adminValidation = adminRecord.validationDecision as AdminDecisionValidationDecision | null;
     summary.adminStageConsistent =
-      (adminStage === "admin_not_called" && adminValidation === null && adminDecision === null) ||
-      (adminStage === "admin_agent_completed" &&
+      (adminStage === "admin_skipped_by_policy" &&
+        invocation.decision === "admin_invocation_skipped" &&
+        adminValidation === null && adminDecision === null) ||
+      (adminStage === "admin_not_called" &&
+        invocation.decision === "admin_invocation_required" &&
+        adminValidation === null && adminDecision === null) ||
+      (invocation.decision === "admin_invocation_required" &&
+        adminStage === "admin_agent_completed" &&
         adminValidation === "admin_decision_valid" && adminDecision !== null) ||
-      (adminStage === "admin_agent_needs_review" &&
+      (invocation.decision === "admin_invocation_required" &&
+        adminStage === "admin_agent_needs_review" &&
         adminValidation === "admin_decision_needs_review") ||
-      (adminStage === "admin_agent_failed" && adminDecision === null &&
+      (invocation.decision === "admin_invocation_required" &&
+        adminStage === "admin_agent_failed" && adminDecision === null &&
         (adminValidation === null || adminValidation === "admin_decision_invalid"));
     if (!summary.adminStageConsistent) applyRule(rules, "admin_stage_consistency");
 
@@ -820,6 +883,7 @@ export function evaluateRiskBasedApprovalRoute(
       "shadow_observation_integrity", "shadow_observation_trace_binding",
       "shadow_stage_consistency", "governance_policy_integrity", "governance_integrity",
       "governance_trace_binding", "governance_observation_binding", "admin_decision_integrity",
+      "admin_invocation_integrity",
       "admin_trace_binding", "admin_observation_binding", "admin_governance_binding",
       "admin_governance_decision_binding", "admin_stage_consistency"
     ]);
@@ -902,6 +966,12 @@ export function evaluateRiskBasedApprovalRoute(
       adminHealthEffect = "human";
       applyRule(rules, "admin_stage_health", "approval_router_admin_missing", "high", "human", evidence);
     }
+    summary.adminResolutionKind =
+      adminStage === "admin_skipped_by_policy"
+        ? "verified_policy_skip"
+        : adminDecision !== null
+          ? "model_decision"
+          : "unresolved";
     summary.adminEffect = strongestEffect([adminSemanticEffect, adminHealthEffect]);
     summary.deterministicAuthorityPreserved = true;
 
@@ -912,17 +982,23 @@ export function evaluateRiskBasedApprovalRoute(
     const lowEvidence = governance.riskClass === "low" &&
       (observation === null || observation.riskLevel === "low") &&
       (adminDecision === null || (adminDecision.riskLevel === "low" && adminDecision.riskScore <= 24));
+    const modelResolution = adminStage === "admin_agent_completed" &&
+      adminValidation === "admin_decision_valid" &&
+      adminDecision?.decision === "admin_auto_approved" &&
+      adminDecision.riskLevel === "low" && adminDecision.riskScore <= 24;
+    const policySkipResolution = adminStage === "admin_skipped_by_policy" &&
+      invocation.decision === "admin_invocation_skipped" &&
+      invocation.autoContinueWithoutAdminEligible === true &&
+      adminValidation === null && adminDecision === null;
     summary.autoContinueEligible = phaseDecision === "temp_validation_passed" &&
       (!policy.requireShadowCompletedForAutoContinue ||
         (shadowStage === "shadow_observer_completed" && observation !== null)) &&
       (!policy.requireShadowValidationValidForAutoContinue ||
         shadowValidation === "shadow_observation_valid") &&
       (!policy.requireGovernancePassedForAutoContinue || governance.decision === "governance_passed") &&
-      (!policy.requireAdminCompletedForAutoContinue || adminStage === "admin_agent_completed") &&
-      (!policy.requireAdminValidationValidForAutoContinue ||
-        adminValidation === "admin_decision_valid") &&
-      (!policy.requireAdminAutoApprovalForAutoContinue ||
-        adminDecision?.decision === "admin_auto_approved") &&
+      (!policy.requireAdminCompletedForAutoContinue || modelResolution || policySkipResolution) &&
+      (!policy.requireAdminValidationValidForAutoContinue || modelResolution || policySkipResolution) &&
+      (!policy.requireAdminAutoApprovalForAutoContinue || modelResolution || policySkipResolution) &&
       governance.triggeredRuleIds.length === 0 && governance.issues.length === 0 &&
       lowEvidence && noBlockingRule;
     if (finalEffect === "none" && !summary.autoContinueEligible) {
@@ -955,6 +1031,13 @@ export function evaluateRiskBasedApprovalRoute(
       shadowStageDecision: shadowStage,
       shadowValidationDecision: shadowValidation,
       governanceDecision: governance.decision,
+      adminInvocationMode: invocation.policy.mode,
+      adminInvocationDecision: invocation.decision,
+      adminInvocationPolicyHash: invocation.policyHash,
+      adminInvocationAssessmentHash: invocation.assessmentHash,
+      adminResolutionKind: summary.adminResolutionKind === "verified_policy_skip"
+        ? "verified_policy_skip"
+        : "model_decision",
       adminStageDecision: adminStage,
       adminValidationDecision: adminValidation,
       adminDecision: adminDecision?.decision ?? null,

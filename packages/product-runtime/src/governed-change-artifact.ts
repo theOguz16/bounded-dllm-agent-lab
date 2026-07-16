@@ -25,6 +25,13 @@ import {
   type ValidatedAdminDecision
 } from "./admin-agent-contract.js";
 import {
+  evaluateAdminInvocationPolicy,
+  type AdminInvocationAssessment,
+  type AdminInvocationDecision,
+  type AdminInvocationMode,
+  type AdminInvocationSkipKind
+} from "./admin-invocation-policy.js";
+import {
   evaluateRiskBasedApprovalRoute,
   type AdminRoutingStageDecision,
   type ApprovalWorkflowRoute,
@@ -42,7 +49,7 @@ import {
  * and W.13 performs no repository mutation.
  */
 
-export const GOVERNED_CHANGE_ARTIFACT_VERSION = "1" as const;
+export const GOVERNED_CHANGE_ARTIFACT_VERSION = "2" as const;
 
 export type GovernedChangeKind = "coder_patch_draft" | "repair_draft";
 
@@ -68,6 +75,7 @@ export type GovernedChangeArtifactInput = {
   preShadowTrace: RunAccountabilityTrace;
   shadowObservation: ShadowObservation | null;
   governanceAssessment: DeterministicGovernanceAssessment;
+  adminInvocationAssessment: AdminInvocationAssessment;
   adminDecision: ValidatedAdminDecision | null;
   approvalRouterAssessment: RiskBasedApprovalAssessment;
   change: GovernedChangeBindingInput;
@@ -86,6 +94,7 @@ export type GovernedChangeStageEventBindings = {
   executionVerifierEventId: string;
   shadowObserverEventId: string | null;
   deterministicGovernorEventId: string;
+  adminInvocationPolicyEventId: string;
   adminAgentEventId: string | null;
   approvalRouterEventId: string;
 };
@@ -102,6 +111,8 @@ export type GovernedChangeEvidenceBindings = {
   preShadowTraceHash: string;
   observationHash: string | null;
   governanceHash: string;
+  adminInvocationPolicyHash: string;
+  adminInvocationAssessmentHash: string;
   adminDecisionHash: string | null;
   routeHash: string;
   governancePolicyHash: string;
@@ -115,6 +126,10 @@ export type GovernedChangeDecisionSnapshot = {
   shadowStageDecision: ShadowRoutingStageDecision;
   shadowValidationDecision: ShadowObservationValidationDecision | null;
   governanceDecision: DeterministicGovernanceDecision;
+  adminInvocationMode: AdminInvocationMode;
+  adminInvocationDecision: AdminInvocationDecision;
+  adminInvocationSkipKind: AdminInvocationSkipKind;
+  adminResolutionKind: "model_decision" | "verified_policy_skip";
   adminStageDecision: AdminRoutingStageDecision;
   adminValidationDecision: AdminDecisionValidationDecision | null;
   adminDecision: AdminDecision | null;
@@ -128,7 +143,7 @@ export type GovernedChangeApplyEligibility = {
 };
 
 export type GovernedChangeArtifact = {
-  artifactVersion: "1";
+  artifactVersion: "2";
   change: GovernedChangeChain;
   evidence: GovernedChangeEvidenceBindings;
   decisions: GovernedChangeDecisionSnapshot;
@@ -160,6 +175,7 @@ export type GovernedChangeArtifactResult = {
     shadowObservationProvided: boolean;
     shadowObservationVerified: boolean;
     governanceVerified: boolean;
+    adminInvocationVerified: boolean;
     adminDecisionProvided: boolean;
     adminDecisionVerified: boolean;
     routerAssessmentVerified: boolean;
@@ -192,6 +208,8 @@ export type GovernedChangeFreshnessSnapshot = {
   preShadowTraceHash: string;
   observationHash: string | null;
   governanceHash: string;
+  adminInvocationPolicyHash: string;
+  adminInvocationAssessmentHash: string;
   adminDecisionHash: string | null;
   routeHash: string;
   governancePolicyHash: string;
@@ -225,6 +243,8 @@ export type GovernedChangeFreshnessResult = {
     traceMatched: boolean;
     observationMatched: boolean;
     governanceMatched: boolean;
+    adminInvocationPolicyMatched: boolean;
+    adminInvocationAssessmentMatched: boolean;
     adminDecisionMatched: boolean;
     routeMatched: boolean;
     governancePolicyMatched: boolean;
@@ -249,7 +269,8 @@ const MAX_CLONED_NODES = 200_000;
 
 const INPUT_FIELDS = [
   "finalLedger", "finalLedgerAnchors", "preShadowTrace", "shadowObservation",
-  "governanceAssessment", "adminDecision", "approvalRouterAssessment", "change"
+  "governanceAssessment", "adminInvocationAssessment", "adminDecision",
+  "approvalRouterAssessment", "change"
 ] as const;
 const ANCHOR_FIELDS = [
   "expectedRunId", "expectedObjectiveHash", "expectedRootHash", "expectedEventCount"
@@ -266,25 +287,29 @@ const CHAIN_FIELDS = [...CHANGE_FIELDS, "stageEvents"] as const;
 const STAGE_EVENT_FIELDS = [
   "mutationSourceEventId", "patchDryRunEventId", "temporaryApplyEventId",
   "executionVerifierEventId", "shadowObserverEventId",
-  "deterministicGovernorEventId", "adminAgentEventId", "approvalRouterEventId"
+  "deterministicGovernorEventId", "adminInvocationPolicyEventId",
+  "adminAgentEventId", "approvalRouterEventId"
 ] as const;
 const EVIDENCE_FIELDS = [
   "runId", "objectiveHash", "preShadowLedgerRootHash", "preShadowLedgerEventCount",
-  "preShadowTraceHash", "observationHash", "governanceHash", "adminDecisionHash",
+  "preShadowTraceHash", "observationHash", "governanceHash",
+  "adminInvocationPolicyHash", "adminInvocationAssessmentHash", "adminDecisionHash",
   "routeHash", "governancePolicyHash", "routerPolicyHash", "finalLedgerRootHash",
   "finalLedgerEventCount"
 ] as const;
 const DECISION_FIELDS = [
   "phaseVFinalDecision", "shadowStageDecision", "shadowValidationDecision",
-  "governanceDecision", "adminStageDecision", "adminValidationDecision",
-  "adminDecision", "routerValidationDecision", "workflowRoute"
+  "governanceDecision", "adminInvocationMode", "adminInvocationDecision",
+  "adminInvocationSkipKind", "adminResolutionKind", "adminStageDecision",
+  "adminValidationDecision", "adminDecision", "routerValidationDecision", "workflowRoute"
 ] as const;
 const ELIGIBILITY_FIELDS = ["eligible", "reasonCodes"] as const;
 const FRESHNESS_FIELDS = [
   "runId", "objectiveHash", "mutationHash", "changedFiles",
   "patchDryRunResultHash", "temporaryApplyResultHash",
   "executionVerificationResultHash", "preShadowTraceHash", "observationHash",
-  "governanceHash", "adminDecisionHash", "routeHash", "governancePolicyHash",
+  "governanceHash", "adminInvocationPolicyHash", "adminInvocationAssessmentHash",
+  "adminDecisionHash", "routeHash", "governancePolicyHash",
   "routerPolicyHash", "finalLedgerRootHash", "finalLedgerEventCount",
   "phaseVFinalDecision", "workflowRoute"
 ] as const;
@@ -333,6 +358,7 @@ function initialSummary(): ArtifactSummary {
     shadowObservationProvided: false,
     shadowObservationVerified: false,
     governanceVerified: false,
+    adminInvocationVerified: false,
     adminDecisionProvided: false,
     adminDecisionVerified: false,
     routerAssessmentVerified: false,
@@ -366,6 +392,8 @@ function initialFreshnessSummary(): FreshnessSummary {
     traceMatched: false,
     observationMatched: false,
     governanceMatched: false,
+    adminInvocationPolicyMatched: false,
+    adminInvocationAssessmentMatched: false,
     adminDecisionMatched: false,
     routeMatched: false,
     governancePolicyMatched: false,
@@ -697,6 +725,9 @@ export function buildGovernedChangeArtifact(
     const trace = safeClone(top.preShadowTrace) as RunAccountabilityTrace;
     const suppliedObservation = safeClone(top.shadowObservation) as ShadowObservation | null;
     const suppliedGovernance = safeClone(top.governanceAssessment) as DeterministicGovernanceAssessment;
+    const suppliedInvocation = safeClone(
+      top.adminInvocationAssessment
+    ) as AdminInvocationAssessment;
     const suppliedAdmin = safeClone(top.adminDecision) as ValidatedAdminDecision | null;
     const suppliedRouter = safeClone(top.approvalRouterAssessment) as RiskBasedApprovalAssessment;
     summary.shadowObservationProvided = suppliedObservation !== null;
@@ -841,6 +872,27 @@ export function buildGovernedChangeArtifact(
     }
     summary.governanceVerified = true;
 
+    const invocationResult = evaluateAdminInvocationPolicy({
+      phaseVFinalDecision: suppliedRouter.phaseVFinalDecision,
+      trace,
+      shadow: {
+        stageDecision: suppliedRouter.shadowStageDecision,
+        validationDecision: suppliedRouter.shadowValidationDecision,
+        observation
+      },
+      governance
+    }, suppliedInvocation.policy);
+    if (invocationResult.decision !== "admin_invocation_policy_valid" ||
+        invocationResult.assessment === null ||
+        !canonicalEqual(invocationResult.assessment, suppliedInvocation)) {
+      return fail(
+        "governed_change_admin_invocation_binding_mismatch",
+        "The Admin invocation assessment differs from its deterministic reproduction."
+      );
+    }
+    const invocation = invocationResult.assessment;
+    summary.adminInvocationVerified = true;
+
     let admin: ValidatedAdminDecision | null = null;
     if (suppliedAdmin !== null) {
       const adminRecord = exactObject(suppliedAdmin, [
@@ -885,6 +937,7 @@ export function buildGovernedChangeArtifact(
       },
       governance,
       admin: {
+        invocation,
         stageDecision: suppliedRouter.adminStageDecision,
         validationDecision: suppliedRouter.adminValidationDecision,
         decision: admin
@@ -1080,6 +1133,31 @@ export function buildGovernedChangeArtifact(
     }
     const governorEvent = governorEvents[0]!;
 
+    const invocationEvents = matchingEvents(
+      ledger,
+      "admin_invocation_policy",
+      "admin_invocation_policy.evaluate"
+    );
+    const expectedInvocationInputs = sortedUnique([
+      trace.traceHash,
+      governance.governanceHash,
+      invocation.policyHash,
+      ...(observation === null ? [] : [observation.observationHash])
+    ]);
+    const matchingInvocationEvents = invocationEvents.filter((event) =>
+      canonicalEqual(event.inputArtifactHashes, expectedInvocationInputs) &&
+      canonicalEqual(event.outputArtifactHashes, [invocation.assessmentHash]) &&
+      event.decision === invocation.decision &&
+      canonicalEqual(event.reasonCodes, invocation.reasonCodes)
+    );
+    if (invocationEvents.length !== 1 || matchingInvocationEvents.length !== 1) {
+      return fail(
+        "governed_change_admin_invocation_event_binding_mismatch",
+        "The Admin invocation-policy ledger event is not bound exactly."
+      );
+    }
+    const invocationEvent = matchingInvocationEvents[0]!;
+
     const adminEvents = matchingEvents(ledger, "admin_agent", "admin_agent.evaluate");
     let adminEvent: AgentEvent | null = null;
     if (admin !== null) {
@@ -1098,7 +1176,13 @@ export function buildGovernedChangeArtifact(
       }
       adminEvent = candidates[0]!;
     } else {
-      if (
+      if (invocation.decision === "admin_invocation_skipped" && adminEvents.length !== 0) {
+        return fail(
+          "governed_change_admin_event_binding_mismatch",
+          "A policy-skipped Admin stage cannot have an Admin-agent event."
+        );
+      }
+      if (invocation.decision === "admin_invocation_required" && (
         adminEvents.length > 1 ||
         (adminEvents[0] !== undefined && (
           !contains(adminEvents[0].inputArtifactHashes, trace.traceHash) ||
@@ -1108,10 +1192,10 @@ export function buildGovernedChangeArtifact(
             observation.observationHash
           ))
         ))
-      ) {
+      )) {
         return fail(
           "governed_change_admin_event_binding_mismatch",
-          "A null Admin stage has ambiguous decision events."
+          "A required but unresolved Admin stage has ambiguous decision events."
         );
       }
       adminEvent = adminEvents[0] ?? null;
@@ -1134,6 +1218,8 @@ export function buildGovernedChangeArtifact(
     if (
       !contains(routerEvent.inputArtifactHashes, trace.traceHash) ||
       !contains(routerEvent.inputArtifactHashes, governance.governanceHash) ||
+      !contains(routerEvent.inputArtifactHashes, invocation.assessmentHash) ||
+      !contains(routerEvent.inputArtifactHashes, invocation.policyHash) ||
       !contains(routerEvent.inputArtifactHashes, router.policyHash) ||
       (observation !== null && !contains(
         routerEvent.inputArtifactHashes,
@@ -1159,8 +1245,9 @@ export function buildGovernedChangeArtifact(
     if (
       executionEvent.sequence >= auditLowerBound && shadowEvent !== null ||
       governorEvent.sequence <= auditLowerBound ||
-      (adminEvent !== null && adminEvent.sequence <= governorEvent.sequence) ||
-      routerEvent.sequence <= (adminEvent?.sequence ?? governorEvent.sequence)
+      invocationEvent.sequence <= governorEvent.sequence ||
+      (adminEvent !== null && adminEvent.sequence <= invocationEvent.sequence) ||
+      routerEvent.sequence <= (adminEvent?.sequence ?? invocationEvent.sequence)
     ) {
       return fail(
         "governed_change_stage_sequence_mismatch",
@@ -1190,21 +1277,27 @@ export function buildGovernedChangeArtifact(
     if (governance.issues.length > 0) {
       eligibilityReasons.push("governed_change_governance_has_issues");
     }
-    if (router.adminStageDecision !== "admin_agent_completed") {
-      eligibilityReasons.push("governed_change_admin_not_completed");
+    const verifiedPolicySkip = router.adminStageDecision === "admin_skipped_by_policy" &&
+      invocation.decision === "admin_invocation_skipped" &&
+      invocation.autoContinueWithoutAdminEligible &&
+      router.adminResolutionKind === "verified_policy_skip" &&
+      router.adminValidationDecision === null && admin === null;
+    const modelResolution = router.adminStageDecision === "admin_agent_completed" &&
+      invocation.decision === "admin_invocation_required" &&
+      router.adminResolutionKind === "model_decision" &&
+      router.adminValidationDecision === "admin_decision_valid" && admin !== null;
+    if (!verifiedPolicySkip && !modelResolution) {
+      eligibilityReasons.push("governed_change_admin_resolution_invalid");
     }
-    if (router.adminValidationDecision !== "admin_decision_valid") {
-      eligibilityReasons.push("governed_change_admin_validation_not_valid");
-    }
-    if (admin === null) {
-      eligibilityReasons.push("governed_change_admin_decision_missing");
-    } else {
+    if (admin !== null) {
       if (admin.decision !== "admin_auto_approved") {
         eligibilityReasons.push("governed_change_admin_not_auto_approved");
       }
       if (admin.riskLevel !== "low" || admin.riskScore < 0 || admin.riskScore > 24) {
         eligibilityReasons.push("governed_change_admin_risk_not_low");
       }
+    } else if (!verifiedPolicySkip) {
+      eligibilityReasons.push("governed_change_admin_decision_missing");
     }
     if (router.route !== "auto_continue") {
       eligibilityReasons.push("governed_change_route_not_auto_continue");
@@ -1234,6 +1327,7 @@ export function buildGovernedChangeArtifact(
       executionVerifierEventId: executionEvent.eventId,
       shadowObserverEventId: shadowEvent?.eventId ?? null,
       deterministicGovernorEventId: governorEvent.eventId,
+      adminInvocationPolicyEventId: invocationEvent.eventId,
       adminAgentEventId: adminEvent?.eventId ?? null,
       approvalRouterEventId: routerEvent.eventId
     };
@@ -1248,6 +1342,8 @@ export function buildGovernedChangeArtifact(
         preShadowTraceHash: trace.traceHash,
         observationHash: observation?.observationHash ?? null,
         governanceHash: governance.governanceHash,
+        adminInvocationPolicyHash: invocation.policyHash,
+        adminInvocationAssessmentHash: invocation.assessmentHash,
         adminDecisionHash: admin?.adminDecisionHash ?? null,
         routeHash: router.routeHash,
         governancePolicyHash: governance.policyHash,
@@ -1260,6 +1356,10 @@ export function buildGovernedChangeArtifact(
         shadowStageDecision: router.shadowStageDecision,
         shadowValidationDecision: router.shadowValidationDecision,
         governanceDecision: governance.decision,
+        adminInvocationMode: invocation.policy.mode,
+        adminInvocationDecision: invocation.decision,
+        adminInvocationSkipKind: invocation.skipKind,
+        adminResolutionKind: router.adminResolutionKind,
         adminStageDecision: router.adminStageDecision,
         adminValidationDecision: router.adminValidationDecision,
         adminDecision: admin?.decision ?? null,
@@ -1312,6 +1412,8 @@ const STALE_REASON_BY_FIELD: Readonly<Record<keyof GovernedChangeFreshnessSnapsh
   preShadowTraceHash: "governed_change_trace_changed",
   observationHash: "governed_change_observation_changed",
   governanceHash: "governed_change_governance_changed",
+  adminInvocationPolicyHash: "governed_change_admin_invocation_policy_changed",
+  adminInvocationAssessmentHash: "governed_change_admin_invocation_assessment_changed",
   adminDecisionHash: "governed_change_admin_decision_changed",
   routeHash: "governed_change_route_changed",
   governancePolicyHash: "governed_change_governance_policy_changed",
@@ -1352,6 +1454,14 @@ function normalizeFreshness(value: unknown): GovernedChangeFreshnessSnapshot {
     preShadowTraceHash: requireHash(record.preShadowTraceHash, "preShadowTraceHash"),
     observationHash: nullableHash("observationHash"),
     governanceHash: requireHash(record.governanceHash, "governanceHash"),
+    adminInvocationPolicyHash: requireHash(
+      record.adminInvocationPolicyHash,
+      "adminInvocationPolicyHash"
+    ),
+    adminInvocationAssessmentHash: requireHash(
+      record.adminInvocationAssessmentHash,
+      "adminInvocationAssessmentHash"
+    ),
     adminDecisionHash: nullableHash("adminDecisionHash"),
     routeHash: requireHash(record.routeHash, "routeHash"),
     governancePolicyHash: requireHash(record.governancePolicyHash, "governancePolicyHash"),
@@ -1402,7 +1512,8 @@ function inspectArtifact(value: unknown): GovernedChangeArtifact {
   }
   for (const field of [
     "objectiveHash", "preShadowLedgerRootHash", "preShadowTraceHash", "governanceHash",
-    "routeHash", "governancePolicyHash", "routerPolicyHash", "finalLedgerRootHash"
+    "adminInvocationPolicyHash", "adminInvocationAssessmentHash", "routeHash",
+    "governancePolicyHash", "routerPolicyHash", "finalLedgerRootHash"
   ]) requireHash(evidence[field], field);
   if (evidence.observationHash !== null) requireHash(evidence.observationHash, "observationHash");
   if (evidence.adminDecisionHash !== null) requireHash(evidence.adminDecisionHash, "adminDecisionHash");
@@ -1415,6 +1526,44 @@ function inspectArtifact(value: unknown): GovernedChangeArtifact {
       !ROUTES.has(decisions.workflowRoute as ApprovalWorkflowRoute) ||
       decisions.routerValidationDecision !== "approval_route_valid") {
     throw new SafeInputError("invalid_governed_change_object", "Governed decisions are invalid.");
+  }
+  const invocationModeValid = decisions.adminInvocationMode === "disabled" ||
+    decisions.adminInvocationMode === "conditional" || decisions.adminInvocationMode === "always";
+  const invocationDecisionValid = decisions.adminInvocationDecision === "admin_invocation_required" ||
+    decisions.adminInvocationDecision === "admin_invocation_skipped";
+  const invocationSkipValid = decisions.adminInvocationSkipKind === null ||
+    decisions.adminInvocationSkipKind === "clean_path" ||
+    decisions.adminInvocationSkipKind === "disabled" ||
+    decisions.adminInvocationSkipKind === "deterministic_hard_stop" ||
+    decisions.adminInvocationSkipKind === "insufficient_semantic_evidence";
+  const resolutionValid = decisions.adminResolutionKind === "model_decision" ||
+    decisions.adminResolutionKind === "verified_policy_skip";
+  const skipConsistent = decisions.adminResolutionKind !== "verified_policy_skip" ||
+    (decisions.adminInvocationDecision === "admin_invocation_skipped" &&
+      decisions.adminStageDecision === "admin_skipped_by_policy" &&
+      decisions.adminValidationDecision === null && evidence.adminDecisionHash === null);
+  const invocationConsistent = decisions.adminInvocationDecision === "admin_invocation_required"
+    ? decisions.adminInvocationSkipKind === null &&
+      decisions.adminResolutionKind === "model_decision" &&
+      decisions.adminStageDecision !== "admin_skipped_by_policy"
+    : decisions.adminInvocationSkipKind !== null &&
+      decisions.adminResolutionKind === "verified_policy_skip" &&
+      decisions.adminStageDecision === "admin_skipped_by_policy";
+  const adminEvidenceConsistent = decisions.adminStageDecision === "admin_agent_completed"
+    ? decisions.adminValidationDecision === "admin_decision_valid" &&
+      decisions.adminDecision !== null && evidence.adminDecisionHash !== null
+    : decisions.adminStageDecision === "admin_agent_needs_review"
+      ? decisions.adminValidationDecision === "admin_decision_needs_review" &&
+        ((decisions.adminDecision === null && evidence.adminDecisionHash === null) ||
+          (decisions.adminDecision !== null && evidence.adminDecisionHash !== null))
+      : decisions.adminDecision === null && evidence.adminDecisionHash === null;
+  if (!invocationModeValid || !invocationDecisionValid || !invocationSkipValid ||
+      !resolutionValid || !skipConsistent || !invocationConsistent ||
+      !adminEvidenceConsistent) {
+    throw new SafeInputError(
+      "invalid_governed_change_object",
+      "The governed Admin invocation decision snapshot is invalid."
+    );
   }
   const governedArtifactHash = requireHash(
     record.governedArtifactHash,
@@ -1445,6 +1594,8 @@ function expectedFreshness(artifact: GovernedChangeArtifact): GovernedChangeFres
     preShadowTraceHash: artifact.evidence.preShadowTraceHash,
     observationHash: artifact.evidence.observationHash,
     governanceHash: artifact.evidence.governanceHash,
+    adminInvocationPolicyHash: artifact.evidence.adminInvocationPolicyHash,
+    adminInvocationAssessmentHash: artifact.evidence.adminInvocationAssessmentHash,
     adminDecisionHash: artifact.evidence.adminDecisionHash,
     routeHash: artifact.evidence.routeHash,
     governancePolicyHash: artifact.evidence.governancePolicyHash,
@@ -1502,6 +1653,8 @@ export function verifyGovernedChangeArtifactFreshness(
         preShadowTraceHash: "traceMatched",
         observationHash: "observationMatched",
         governanceHash: "governanceMatched",
+        adminInvocationPolicyHash: "adminInvocationPolicyMatched",
+        adminInvocationAssessmentHash: "adminInvocationAssessmentMatched",
         adminDecisionHash: "adminDecisionMatched",
         routeHash: "routeMatched",
         governancePolicyHash: "governancePolicyMatched",

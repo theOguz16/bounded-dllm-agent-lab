@@ -6,10 +6,12 @@ async function main() {
   const runtime = await import("../dist/packages/product-runtime/src/index.js");
   const {
     GOVERNED_CHANGE_ARTIFACT_VERSION,
+    DEFAULT_ADMIN_INVOCATION_POLICY,
     appendAgentEvent,
     buildGovernedChangeArtifact,
     buildRunAccountabilityTrace,
     evaluateDeterministicGovernance,
+    evaluateAdminInvocationPolicy,
     evaluateRiskBasedApprovalRoute,
     hashCanonicalJson,
     validateAdminDecision,
@@ -274,8 +276,29 @@ async function main() {
     assert.ok(governanceResult.assessment, JSON.stringify(governanceResult));
     const governance = governanceResult.assessment;
 
+    const shadowStageDecision = options.shadowStageDecision ??
+      (observation === null ? "shadow_not_called" : "shadow_observer_completed");
+    const shadowValidationDecision = has(options, "shadowValidationDecision")
+      ? options.shadowValidationDecision
+      : observation === null ? null : "shadow_observation_valid";
+    const invocationResult = evaluateAdminInvocationPolicy({
+      phaseVFinalDecision,
+      trace,
+      shadow: {
+        stageDecision: shadowStageDecision,
+        validationDecision: shadowValidationDecision,
+        observation
+      },
+      governance
+    }, {
+      ...DEFAULT_ADMIN_INVOCATION_POLICY,
+      mode: options.invocationPolicyMode ?? "always"
+    });
+    assert.ok(invocationResult.assessment, JSON.stringify(invocationResult));
+    const invocation = invocationResult.assessment;
+
     let admin = null;
-    if (options.adminMode !== "null") {
+    if (options.adminMode !== "null" && invocation.decision === "admin_invocation_required") {
       const adminSemantic = options.adminSemantic ?? semanticForGovernance(governance.decision);
       const adminResult = validateAdminDecision(
         trace,
@@ -287,13 +310,10 @@ async function main() {
       admin = adminResult.adminDecision;
     }
 
-    const shadowStageDecision = options.shadowStageDecision ??
-      (observation === null ? "shadow_not_called" : "shadow_observer_completed");
-    const shadowValidationDecision = has(options, "shadowValidationDecision")
-      ? options.shadowValidationDecision
-      : observation === null ? null : "shadow_observation_valid";
     const adminStageDecision = options.adminStageDecision ??
-      (admin === null ? "admin_not_called" : "admin_agent_completed");
+      (invocation.decision === "admin_invocation_skipped"
+        ? "admin_skipped_by_policy"
+        : admin === null ? "admin_not_called" : "admin_agent_completed");
     const adminValidationDecision = has(options, "adminValidationDecision")
       ? options.adminValidationDecision
       : admin === null ? null : "admin_decision_valid";
@@ -307,6 +327,7 @@ async function main() {
       },
       governance,
       admin: {
+        invocation,
         stageDecision: adminStageDecision,
         validationDecision: adminValidationDecision,
         decision: admin
@@ -335,6 +356,18 @@ async function main() {
       decision: governance.decision,
       reasonCodes: governance.reasonCodes
     }));
+    auditDrafts.push(next("admin_invocation_policy", "admin_invocation_policy.evaluate", {
+      inputs: [
+        trace.traceHash,
+        governance.governanceHash,
+        invocation.policyHash,
+        ...(observation ? [observation.observationHash] : [])
+      ],
+      outputs: [invocation.assessmentHash],
+      filesRead: trace.files.allProposedFiles,
+      decision: invocation.decision,
+      reasonCodes: invocation.reasonCodes
+    }));
     if (admin !== null || options.includeFailedAdminEvent) {
       auditDrafts.push(next("admin_agent", "admin_agent.evaluate", {
         inputs: [
@@ -351,6 +384,8 @@ async function main() {
       inputs: [
         trace.traceHash,
         governance.governanceHash,
+        invocation.policyHash,
+        invocation.assessmentHash,
         router.policyHash,
         ...(observation ? [observation.observationHash] : []),
         ...(admin ? [admin.adminDecisionHash] : [])
@@ -364,6 +399,7 @@ async function main() {
       trace,
       observation,
       governance,
+      invocation,
       admin,
       router
     });
@@ -385,6 +421,7 @@ async function main() {
       preShadowTrace: trace,
       shadowObservation: observation,
       governanceAssessment: governance,
+      adminInvocationAssessment: invocation,
       adminDecision: admin,
       approvalRouterAssessment: router,
       change: {
@@ -403,6 +440,7 @@ async function main() {
       trace,
       observation,
       governance,
+      invocation,
       admin,
       router,
       hashes: {
@@ -426,6 +464,8 @@ async function main() {
       preShadowTraceHash: artifact.evidence.preShadowTraceHash,
       observationHash: artifact.evidence.observationHash,
       governanceHash: artifact.evidence.governanceHash,
+      adminInvocationPolicyHash: artifact.evidence.adminInvocationPolicyHash,
+      adminInvocationAssessmentHash: artifact.evidence.adminInvocationAssessmentHash,
       adminDecisionHash: artifact.evidence.adminDecisionHash,
       routeHash: artifact.evidence.routeHash,
       governancePolicyHash: artifact.evidence.governancePolicyHash,
@@ -441,8 +481,112 @@ async function main() {
   const cleanInputBefore = clone(clean.input);
   const cleanResult = buildGovernedChangeArtifact(clean.input);
 
+  const policySkipped = makeFixture({
+    seed: "clean-policy-skip",
+    invocationPolicyMode: "conditional"
+  });
+  const policySkippedResult = buildGovernedChangeArtifact(policySkipped.input);
+
+  check("clean policy skip builds a ready artifact without Admin evidence", () => {
+    assert.equal(policySkipped.invocation.decision, "admin_invocation_skipped");
+    assert.equal(policySkipped.router.adminResolutionKind, "verified_policy_skip");
+    assert.equal(policySkipped.admin, null);
+    assert.equal(policySkipped.finalLedger.events.some((event) =>
+      event.actor === "admin_agent"), false);
+    assert.equal(policySkippedResult.decision, "governed_change_artifact_ready");
+    assert.equal(policySkippedResult.artifact.evidence.adminDecisionHash, null);
+    assert.equal(policySkippedResult.artifact.decisions.adminInvocationSkipKind, "clean_path");
+    assert.equal(policySkippedResult.artifact.change.stageEvents.adminAgentEventId, null);
+  });
+
+  check("policy-skip artifacts reject Admin evidence and malformed stage combinations", () => {
+    const withAdmin = clone(policySkipped.input);
+    withAdmin.adminDecision = clean.admin;
+    assert.equal(buildGovernedChangeArtifact(withAdmin).decision,
+      "governed_change_artifact_invalid");
+    const completedClaim = clone(policySkipped.input);
+    completedClaim.approvalRouterAssessment.adminStageDecision = "admin_agent_completed";
+    assert.equal(buildGovernedChangeArtifact(completedClaim).decision,
+      "governed_change_artifact_invalid");
+    const requiredClaim = clone(clean.input);
+    requiredClaim.approvalRouterAssessment.adminStageDecision =
+      "admin_skipped_by_policy";
+    assert.equal(buildGovernedChangeArtifact(requiredClaim).decision,
+      "governed_change_artifact_invalid");
+  });
+
+  check("invocation-policy event presence and assessment hash are exact", () => {
+    const missing = makeFixture({
+      seed: "missing-invocation-event",
+      mutateAuditDrafts(events) {
+        events.splice(events.findIndex((event) =>
+          event.actor === "admin_invocation_policy"), 1);
+      }
+    });
+    const missingResult = buildGovernedChangeArtifact(missing.input);
+    assert.equal(missingResult.decision, "governed_change_artifact_invalid");
+    assert.ok(missingResult.issues.some((issue) =>
+      issue.code === "governed_change_admin_invocation_event_binding_mismatch"));
+
+    const wrongHash = hash("wrong-invocation-assessment");
+    const wrong = makeFixture({
+      seed: "wrong-invocation-event-hash",
+      mutateAuditDrafts(events) {
+        events.find((event) => event.actor === "admin_invocation_policy")
+          .outputArtifactHashes = [wrongHash];
+      }
+    });
+    assert.equal(buildGovernedChangeArtifact(wrong.input).decision,
+      "governed_change_artifact_invalid");
+
+    const wrongPolicyHash = hash("wrong-invocation-policy");
+    const wrongPolicy = makeFixture({
+      seed: "wrong-invocation-policy-event-hash",
+      mutateAuditDrafts(events, context) {
+        const event = events.find((candidate) =>
+          candidate.actor === "admin_invocation_policy");
+        event.inputArtifactHashes = event.inputArtifactHashes
+          .filter((value) => value !== context.invocation.policyHash);
+        event.inputArtifactHashes.push(wrongPolicyHash);
+      }
+    });
+    assert.equal(buildGovernedChangeArtifact(wrongPolicy.input).decision,
+      "governed_change_artifact_invalid");
+
+    const wrongOrder = makeFixture({
+      seed: "wrong-invocation-event-order",
+      mutateAuditDrafts(events) {
+        const invocationIndex = events.findIndex((event) =>
+          event.actor === "admin_invocation_policy");
+        const adminIndex = events.findIndex((event) => event.actor === "admin_agent");
+        [events[invocationIndex], events[adminIndex]] =
+          [events[adminIndex], events[invocationIndex]];
+      }
+    });
+    assert.equal(buildGovernedChangeArtifact(wrongOrder.input).decision,
+      "governed_change_artifact_invalid");
+    assert.ok(buildGovernedChangeArtifact(wrongOrder.input).issues.some((issue) =>
+      issue.code === "governed_change_stage_sequence_mismatch"));
+  });
+
+  check("pre-W.17 router and artifact versions are rejected without upgrade", () => {
+    const oldRouter = clone(clean.input);
+    oldRouter.approvalRouterAssessment.routerVersion = "1";
+    assert.equal(buildGovernedChangeArtifact(oldRouter).decision,
+      "governed_change_artifact_invalid");
+
+    const oldArtifact = clone(cleanResult.artifact);
+    oldArtifact.artifactVersion = "1";
+    delete oldArtifact.governedArtifactHash;
+    oldArtifact.governedArtifactHash = hashCanonicalJson(oldArtifact);
+    assert.equal(verifyGovernedChangeArtifactFreshness(
+      oldArtifact,
+      freshnessFrom(cleanResult.artifact)
+    ).decision, "governed_change_freshness_invalid");
+  });
+
   check("clean auto-continue evidence builds a ready governed artifact", () => {
-    assert.equal(GOVERNED_CHANGE_ARTIFACT_VERSION, "1");
+    assert.equal(GOVERNED_CHANGE_ARTIFACT_VERSION, "2");
     assert.equal(cleanResult.decision, "governed_change_artifact_ready");
     assert.ok(cleanResult.artifact);
     assert.equal(cleanResult.artifact.applyEligibility.eligible, true);
@@ -474,7 +618,7 @@ async function main() {
       "planner", "coder", "deterministic_verifier", "masker", "repairer",
       "repair_verifier", "patch_dry_run", "temp_workspace_apply",
       "execution_verifier", "shadow_observer", "deterministic_governor",
-      "admin_agent", "approval_router"
+      "admin_invocation_policy", "admin_agent", "approval_router"
     ]);
     assert.deepEqual(
       Object.values(artifact.change.stageEvents).filter(Boolean),
@@ -486,6 +630,7 @@ async function main() {
             clean.preLedger.events.find((event) => event.actor === "execution_verifier").eventId,
             clean.finalLedger.events.find((event) => event.actor === "shadow_observer").eventId,
             clean.finalLedger.events.find((event) => event.actor === "deterministic_governor").eventId,
+            clean.finalLedger.events.find((event) => event.actor === "admin_invocation_policy").eventId,
             clean.finalLedger.events.find((event) => event.actor === "admin_agent").eventId,
             clean.finalLedger.events.at(-1).eventId
           ]
@@ -1089,8 +1234,8 @@ async function main() {
     ]) assert.equal(serialized.includes(sentinel), false, sentinel);
   });
 
-  check("runtime index exports the complete W.13 value API", () => {
-    assert.equal(runtime.GOVERNED_CHANGE_ARTIFACT_VERSION, "1");
+  check("runtime index exports the complete W.17 artifact value API", () => {
+    assert.equal(runtime.GOVERNED_CHANGE_ARTIFACT_VERSION, "2");
     assert.equal(typeof runtime.buildGovernedChangeArtifact, "function");
     assert.equal(typeof runtime.verifyGovernedChangeArtifactFreshness, "function");
   });

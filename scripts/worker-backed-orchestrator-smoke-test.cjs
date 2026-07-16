@@ -1783,6 +1783,25 @@ async function runW16ConfigurationChecks() {
     });
   });
   await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_ADMIN_MODE: undefined
+  }, async () => {
+    const defaultMode = configFromEnv();
+    check("W.17 Admin invocation mode defaults to conditional", () => {
+      assert.equal(defaultMode.admin.mode, "conditional");
+      assert.equal(defaultMode.admin.modeValid, true);
+    });
+  });
+  await withTemporaryEnvironment({
+    WORKER_ORCHESTRATOR_ADMIN_MODE: "not-a-mode"
+  }, async () => {
+    const invalidMode = configFromEnv();
+    check("W.17 invalid Admin invocation mode is bounded and not normalized", () => {
+      assert.equal(invalidMode.admin.mode, null);
+      assert.equal(invalidMode.admin.modeValid, false);
+      assert.equal(JSON.stringify(invalidMode).includes("not-a-mode"), false);
+    });
+  });
+  await withTemporaryEnvironment({
     [names[0]]: "",
     [names[1]]: handoffTarget.baseRevisionHash,
     [names[2]]: handoffTarget.worktreeStateHash,
@@ -2274,6 +2293,7 @@ async function runW6IntegrationChecks() {
     WORKER_ORCHESTRATOR_SHADOW_UPSTREAM_URL: undefined,
     WORKER_ORCHESTRATOR_SHADOW_MODEL_ID: undefined,
     WORKER_ORCHESTRATOR_SHADOW_REQUIRED: "1",
+    WORKER_ORCHESTRATOR_ADMIN_MODE: "always",
     WORKER_ORCHESTRATOR_HANDOFF_REPOSITORY_IDENTITY_HASH:
       handoffTarget.repositoryIdentityHash,
     WORKER_ORCHESTRATOR_HANDOFF_BASE_REVISION_HASH:
@@ -2391,6 +2411,10 @@ async function runW6IntegrationChecks() {
       assert.match(report.governance.governanceHash, /^sha256:[0-9a-f]{64}$/);
       assert.equal(report.governance.eventAppended, true);
       assert.equal(report.adminAgent.called, true);
+      assert.equal(report.adminInvocationPolicy.evaluated, true);
+      assert.equal(report.adminInvocationPolicy.mode, "always");
+      assert.equal(report.adminInvocationPolicy.decision, "admin_invocation_required");
+      assert.equal(report.adminInvocationPolicy.eventAppended, true);
       assert.equal(report.adminAgent.adapterDecision, "admin_agent_completed");
       assert.equal(report.adminAgent.validationDecision, "admin_decision_valid");
       assert.equal(report.adminAgent.decision, "admin_auto_approved");
@@ -2404,17 +2428,18 @@ async function runW6IntegrationChecks() {
       assert.deepEqual(report.accountability.ledger.events.map((event) => event.actor), [
         "planner", "coder", "deterministic_verifier", "masker", "repairer",
         "repair_verifier", "patch_dry_run", "temp_workspace_apply",
-        "execution_verifier", "shadow_observer", "deterministic_governor", "admin_agent",
+        "execution_verifier", "shadow_observer", "deterministic_governor",
+        "admin_invocation_policy", "admin_agent",
         "approval_router"
       ]);
       assert.equal(report.accountability.ledger.events.at(-1).actor, "approval_router");
       assert.equal(report.accountability.ledger.events.at(-1).eventId,
-        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000013");
+        "worker-orchestrator:phase-p-orchestrator-safe-helper:event:000014");
       assert.equal(report.accountability.ledger.rootHash,
         report.accountability.ledger.events.at(-1).eventHash);
       assert.equal(report.accountability.eventCountAfterGovernance, 11);
-      assert.equal(report.accountability.eventCountAfterAdmin, 12);
-      assert.equal(report.accountability.eventCountAfterRouter, 13);
+      assert.equal(report.accountability.eventCountAfterAdmin, 13);
+      assert.equal(report.accountability.eventCountAfterRouter, 14);
       assert.notEqual(report.accountability.ledgerRootHashAfterAdmin,
         report.accountability.ledger.rootHash);
       assert.equal(report.accountability.ledgerRootHashAfterRouter,
@@ -2528,7 +2553,7 @@ async function runW6IntegrationChecks() {
         "governed_change_current");
       assert.equal(report.orchestratorDecision.governedChangeHandoffEligible, true);
       assert.equal(report.orchestratorDecision.governedChangeStaleFieldCount, 0);
-      assert.equal(events.length, 13);
+      assert.equal(events.length, 14);
       assert.equal(events.at(-1).actor, "approval_router");
       assert.equal(events.at(-1).action, "approval_router.evaluate");
       assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
@@ -2586,7 +2611,7 @@ async function runW6IntegrationChecks() {
       assert.equal(report.controlledApplyHandoffVerification
         .consumptionStatusExternallySupplied, true);
       assert.equal(report.controlledApplyHandoffVerification.executionEligible, true);
-      assert.equal(events.length, 13);
+      assert.equal(events.length, 14);
       assert.equal(events.at(-1).actor, "approval_router");
       assert.equal(events.at(-1).action, "approval_router.evaluate");
       assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
@@ -3020,7 +3045,7 @@ async function runW6IntegrationChecks() {
           "governed_change_artifact_invalid", field);
         assert.equal(candidate.governedChangeArtifact.requiredSatisfied, false, field);
         assert.equal(candidate.governedChangeArtifact.artifact, null, field);
-        assert.equal(candidate.accountability.ledger.eventCount, 13, field);
+        assert.equal(candidate.accountability.ledger.eventCount, 14, field);
         assert.equal(candidate.accountability.ledger.events.at(-1).actor,
           "approval_router", field);
       }
@@ -3122,6 +3147,17 @@ async function runW6IntegrationChecks() {
         report.governance.reasonCodes);
       assert.deepEqual(byActor.deterministic_governor.filesProposed, []);
       assert.equal(byActor.deterministic_governor.tokenUsage, undefined);
+      assert.equal(byActor.admin_invocation_policy.action,
+        "admin_invocation_policy.evaluate");
+      for (const hash of [
+        report.accountability.preShadowTraceHash,
+        report.shadowObserver.observationHash,
+        report.governance.governanceHash,
+        report.adminInvocationPolicy.policyHash
+      ]) assert.ok(byActor.admin_invocation_policy.inputArtifactHashes.includes(hash));
+      assert.deepEqual(byActor.admin_invocation_policy.outputArtifactHashes,
+        [report.adminInvocationPolicy.assessmentHash]);
+      assert.equal(byActor.admin_invocation_policy.tokenUsage, undefined);
       assert.equal(byActor.admin_agent.action, "admin_agent.evaluate");
       assert.ok(byActor.admin_agent.inputArtifactHashes.includes(
         report.accountability.preShadowTraceHash));
@@ -3142,6 +3178,8 @@ async function runW6IntegrationChecks() {
         report.accountability.preShadowTraceHash,
         report.shadowObserver.observationHash,
         report.governance.governanceHash,
+        report.adminInvocationPolicy.policyHash,
+        report.adminInvocationPolicy.assessmentHash,
         report.adminAgent.adminDecisionHash,
         report.approvalRouter.policyHash
       ]) assert.ok(byActor.approval_router.inputArtifactHashes.includes(hash));
@@ -3208,6 +3246,8 @@ async function runW6IntegrationChecks() {
       assert.ok(markdown.includes("## Shadow Observer"));
       assert.ok(markdown.includes("## Post-Shadow Audit State"));
       assert.ok(markdown.includes("## Deterministic Governance"));
+      assert.ok(markdown.includes("## Admin Invocation Policy"));
+      assert.ok(markdown.includes("A policy skip is not an Admin approval."));
       assert.ok(markdown.includes("## Admin Agent"));
       assert.ok(markdown.includes("## Post-Governance Audit State"));
       assert.ok(markdown.includes("## Post-Admin Audit State"));
@@ -3747,13 +3787,18 @@ async function runW6IntegrationChecks() {
       ], [
         "admin_human_escalation_required",
         "admin_human_escalation_required",
-        "admin_run_terminated"
+        null
       ]);
-      for (const candidate of [cleanupMissing, cleanupFailed, cleanupConflicting]) {
+      for (const candidate of [cleanupMissing, cleanupFailed]) {
         assert.equal(candidate.finalDecision, "temp_validation_passed");
         assert.equal(candidate.accountability.postAdminLedgerVerificationDecision,
           "ledger_valid");
       }
+      assert.equal(cleanupConflicting.finalDecision, "temp_validation_passed");
+      assert.equal(cleanupConflicting.adminInvocationPolicy.skipKind,
+        "deterministic_hard_stop");
+      assert.equal(cleanupConflicting.adminAgent.called, false);
+      assert.equal(cleanupConflicting.adminAgent.eventAppended, false);
       assert.deepEqual([
         cleanupMissing.workflowRoute,
         cleanupFailed.workflowRoute,
@@ -3819,7 +3864,11 @@ async function runW6IntegrationChecks() {
       assert.equal(terminatedWeakening.governance.decision, "governance_terminated");
       assert.equal(repairWeakening.governance.decision, "governance_repair_required");
       assert.equal(replanWeakening.governance.decision, "governance_replan_required");
-      for (const candidate of [terminatedWeakening, repairWeakening, replanWeakening]) {
+      assert.equal(terminatedWeakening.adminInvocationPolicy.skipKind,
+        "deterministic_hard_stop");
+      assert.equal(terminatedWeakening.adminAgent.called, false);
+      assert.equal(terminatedWeakening.adminAgent.eventAppended, false);
+      for (const candidate of [repairWeakening, replanWeakening]) {
         assert.equal(candidate.adminAgent.adapterDecision, "admin_agent_failed");
         assert.equal(candidate.adminAgent.validationDecision, "admin_decision_invalid");
         assert.ok(candidate.adminAgent.issueCodes.includes(
@@ -4046,6 +4095,97 @@ async function runW6IntegrationChecks() {
         emptyGovernedChangeArtifactReport());
       assert.deepEqual(routerNeedsReview.governedChangeFreshness,
         emptyGovernedChangeFreshnessReport());
+    });
+
+    const conditionalRequestStart = requests.length;
+    const conditionalClean = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_MODE: "conditional",
+      WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1"
+    });
+    check("W.17 conditional clean path skips Admin and preserves the full handoff chain", () => {
+      assert.equal(requests.slice(conditionalRequestStart).filter((item) => item.admin).length, 0);
+      assert.equal(conditionalClean.adminInvocationPolicy.decision,
+        "admin_invocation_skipped");
+      assert.equal(conditionalClean.adminInvocationPolicy.skipKind, "clean_path");
+      assert.equal(conditionalClean.adminAgent.called, false);
+      assert.equal(conditionalClean.adminAgent.requiredSatisfied, true);
+      assert.equal(conditionalClean.adminAgent.resolutionKind, "verified_policy_skip");
+      assert.equal(conditionalClean.adminAgent.eventAppended, false);
+      assert.equal(conditionalClean.approvalRouter.route, "auto_continue");
+      assert.equal(conditionalClean.approvalRouter.adminResolutionKind,
+        "verified_policy_skip");
+      assert.equal(conditionalClean.governedChangeArtifact.decision,
+        "governed_change_artifact_ready");
+      assert.equal(conditionalClean.governedChangeArtifact.artifact.evidence.adminDecisionHash,
+        null);
+      assert.equal(conditionalClean.governedChangeFreshness.decision,
+        "governed_change_current");
+      assert.equal(conditionalClean.controlledApplyHandoff.decision,
+        "controlled_apply_handoff_ready");
+      assert.deepEqual(conditionalClean.accountability.ledger.events.slice(-3)
+        .map((event) => event.actor), [
+        "deterministic_governor", "admin_invocation_policy", "approval_router"
+      ]);
+    });
+
+    shadowRiskOverride = "medium";
+    const requiredUnconfiguredStart = requests.length;
+    const requiredUnconfigured = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_MODE: "conditional",
+      WORKER_ORCHESTRATOR_ADMIN_UPSTREAM_URL: ""
+    });
+    const disabledNonCleanStart = requests.length;
+    const disabledNonClean = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_MODE: "disabled"
+    });
+    shadowRiskOverride = null;
+    check("W.17 required-unconfigured and disabled non-clean paths avoid false approval", () => {
+      assert.equal(requests.slice(requiredUnconfiguredStart, disabledNonCleanStart)
+        .filter((item) => item.admin).length, 0);
+      assert.equal(requiredUnconfigured.adminInvocationPolicy.decision,
+        "admin_invocation_required");
+      assert.equal(requiredUnconfigured.adminStageDecision, "admin_not_called");
+      assert.equal(requiredUnconfigured.workflowRoute, "human_required");
+      assert.equal(requests.slice(disabledNonCleanStart).filter((item) => item.admin).length, 0);
+      assert.equal(disabledNonClean.adminInvocationPolicy.skipKind, "disabled");
+      assert.equal(disabledNonClean.adminInvocationPolicy
+        .autoContinueWithoutAdminEligible, false);
+      assert.notEqual(disabledNonClean.workflowRoute, "auto_continue");
+    });
+
+    const invalidModeStart = requests.length;
+    const invalidModeReport = await execute({
+      WORKER_ORCHESTRATOR_ADMIN_MODE: "invalid-mode"
+    });
+    check("W.17 invalid configured mode is bounded and never calls Admin", () => {
+      assert.equal(requests.slice(invalidModeStart).filter((item) => item.admin).length, 0);
+      assert.equal(invalidModeReport.adminInvocationPolicy.mode, null);
+      assert.equal(invalidModeReport.adminInvocationPolicy.evaluated, false);
+      assert.ok(invalidModeReport.accountability.issueCodes.includes(
+        "admin_invocation_mode_invalid"));
+      assert.notEqual(invalidModeReport.workflowRoute, "auto_continue");
+      assert.equal(JSON.stringify(invalidModeReport).includes("invalid-mode"), false);
+    });
+
+    const previousCleanupMode = fixture.cleanupEvidenceMode;
+    let conditionalTermination;
+    const conditionalTerminationStart = requests.length;
+    try {
+      fixture.cleanupEvidenceMode = "conflicting";
+      conditionalTermination = await execute({
+        WORKER_ORCHESTRATOR_ADMIN_MODE: "conditional"
+      });
+    } finally {
+      fixture.cleanupEvidenceMode = previousCleanupMode;
+    }
+    check("W.17 deterministic termination skips Admin after the invocation event", () => {
+      assert.equal(requests.slice(conditionalTerminationStart)
+        .filter((item) => item.admin).length, 0);
+      assert.equal(conditionalTermination.governance.decision, "governance_terminated");
+      assert.equal(conditionalTermination.adminInvocationPolicy.skipKind,
+        "deterministic_hard_stop");
+      assert.equal(conditionalTermination.adminAgent.called, false);
+      assert.equal(conditionalTermination.workflowRoute, "terminated");
     });
 
     const requiredValid = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });

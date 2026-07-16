@@ -51,8 +51,9 @@ async function main() {
     const route = options.route ?? "auto_continue";
     const phase = options.phase ?? "temp_validation_passed";
     const eligible = options.eligible ?? (route === "auto_continue" && phase === "temp_validation_passed");
+    const policySkip = options.policySkip === true;
     const material = {
-      artifactVersion: "1",
+      artifactVersion: "2",
       change: {
         changeKind,
         mutationHash,
@@ -67,8 +68,9 @@ async function main() {
           executionVerifierEventId: "run:event:000009",
           shadowObserverEventId: "run:event:000010",
           deterministicGovernorEventId: "run:event:000011",
-          adminAgentEventId: "run:event:000012",
-          approvalRouterEventId: "run:event:000013"
+          adminInvocationPolicyEventId: "run:event:000012",
+          adminAgentEventId: policySkip ? null : "run:event:000013",
+          approvalRouterEventId: "run:event:000014"
         }
       },
       evidence: {
@@ -79,12 +81,14 @@ async function main() {
         preShadowTraceHash: hash(`${changeKind}:trace`),
         observationHash: hash(`${changeKind}:observation`),
         governanceHash: hash(`${changeKind}:governance`),
-        adminDecisionHash: hash(`${changeKind}:admin`),
+        adminInvocationPolicyHash: hash(`${changeKind}:admin-invocation-policy`),
+        adminInvocationAssessmentHash: hash(`${changeKind}:admin-invocation-assessment`),
+        adminDecisionHash: policySkip ? null : hash(`${changeKind}:admin`),
         routeHash: hash(`${changeKind}:${route}:route`),
         governancePolicyHash: hash("governance-policy"),
         routerPolicyHash: hash("router-policy"),
         finalLedgerRootHash: hash(`${changeKind}:${route}:final-root`),
-        finalLedgerEventCount: 13
+        finalLedgerEventCount: 14
       },
       decisions: {
         phaseVFinalDecision: phase,
@@ -99,9 +103,13 @@ async function main() {
               : route === "terminated"
                 ? "governance_terminated"
                 : "governance_escalation_required",
-        adminStageDecision: "admin_agent_completed",
-        adminValidationDecision: "admin_decision_valid",
-        adminDecision: route === "auto_continue"
+        adminInvocationMode: policySkip ? "conditional" : "always",
+        adminInvocationDecision: policySkip ? "admin_invocation_skipped" : "admin_invocation_required",
+        adminInvocationSkipKind: policySkip ? "clean_path" : null,
+        adminResolutionKind: policySkip ? "verified_policy_skip" : "model_decision",
+        adminStageDecision: policySkip ? "admin_skipped_by_policy" : "admin_agent_completed",
+        adminValidationDecision: policySkip ? null : "admin_decision_valid",
+        adminDecision: policySkip ? null : route === "auto_continue"
           ? "admin_auto_approved"
           : route === "repair_required"
             ? "admin_repair_required"
@@ -139,6 +147,8 @@ async function main() {
       preShadowTraceHash: artifact.evidence.preShadowTraceHash,
       observationHash: artifact.evidence.observationHash,
       governanceHash: artifact.evidence.governanceHash,
+      adminInvocationPolicyHash: artifact.evidence.adminInvocationPolicyHash,
+      adminInvocationAssessmentHash: artifact.evidence.adminInvocationAssessmentHash,
       adminDecisionHash: artifact.evidence.adminDecisionHash,
       routeHash: artifact.evidence.routeHash,
       governancePolicyHash: artifact.evidence.governancePolicyHash,
@@ -191,6 +201,17 @@ async function main() {
     assert.match(clean.handoff.constraintsHash, /^sha256:[0-9a-f]{64}$/);
     assert.match(clean.handoff.singleUse.consumptionKey, /^sha256:[0-9a-f]{64}$/);
     assert.match(clean.handoff.handoffHash, /^sha256:[0-9a-f]{64}$/);
+  });
+
+  check("clean policy-skip evidence builds a ready handoff without Admin decision hash", () => {
+    const fixture = artifactFor({ policySkip: true });
+    const result = buildControlledApplyHandoff(inputFor(fixture));
+    assert.equal(result.decision, "controlled_apply_handoff_ready");
+    assert.equal(result.handoff.evidence.adminDecisionHash, null);
+    assert.notEqual(result.handoff.evidence.governedArtifactHash,
+      clean.handoff.evidence.governedArtifactHash);
+    assert.notEqual(result.handoff.evidence.currentSnapshotHash,
+      clean.handoff.evidence.currentSnapshotHash);
   });
 
   check("coder and repair mutation hashes reproduce exact existing artifact labels", () => {
@@ -277,7 +298,7 @@ async function main() {
   });
 
   const freshnessFields = Object.keys(freshnessFrom(cleanFixture.artifact));
-  check("every W.13 freshness field change invalidates planning", () => {
+  check("every W.17 freshness field change invalidates planning", () => {
     for (const field of freshnessFields) {
       const snapshot = freshnessFrom(cleanFixture.artifact);
       if (field === "runId") snapshot[field] = "different-run";
@@ -306,8 +327,22 @@ async function main() {
     assert.equal(result.summary.artifactIntegrityVerified, false);
     assert.ok(result.issues.some((issue) =>
       issue.code === "controlled_apply_artifact_integrity_mismatch"));
+    const old = clone(cleanFixture.artifact);
+    old.artifactVersion = "1";
+    delete old.governedArtifactHash;
+    old.governedArtifactHash = hashCanonicalJson(old);
+    result = buildControlledApplyHandoff(inputFor(cleanFixture, { artifact: old }));
+    assert.equal(result.decision, "controlled_apply_handoff_invalid");
+
+    const oldSnapshot = freshnessFrom(cleanFixture.artifact);
+    delete oldSnapshot.adminInvocationPolicyHash;
+    delete oldSnapshot.adminInvocationAssessmentHash;
+    result = buildControlledApplyHandoff(inputFor(cleanFixture, {
+      currentFreshnessSnapshot: oldSnapshot
+    }));
+    assert.equal(result.decision, "controlled_apply_handoff_invalid");
     const unsupported = clone(cleanFixture.artifact);
-    unsupported.artifactVersion = "2";
+    unsupported.artifactVersion = "3";
     delete unsupported.governedArtifactHash;
     unsupported.governedArtifactHash = hashCanonicalJson(unsupported);
     result = buildControlledApplyHandoff(inputFor(cleanFixture, { artifact: unsupported }));
@@ -639,6 +674,20 @@ async function main() {
     result = verifyControlledApplyHandoff({ ...verificationInput, handoff: constraintTamper });
     assert.equal(result.decision, "controlled_apply_handoff_verification_invalid");
     assert.deepEqual(result.reasonCodes, ["controlled_apply_constraints_hash_mismatch"]);
+  });
+
+  check("pre-W.17 handoff evidence is invalid rather than silently upgraded", () => {
+    const oldHandoff = clone(clean.handoff);
+    oldHandoff.evidence.governedArtifactHash = otherHash("pre-w17-artifact");
+    oldHandoff.evidence.currentSnapshotHash = otherHash("pre-w17-snapshot");
+    delete oldHandoff.handoffHash;
+    oldHandoff.handoffHash = hashCanonicalJson(oldHandoff);
+    const result = verifyControlledApplyHandoff({
+      ...verificationInput,
+      handoff: oldHandoff
+    });
+    assert.equal(result.decision, "controlled_apply_handoff_stale");
+    assert.equal(result.executionEligible, false);
   });
 
   check("planner and verifier outputs are deeply immutable without freezing inputs", () => {
