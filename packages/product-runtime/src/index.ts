@@ -17,6 +17,7 @@ export * from "./admin-agent-model-adapter.js";
 export * from "./risk-based-approval-router.js";
 export * from "./governed-change-artifact.js";
 export * from "./controlled-apply-handoff.js";
+export * from "./controlled-repository-inspection.js";
 
 export type ReviewDecision =
   | "approve"
