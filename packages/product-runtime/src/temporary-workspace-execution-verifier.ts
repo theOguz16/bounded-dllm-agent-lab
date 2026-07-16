@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { hashCanonicalJson } from "./agent-event-ledger.js";
 
 export type TempExecutionDecision =
   | "temp_validation_passed"
@@ -66,6 +67,128 @@ export type TemporaryWorkspaceExecutionResult = {
     durationMs: number;
   };
 };
+
+/**
+ * Canonical Phase V command specification without invocation-specific workspace state.
+ * It is the exact subset used to construct TemporaryWorkspaceExecutionContext.
+ */
+export type TemporaryWorkspaceExecutionSpecification = Omit<
+  TemporaryWorkspaceExecutionContext,
+  "tempWorkspacePath" | "tempApplyDecision" | "tempWorkspaceCleanedUp"
+>;
+
+export type TemporaryWorkspaceExecutionVerificationEvidence = {
+  evidenceVersion: "1";
+  validationSpecificationHash: string;
+  decision: TempExecutionDecision;
+  issueCodes: readonly string[];
+  steps: readonly {
+    index: number;
+    stepIdentifierHash: string;
+    exitCode: number | null;
+    signal: string | null;
+    timedOut: boolean;
+    stdoutHash: string;
+    stderrHash: string;
+    stdoutBytes: number;
+    stderrBytes: number;
+    outputTruncated: boolean;
+    passed: boolean;
+    stepHash: string;
+  }[];
+  requiredStepCount: number;
+  completedStepCount: number;
+  passedStepCount: number;
+  cleanupRequired: true;
+  cleanupSucceeded: boolean;
+  verificationResultHash: string;
+};
+
+function normalizedSpecification(
+  specification: TemporaryWorkspaceExecutionSpecification
+): Record<string, unknown> {
+  return {
+    artifactType: "temporary_workspace_execution_specification",
+    workspaceRule: "isolated_workspace_root",
+    tempApplyDecision: "temp_apply_ready",
+    commands: specification.commands.map((command) => ({
+      id: command.id,
+      executable: command.executable,
+      args: [...command.args],
+      ...(command.timeoutMs === undefined ? {} : { timeoutMs: command.timeoutMs }),
+      ...(command.expectedExitCodes === undefined ? {} : {
+        expectedExitCodes: [...command.expectedExitCodes]
+      })
+    })),
+    allowedExecutables: [...specification.allowedExecutables],
+    ...(specification.maxCommands === undefined ? {} : {
+      maxCommands: specification.maxCommands
+    }),
+    ...(specification.defaultTimeoutMs === undefined ? {} : {
+      defaultTimeoutMs: specification.defaultTimeoutMs
+    }),
+    ...(specification.maxTimeoutMs === undefined ? {} : {
+      maxTimeoutMs: specification.maxTimeoutMs
+    }),
+    ...(specification.maxOutputChars === undefined ? {} : {
+      maxOutputChars: specification.maxOutputChars
+    }),
+    ...(specification.environment === undefined ? {} : {
+      environment: { ...specification.environment }
+    })
+  };
+}
+
+export function computeTemporaryWorkspaceExecutionSpecificationHash(
+  specification: TemporaryWorkspaceExecutionSpecification
+): string {
+  return hashCanonicalJson(normalizedSpecification(specification));
+}
+
+export function buildTemporaryWorkspaceExecutionVerificationEvidence(
+  specification: TemporaryWorkspaceExecutionSpecification,
+  result: TemporaryWorkspaceExecutionResult,
+  cleanupSucceeded: boolean
+): TemporaryWorkspaceExecutionVerificationEvidence {
+  const validationSpecificationHash =
+    computeTemporaryWorkspaceExecutionSpecificationHash(specification);
+  const steps = result.commandResults.map((command, index) => {
+    const stepIdentifierHash = hashCanonicalJson({
+      artifactType: "temporary_workspace_execution_step_identifier",
+      index,
+      id: command.id,
+      executable: command.executable,
+      args: command.args
+    });
+    const material = {
+      index,
+      stepIdentifierHash,
+      exitCode: command.exitCode,
+      signal: command.signal,
+      timedOut: command.timedOut,
+      stdoutHash: hashCanonicalJson({ artifactType: "validation_stdout", value: command.stdout }),
+      stderrHash: hashCanonicalJson({ artifactType: "validation_stderr", value: command.stderr }),
+      stdoutBytes: Buffer.byteLength(command.stdout, "utf8"),
+      stderrBytes: Buffer.byteLength(command.stderr, "utf8"),
+      outputTruncated: command.stdoutTruncated || command.stderrTruncated,
+      passed: command.passed
+    };
+    return { ...material, stepHash: hashCanonicalJson(material) };
+  });
+  const material = {
+    evidenceVersion: "1" as const,
+    validationSpecificationHash,
+    decision: result.decision,
+    issueCodes: [...new Set(result.issues.map((issue) => issue.code))].sort(),
+    steps,
+    requiredStepCount: specification.commands.length,
+    completedStepCount: result.summary.totalCommands,
+    passedStepCount: result.summary.passedCommands,
+    cleanupRequired: true as const,
+    cleanupSucceeded
+  };
+  return { ...material, verificationResultHash: hashCanonicalJson(material) };
+}
 
 const defaultMaxCommands = 5;
 const defaultTimeoutMs = 30_000;

@@ -277,6 +277,28 @@ export type ControlledRepositoryApplyReceiptVerificationResult = {
   summary: VerificationSummary;
 };
 
+export type ControlledRepositoryRollbackRestorationInput = {
+  gateInput: ControlledApplyExecutionGateInput;
+  timeoutMs?: number;
+  maxGitOutputBytes?: number;
+  maxEntryBytes?: number;
+  maxBundleBytes?: number;
+};
+
+export type ControlledRepositoryRollbackRestorationResult = {
+  rollbackBundleVerified: boolean;
+  rollbackInspection: ControlledRepositoryInspectionResult;
+  baselineRestored: boolean;
+};
+
+export type ControlledRepositoryFileStateEvidence = {
+  state: "regular_file" | "symlink" | "directory" | "other" | "absent";
+  mode: "100644" | "100755" | "120000" | null;
+  contentHash: string | null;
+  size: number;
+  stateHash: string;
+};
+
 type ApplySummary = {
   inputValid: boolean;
   policyValid: boolean;
@@ -848,6 +870,17 @@ async function actualState(target: string, maxBytes: number): Promise<FileState>
     stateHash: stateHash(state, null, null) };
 }
 
+/** Content-free state inspection reused by X.5 workspace binding. */
+export async function inspectControlledRepositoryFileState(
+  targetPath: string,
+  maxBytes = DEFAULT_ENTRY_BYTES
+): Promise<ControlledRepositoryFileStateEvidence> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > MAX_ENTRY_BYTES) {
+    throw new TypeError("controlled_repository_apply_policy_invalid");
+  }
+  return deepFreeze(await actualState(targetPath, maxBytes));
+}
+
 function expectedBaselineState(entry: ControlledRollbackFileEntry): FileState {
   const state = entry.baselineState === "absent" ? "absent" :
     entry.baselineState === "tracked_symlink" ? "symlink" :
@@ -1343,6 +1376,51 @@ async function emergencyRollback(
   return inspectControlledRepository({
     repositoryPath: repository, changedFiles: gateInput.changedFiles,
     expectedTarget: gateInput.handoff.target, timeoutMs, maxGitOutputBytes
+  });
+}
+
+/** Narrow X.5 compatibility wrapper around the exact X.4 restoration boundary. */
+export async function restoreControlledRepositoryFromRollbackBundle(
+  input: ControlledRepositoryRollbackRestorationInput
+): Promise<ControlledRepositoryRollbackRestorationResult> {
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxGitOutputBytes = input.maxGitOutputBytes ?? DEFAULT_GIT_OUTPUT_BYTES;
+  const maxEntryBytes = input.maxEntryBytes ?? DEFAULT_ENTRY_BYTES;
+  const maxBundleBytes = input.maxBundleBytes ?? DEFAULT_BUNDLE_BYTES;
+  if (![timeoutMs, maxGitOutputBytes, maxEntryBytes, maxBundleBytes]
+    .every((value) => Number.isSafeInteger(value) && value > 0) ||
+      timeoutMs > MAX_TIMEOUT_MS || maxGitOutputBytes > MAX_GIT_OUTPUT_BYTES ||
+      maxEntryBytes > MAX_ENTRY_BYTES || maxBundleBytes > MAX_BUNDLE_BYTES) {
+    throw new TypeError("controlled_repository_apply_policy_invalid");
+  }
+  const gateInput = input.gateInput;
+  const verification = await verifyControlledRollbackBundle({
+    bundleDirectoryPath: gateInput.bundleDirectoryPath,
+    expectedManifest: gateInput.rollbackBundleManifest,
+    expectedReceipt: gateInput.rollbackBundleReceipt,
+    expectedHandoffHash: gateInput.handoff.handoffHash,
+    expectedConsumptionKey: gateInput.handoff.singleUse.consumptionKey,
+    expectedInspectionHash: gateInput.expectedInspection.inspectionHash,
+    maxEntryBytes, maxBundleBytes
+  });
+  if (verification.decision !== "rollback_bundle_current" || !verification.rollbackUsable) {
+    throw new ApplyFailure(
+      "controlled_repository_apply_rollback_bundle_invalid",
+      "The sealed rollback bundle is not current and usable."
+    );
+  }
+  const repository = await realpath(gateInput.repositoryPath);
+  const bundle = await realpath(gateInput.bundleDirectoryPath);
+  const rollbackInspection = await emergencyRollback(
+    repository, bundle, gateInput.rollbackBundleManifest, [], gateInput,
+    timeoutMs, maxGitOutputBytes, maxEntryBytes
+  );
+  return deepFreeze({
+    rollbackBundleVerified: true,
+    rollbackInspection,
+    baselineRestored: inspectionMatchesExpected(
+      rollbackInspection, gateInput.expectedInspection
+    )
   });
 }
 

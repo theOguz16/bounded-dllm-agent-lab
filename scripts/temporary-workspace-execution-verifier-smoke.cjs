@@ -116,7 +116,11 @@ function withWorkspace(fn) {
   const indexPath = pathToFileURL(
     `${process.cwd()}/dist/packages/product-runtime/src/index.js`
   );
-  const { verifyTemporaryWorkspaceExecution } = await import(verifierPath.href);
+  const {
+    verifyTemporaryWorkspaceExecution,
+    computeTemporaryWorkspaceExecutionSpecificationHash,
+    buildTemporaryWorkspaceExecutionVerificationEvidence
+  } = await import(verifierPath.href);
   const runtime = await import(indexPath.href);
 
   check("valid node validation command returns temp_validation_passed", () => {
@@ -590,8 +594,34 @@ function withWorkspace(fn) {
     });
   });
 
+  check("X.5 compatibility hashes bind the exact Phase V specification and bounded result", () => {
+    withWorkspace((workspace) => {
+      const full = context({ tempWorkspacePath: workspace });
+      const {
+        tempWorkspacePath, tempApplyDecision, tempWorkspaceCleanedUp, ...specification
+      } = full;
+      const result = verifyTemporaryWorkspaceExecution(full);
+      const specificationHash =
+        computeTemporaryWorkspaceExecutionSpecificationHash(specification);
+      const evidence = buildTemporaryWorkspaceExecutionVerificationEvidence(
+        specification, result, true
+      );
+      const changed = structuredClone(specification);
+      changed.commands[0].args = ["-e", "process.exit(1)"];
+      assert.match(specificationHash, /^sha256:[0-9a-f]{64}$/);
+      assert.equal(evidence.validationSpecificationHash, specificationHash);
+      assert.match(evidence.verificationResultHash, /^sha256:[0-9a-f]{64}$/);
+      assert.notEqual(computeTemporaryWorkspaceExecutionSpecificationHash(changed),
+        specificationHash);
+      assert.equal(JSON.stringify(evidence).includes("stdout"), true);
+      assert.equal(JSON.stringify(evidence).includes("hello"), false);
+    });
+  });
+
   check("runtime index exports temporary workspace execution verifier", () => {
     assert.equal(typeof runtime.verifyTemporaryWorkspaceExecution, "function");
+    assert.equal(typeof runtime.computeTemporaryWorkspaceExecutionSpecificationHash, "function");
+    assert.equal(typeof runtime.buildTemporaryWorkspaceExecutionVerificationEvidence, "function");
   });
 
   console.log("temporary workspace execution verifier smoke passed");

@@ -916,6 +916,8 @@ async function main() {
       assert.equal(runtime.CONTROLLED_REPOSITORY_APPLY_VERSION, "1");
       assert.equal(typeof runtime.executeControlledRepositoryApply, "function");
       assert.equal(typeof runtime.verifyControlledRepositoryApplyReceipt, "function");
+      assert.equal(typeof runtime.restoreControlledRepositoryFromRollbackBundle, "function");
+      assert.equal(typeof runtime.inspectControlledRepositoryFileState, "function");
       assert.equal(Object.isFrozen(runtime.DEFAULT_CONTROLLED_REPOSITORY_APPLY_POLICY), true);
     });
   } finally {
