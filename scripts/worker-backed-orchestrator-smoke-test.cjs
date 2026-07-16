@@ -16,8 +16,11 @@ const {
   emptyRemaskReport,
   emptyPatchDryRunReport,
   emptyRepairVerifierReport,
+  emptyGovernedChangeArtifactReport,
+  emptyGovernedChangeFreshnessReport,
   fixture,
   run,
+  setActiveGovernedChange,
   verifyAndCleanupTemporaryWorkspace
 } = require(scriptPath);
 
@@ -93,6 +96,10 @@ check("script creates JSON and Markdown report", () => {
   assert.ok(markdown.includes("## Patch Dry Run"));
   assert.ok(markdown.includes("Patch dry run called: false"));
   assert.ok(markdown.includes("## Temporary Workspace Execution Verification"));
+  assert.ok(markdown.includes("## Governed Change Artifact"));
+  assert.ok(markdown.includes("## Governed Change Freshness"));
+  assert.ok(markdown.includes("Handoff eligibility is evidence only."));
+  assert.ok(markdown.includes("No repository application or handoff was executed."));
 });
 
 check("skipped report has suiteName phase-p-worker-backed-orchestrator-smoke", () => {
@@ -141,6 +148,51 @@ check("W.12 skipped report creates no ledger or governed stages", () => {
   assert.equal(report.approvalRouterStageDecision, "approval_route_not_evaluated");
   assert.equal(report.workflowRoute, null);
   assert.equal(report.accountability.postRouterTrace, null);
+  assert.deepEqual(report.governedChangeArtifact, emptyGovernedChangeArtifactReport());
+  assert.deepEqual(report.governedChangeFreshness, emptyGovernedChangeFreshnessReport());
+  assert.equal(report.governedChangeArtifactStageDecision,
+    "governed_change_artifact_not_built");
+  assert.equal(report.governedChangeFreshnessStageDecision,
+    "governed_change_freshness_not_verified");
+});
+
+check("W.14 active mutation selection follows the mutation sent to patch dry-run", () => {
+  const context = {
+    governedChange: {
+      changeKind: null,
+      mutation: null,
+      mutationHash: null,
+      changedFiles: [],
+      patchDryRunResultHash: null,
+      temporaryApplyResultHash: null,
+      executionVerificationResultHash: null
+    }
+  };
+  const coderMutation = { touchedFiles: [
+    "packages/example/src/index.ts",
+    "packages/example/src/index.ts"
+  ] };
+  const repairMutation = { touchedFiles: ["packages/example/src/repair.ts"] };
+  assert.equal(setActiveGovernedChange(context, "repair_draft", repairMutation,
+    "sha256:repair"), true);
+  assert.equal(setActiveGovernedChange(context, "coder_patch_draft", coderMutation,
+    "sha256:coder"), true);
+  assert.equal(context.governedChange.changeKind, "coder_patch_draft");
+  assert.equal(context.governedChange.mutation, coderMutation);
+  assert.equal(context.governedChange.mutationHash, "sha256:coder");
+  assert.deepEqual(context.governedChange.changedFiles,
+    ["packages/example/src/index.ts"]);
+  assert.equal(setActiveGovernedChange(context, "repair_draft", repairMutation,
+    "sha256:repair-again"), true);
+  assert.equal(context.governedChange.changeKind, "repair_draft");
+  assert.equal(context.governedChange.mutationHash, "sha256:repair-again");
+  assert.equal(setActiveGovernedChange(context, "masker_called", coderMutation,
+    "sha256:invented"), false);
+  assert.equal(context.governedChange.changeKind, "repair_draft");
+  assert.equal(setActiveGovernedChange(context, "coder_patch_draft", coderMutation,
+    "sha256:coder-final"), true);
+  assert.equal(context.governedChange.changeKind, "coder_patch_draft");
+  assert.equal(context.governedChange.mutationHash, "sha256:coder-final");
 });
 
 check("no live network call is required", () => {
@@ -2318,6 +2370,299 @@ async function runW6IntegrationChecks() {
         event.actor === "repairer").length, 1);
     });
 
+    check("W.14 successful path builds and immediately verifies the exact governed change", () => {
+      const events = report.accountability.ledger.events;
+      const repairer = events.find((event) => event.actor === "repairer");
+      const patchDryRun = events.find((event) => event.actor === "patch_dry_run");
+      const temporaryApply = events.find((event) => event.actor === "temp_workspace_apply");
+      const executionVerifier = events.find((event) => event.actor === "execution_verifier");
+      const artifact = report.governedChangeArtifact.artifact;
+      assert.equal(report.governedChangeArtifact.evaluated, true);
+      assert.equal(report.governedChangeArtifact.required, true);
+      assert.equal(report.governedChangeArtifact.requiredSatisfied, true);
+      assert.equal(report.governedChangeArtifact.decision,
+        "governed_change_artifact_ready");
+      assert.equal(report.governedChangeArtifactStageDecision,
+        "governed_change_artifact_ready");
+      assert.equal(report.governedChangeArtifact.artifactBuilt, true);
+      assert.equal(report.governedChangeArtifact.applyEligible, true);
+      assert.equal(report.governedChangeArtifact.changeKind, "repair_draft");
+      assert.ok(repairer.outputArtifactHashes.includes(
+        report.governedChangeArtifact.mutationHash));
+      assert.ok(patchDryRun.inputArtifactHashes.includes(
+        report.governedChangeArtifact.mutationHash));
+      assert.deepEqual(artifact.change.changedFiles, repairer.filesProposed);
+      assert.deepEqual(artifact.change.changedFiles, temporaryApply.filesProposed);
+      assert.equal(artifact.change.patchDryRunResultHash,
+        patchDryRun.outputArtifactHashes[0]);
+      assert.equal(artifact.change.temporaryApplyResultHash,
+        temporaryApply.outputArtifactHashes[0]);
+      assert.equal(artifact.change.executionVerificationResultHash,
+        executionVerifier.outputArtifactHashes[0]);
+      assert.equal(artifact.evidence.finalLedgerRootHash,
+        report.accountability.ledger.rootHash);
+      assert.equal(artifact.evidence.finalLedgerEventCount,
+        report.accountability.ledger.eventCount);
+      assert.equal(report.governedChangeFreshness.evaluated, true);
+      assert.equal(report.governedChangeFreshness.decision,
+        "governed_change_current");
+      assert.equal(report.governedChangeFreshness.artifactIntegrityVerified, true);
+      assert.equal(report.governedChangeFreshness.snapshotCurrent, true);
+      assert.equal(report.governedChangeFreshness.handoffEligible, true);
+      assert.match(report.governedChangeFreshness.currentSnapshotHash,
+        /^sha256:[0-9a-f]{64}$/);
+      assert.equal(report.orchestratorDecision.governedChangeArtifactEvaluated, true);
+      assert.equal(report.orchestratorDecision.governedChangeArtifactRequired, true);
+      assert.equal(report.orchestratorDecision.governedChangeArtifactRequiredSatisfied,
+        true);
+      assert.equal(report.orchestratorDecision.governedChangeArtifactDecision,
+        "governed_change_artifact_ready");
+      assert.equal(report.orchestratorDecision.governedChangeKind, "repair_draft");
+      assert.equal(report.orchestratorDecision.governedChangeArtifactHash,
+        artifact.governedArtifactHash);
+      assert.equal(report.orchestratorDecision.governedChangeFreshnessDecision,
+        "governed_change_current");
+      assert.equal(report.orchestratorDecision.governedChangeHandoffEligible, true);
+      assert.equal(report.orchestratorDecision.governedChangeStaleFieldCount, 0);
+      assert.equal(events.length, 13);
+      assert.equal(events.at(-1).actor, "approval_router");
+      assert.equal(events.at(-1).action, "approval_router.evaluate");
+      assert.equal(events.at(-1).eventHash, report.accountability.ledger.rootHash);
+      assert.equal(report.status, "completed");
+      assert.equal(report.ok, true);
+    });
+
+    let artifactInputCalls = 0;
+    let freshnessSnapshotCalls = 0;
+    let singleEvaluationReport;
+    try {
+      fixture.governedChangeArtifactInputMutation = (input) => {
+        artifactInputCalls += 1;
+        return input;
+      };
+      fixture.governedChangeFreshnessSnapshotMutation = (snapshot) => {
+        freshnessSnapshotCalls += 1;
+        return snapshot;
+      };
+      singleEvaluationReport = await execute();
+    } finally {
+      delete fixture.governedChangeArtifactInputMutation;
+      delete fixture.governedChangeFreshnessSnapshotMutation;
+    }
+    check("W.14 artifact and freshness evaluation each occur exactly once", () => {
+      assert.equal(artifactInputCalls, 1);
+      assert.equal(freshnessSnapshotCalls, 1);
+      assert.equal(singleEvaluationReport.governedChangeArtifact.decision,
+        "governed_change_artifact_ready");
+      assert.equal(singleEvaluationReport.governedChangeFreshness.decision,
+        "governed_change_current");
+    });
+
+    const governedWrongHash = (label) => `sha256:${label.repeat(64).slice(0, 64)}`;
+    const activeHashCorruptions = [];
+    try {
+      for (const field of [
+        "mutationHash",
+        "patchDryRunResultHash",
+        "temporaryApplyResultHash",
+        "executionVerificationResultHash"
+      ]) {
+        fixture.governedChangeActiveStateMutation = (state) => ({
+          ...state,
+          changedFiles: [...state.changedFiles],
+          [field]: governedWrongHash(field[0])
+        });
+        activeHashCorruptions.push([field, await execute()]);
+      }
+    } finally {
+      delete fixture.governedChangeActiveStateMutation;
+    }
+    check("W.14 exact active stage hash corruptions fail closed", () => {
+      for (const [field, candidate] of activeHashCorruptions) {
+        assert.equal(candidate.governedChangeArtifact.required, true, field);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, false, field);
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_invalid", field);
+        assert.equal(candidate.governedChangeArtifact.artifact, null, field);
+        assert.equal(candidate.governedChangeFreshness.evaluated, false, field);
+        assert.equal(candidate.status, "failed_required_governed_change_artifact", field);
+        assert.equal(candidate.accountability.ledger.events.at(-1).actor,
+          "approval_router", field);
+      }
+    });
+
+    let changedFileMismatch;
+    try {
+      fixture.governedChangeActiveStateMutation = (state) => ({
+        ...state,
+        changedFiles: ["packages/example/src/other.ts"]
+      });
+      changedFileMismatch = await execute();
+    } finally {
+      delete fixture.governedChangeActiveStateMutation;
+    }
+    check("W.14 changed files must exactly match the retained mutation source", () => {
+      assert.equal(changedFileMismatch.governedChangeArtifact.decision,
+        "governed_change_artifact_invalid");
+      assert.ok(changedFileMismatch.governedChangeArtifact.issueCodes.includes(
+        "governed_change_mutation_file_mismatch"));
+      assert.equal(changedFileMismatch.governedChangeArtifact.requiredSatisfied, false);
+      assert.equal(changedFileMismatch.governedChangeFreshness.evaluated, false);
+    });
+
+    let missingActiveState;
+    try {
+      fixture.governedChangeActiveStateMutation = (state) => ({
+        ...state,
+        mutation: null,
+        mutationHash: null,
+        changedFiles: []
+      });
+      missingActiveState = await execute();
+    } finally {
+      delete fixture.governedChangeActiveStateMutation;
+    }
+    check("W.14 missing active mutation is attempted without inventing evidence", () => {
+      assert.equal(missingActiveState.governedChangeArtifact.evaluated, true);
+      assert.equal(missingActiveState.governedChangeArtifact.required, true);
+      assert.equal(missingActiveState.governedChangeArtifact.requiredSatisfied, false);
+      assert.equal(missingActiveState.governedChangeArtifact.mutationHash, null);
+      assert.equal(missingActiveState.governedChangeArtifact.artifact, null);
+      assert.deepEqual(missingActiveState.governedChangeArtifact.issueCodes,
+        ["governed_change_active_mutation_unavailable"]);
+      assert.equal(missingActiveState.governedChangeFreshness.evaluated, false);
+      assert.equal(missingActiveState.governedChangeFreshness.handoffEligible, false);
+    });
+
+    const anchorCorruptions = [];
+    const anchorMutators = {
+      expectedRootHash: (input) => ({
+        ...input,
+        finalLedgerAnchors: {
+          ...input.finalLedgerAnchors,
+          expectedRootHash: governedWrongHash("a")
+        }
+      }),
+      expectedEventCount: (input) => ({
+        ...input,
+        finalLedgerAnchors: {
+          ...input.finalLedgerAnchors,
+          expectedEventCount: input.finalLedgerAnchors.expectedEventCount - 1
+        }
+      }),
+      expectedRunId: (input) => ({
+        ...input,
+        finalLedgerAnchors: {
+          ...input.finalLedgerAnchors,
+          expectedRunId: "wrong-run"
+        }
+      }),
+      expectedObjectiveHash: (input) => ({
+        ...input,
+        finalLedgerAnchors: {
+          ...input.finalLedgerAnchors,
+          expectedObjectiveHash: governedWrongHash("b")
+        }
+      }),
+      postAdminLedger: (input) => {
+        const finalLedger = structuredClone(input.finalLedger);
+        finalLedger.events = finalLedger.events.slice(0, -1);
+        finalLedger.eventCount = finalLedger.events.length;
+        finalLedger.rootHash = finalLedger.events.at(-1).eventHash;
+        return {
+          ...input,
+          finalLedger,
+          finalLedgerAnchors: {
+            expectedRunId: finalLedger.runId,
+            expectedObjectiveHash: finalLedger.objectiveHash,
+            expectedRootHash: finalLedger.rootHash,
+            expectedEventCount: finalLedger.eventCount
+          }
+        };
+      },
+      routerEventNotFinal: (input) => {
+        const finalLedger = structuredClone(input.finalLedger);
+        const last = finalLedger.events.length - 1;
+        [finalLedger.events[last - 1], finalLedger.events[last]] =
+          [finalLedger.events[last], finalLedger.events[last - 1]];
+        return { ...input, finalLedger };
+      }
+    };
+    try {
+      for (const [field, mutate] of Object.entries(anchorMutators)) {
+        fixture.governedChangeArtifactInputMutation = mutate;
+        anchorCorruptions.push([field, await execute()]);
+      }
+    } finally {
+      delete fixture.governedChangeArtifactInputMutation;
+    }
+    check("W.14 final-ledger anchor corruptions invalidate the artifact", () => {
+      for (const [field, candidate] of anchorCorruptions) {
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_invalid", field);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, false, field);
+        assert.equal(candidate.governedChangeArtifact.artifact, null, field);
+        assert.equal(candidate.accountability.ledger.eventCount, 13, field);
+        assert.equal(candidate.accountability.ledger.events.at(-1).actor,
+          "approval_router", field);
+      }
+    });
+
+    const staleReports = [];
+    const staleValues = {
+      mutationHash: governedWrongHash("c"),
+      changedFiles: ["packages/example/src/changed.ts"],
+      executionVerificationResultHash: governedWrongHash("d"),
+      governanceHash: governedWrongHash("e"),
+      routeHash: governedWrongHash("f"),
+      finalLedgerRootHash: governedWrongHash("0"),
+      workflowRoute: "human_required"
+    };
+    try {
+      for (const [field, value] of Object.entries(staleValues)) {
+        fixture.governedChangeFreshnessSnapshotMutation = (snapshot) => ({
+          ...snapshot,
+          [field]: value
+        });
+        staleReports.push([field, await execute()]);
+      }
+    } finally {
+      delete fixture.governedChangeFreshnessSnapshotMutation;
+    }
+    check("W.14 independently retained stale evidence prevents handoff", () => {
+      for (const [field, candidate] of staleReports) {
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_ready", field);
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_stale", field);
+        assert.deepEqual(candidate.governedChangeFreshness.staleFields, [field], field);
+        assert.equal(candidate.governedChangeFreshness.handoffEligible, false, field);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, false, field);
+        assert.equal(candidate.status, "failed_required_governed_change_artifact", field);
+      }
+    });
+
+    let artifactIntegrityFailure;
+    try {
+      fixture.governedChangeArtifactMutation = (artifact) => {
+        const clone = JSON.parse(JSON.stringify(artifact));
+        clone.decisions.workflowRoute = "human_required";
+        return clone;
+      };
+      artifactIntegrityFailure = await execute();
+    } finally {
+      delete fixture.governedChangeArtifactMutation;
+    }
+    check("W.14 artifact tampering fails immediate integrity verification", () => {
+      assert.equal(artifactIntegrityFailure.governedChangeArtifact.artifactBuilt, true);
+      assert.equal(artifactIntegrityFailure.governedChangeFreshness.decision,
+        "governed_change_freshness_invalid");
+      assert.equal(artifactIntegrityFailure.governedChangeFreshness.artifactIntegrityVerified,
+        false);
+      assert.equal(artifactIntegrityFailure.governedChangeFreshness.handoffEligible, false);
+      assert.equal(artifactIntegrityFailure.governedChangeArtifact.requiredSatisfied, false);
+    });
+
     check("W.6 artifact chain links every adjacent bounded stage", () => {
       const byActor = Object.fromEntries(
         report.accountability.ledger.events.map((event) => [event.actor, event])
@@ -2553,6 +2898,13 @@ async function runW6IntegrationChecks() {
         assert.equal(failed.approvalRouter.validationDecision, "approval_route_valid");
         assert.equal(failed.workflowRoute, "human_required");
         assert.equal(failed.approvalRouter.requiredSatisfied, true);
+        assert.equal(failed.governedChangeArtifact.decision,
+          "governed_change_artifact_blocked");
+        assert.ok(failed.governedChangeArtifact.artifact);
+        assert.equal(failed.governedChangeArtifact.artifact.evidence.observationHash, null);
+        assert.equal(failed.governedChangeFreshness.decision,
+          "governed_change_current");
+        assert.equal(failed.governedChangeFreshness.handoffEligible, false);
       }
     });
 
@@ -2624,6 +2976,12 @@ async function runW6IntegrationChecks() {
       assert.equal(missingShadowWithAdmin.adminAgent.adminDecision.observationHash, null);
       assert.equal(missingShadowWithAdmin.workflowRoute, "human_required");
       assert.equal(missingShadowWithAdmin.approvalRouter.requiredSatisfied, true);
+      assert.equal(missingShadowWithAdmin.governedChangeArtifact.decision,
+        "governed_change_artifact_blocked");
+      assert.equal(missingShadowWithAdmin.governedChangeArtifact.artifact.evidence.observationHash,
+        null);
+      assert.equal(missingShadowWithAdmin.governedChangeFreshness.decision,
+        "governed_change_current");
     });
 
     const recommendationReports = [];
@@ -2669,10 +3027,20 @@ async function runW6IntegrationChecks() {
         ["auto_continue", "repair_required", "replan_required", "human_required",
           "human_required"]
       );
-      for (const candidate of recommendationReports) {
+      for (const [index, candidate] of recommendationReports.entries()) {
         assert.equal(candidate.finalDecision, "temp_validation_passed");
         assert.equal(candidate.approvalRouter.requiredSatisfied, true);
         assert.equal(candidate.shadowObserver.decision, "shadow_observer_completed");
+        assert.equal(candidate.governedChangeArtifact.required, true);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, true);
+        assert.ok(candidate.governedChangeArtifact.artifact);
+        assert.equal(candidate.governedChangeArtifact.decision, index === 0
+          ? "governed_change_artifact_ready"
+          : "governed_change_artifact_blocked");
+        assert.equal(candidate.governedChangeArtifact.applyEligible, index === 0);
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_current");
+        assert.equal(candidate.governedChangeFreshness.handoffEligible, index === 0);
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
       }
@@ -2736,6 +3104,14 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.approvalRouter.validationDecision,
           "approval_route_valid");
         assert.equal(candidate.approvalRouter.requiredSatisfied, true);
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_blocked");
+        assert.ok(candidate.governedChangeArtifact.artifact);
+        assert.equal(candidate.governedChangeArtifact.applyEligible, false);
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_current");
+        assert.equal(candidate.governedChangeFreshness.handoffEligible, false);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, true);
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
       }
@@ -2877,6 +3253,14 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.shadowObserver.eventAppended, true);
         assert.equal(candidate.accountability.postShadowLedgerVerificationDecision,
           "ledger_valid");
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_blocked");
+        assert.ok(candidate.governedChangeArtifact.artifact);
+        assert.equal(candidate.governedChangeArtifact.applyEligible, false);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, true);
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_current");
+        assert.equal(candidate.governedChangeFreshness.handoffEligible, false);
       }
       assert.equal(failedExecution.governance.decision,
         "governance_repair_required");
@@ -2932,13 +3316,29 @@ async function runW6IntegrationChecks() {
         cleanupFailed.workflowRoute,
         cleanupConflicting.workflowRoute
       ], ["human_required", "human_required", "terminated"]);
-      for (const candidate of [cleanupMissing, cleanupFailed, cleanupConflicting]) {
+      for (const candidate of [cleanupMissing, cleanupFailed]) {
         assert.equal(candidate.approvalRouter.requiredSatisfied, true);
+        assert.equal(candidate.governedChangeArtifact.required, true);
+        assert.equal(candidate.governedChangeArtifact.requiredSatisfied, true);
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_blocked");
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_current");
         assert.equal(candidate.status, "completed");
         assert.equal(candidate.ok, true);
         assert.equal(candidate.accountability.ledger.events.at(-1).actor,
           "approval_router");
       }
+      assert.equal(cleanupConflicting.approvalRouter.requiredSatisfied, true);
+      assert.equal(cleanupConflicting.governedChangeArtifact.required, true);
+      assert.equal(cleanupConflicting.governedChangeArtifact.requiredSatisfied, false);
+      assert.equal(cleanupConflicting.governedChangeArtifact.decision,
+        "governed_change_artifact_invalid");
+      assert.equal(cleanupConflicting.status,
+        "failed_required_governed_change_artifact");
+      assert.equal(cleanupConflicting.ok, false);
+      assert.equal(cleanupConflicting.accountability.ledger.events.at(-1).actor,
+        "approval_router");
     });
 
     adminScenario = "weak_auto";
@@ -3051,6 +3451,17 @@ async function runW6IntegrationChecks() {
         assert.equal(candidate.approvalRouter.validationDecision,
           "approval_route_valid");
       }
+      for (const candidate of [adminReviewed, ...failed]) {
+        assert.equal(candidate.governedChangeArtifact.decision,
+          "governed_change_artifact_blocked");
+        assert.ok(candidate.governedChangeArtifact.artifact);
+        assert.equal(candidate.governedChangeFreshness.decision,
+          "governed_change_current");
+        assert.equal(candidate.governedChangeFreshness.handoffEligible, false);
+      }
+      assert.equal(adminOversized.governedChangeArtifact.evaluated, false);
+      assert.equal(adminOversized.governedChangeArtifact.required, false);
+      assert.equal(adminOversized.governedChangeFreshness.evaluated, false);
       assert.ok(adminMalformed.adminAgent.issueCodes.includes(
         "malformed_admin_completion_json"));
       assert.ok(adminHttpFailure.adminAgent.issueCodes.includes(
@@ -3153,6 +3564,10 @@ async function runW6IntegrationChecks() {
         assert.deepEqual(event.filesProposed, []);
         assert.ok(fs.existsSync(candidate.jsonPath));
         assert.ok(fs.existsSync(candidate.markdownPath));
+        assert.deepEqual(candidate.governedChangeArtifact,
+          emptyGovernedChangeArtifactReport());
+        assert.deepEqual(candidate.governedChangeFreshness,
+          emptyGovernedChangeFreshnessReport());
       }
     });
 
@@ -3184,6 +3599,10 @@ async function runW6IntegrationChecks() {
       assert.ok(routerNeedsReview.accountability.postRouterTrace);
       assert.ok(fs.existsSync(routerNeedsReview.jsonPath));
       assert.ok(fs.existsSync(routerNeedsReview.markdownPath));
+      assert.deepEqual(routerNeedsReview.governedChangeArtifact,
+        emptyGovernedChangeArtifactReport());
+      assert.deepEqual(routerNeedsReview.governedChangeFreshness,
+        emptyGovernedChangeFreshnessReport());
     });
 
     const requiredValid = await execute({ WORKER_ORCHESTRATOR_ADMIN_REQUIRED: "1" });

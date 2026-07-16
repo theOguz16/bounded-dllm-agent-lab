@@ -525,6 +525,51 @@ function emptyApprovalRouterReport() {
   };
 }
 
+function emptyGovernedChangeArtifactReport() {
+  return {
+    evaluated: false,
+    required: false,
+    requiredSatisfied: true,
+    decision: null,
+    artifactBuilt: false,
+    applyEligible: false,
+    changeKind: null,
+    mutationHash: null,
+    changedFileCount: 0,
+    patchDryRunResultHash: null,
+    temporaryApplyResultHash: null,
+    executionVerificationResultHash: null,
+    preShadowTraceHash: null,
+    observationHash: null,
+    governanceHash: null,
+    adminDecisionHash: null,
+    routeHash: null,
+    governancePolicyHash: null,
+    routerPolicyHash: null,
+    finalLedgerRootHash: null,
+    finalLedgerEventCount: 0,
+    governedArtifactHash: null,
+    eligibilityReasonCodes: [],
+    issueCodes: [],
+    artifact: null,
+    durationMs: 0
+  };
+}
+
+function emptyGovernedChangeFreshnessReport() {
+  return {
+    evaluated: false,
+    decision: null,
+    artifactIntegrityVerified: false,
+    currentSnapshotHash: null,
+    staleFields: [],
+    reasonCodes: [],
+    snapshotCurrent: false,
+    handoffEligible: false,
+    result: null
+  };
+}
+
 function emptyAccountabilityDecisionSummary() {
   return {
     agentLedgerCreated: false,
@@ -598,7 +643,26 @@ function emptyAccountabilityDecisionSummary() {
     agentLedgerRootHashAfterRouter: null,
     postRouterLedgerVerificationDecision: null,
     postRouterTraceDecision: null,
-    postRouterTraceHash: null
+    postRouterTraceHash: null,
+    governedChangeArtifactEvaluated: false,
+    governedChangeArtifactRequired: false,
+    governedChangeArtifactRequiredSatisfied: true,
+    governedChangeArtifactDecision: null,
+    governedChangeArtifactBuilt: false,
+    governedChangeApplyEligible: false,
+    governedChangeKind: null,
+    governedChangeMutationHash: null,
+    governedChangeChangedFileCount: 0,
+    governedChangePatchDryRunResultHash: null,
+    governedChangeTemporaryApplyResultHash: null,
+    governedChangeExecutionVerificationResultHash: null,
+    governedChangeArtifactHash: null,
+    governedChangeFreshnessEvaluated: false,
+    governedChangeFreshnessDecision: null,
+    governedChangeFreshnessCurrent: false,
+    governedChangeHandoffEligible: false,
+    governedChangeCurrentSnapshotHash: null,
+    governedChangeStaleFieldCount: 0
   };
 }
 
@@ -651,10 +715,14 @@ function baseReport(config, status) {
       requiredSatisfied: true
     },
     approvalRouter: emptyApprovalRouterReport(),
+    governedChangeArtifact: emptyGovernedChangeArtifactReport(),
+    governedChangeFreshness: emptyGovernedChangeFreshnessReport(),
     shadowStageDecision: "shadow_not_called",
     governanceStageDecision: "governance_not_evaluated",
     adminStageDecision: "admin_not_called",
     approvalRouterStageDecision: "approval_route_not_evaluated",
+    governedChangeArtifactStageDecision: "governed_change_artifact_not_built",
+    governedChangeFreshnessStageDecision: "governed_change_freshness_not_verified",
     workflowRoute: null,
     jsonPath: "",
     markdownPath: ""
@@ -1226,6 +1294,48 @@ function renderMarkdown(report, config) {
     `- Router validation decision: ${report.approvalRouterStageDecision}`,
     `- Workflow route: ${report.workflowRoute ?? ""}`,
     "",
+    "## Governed Change Artifact",
+    "",
+    `- Evaluated: ${report.governedChangeArtifact.evaluated}`,
+    `- Required: ${report.governedChangeArtifact.required}`,
+    `- Required satisfied: ${report.governedChangeArtifact.requiredSatisfied}`,
+    `- Artifact decision: ${report.governedChangeArtifact.decision ?? ""}`,
+    `- Artifact built: ${report.governedChangeArtifact.artifactBuilt}`,
+    `- Apply eligible: ${report.governedChangeArtifact.applyEligible}`,
+    `- Change kind: ${report.governedChangeArtifact.changeKind ?? ""}`,
+    `- Mutation hash: ${report.governedChangeArtifact.mutationHash ?? ""}`,
+    `- Changed-file count: ${report.governedChangeArtifact.changedFileCount}`,
+    `- Patch dry-run result hash: ${report.governedChangeArtifact.patchDryRunResultHash ?? ""}`,
+    `- Temporary-apply result hash: ${report.governedChangeArtifact.temporaryApplyResultHash ?? ""}`,
+    `- Execution-verification result hash: ${report.governedChangeArtifact.executionVerificationResultHash ?? ""}`,
+    `- Pre-Shadow trace hash: ${report.governedChangeArtifact.preShadowTraceHash ?? ""}`,
+    `- Observation hash: ${report.governedChangeArtifact.observationHash ?? ""}`,
+    `- Governance hash: ${report.governedChangeArtifact.governanceHash ?? ""}`,
+    `- Admin decision hash: ${report.governedChangeArtifact.adminDecisionHash ?? ""}`,
+    `- Route hash: ${report.governedChangeArtifact.routeHash ?? ""}`,
+    `- Governance policy hash: ${report.governedChangeArtifact.governancePolicyHash ?? ""}`,
+    `- Router policy hash: ${report.governedChangeArtifact.routerPolicyHash ?? ""}`,
+    `- Final ledger root hash: ${report.governedChangeArtifact.finalLedgerRootHash ?? ""}`,
+    `- Final ledger event count: ${report.governedChangeArtifact.finalLedgerEventCount}`,
+    `- Governed artifact hash: ${report.governedChangeArtifact.governedArtifactHash ?? ""}`,
+    `- Eligibility reason codes: ${report.governedChangeArtifact.eligibilityReasonCodes.join(", ")}`,
+    `- Issue codes: ${report.governedChangeArtifact.issueCodes.join(", ")}`,
+    `- Duration (ms): ${report.governedChangeArtifact.durationMs}`,
+    "",
+    "## Governed Change Freshness",
+    "",
+    `- Evaluated: ${report.governedChangeFreshness.evaluated}`,
+    `- Decision: ${report.governedChangeFreshness.decision ?? ""}`,
+    `- Artifact integrity verified: ${report.governedChangeFreshness.artifactIntegrityVerified}`,
+    `- Current snapshot hash: ${report.governedChangeFreshness.currentSnapshotHash ?? ""}`,
+    `- Snapshot current: ${report.governedChangeFreshness.snapshotCurrent}`,
+    `- Stale fields: ${report.governedChangeFreshness.staleFields.join(", ")}`,
+    `- Reason codes: ${report.governedChangeFreshness.reasonCodes.join(", ")}`,
+    `- Handoff eligible: ${report.governedChangeFreshness.handoffEligible}`,
+    "",
+    "Handoff eligibility is evidence only.",
+    "No repository application or handoff was executed.",
+    "",
     "### Remask Raw Output Preview",
     "",
     "```text",
@@ -1431,8 +1541,34 @@ function createAccountabilityContext(runtime) {
     objectiveHash,
     issueCodes: [],
     evidenceComplete: true,
-    hashes: {}
+    hashes: {},
+    governedChange: {
+      changeKind: null,
+      mutation: null,
+      mutationHash: null,
+      changedFiles: [],
+      patchDryRunResultHash: null,
+      temporaryApplyResultHash: null,
+      executionVerificationResultHash: null
+    }
   };
+}
+
+function setActiveGovernedChange(context, changeKind, mutation, mutationHash) {
+  if (!context || !context.governedChange ||
+      !new Set(["coder_patch_draft", "repair_draft"]).has(changeKind) ||
+      !mutation || !Array.isArray(mutation.touchedFiles) ||
+      typeof mutationHash !== "string") {
+    return false;
+  }
+  context.governedChange.changeKind = changeKind;
+  context.governedChange.mutation = mutation;
+  context.governedChange.mutationHash = mutationHash;
+  context.governedChange.changedFiles = boundedFiles(mutation.touchedFiles);
+  context.governedChange.patchDryRunResultHash = null;
+  context.governedChange.temporaryApplyResultHash = null;
+  context.governedChange.executionVerificationResultHash = null;
+  return true;
 }
 
 function appendAccountabilityEvent(context, draft) {
@@ -1574,7 +1710,31 @@ function populateDecisionAccountability(report) {
     postRouterLedgerVerificationDecision:
       report.accountability.postRouterLedgerVerificationDecision,
     postRouterTraceDecision: report.accountability.postRouterTraceDecision,
-    postRouterTraceHash: report.accountability.postRouterTraceHash
+    postRouterTraceHash: report.accountability.postRouterTraceHash,
+    governedChangeArtifactEvaluated: report.governedChangeArtifact.evaluated,
+    governedChangeArtifactRequired: report.governedChangeArtifact.required,
+    governedChangeArtifactRequiredSatisfied:
+      report.governedChangeArtifact.requiredSatisfied,
+    governedChangeArtifactDecision: report.governedChangeArtifact.decision,
+    governedChangeArtifactBuilt: report.governedChangeArtifact.artifactBuilt,
+    governedChangeApplyEligible: report.governedChangeArtifact.applyEligible,
+    governedChangeKind: report.governedChangeArtifact.changeKind,
+    governedChangeMutationHash: report.governedChangeArtifact.mutationHash,
+    governedChangeChangedFileCount: report.governedChangeArtifact.changedFileCount,
+    governedChangePatchDryRunResultHash:
+      report.governedChangeArtifact.patchDryRunResultHash,
+    governedChangeTemporaryApplyResultHash:
+      report.governedChangeArtifact.temporaryApplyResultHash,
+    governedChangeExecutionVerificationResultHash:
+      report.governedChangeArtifact.executionVerificationResultHash,
+    governedChangeArtifactHash: report.governedChangeArtifact.governedArtifactHash,
+    governedChangeFreshnessEvaluated: report.governedChangeFreshness.evaluated,
+    governedChangeFreshnessDecision: report.governedChangeFreshness.decision,
+    governedChangeFreshnessCurrent: report.governedChangeFreshness.snapshotCurrent,
+    governedChangeHandoffEligible: report.governedChangeFreshness.handoffEligible,
+    governedChangeCurrentSnapshotHash:
+      report.governedChangeFreshness.currentSnapshotHash,
+    governedChangeStaleFieldCount: report.governedChangeFreshness.staleFields.length
   });
 }
 
@@ -1937,6 +2097,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
   report.approvalRouter.required = approvalRouterEligible;
   let approvalRouterResult = null;
   let approvalRouterAssessment = null;
+  let postRouterVerification = null;
 
   if (approvalRouterEligible) {
     let approvalRouterInput = {
@@ -2084,7 +2245,7 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
 
   if (report.approvalRouter.eventAppended) {
     const postRouterAnchors = exactLedgerAnchors(context.ledger);
-    const postRouterVerification = runtime.verifyAgentEventLedger(
+    postRouterVerification = runtime.verifyAgentEventLedger(
       context.ledger,
       postRouterAnchors
     );
@@ -2110,6 +2271,250 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     }
   }
   accountability.eventCountAfterRouter = context.ledger.eventCount;
+
+  const governedChangeEligible =
+    executionTerminal &&
+    preTrace !== null &&
+    governanceAssessment !== null &&
+    approvalRouterResult !== null &&
+    approvalRouterResult.decision === "approval_route_valid" &&
+    approvalRouterAssessment !== null &&
+    approvalRouterResult.route !== null &&
+    report.approvalRouter.eventAppended === true &&
+    postRouterVerification !== null &&
+    postRouterVerification.decision === "ledger_valid" &&
+    context.ledger !== null;
+
+  if (governedChangeEligible) {
+    const finalEvent = context.ledger.events.at(-1) || null;
+    const ledgerInvariant = {
+      eventCount: context.ledger.eventCount,
+      rootHash: context.ledger.rootHash,
+      finalEventId: finalEvent ? finalEvent.eventId : null,
+      finalEventHash: finalEvent ? finalEvent.eventHash : null
+    };
+    let activeChange = {
+      ...context.governedChange,
+      changedFiles: [...context.governedChange.changedFiles]
+    };
+    if (typeof fixture.governedChangeActiveStateMutation === "function") {
+      const mutatedState = fixture.governedChangeActiveStateMutation(
+        activeChange,
+        runtime,
+        context
+      );
+      if (mutatedState !== undefined) activeChange = mutatedState;
+    }
+
+    Object.assign(report.governedChangeArtifact, {
+      evaluated: true,
+      required: true,
+      requiredSatisfied: false,
+      changeKind: activeChange && activeChange.changeKind || null,
+      mutationHash: activeChange && activeChange.mutationHash || null,
+      changedFileCount: activeChange && Array.isArray(activeChange.changedFiles)
+        ? activeChange.changedFiles.length
+        : 0,
+      patchDryRunResultHash: activeChange && activeChange.patchDryRunResultHash || null,
+      temporaryApplyResultHash:
+        activeChange && activeChange.temporaryApplyResultHash || null,
+      executionVerificationResultHash:
+        activeChange && activeChange.executionVerificationResultHash || null,
+      preShadowTraceHash: preTrace.traceHash,
+      observationHash: validatedObservation ? validatedObservation.observationHash : null,
+      governanceHash: governanceAssessment.governanceHash,
+      adminDecisionHash: report.adminAgent.adminDecision
+        ? report.adminAgent.adminDecision.adminDecisionHash
+        : null,
+      routeHash: approvalRouterAssessment.routeHash,
+      governancePolicyHash: governanceAssessment.policyHash,
+      routerPolicyHash: approvalRouterAssessment.policyHash,
+      finalLedgerRootHash: context.ledger.rootHash,
+      finalLedgerEventCount: context.ledger.eventCount
+    });
+
+    const activeStateComplete = Boolean(
+      activeChange &&
+      new Set(["coder_patch_draft", "repair_draft"]).has(activeChange.changeKind) &&
+      activeChange.mutation &&
+      typeof activeChange.mutationHash === "string" &&
+      Array.isArray(activeChange.changedFiles) &&
+      typeof activeChange.patchDryRunResultHash === "string" &&
+      typeof activeChange.temporaryApplyResultHash === "string" &&
+      typeof activeChange.executionVerificationResultHash === "string"
+    );
+
+    if (!activeStateComplete) {
+      report.governedChangeArtifact.issueCodes = [
+        "governed_change_active_mutation_unavailable"
+      ];
+      context.issueCodes.push("governed_change_active_mutation_unavailable");
+    } else {
+      const finalLedgerAnchors = exactLedgerAnchors(context.ledger);
+      let governedChangeArtifactInput = {
+        finalLedger: context.ledger,
+        finalLedgerAnchors,
+        preShadowTrace: preTrace,
+        shadowObservation: validatedObservation,
+        governanceAssessment,
+        adminDecision: report.adminAgent.adminDecision || null,
+        approvalRouterAssessment,
+        change: {
+          changeKind: activeChange.changeKind,
+          mutationHash: activeChange.mutationHash,
+          changedFiles: [...activeChange.changedFiles],
+          patchDryRunResultHash: activeChange.patchDryRunResultHash,
+          temporaryApplyResultHash: activeChange.temporaryApplyResultHash,
+          executionVerificationResultHash:
+            activeChange.executionVerificationResultHash
+        }
+      };
+      if (typeof fixture.governedChangeArtifactInputMutation === "function") {
+        const mutatedInput = fixture.governedChangeArtifactInputMutation(
+          governedChangeArtifactInput,
+          runtime,
+          context
+        );
+        if (mutatedInput !== undefined) governedChangeArtifactInput = mutatedInput;
+      }
+
+      const artifactStartedAt = Date.now();
+      let governedChangeArtifactResult = null;
+      try {
+        governedChangeArtifactResult = runtime.buildGovernedChangeArtifact(
+          governedChangeArtifactInput
+        );
+      } catch {
+        report.governedChangeArtifact.issueCodes = [
+          "governed_change_artifact_evaluation_failed"
+        ];
+        context.issueCodes.push("governed_change_artifact_evaluation_failed");
+      }
+      report.governedChangeArtifact.durationMs = Date.now() - artifactStartedAt;
+
+      if (governedChangeArtifactResult !== null) {
+        const artifact = governedChangeArtifactResult.artifact;
+        Object.assign(report.governedChangeArtifact, {
+          decision: governedChangeArtifactResult.decision,
+          artifactBuilt: artifact !== null,
+          applyEligible: Boolean(artifact && artifact.applyEligibility.eligible),
+          governedArtifactHash: artifact ? artifact.governedArtifactHash : null,
+          eligibilityReasonCodes: artifact
+            ? [...artifact.applyEligibility.reasonCodes]
+            : [],
+          issueCodes: governedChangeArtifactResult.issues.map((issue) => issue.code),
+          artifact
+        });
+        report.governedChangeArtifactStageDecision =
+          governedChangeArtifactResult.decision;
+
+        if (artifact !== null) {
+          let currentFreshnessSnapshot = {
+            runId: context.ledger.runId,
+            objectiveHash: context.ledger.objectiveHash,
+            mutationHash: activeChange.mutationHash,
+            changedFiles: [...activeChange.changedFiles],
+            patchDryRunResultHash: activeChange.patchDryRunResultHash,
+            temporaryApplyResultHash: activeChange.temporaryApplyResultHash,
+            executionVerificationResultHash:
+              activeChange.executionVerificationResultHash,
+            preShadowTraceHash: preTrace.traceHash,
+            observationHash: validatedObservation
+              ? validatedObservation.observationHash
+              : null,
+            governanceHash: governanceAssessment.governanceHash,
+            adminDecisionHash: report.adminAgent.adminDecision
+              ? report.adminAgent.adminDecision.adminDecisionHash
+              : null,
+            routeHash: approvalRouterAssessment.routeHash,
+            governancePolicyHash: governanceAssessment.policyHash,
+            routerPolicyHash: approvalRouterAssessment.policyHash,
+            finalLedgerRootHash: context.ledger.rootHash,
+            finalLedgerEventCount: context.ledger.eventCount,
+            phaseVFinalDecision: report.finalDecision,
+            workflowRoute: report.workflowRoute
+          };
+          if (typeof fixture.governedChangeFreshnessSnapshotMutation === "function") {
+            const mutatedSnapshot = fixture.governedChangeFreshnessSnapshotMutation(
+              currentFreshnessSnapshot,
+              runtime,
+              context
+            );
+            if (mutatedSnapshot !== undefined) {
+              currentFreshnessSnapshot = mutatedSnapshot;
+            }
+          }
+          let artifactForFreshness = artifact;
+          if (typeof fixture.governedChangeArtifactMutation === "function") {
+            const mutatedArtifact = fixture.governedChangeArtifactMutation(
+              artifact,
+              runtime,
+              context
+            );
+            if (mutatedArtifact !== undefined) artifactForFreshness = mutatedArtifact;
+          }
+          const freshnessResult = runtime.verifyGovernedChangeArtifactFreshness(
+            artifactForFreshness,
+            currentFreshnessSnapshot
+          );
+          report.governedChangeFreshness = {
+            evaluated: true,
+            decision: freshnessResult.decision,
+            artifactIntegrityVerified: freshnessResult.artifactIntegrityVerified,
+            currentSnapshotHash: freshnessResult.currentSnapshotHash,
+            staleFields: [...freshnessResult.staleFields],
+            reasonCodes: [...freshnessResult.reasonCodes],
+            snapshotCurrent: freshnessResult.summary.snapshotCurrent,
+            handoffEligible: freshnessResult.handoffEligible,
+            result: freshnessResult
+          };
+          report.governedChangeFreshnessStageDecision = freshnessResult.decision;
+        }
+      }
+    }
+
+    const finalEventAfter = context.ledger.events.at(-1) || null;
+    const ledgerUnchanged =
+      context.ledger.eventCount === ledgerInvariant.eventCount &&
+      context.ledger.rootHash === ledgerInvariant.rootHash &&
+      (finalEventAfter ? finalEventAfter.eventId : null) === ledgerInvariant.finalEventId &&
+      (finalEventAfter ? finalEventAfter.eventHash : null) === ledgerInvariant.finalEventHash;
+    if (!ledgerUnchanged || !finalEventAfter ||
+        finalEventAfter.actor !== "approval_router" ||
+        finalEventAfter.action !== "approval_router.evaluate") {
+      report.governedChangeArtifact.issueCodes = boundedCodes([
+        ...report.governedChangeArtifact.issueCodes,
+        "governed_change_final_ledger_mutated"
+      ]);
+      context.issueCodes.push("governed_change_final_ledger_mutated");
+    }
+
+    const artifact = report.governedChangeArtifact.artifact;
+    const artifactDecisionAccepted = new Set([
+      "governed_change_artifact_ready",
+      "governed_change_artifact_blocked"
+    ]).has(report.governedChangeArtifact.decision);
+    const generalSatisfied =
+      artifactDecisionAccepted &&
+      artifact !== null &&
+      report.governedChangeArtifact.governedArtifactHash !== null &&
+      report.governedChangeFreshness.decision === "governed_change_current" &&
+      report.governedChangeFreshness.artifactIntegrityVerified === true &&
+      ledgerUnchanged;
+    const autoRouteSatisfied = report.workflowRoute !== "auto_continue" || (
+      report.governedChangeArtifact.decision === "governed_change_artifact_ready" &&
+      artifact && artifact.applyEligibility.eligible === true &&
+      report.governedChangeFreshness.handoffEligible === true
+    );
+    const nonAutoRouteSatisfied = report.workflowRoute === "auto_continue" || (
+      report.governedChangeArtifact.decision === "governed_change_artifact_blocked" &&
+      artifact && artifact.applyEligibility.eligible === false &&
+      report.governedChangeFreshness.handoffEligible === false
+    );
+    report.governedChangeArtifact.requiredSatisfied = Boolean(
+      generalSatisfied && autoRouteSatisfied && nonAutoRouteSatisfied
+    );
+  }
 
   const requiredSatisfied = !config.shadow.required || !shadowEligible || (
     report.shadowObserver.called &&
@@ -2153,6 +2558,16 @@ async function finalizeAccountabilityAndShadow(report, config, context) {
     if (report.status !== "failed_required_shadow" &&
         report.status !== "failed_required_admin") {
       report.status = "failed_required_approval_router";
+    }
+  }
+
+  if (report.governedChangeArtifact.required &&
+      !report.governedChangeArtifact.requiredSatisfied) {
+    report.ok = false;
+    if (report.status !== "failed_required_shadow" &&
+        report.status !== "failed_required_admin" &&
+        report.status !== "failed_required_approval_router") {
+      report.status = "failed_required_governed_change_artifact";
     }
   }
 
@@ -3019,6 +3434,12 @@ async function run() {
               activeAccountabilityStage = null;
 
               if (repairVerifierResult.decision === "approve") {
+                setActiveGovernedChange(
+                  accountabilityContext,
+                  "repair_draft",
+                  remaskValidation.mutation,
+                  accountabilityContext.hashes.repairDraftHash
+                );
                 const patchDryRunStartedAt = timestampNow();
                 activeAccountabilityStage = {
                   actor: "patch_dry_run",
@@ -3059,6 +3480,8 @@ async function run() {
                   "patch_dry_run_result",
                   patchDryRunResult
                 );
+                accountabilityContext.governedChange.patchDryRunResultHash =
+                  accountabilityContext.hashes.patchDryRunResultHash;
                 appendAccountabilityEvent(accountabilityContext, {
                   actor: "patch_dry_run",
                   action: "patch_dry_run.evaluate",
@@ -3130,6 +3553,8 @@ async function run() {
                       summary: tempWorkspaceApplyResult.summary
                     }
                   );
+                  accountabilityContext.governedChange.temporaryApplyResultHash =
+                    accountabilityContext.hashes.temporaryApplyResultHash;
                   appendAccountabilityEvent(accountabilityContext, {
                     actor: "temp_workspace_apply",
                     action: "temp_workspace_apply.apply",
@@ -3179,6 +3604,8 @@ async function run() {
                         cleanupPerformed: report.tempWorkspaceExecution.cleanupPerformed
                       }
                     );
+                    accountabilityContext.governedChange.executionVerificationResultHash =
+                      accountabilityContext.hashes.executionVerificationResultHash;
                     const executionReasonCodes = [
                       ...report.tempWorkspaceExecution.issues,
                       ...(fixture.cleanupEvidenceMode === "missing"
@@ -3350,6 +3777,8 @@ module.exports = {
   emptyTemporaryWorkspaceApplyReport,
   emptyTemporaryWorkspaceExecutionReport,
   emptyVerifierReport,
+  emptyGovernedChangeArtifactReport,
+  emptyGovernedChangeFreshnessReport,
   fixture,
   finalDecisionForVerifierDecision,
   finalDecisionForRepairVerifierDecision,
@@ -3357,5 +3786,6 @@ module.exports = {
   finalDecisionForTemporaryWorkspaceApplyDecision,
   repairableIssueCodesFromRemaskRequest,
   run,
+  setActiveGovernedChange,
   verifyAndCleanupTemporaryWorkspace
 };
