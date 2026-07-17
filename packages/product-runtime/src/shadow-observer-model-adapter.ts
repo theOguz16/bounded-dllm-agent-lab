@@ -114,6 +114,11 @@ const SHADOW_SYSTEM_MESSAGE = [
   "Never use description, eventIds, filePaths, or traceFindingCodes as Shadow finding field names.",
   "Every finding must cite at least one exact event ID, file path, or trace-finding code from the supplied trace.",
   "Risk score bands are exact: low 0-24, medium 25-49, high 50-74, critical 75-100.",
+  "Use only these representative risk pairs: low=10, medium=35, high=60, critical=90.",
+  "Never pair high with 75; score 75 belongs to critical.",
+  "Event reasonCodes are not trace-finding codes.",
+  "Use evidenceTraceFindingCodes only for codes present in trace.findings.",
+  "When trace.findings is empty, evidenceTraceFindingCodes must be empty; cite evidenceEventIds instead.",
   "A non-continue recommendation requires at least one evidence-backed finding.",
   "The validOutputExample object is an example of the entire response object.",
   "Return only the fields inside that example; never output validOutputExample or exampleInstructions as wrapper fields.",
@@ -244,6 +249,214 @@ function tracePayload(trace: RunAccountabilityTrace): RunAccountabilityTrace {
   return {
     ...traceHashMaterial(trace),
     traceHash: trace.traceHash
+  };
+}
+
+function boundedShadowStringArraySchema(
+  values: readonly string[],
+  maximum: number
+): Record<string, unknown> {
+  const normalized = [...new Set(values)].sort();
+
+  if (normalized.length === 0) {
+    return {
+      type: "array",
+      maxItems: 0,
+      items: { type: "string" }
+    };
+  }
+
+  return {
+    type: "array",
+    maxItems: maximum,
+    items: {
+      type: "string",
+      enum: normalized
+    }
+  };
+}
+
+function buildShadowResponseFormat(
+  trace: RunAccountabilityTrace
+): Record<string, unknown> {
+  const eventIds = trace.events.map((event) => event.eventId);
+
+  const filePaths = [
+    ...new Set([
+      ...trace.files.plannedFiles,
+      ...trace.files.coderProposedFiles,
+      ...trace.files.repairProposedFiles,
+      ...trace.files.allProposedFiles,
+      ...trace.files.temporaryAppliedFiles,
+      ...trace.files.executionReadFiles,
+      ...trace.files.unplannedProposedFiles,
+      ...trace.files.appliedButUnproposedFiles,
+      ...trace.findings.flatMap((finding) => [...finding.filePaths])
+    ])
+  ].sort();
+
+  const traceFindingCodes = [
+    ...new Set(trace.findings.map((finding) => finding.code))
+  ].sort();
+
+  return {
+    type: "json_object",
+    schema: {
+      type: "object",
+      properties: {
+        observationVersion: {
+          type: "string",
+          enum: [SHADOW_OBSERVATION_VERSION]
+        },
+        runId: {
+          type: "string",
+          enum: [trace.runId]
+        },
+        traceHash: {
+          type: "string",
+          enum: [trace.traceHash]
+        },
+        riskLevel: {
+          type: "string",
+          enum: ["low", "medium", "high", "critical"]
+        },
+        riskScore: {
+          type: "integer",
+          enum: [10, 35, 60, 90]
+        },
+        confidenceScore: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100
+        },
+        findings: {
+          type: "array",
+          maxItems: 32,
+          items: {
+            type: "object",
+            properties: {
+              code: {
+                type: "string",
+                minLength: 1,
+                maxLength: 128,
+                pattern: "^[A-Za-z0-9._:-]+$"
+              },
+              severity: {
+                type: "string",
+                enum: ["info", "warning", "high", "critical"]
+              },
+              actor: {
+                type: "string",
+                enum: [
+                  "planner",
+                  "coder",
+                  "deterministic_verifier",
+                  "masker",
+                  "repairer",
+                  "repair_verifier",
+                  "patch_dry_run",
+                  "temp_workspace_apply",
+                  "execution_verifier",
+                  "shadow_observer",
+                  "deterministic_governor",
+                  "admin_invocation_policy",
+                  "admin_agent",
+                  "approval_router"
+                ]
+              },
+              message: {
+                type: "string",
+                minLength: 1,
+                maxLength: 500
+              },
+              evidenceEventIds:
+                boundedShadowStringArraySchema(eventIds, 64),
+              evidenceFilePaths:
+                boundedShadowStringArraySchema(filePaths, 64),
+              evidenceTraceFindingCodes:
+                boundedShadowStringArraySchema(traceFindingCodes, 32)
+            },
+            required: [
+              "code",
+              "severity",
+              "message",
+              "evidenceEventIds",
+              "evidenceFilePaths",
+              "evidenceTraceFindingCodes"
+            ],
+            additionalProperties: false
+          }
+        },
+        observedScopeDrift: { type: "boolean" },
+        observedPlanPatchMismatch: { type: "boolean" },
+        observedRepairLoop: { type: "boolean" },
+        observedSuspiciousRoleBehavior: { type: "boolean" },
+        observedEvidenceConflict: { type: "boolean" },
+        recommendation: {
+          type: "string",
+          enum: [
+            "continue",
+            "request_repair",
+            "request_replan",
+            "escalate",
+            "terminate"
+          ]
+        },
+        rationaleCodes: {
+          type: "array",
+          maxItems: 32,
+          items: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$"
+          }
+        }
+      },
+      required: [
+        "observationVersion",
+        "runId",
+        "traceHash",
+        "riskLevel",
+        "riskScore",
+        "confidenceScore",
+        "findings",
+        "observedScopeDrift",
+        "observedPlanPatchMismatch",
+        "observedRepairLoop",
+        "observedSuspiciousRoleBehavior",
+        "observedEvidenceConflict",
+        "recommendation",
+        "rationaleCodes"
+      ],
+      additionalProperties: false,
+      oneOf: [
+        {
+          properties: {
+            riskLevel: { enum: ["low"] },
+            riskScore: { enum: [10] }
+          }
+        },
+        {
+          properties: {
+            riskLevel: { enum: ["medium"] },
+            riskScore: { enum: [35] }
+          }
+        },
+        {
+          properties: {
+            riskLevel: { enum: ["high"] },
+            riskScore: { enum: [60] }
+          }
+        },
+        {
+          properties: {
+            riskLevel: { enum: ["critical"] },
+            riskScore: { enum: [90] }
+          }
+        }
+      ]
+    }
   };
 }
 
@@ -655,7 +868,8 @@ export async function runShadowObserverModel(
           model: validatedConfig.modelId,
           temperature: 0,
           stream: false,
-          messages
+          messages,
+          response_format: buildShadowResponseFormat(trace)
         }),
         signal: controller.signal
       });

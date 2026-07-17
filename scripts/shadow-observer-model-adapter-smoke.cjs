@@ -268,6 +268,43 @@ function assertDeepFrozen(value, seen = new Set()) {
       assert.equal(result.summary.responseReceived, true);
       assert.equal(result.summary.responseParsed, true);
       assert.equal(result.summary.shadowValidationCompleted, true);
+
+      const requestBody = JSON.parse(
+        requestBodies[requestBodies.length - 1]
+      );
+
+      assert.equal(
+        requestBody.response_format.type,
+        "json_object"
+      );
+
+      assert.equal(
+        requestBody.response_format.schema.additionalProperties,
+        false
+      );
+
+      assert.equal(
+        requestBody.response_format.schema.oneOf.length,
+        4
+      );
+
+      assert.deepEqual(
+        requestBody.response_format.schema.properties.runId.enum,
+        [trace.runId]
+      );
+
+      assert.deepEqual(
+        requestBody.response_format.schema.properties.traceHash.enum,
+        [trace.traceHash]
+      );
+
+      assert.equal(
+        requestBody.response_format.schema
+          .properties.findings.items.properties
+          .evidenceTraceFindingCodes.maxItems,
+        0
+      );
+
       assert.ok(result.observation);
       assert.match(result.observation.observationHash, hashPattern);
       assert.match(result.responseContentHash, hashPattern);
@@ -570,7 +607,7 @@ function assertDeepFrozen(value, seen = new Set()) {
       assert.equal(parsed.temperature, 0);
       assert.equal(parsed.stream, false);
       assert.equal(parsed.model, "qwen-shadow");
-      assert.deepEqual(Object.keys(parsed).sort(), ["messages", "model", "stream", "temperature"]);
+      assert.deepEqual(Object.keys(parsed).sort(), ["messages", "model", "response_format", "stream", "temperature"]);
       const headers = requestHeaders[requestHeaders.length - 1];
       assert.equal(headers["content-type"], "application/json");
       assert.equal(headers.accept, "application/json");

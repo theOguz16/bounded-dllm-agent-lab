@@ -135,7 +135,10 @@ const ADMIN_SYSTEM_MESSAGE = [
   "Risk score bands are exact: low 0-24, medium 25-49, high 50-74, critical 75-100.",
   "For example, riskScore 90 requires riskLevel critical, not high.",
   "The validOutputExample object is an example of the entire Admin response.",
-  "Your top-level response must contain decisionVersion, bindings, decision, risk fields, findings, and rationaleCodes.",
+  "Your top-level response must contain exactly these fields: decisionVersion, runId, traceHash, observationHash, governanceHash, decision, riskLevel, riskScore, confidenceScore, findings, rationaleCodes.",
+  "Never output bindings, governance, governanceDecisionMatrix, outputContract, authority, requestVersion, task, policy, ruleResults, or validOutputExample as top-level fields.",
+  "Do not repeat or copy the supplied request package into the response.",
+  "Use only these representative risk pairs: low=10, medium=35, high=60, critical=90.",
   "Never return only one finding object.",
   "Return only the fields inside validOutputExample; never output validOutputExample or exampleInstructions as wrapper fields.",
   "No Markdown; no code fences preferred; no prose before or after JSON.",
@@ -254,6 +257,259 @@ function shadowPayload(observation: ShadowObservation | null): unknown {
     observedEvidenceConflict: observation.observedEvidenceConflict,
     recommendation: observation.recommendation, rationaleCodes: observation.rationaleCodes,
     observationHash: observation.observationHash
+  };
+}
+
+function boundedAdminStringArraySchema(
+  values: readonly string[],
+  maximum: number
+): Record<string, unknown> {
+  const normalized = [...new Set(values)].sort();
+
+  if (normalized.length === 0) {
+    return {
+      type: "array",
+      maxItems: 0,
+      items: { type: "string" }
+    };
+  }
+
+  return {
+    type: "array",
+    maxItems: maximum,
+    items: {
+      type: "string",
+      enum: normalized
+    }
+  };
+}
+
+function buildAdminResponseFormat(
+  trace: RunAccountabilityTrace,
+  observation: ShadowObservation | null,
+  governance: DeterministicGovernanceAssessment
+): Record<string, unknown> {
+  const eventIds = trace.events.map((event) => event.eventId);
+
+  const filePaths = [
+    ...new Set([
+      ...trace.files.plannedFiles,
+      ...trace.files.coderProposedFiles,
+      ...trace.files.repairProposedFiles,
+      ...trace.files.allProposedFiles,
+      ...trace.files.temporaryAppliedFiles,
+      ...trace.files.executionReadFiles,
+      ...trace.files.unplannedProposedFiles,
+      ...trace.files.appliedButUnproposedFiles,
+      ...trace.findings.flatMap((finding) => [...finding.filePaths]),
+      ...(observation?.findings.flatMap(
+        (finding) => [...finding.evidenceFilePaths]
+      ) ?? []),
+      ...governance.issues.flatMap((issue) => [...issue.filePaths]),
+      ...governance.ruleResults.flatMap((rule) => [...rule.filePaths])
+    ])
+  ].sort();
+
+  const governanceRuleIds =
+    governance.ruleResults.map((rule) => rule.ruleId);
+
+  const governanceReasonCodes = [
+    ...new Set([
+      ...governance.reasonCodes,
+      ...governance.ruleResults.map((rule) => rule.reasonCode)
+    ])
+  ].sort();
+
+  const governanceIssueCodes =
+    governance.issues.map((issue) => issue.code);
+
+  const traceFindingCodes =
+    trace.findings.map((finding) => finding.code);
+
+  const shadowFindingCodes =
+    observation?.findings.map((finding) => finding.code) ?? [];
+
+  const allowedDecisions: readonly AdminDecision[] =
+    GOVERNANCE_DECISION_MATRIX[governance.decision];
+
+  const decisionRisks: Record<
+    AdminDecision,
+    { riskLevel: AdminRiskLevel; riskScore: number }
+  > = {
+    admin_auto_approved: {
+      riskLevel: "low",
+      riskScore: 10
+    },
+    admin_repair_required: {
+      riskLevel: "medium",
+      riskScore: 35
+    },
+    admin_replan_required: {
+      riskLevel: "medium",
+      riskScore: 35
+    },
+    admin_human_escalation_required: {
+      riskLevel: "high",
+      riskScore: 60
+    },
+    admin_run_terminated: {
+      riskLevel: "critical",
+      riskScore: 90
+    }
+  };
+
+  return {
+    type: "json_object",
+    schema: {
+      type: "object",
+      properties: {
+        decisionVersion: {
+          type: "string",
+          enum: [ADMIN_DECISION_VERSION]
+        },
+        runId: {
+          type: "string",
+          enum: [trace.runId]
+        },
+        traceHash: {
+          type: "string",
+          enum: [trace.traceHash]
+        },
+        observationHash: {
+          enum: [observation?.observationHash ?? null]
+        },
+        governanceHash: {
+          type: "string",
+          enum: [governance.governanceHash]
+        },
+        decision: {
+          type: "string",
+          enum: [...allowedDecisions]
+        },
+        riskLevel: {
+          type: "string",
+          enum: ["low", "medium", "high", "critical"]
+        },
+        riskScore: {
+          type: "integer",
+          enum: [10, 35, 60, 90]
+        },
+        confidenceScore: {
+          type: "integer",
+          minimum: 0,
+          maximum: 100
+        },
+        findings: {
+          type: "array",
+          maxItems: 32,
+          items: {
+            type: "object",
+            properties: {
+              code: {
+                type: "string",
+                minLength: 1,
+                maxLength: 128,
+                pattern: "^[A-Za-z0-9._:-]+$"
+              },
+              severity: {
+                type: "string",
+                enum: ["info", "warning", "high", "critical"]
+              },
+              message: {
+                type: "string",
+                minLength: 1,
+                maxLength: 500
+              },
+              governanceRuleIds:
+                boundedAdminStringArraySchema(
+                  governanceRuleIds,
+                  32
+                ),
+              governanceReasonCodes:
+                boundedAdminStringArraySchema(
+                  governanceReasonCodes,
+                  64
+                ),
+              governanceIssueCodes:
+                boundedAdminStringArraySchema(
+                  governanceIssueCodes,
+                  32
+                ),
+              traceFindingCodes:
+                boundedAdminStringArraySchema(
+                  traceFindingCodes,
+                  32
+                ),
+              shadowFindingCodes:
+                boundedAdminStringArraySchema(
+                  shadowFindingCodes,
+                  32
+                ),
+              evidenceEventIds:
+                boundedAdminStringArraySchema(
+                  eventIds,
+                  64
+                ),
+              evidenceFilePaths:
+                boundedAdminStringArraySchema(
+                  filePaths,
+                  64
+                )
+            },
+            required: [
+              "code",
+              "severity",
+              "message",
+              "governanceRuleIds",
+              "governanceReasonCodes",
+              "governanceIssueCodes",
+              "traceFindingCodes",
+              "shadowFindingCodes",
+              "evidenceEventIds",
+              "evidenceFilePaths"
+            ],
+            additionalProperties: false
+          }
+        },
+        rationaleCodes: {
+          type: "array",
+          maxItems: 32,
+          items: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9._:-]+$"
+          }
+        }
+      },
+      required: [
+        "decisionVersion",
+        "runId",
+        "traceHash",
+        "observationHash",
+        "governanceHash",
+        "decision",
+        "riskLevel",
+        "riskScore",
+        "confidenceScore",
+        "findings",
+        "rationaleCodes"
+      ],
+      additionalProperties: false,
+      oneOf: allowedDecisions.map((decision) => ({
+        properties: {
+          decision: {
+            enum: [decision]
+          },
+          riskLevel: {
+            enum: [decisionRisks[decision].riskLevel]
+          },
+          riskScore: {
+            enum: [decisionRisks[decision].riskScore]
+          }
+        }
+      }))
+    }
   };
 }
 
@@ -612,7 +868,17 @@ export async function runAdminAgentModel(
       const response = await validated.fetchImpl(validated.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ model: validated.modelId, temperature: 0, stream: false, messages }),
+        body: JSON.stringify({
+          model: validated.modelId,
+          temperature: 0,
+          stream: false,
+          messages,
+          response_format: buildAdminResponseFormat(
+            trace,
+            observation,
+            governance
+          )
+        }),
         signal: controller.signal
       });
       summary.responseReceived = true;

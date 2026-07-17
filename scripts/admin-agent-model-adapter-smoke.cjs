@@ -297,7 +297,61 @@ function assertDeepFrozen(value, seen = new Set()) {
       assert.equal(result.called, true); assert.equal(result.summary.requestStarted, true);
       assert.equal(result.summary.responseReceived, true); assert.equal(result.summary.responseParsed, true);
       assert.equal(result.summary.adminValidationCompleted, true);
-      assert.equal(result.validationDecision, "admin_decision_valid"); assert.ok(result.adminDecision);
+      assert.equal(result.validationDecision, "admin_decision_valid");
+
+      const requestBody = JSON.parse(
+        requestBodies[requestBodies.length - 1]
+      );
+
+      const responseSchema =
+        requestBody.response_format.schema;
+
+      assert.equal(
+        requestBody.response_format.type,
+        "json_object"
+      );
+
+      assert.equal(
+        responseSchema.additionalProperties,
+        false
+      );
+
+      assert.equal(
+        "bindings" in responseSchema.properties,
+        false
+      );
+
+      assert.equal(
+        "governance" in responseSchema.properties,
+        false
+      );
+
+      assert.equal(
+        "outputContract" in responseSchema.properties,
+        false
+      );
+
+      assert.deepEqual(
+        responseSchema.properties.runId.enum,
+        [trace.runId]
+      );
+
+      assert.deepEqual(
+        responseSchema.properties.observationHash.enum,
+        [observation.observationHash]
+      );
+
+      assert.deepEqual(
+        responseSchema.properties.governanceHash.enum,
+        [passed.governanceHash]
+      );
+
+      assert.equal(
+        responseSchema.oneOf.length,
+        5
+      );
+
+      assert.ok(result.adminDecision);
       assert.match(result.adminDecision.adminDecisionHash, hashPattern);
       assert.match(result.responseContentHash, hashPattern);
       assert.deepEqual(result.usage, { inputTokens: 10, outputTokens: 5, totalTokens: 15 });
@@ -519,7 +573,7 @@ function assertDeepFrozen(value, seen = new Set()) {
         "STDOUT_SENTINEL", "STDERR_SENTINEL", "ENDPOINT_SECRET_SENTINEL", "API_KEY_SENTINEL", "ENV_SECRET_SENTINEL"])
         assert.equal(body.includes(sentinel) || resultText.includes(sentinel), false, sentinel);
       const request = JSON.parse(body);
-      assert.deepEqual(Object.keys(request).sort(), ["messages", "model", "stream", "temperature"]);
+      assert.deepEqual(Object.keys(request).sort(), ["messages", "model", "response_format", "stream", "temperature"]);
       assert.equal(request.model, "qwen-admin"); assert.equal(request.temperature, 0); assert.equal(request.stream, false);
       const headers = requestHeaders.at(-1);
       assert.equal(headers["content-type"], "application/json"); assert.equal(headers.accept, "application/json");
