@@ -134,6 +134,10 @@ const ADMIN_SYSTEM_MESSAGE = [
   "Every Admin finding must cite at least one exact bounded evidence value from the supplied package.",
   "Risk score bands are exact: low 0-24, medium 25-49, high 50-74, critical 75-100.",
   "For example, riskScore 90 requires riskLevel critical, not high.",
+  "The validOutputExample object is an example of the entire Admin response.",
+  "Your top-level response must contain decisionVersion, bindings, decision, risk fields, findings, and rationaleCodes.",
+  "Never return only one finding object.",
+  "Return only the fields inside validOutputExample; never output validOutputExample or exampleInstructions as wrapper fields.",
   "No Markdown; no code fences preferred; no prose before or after JSON.",
   "Do not include chain-of-thought; keep finding messages short.",
   "Governance matrix:",
@@ -349,18 +353,88 @@ export function buildAdminAgentMessages(
         nonAutoDecisionRequiresGovernanceEvidence: true,
         everyFindingRequiresVerifiedEvidence: true
       },
-      findingShapeExample: {
-        code: "bounded_admin_evidence",
-        severity: "info",
-        message: "Bounded evidence supports the Admin decision.",
-        governanceRuleIds: [],
-        governanceReasonCodes: [],
-        governanceIssueCodes: [],
-        traceFindingCodes: [],
-        shadowFindingCodes: [],
-        evidenceEventIds:
-          trace.events.length > 0 ? [trace.events[0].eventId] : [],
-        evidenceFilePaths: []
+      exampleInstructions: [
+        "validOutputExample is the complete top-level Admin response.",
+        "Never return only the nested finding object.",
+        "Use only evidence values present in the supplied bounded package."
+      ],
+      validOutputExample: {
+        decisionVersion: ADMIN_DECISION_VERSION,
+        runId: trace.runId,
+        traceHash: trace.traceHash,
+        observationHash: observation?.observationHash ?? null,
+        governanceHash: governance.governanceHash,
+        decision:
+          governance.decision === "governance_passed"
+            ? "admin_auto_approved"
+            : governance.decision === "governance_repair_required"
+              ? "admin_repair_required"
+              : governance.decision === "governance_replan_required"
+                ? "admin_replan_required"
+                : governance.decision === "governance_escalation_required"
+                  ? "admin_human_escalation_required"
+                  : "admin_run_terminated",
+        riskLevel:
+          governance.decision === "governance_passed"
+            ? "low"
+            : governance.decision === "governance_repair_required" ||
+                governance.decision === "governance_replan_required"
+              ? "medium"
+              : governance.decision === "governance_escalation_required"
+                ? "high"
+                : "critical",
+        riskScore:
+          governance.decision === "governance_passed"
+            ? 10
+            : governance.decision === "governance_repair_required" ||
+                governance.decision === "governance_replan_required"
+              ? 35
+              : governance.decision === "governance_escalation_required"
+                ? 60
+                : 90,
+        confidenceScore: 90,
+        findings:
+          governance.decision === "governance_passed"
+            ? []
+            : [
+                {
+                  code: "bounded_admin_evidence",
+                  severity:
+                    governance.decision === "governance_terminated"
+                      ? "critical"
+                      : governance.decision === "governance_escalation_required"
+                        ? "high"
+                        : "warning",
+                  message:
+                    "Bounded governance evidence supports this Admin decision.",
+                  governanceRuleIds:
+                    governance.triggeredRuleIds.slice(0, 1),
+                  governanceReasonCodes:
+                    governance.reasonCodes.slice(0, 1),
+                  governanceIssueCodes:
+                    governance.issues.slice(0, 1).map((entry) => entry.code),
+                  traceFindingCodes: [],
+                  shadowFindingCodes: [],
+                  evidenceEventIds: [
+                    ...governance.issues.flatMap((entry) => entry.eventIds),
+                    ...governance.ruleResults
+                      .filter((rule) => rule.triggered)
+                      .flatMap((rule) => rule.eventIds),
+                    ...trace.events.map((event) => event.eventId)
+                  ].slice(0, 1),
+                  evidenceFilePaths: [
+                    ...governance.issues.flatMap((entry) => entry.filePaths),
+                    ...governance.ruleResults
+                      .filter((rule) => rule.triggered)
+                      .flatMap((rule) => rule.filePaths),
+                    ...trace.files.allProposedFiles
+                  ].slice(0, 1)
+                }
+              ],
+        rationaleCodes:
+          governance.reasonCodes.length > 0
+            ? governance.reasonCodes.slice(0, 1)
+            : ["bounded_admin_review"]
       }
     }
   };

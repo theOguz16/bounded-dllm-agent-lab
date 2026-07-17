@@ -115,6 +115,9 @@ const SHADOW_SYSTEM_MESSAGE = [
   "Every finding must cite at least one exact event ID, file path, or trace-finding code from the supplied trace.",
   "Risk score bands are exact: low 0-24, medium 25-49, high 50-74, critical 75-100.",
   "A non-continue recommendation requires at least one evidence-backed finding.",
+  "The validOutputExample object is an example of the entire response object.",
+  "Return only the fields inside that example; never output validOutputExample or exampleInstructions as wrapper fields.",
+  "Never copy explanatory or helper metadata into the response.",
   "Do not output Markdown or code fences.",
   "Do not include chain-of-thought; keep finding messages concise.",
   "Deterministic governor rules remain authoritative.",
@@ -353,8 +356,12 @@ export function buildShadowObserverMessages(
           observedEvidenceConflict: "evidence_conflict"
         }
       },
-      lowRiskNoFindingExample: {
-        useOnlyWhenTraceSupportsLowRiskContinue: true,
+      exampleInstructions: [
+        "validOutputExample is the complete response object.",
+        "Return the inner object directly without wrapper fields.",
+        "Use low-risk values only when the supplied trace supports them."
+      ],
+      validOutputExample: {
         observationVersion: SHADOW_OBSERVATION_VERSION,
         runId: trace.runId,
         traceHash: trace.traceHash,

@@ -217,16 +217,25 @@ function assertDeepFrozen(value, seen = new Set()) {
         true
       );
       assert.equal(
-        payload.outputContract.lowRiskNoFindingExample.runId,
+        payload.outputContract.validOutputExample.runId,
         trace.runId
       );
       assert.equal(
-        payload.outputContract.lowRiskNoFindingExample.traceHash,
+        payload.outputContract.validOutputExample.traceHash,
         trace.traceHash
       );
       assert.equal(
-        payload.outputContract.lowRiskNoFindingExample.riskScore,
+        payload.outputContract.validOutputExample.riskScore,
         10
+      );
+      assert.equal(
+        "useOnlyWhenTraceSupportsLowRiskContinue" in
+          payload.outputContract.validOutputExample,
+        false
+      );
+      assert.deepEqual(
+        Object.keys(payload.outputContract.validOutputExample).sort(),
+        payload.outputContract.requiredFields.slice().sort()
       );
       const forbiddenKeys = new Set([
         "sourceContent", "proposedContent", "patch", "diff", "stdout", "stderr",

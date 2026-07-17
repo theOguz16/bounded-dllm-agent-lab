@@ -246,9 +246,35 @@ function assertDeepFrozen(value, seen = new Set()) {
         ),
         true
       );
+      assert.equal(
+        payload.outputContract.validOutputExample.runId,
+        trace.runId
+      );
+      assert.equal(
+        payload.outputContract.validOutputExample.traceHash,
+        trace.traceHash
+      );
+      assert.equal(
+        payload.outputContract.validOutputExample.observationHash,
+        highObservation.observationHash
+      );
+      assert.equal(
+        payload.outputContract.validOutputExample.governanceHash,
+        highGovernance.governanceHash
+      );
+      assert.ok(
+        payload.outputContract.validOutputExample.decision.startsWith("admin_")
+      );
+      assert.ok(
+        Array.isArray(payload.outputContract.validOutputExample.findings)
+      );
+      assert.equal(
+        "code" in payload.outputContract.validOutputExample,
+        false
+      );
       assert.deepEqual(
-        payload.outputContract.findingShapeExample.evidenceEventIds,
-        [trace.events[0].eventId]
+        Object.keys(payload.outputContract.validOutputExample).sort(),
+        payload.outputContract.requiredFields.slice().sort()
       );
       assert.ok(payload.trace.events.some((event) => event.eventId === trace.events[0].eventId));
       assert.ok(payload.governance.ruleResults.some((rule) => rule.ruleId === "execution_outcome"));
