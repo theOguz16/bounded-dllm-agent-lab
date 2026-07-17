@@ -204,6 +204,52 @@ function assertDeepFrozen(value, seen = new Set()) {
       assert.equal(payload.bindings.observationHash, highObservation.observationHash);
       assert.equal(payload.bindings.governanceHash, highGovernance.governanceHash);
       assert.deepEqual(payload.governanceDecisionMatrix.governance_terminated, ["admin_run_terminated"]);
+      assert.deepEqual(
+        payload.outputContract.riskScoreBands,
+        {
+          low: { minimum: 0, maximum: 24 },
+          medium: { minimum: 25, maximum: 49 },
+          high: { minimum: 50, maximum: 74 },
+          critical: { minimum: 75, maximum: 100 }
+        }
+      );
+      assert.deepEqual(
+        payload.outputContract.findingContract.requiredFields,
+        [
+          "code",
+          "severity",
+          "message",
+          "governanceRuleIds",
+          "governanceReasonCodes",
+          "governanceIssueCodes",
+          "traceFindingCodes",
+          "shadowFindingCodes",
+          "evidenceEventIds",
+          "evidenceFilePaths"
+        ]
+      );
+      assert.equal(
+        payload.outputContract.findingContract.invalidFieldAliases.includes(
+          "effect"
+        ),
+        true
+      );
+      assert.equal(
+        payload.outputContract.findingContract.invalidFieldAliases.includes(
+          "eventIds"
+        ),
+        true
+      );
+      assert.equal(
+        payload.outputContract.findingContract.invalidFieldAliases.includes(
+          "filePaths"
+        ),
+        true
+      );
+      assert.deepEqual(
+        payload.outputContract.findingShapeExample.evidenceEventIds,
+        [trace.events[0].eventId]
+      );
       assert.ok(payload.trace.events.some((event) => event.eventId === trace.events[0].eventId));
       assert.ok(payload.governance.ruleResults.some((rule) => rule.ruleId === "execution_outcome"));
       assert.ok(payload.governance.ruleResults.some((rule) => rule.reasonCode === "governance_execution_failed"));

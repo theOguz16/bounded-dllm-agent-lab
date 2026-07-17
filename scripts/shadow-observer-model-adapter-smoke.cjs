@@ -186,6 +186,48 @@ function assertDeepFrozen(value, seen = new Set()) {
       assert.ok(payload.trace.events.some((event) => event.eventId === trace.events[0].eventId));
       assert.equal("observationHash" in payload.outputContract, false);
       assert.equal(messages[1].content.includes("observationHash"), false);
+      assert.deepEqual(
+        payload.outputContract.riskScoreBands,
+        {
+          low: { minimum: 0, maximum: 24 },
+          medium: { minimum: 25, maximum: 49 },
+          high: { minimum: 50, maximum: 74 },
+          critical: { minimum: 75, maximum: 100 }
+        }
+      );
+      assert.deepEqual(
+        payload.outputContract.findingContract.requiredFields,
+        [
+          "code",
+          "severity",
+          "message",
+          "evidenceEventIds",
+          "evidenceFilePaths",
+          "evidenceTraceFindingCodes"
+        ]
+      );
+      assert.deepEqual(
+        payload.outputContract.findingContract.optionalFields,
+        ["actor"]
+      );
+      assert.equal(
+        payload.outputContract.findingContract.invalidFieldAliases.includes(
+          "description"
+        ),
+        true
+      );
+      assert.equal(
+        payload.outputContract.lowRiskNoFindingExample.runId,
+        trace.runId
+      );
+      assert.equal(
+        payload.outputContract.lowRiskNoFindingExample.traceHash,
+        trace.traceHash
+      );
+      assert.equal(
+        payload.outputContract.lowRiskNoFindingExample.riskScore,
+        10
+      );
       const forbiddenKeys = new Set([
         "sourceContent", "proposedContent", "patch", "diff", "stdout", "stderr",
         "environment", "plannerPrompt", "coderPrompt", "secret", "credential"

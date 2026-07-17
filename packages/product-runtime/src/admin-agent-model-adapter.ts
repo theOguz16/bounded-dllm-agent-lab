@@ -128,6 +128,12 @@ const ADMIN_SYSTEM_MESSAGE = [
   "Do not authorize real-repository application.",
   "admin_auto_approved means only that later routing may continue.",
   "Output exactly one JSON object using only the W.8 schema.",
+  "Every Admin finding must use exactly these fields: code, severity, message, governanceRuleIds, governanceReasonCodes, governanceIssueCodes, traceFindingCodes, shadowFindingCodes, evidenceEventIds, evidenceFilePaths.",
+  "Never copy effect, eventIds, or filePaths directly from a governance issue into an Admin finding.",
+  "Map governance issue codes to governanceIssueCodes, event IDs to evidenceEventIds, and file paths to evidenceFilePaths.",
+  "Every Admin finding must cite at least one exact bounded evidence value from the supplied package.",
+  "Risk score bands are exact: low 0-24, medium 25-49, high 50-74, critical 75-100.",
+  "For example, riskScore 90 requires riskLevel critical, not high.",
   "No Markdown; no code fences preferred; no prose before or after JSON.",
   "Do not include chain-of-thought; keep finding messages short.",
   "Governance matrix:",
@@ -287,10 +293,75 @@ export function buildAdminAgentMessages(
         "admin_human_escalation_required", "admin_run_terminated"
       ],
       riskLevels: ["low", "medium", "high", "critical"],
+      riskScoreBands: {
+        low: { minimum: 0, maximum: 24 },
+        medium: { minimum: 25, maximum: 49 },
+        high: { minimum: 50, maximum: 74 },
+        critical: { minimum: 75, maximum: 100 }
+      },
       requiredFields: [
         "decisionVersion", "runId", "traceHash", "observationHash", "governanceHash",
         "decision", "riskLevel", "riskScore", "confidenceScore", "findings", "rationaleCodes"
-      ]
+      ],
+      findingContract: {
+        requiredFields: [
+          "code",
+          "severity",
+          "message",
+          "governanceRuleIds",
+          "governanceReasonCodes",
+          "governanceIssueCodes",
+          "traceFindingCodes",
+          "shadowFindingCodes",
+          "evidenceEventIds",
+          "evidenceFilePaths"
+        ],
+        allowedFields: [
+          "code",
+          "severity",
+          "message",
+          "governanceRuleIds",
+          "governanceReasonCodes",
+          "governanceIssueCodes",
+          "traceFindingCodes",
+          "shadowFindingCodes",
+          "evidenceEventIds",
+          "evidenceFilePaths"
+        ],
+        severities: ["info", "warning", "high", "critical"],
+        evidenceRequired: true,
+        invalidFieldAliases: ["effect", "eventIds", "filePaths"]
+      },
+      fieldMappings: {
+        governanceIssueCode: "governanceIssueCodes",
+        governanceRuleId: "governanceRuleIds",
+        governanceReasonCode: "governanceReasonCodes",
+        governanceEventIds: "evidenceEventIds",
+        governanceFilePaths: "evidenceFilePaths",
+        governanceTraceFindingCodes: "traceFindingCodes",
+        governanceShadowFindingCodes: "shadowFindingCodes",
+        governanceEffect: "do_not_output"
+      },
+      semanticRules: {
+        unknownFieldsForbidden: true,
+        riskLevelMustMatchRiskScoreBand: true,
+        decisionMustPreserveOrStrengthenGovernance: true,
+        nonAutoDecisionRequiresGovernanceEvidence: true,
+        everyFindingRequiresVerifiedEvidence: true
+      },
+      findingShapeExample: {
+        code: "bounded_admin_evidence",
+        severity: "info",
+        message: "Bounded evidence supports the Admin decision.",
+        governanceRuleIds: [],
+        governanceReasonCodes: [],
+        governanceIssueCodes: [],
+        traceFindingCodes: [],
+        shadowFindingCodes: [],
+        evidenceEventIds:
+          trace.events.length > 0 ? [trace.events[0].eventId] : [],
+        evidenceFilePaths: []
+      }
     }
   };
   return deepFreeze([
