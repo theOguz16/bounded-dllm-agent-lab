@@ -750,7 +750,26 @@ async function main() {
       roots.push(copyParent);
       const registryDirectoryPath = path.join(copyParent, "registry");
       fs.cpSync(basic.registryDirectoryPath, registryDirectoryPath, { recursive: true });
-      fs.chmodSync(registryDirectoryPath, 0o700);
+      const permissionStack = [registryDirectoryPath];
+      while (permissionStack.length > 0) {
+        const currentPath = permissionStack.pop();
+        const metadata = fs.lstatSync(currentPath);
+
+        if (metadata.isSymbolicLink()) {
+          throw new Error("Copied registry fixture contains a symbolic link.");
+        }
+
+        if (metadata.isDirectory()) {
+          fs.chmodSync(currentPath, 0o700);
+          for (const name of fs.readdirSync(currentPath)) {
+            permissionStack.push(path.join(currentPath, name));
+          }
+        } else if (metadata.isFile()) {
+          fs.chmodSync(currentPath, 0o600);
+        } else {
+          throw new Error("Copied registry fixture contains an unsupported entry.");
+        }
+      }
       const copiedClaim = path.join(
         registryDirectoryPath, "claims", basic.authorization.consumptionKey.slice(7)
       );

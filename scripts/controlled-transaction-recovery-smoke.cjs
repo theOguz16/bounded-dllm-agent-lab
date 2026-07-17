@@ -424,7 +424,26 @@ async function main() {
       const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `x6-${label}-`)));
       roots.push(parent); const registryDirectoryPath = path.join(parent, "registry");
       fs.cpSync(prewrite.registryDirectoryPath, registryDirectoryPath, { recursive: true });
-      fs.chmodSync(registryDirectoryPath, 0o700);
+      const permissionStack = [registryDirectoryPath];
+      while (permissionStack.length > 0) {
+        const currentPath = permissionStack.pop();
+        const metadata = fs.lstatSync(currentPath);
+
+        if (metadata.isSymbolicLink()) {
+          throw new Error("Copied registry fixture contains a symbolic link.");
+        }
+
+        if (metadata.isDirectory()) {
+          fs.chmodSync(currentPath, 0o700);
+          for (const name of fs.readdirSync(currentPath)) {
+            permissionStack.push(path.join(currentPath, name));
+          }
+        } else if (metadata.isFile()) {
+          fs.chmodSync(currentPath, 0o600);
+        } else {
+          throw new Error("Copied registry fixture contains an unsupported entry.");
+        }
+      }
       mutate(registryDirectoryPath);
       return verifyControlledTransactionRecoveryReceipt({
         repositoryPath: prewrite.gateInput.repositoryPath, registryDirectoryPath,
