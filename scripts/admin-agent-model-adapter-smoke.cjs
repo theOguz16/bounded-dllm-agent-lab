@@ -347,8 +347,8 @@ function assertDeepFrozen(value, seen = new Set()) {
       );
 
       assert.equal(
-        responseSchema.oneOf.length,
-        5
+        "oneOf" in responseSchema,
+        false
       );
 
       assert.ok(result.adminDecision);

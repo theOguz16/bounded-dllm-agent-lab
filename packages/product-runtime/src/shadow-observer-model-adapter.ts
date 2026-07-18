@@ -429,33 +429,7 @@ function buildShadowResponseFormat(
         "recommendation",
         "rationaleCodes"
       ],
-      additionalProperties: false,
-      oneOf: [
-        {
-          properties: {
-            riskLevel: { enum: ["low"] },
-            riskScore: { enum: [10] }
-          }
-        },
-        {
-          properties: {
-            riskLevel: { enum: ["medium"] },
-            riskScore: { enum: [35] }
-          }
-        },
-        {
-          properties: {
-            riskLevel: { enum: ["high"] },
-            riskScore: { enum: [60] }
-          }
-        },
-        {
-          properties: {
-            riskLevel: { enum: ["critical"] },
-            riskScore: { enum: [90] }
-          }
-        }
-      ]
+      additionalProperties: false
     }
   };
 }

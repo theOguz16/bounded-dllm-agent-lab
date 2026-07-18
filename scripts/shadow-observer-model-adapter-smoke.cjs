@@ -284,8 +284,8 @@ function assertDeepFrozen(value, seen = new Set()) {
       );
 
       assert.equal(
-        requestBody.response_format.schema.oneOf.length,
-        4
+        "oneOf" in requestBody.response_format.schema,
+        false
       );
 
       assert.deepEqual(

@@ -332,32 +332,6 @@ function buildAdminResponseFormat(
   const allowedDecisions: readonly AdminDecision[] =
     GOVERNANCE_DECISION_MATRIX[governance.decision];
 
-  const decisionRisks: Record<
-    AdminDecision,
-    { riskLevel: AdminRiskLevel; riskScore: number }
-  > = {
-    admin_auto_approved: {
-      riskLevel: "low",
-      riskScore: 10
-    },
-    admin_repair_required: {
-      riskLevel: "medium",
-      riskScore: 35
-    },
-    admin_replan_required: {
-      riskLevel: "medium",
-      riskScore: 35
-    },
-    admin_human_escalation_required: {
-      riskLevel: "high",
-      riskScore: 60
-    },
-    admin_run_terminated: {
-      riskLevel: "critical",
-      riskScore: 90
-    }
-  };
-
   return {
     type: "json_object",
     schema: {
@@ -495,20 +469,7 @@ function buildAdminResponseFormat(
         "findings",
         "rationaleCodes"
       ],
-      additionalProperties: false,
-      oneOf: allowedDecisions.map((decision) => ({
-        properties: {
-          decision: {
-            enum: [decision]
-          },
-          riskLevel: {
-            enum: [decisionRisks[decision].riskLevel]
-          },
-          riskScore: {
-            enum: [decisionRisks[decision].riskScore]
-          }
-        }
-      }))
+      additionalProperties: false
     }
   };
 }
