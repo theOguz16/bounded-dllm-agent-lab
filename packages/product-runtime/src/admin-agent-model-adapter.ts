@@ -139,7 +139,10 @@ const ADMIN_SYSTEM_MESSAGE = [
   "Never output bindings, governance, governanceDecisionMatrix, outputContract, authority, requestVersion, task, policy, ruleResults, or validOutputExample as top-level fields.",
   "Do not repeat or copy the supplied request package into the response.",
   "Use only these representative risk pairs: low=10, medium=35, high=60, critical=90.",
-  "Never return only one finding object.",
+  "Do not treat the instruction that deterministic governance is authoritative as evidence that its authority was violated.",
+  "A governance rule with triggered=false is not evidence that its violation occurred.",
+  "Use governance rule IDs and reason codes as finding evidence only when they are triggered or explicitly present in governance reasonCodes.",
+  "When validOutputExample.findings is empty, return findings as [] exactly and do not invent a finding.",
   "Return only the fields inside validOutputExample; never output validOutputExample or exampleInstructions as wrapper fields.",
   "No Markdown; no code fences preferred; no prose before or after JSON.",
   "Do not include chain-of-thought; keep finding messages short.",
@@ -284,6 +287,38 @@ function boundedAdminStringArraySchema(
   };
 }
 
+function isCleanAdminAutoApprovalPackage(
+  trace: RunAccountabilityTrace,
+  observation: ShadowObservation | null,
+  governance: DeterministicGovernanceAssessment
+): boolean {
+  if (
+    governance.decision !== "governance_passed" ||
+    governance.riskClass !== "low" ||
+    governance.triggeredRuleIds.length !== 0 ||
+    governance.issues.length !== 0 ||
+    trace.findings.length !== 0
+  ) {
+    return false;
+  }
+
+  if (observation === null) {
+    return true;
+  }
+
+  return (
+    observation.riskLevel === "low" &&
+    observation.riskScore <= 24 &&
+    observation.findings.length === 0 &&
+    observation.recommendation === "continue" &&
+    observation.observedScopeDrift === false &&
+    observation.observedPlanPatchMismatch === false &&
+    observation.observedRepairLoop === false &&
+    observation.observedSuspiciousRoleBehavior === false &&
+    observation.observedEvidenceConflict === false
+  );
+}
+
 function buildAdminResponseFormat(
   trace: RunAccountabilityTrace,
   observation: ShadowObservation | null,
@@ -311,12 +346,14 @@ function buildAdminResponseFormat(
   ].sort();
 
   const governanceRuleIds =
-    governance.ruleResults.map((rule) => rule.ruleId);
+    [...governance.triggeredRuleIds];
 
   const governanceReasonCodes = [
     ...new Set([
       ...governance.reasonCodes,
-      ...governance.ruleResults.map((rule) => rule.reasonCode)
+      ...governance.ruleResults
+        .filter((rule) => rule.triggered)
+        .map((rule) => rule.reasonCode)
     ])
   ].sort();
 
@@ -329,8 +366,17 @@ function buildAdminResponseFormat(
   const shadowFindingCodes =
     observation?.findings.map((finding) => finding.code) ?? [];
 
+  const cleanAutoApprovalOnly =
+    isCleanAdminAutoApprovalPackage(
+      trace,
+      observation,
+      governance
+    );
+
   const allowedDecisions: readonly AdminDecision[] =
-    GOVERNANCE_DECISION_MATRIX[governance.decision];
+    cleanAutoApprovalOnly
+      ? ["admin_auto_approved"]
+      : GOVERNANCE_DECISION_MATRIX[governance.decision];
 
   return {
     type: "json_object",
@@ -362,11 +408,15 @@ function buildAdminResponseFormat(
         },
         riskLevel: {
           type: "string",
-          enum: ["low", "medium", "high", "critical"]
+          enum: cleanAutoApprovalOnly
+            ? ["low"]
+            : ["low", "medium", "high", "critical"]
         },
         riskScore: {
           type: "integer",
-          enum: [10, 35, 60, 90]
+          enum: cleanAutoApprovalOnly
+            ? [10]
+            : [10, 35, 60, 90]
         },
         confidenceScore: {
           type: "integer",
@@ -375,7 +425,7 @@ function buildAdminResponseFormat(
         },
         findings: {
           type: "array",
-          maxItems: 32,
+          maxItems: cleanAutoApprovalOnly ? 0 : 32,
           items: {
             type: "object",
             properties: {

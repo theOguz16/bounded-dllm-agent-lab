@@ -351,6 +351,32 @@ function assertDeepFrozen(value, seen = new Set()) {
         false
       );
 
+      assert.deepEqual(
+        responseSchema.properties.decision.enum,
+        ["admin_auto_approved"]
+      );
+
+      assert.deepEqual(
+        responseSchema.properties.riskLevel.enum,
+        ["low"]
+      );
+
+      assert.deepEqual(
+        responseSchema.properties.riskScore.enum,
+        [10]
+      );
+
+      assert.equal(
+        responseSchema.properties.findings.maxItems,
+        0
+      );
+
+      assert.equal(
+        responseSchema.properties.findings.items.properties
+          .governanceRuleIds.maxItems,
+        0
+      );
+
       assert.ok(result.adminDecision);
       assert.match(result.adminDecision.adminDecisionHash, hashPattern);
       assert.match(result.responseContentHash, hashPattern);
@@ -370,8 +396,48 @@ function assertDeepFrozen(value, seen = new Set()) {
       ];
       for (const [governanceDecision, adminDecision] of pairs) {
         const governance = governanceVariant(governanceDecision);
-        const result = (await runScenario(JSON.stringify(draft(governance, adminDecision)), { governance })).result;
-        assertDecision(result, "admin_agent_completed"); assert.equal(result.summary.finalAdminDecision, adminDecision);
+        const beforeBodies = requestBodies.length;
+
+        const result = (
+          await runScenario(
+            JSON.stringify(
+              draft(
+                governance,
+                adminDecision
+              )
+            ),
+            { governance }
+          )
+        ).result;
+
+        assertDecision(
+          result,
+          "admin_agent_completed"
+        );
+
+        assert.equal(
+          result.summary.finalAdminDecision,
+          adminDecision
+        );
+
+        const requestBody = JSON.parse(
+          requestBodies[beforeBodies]
+        );
+
+        const responseSchema =
+          requestBody.response_format.schema;
+
+        assert.equal(
+          responseSchema.properties.findings.maxItems,
+          32
+        );
+
+        assert.equal(
+          responseSchema.properties.decision.enum.includes(
+            adminDecision
+          ),
+          true
+        );
       }
       for (const adminDecision of ["admin_repair_required", "admin_replan_required", "admin_human_escalation_required", "admin_run_terminated"]) {
         const result = (await runScenario(JSON.stringify(draft(passed, adminDecision)))).result;
