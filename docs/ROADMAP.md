@@ -245,7 +245,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
-| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.5 fail-closed closure |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
@@ -413,12 +413,26 @@ Limitler:
 
 ## CSG.5 — Fail-closed davranış
 
-Context yeterli değilse veya required provider başarısızsa:
+<!-- CSG_5_AUTHORIZATION_STATUS -->
 
-- Coder patch üretemez.
-- Handoff oluşturulamaz.
-- Apply çalışamaz.
-- `replan_required` veya `human_review_required` üretilir.
+**Durum: Tamamlandı.**
+
+Başarılı adaptive coder akışı, validated patch mutation ve downstream delivery zinciri hashli context authorization receipt ile bağlandı.
+
+Garantiler:
+
+- Adaptive flow tamamlanmadan patch, handoff veya apply callbackleri çağrılmaz.
+- Coder provider tam olarak bir kez başarılı çalışmalıdır.
+- Coder çıktısı validated `patchDraft` değilse authorization üretilmez.
+- Changed files coder evidence içinde görünür olmalıdır.
+- Mutation, context, provenance, expansion trace ve token budget authorization hashine bağlanır.
+- Patch pipeline başarısızsa handoff ve apply çalışmaz.
+- Handoff başarısızsa apply çalışmaz.
+- Apply başarısızlığı fail-closed human review üretir.
+
+Bu closure gerçek repository write yapmaz. Disposable Git repository üzerinde gerçek handoff, apply ve acceptance validation Phase AC kapsamında çalıştırılacaktır.
+
+Ürün seviyesindeki canonical entrypoint bundan sonra context-authorized delivery chain olmalıdır.
 
 ## Definition of Done
 

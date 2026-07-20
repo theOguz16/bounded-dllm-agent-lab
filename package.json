@@ -211,7 +211,8 @@
     "test:context-request-mutation": "node scripts/context-request-mutation-smoke.cjs",
     "test:context-expansion-resolver": "node scripts/context-expansion-resolver-smoke.cjs",
     "test:coder-context-execution-gate": "node scripts/coder-context-execution-gate-smoke.cjs",
-    "test:adaptive-context-orchestrator": "node scripts/adaptive-context-orchestrator-smoke.cjs"
+    "test:adaptive-context-orchestrator": "node scripts/adaptive-context-orchestrator-smoke.cjs",
+    "test:context-sufficiency-authorization": "node scripts/context-sufficiency-authorization-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
