@@ -1,8 +1,14 @@
 # Bounded Agent Runtime — Product Roadmap
 
-Bu belge, `bounded-dllm-agent-lab` projesinin araştırma çekirdeğini tamamlayıp kullanılabilir bir geliştirici ürününe dönüştürmek için izlenecek yolu tanımlar.
+Bu belge, `bounded-dllm-agent-lab` araştırma çekirdeğinin kullanılabilir bir geliştirici ürününe dönüşmesi için izlenecek yolu tanımlar.
 
-Geçmiş fazların ayrıntılı günlüğü burada tekrar edilmez. Tamamlanan çalışmalar Git geçmişinde ve `docs/results/` altındaki raporlarda korunur. Bu roadmap yalnızca güncel durum, v0.1 kapanış çizgisi, benchmark planı ve ürün yönünü anlatır.
+Geçmiş fazların ayrıntılı günlüğü burada tekrar edilmez. Tamamlanan çalışmalar Git geçmişinde ve `docs/results/` altında korunur. Bu roadmap yalnızca mevcut gerçek durum, v0.1 kapanış çizgisi, release blocker'lar, benchmark planı ve ürün yönünü anlatır.
+
+Ayrıntılı teknik açık kaydı:
+
+- [`docs/RELEASE_BLOCKING_GAPS.md`](./RELEASE_BLOCKING_GAPS.md)
+
+Bu dosya roadmap'in ayrılmaz parçasıdır. Buradaki bir madde kapanmadan yalnızca schema, smoke test veya rapor var diye özellik “tamamlandı” sayılmaz.
 
 ---
 
@@ -19,22 +25,47 @@ Mevcut AI coding agent'larının bounded context ve açık scope sözleşmeleriy
 
 Ana görevleri:
 
-- Agent'a görevi için yeterli olan en küçük doğru context'i vermek.
+- Agent'a görevi için yeterli olan minimum doğru context'i vermek.
 - Context'in gerçekten yeterli olup olmadığını ölçmek.
 - Eksik context varsa kontrollü genişletme istemek.
 - Yeterli kanıt yoksa kod yazmak yerine durmak.
 - Okunabilir ve değiştirilebilir alanları sınırlandırmak.
-- Scope drift ve gereksiz dosya değişikliklerini azaltmak.
+- Hard scope violation ile soft scope drift'i ayrı ayrı azaltmak.
 - Model çıktısını doğrudan gerçek kabul etmemek.
-- Patch'i deterministik kurallarla doğrulamak.
+- Patch'i deterministic contract, apply, test ve acceptance kanıtlarıyla doğrulamak.
 - Gerekirse yalnızca hatalı bölgeyi yeniden üretmek.
 - Repository değişikliğini transaction, rollback ve recovery ile yürütmek.
 - Sonucu kanıtlarıyla draft PR olarak sunmak.
-- Token, maliyet, risk ve karar izlerini ölçülebilir hale getirmek.
+- Token, maliyet, risk ve karar izlerini gerçek run seviyesinde ölçmek.
 
 ---
 
-## 2. Şu Anki Durum
+## 2. “Var” Ne Demektir?
+
+Bu projede aşağıdaki kavramlar birbirine karıştırılmamalıdır:
+
+```text
+Type veya schema mevcut
+≠
+Smoke test geçiyor
+≠
+Live fixture çalışıyor
+≠
+Gerçek ürün garantisi kanıtlandı
+```
+
+Durum dili:
+
+- **Primitive mevcut:** Fonksiyon, type veya izole modül var.
+- **Contract doğrulandı:** Pozitif ve negatif fixture'lar geçiyor.
+- **Entegre edildi:** Canonical runtime akışında zorunlu gate olarak çalışıyor.
+- **Ürün garantisi kanıtlandı:** Gerçek repo, model, process ve failure senaryolarında tekrar üretilebilir kanıt var.
+
+Roadmap ve release notlarında bu dört seviye açıkça belirtilmelidir.
+
+---
+
+## 3. Şu Anki Durum
 
 Güvenli karar ve handoff çekirdeği büyük ölçüde tamamlandı.
 
@@ -46,7 +77,7 @@ Planner
 → Gerekiyorsa Remask / Repair
 → Patch dry-run
 → Temporary workspace apply
-→ İzole gerçek test çalıştırma
+→ İzole validation
 → Accountability ledger
 → Shadow Observer
 → Deterministic Governance
@@ -57,37 +88,39 @@ Planner
 → Durable consumption registry
 ```
 
-Kanıtlanan başlıca davranışlar:
+### Güçlü ve kanıtlanmış taraflar
 
+- Bozuk model çıktıları runtime state'e doğrudan yazılmıyor.
+- Role ve file scope ihlalleri deterministic olarak engelleniyor.
 - Normal ve forced-remask akışları çalışıyor.
-- Bozuk veya riskli model çıktıları runtime state'e doğrudan yazılmıyor.
 - Shadow ve Admin geçersiz çıktılarda fail-closed davranıyor.
 - Repair, replan, human review ve terminate rotaları ayrılabiliyor.
 - Governed artifact ve handoff hash ile bağlanıyor.
-- Değiştirilmiş veya eski handoff reddediliyor.
+- Değiştirilmiş veya stale handoff reddediliyor.
 - Apply, rollback, post-apply validation ve recovery primitive'leri mevcut.
 - Durable registry aynı handoff'un tekrar kullanımını engelliyor.
 
-Mevcut Context Composer v1 şunları yapıyor:
+### Henüz aynı güçte kanıtlanmayan taraflar
 
-- Role-specific bounded view üretiyor.
-- Token bütçesi ve tahmini kullanım raporluyor.
-- Dahil edilen ve dışarıda bırakılan fact'leri gösteriyor.
-- `low | medium | high` context risk etiketi üretiyor.
+- Doğru kaynak kod context'inin seçilmesi.
+- Context'in semantik olarak yeterli olduğunun anlaşılması.
+- Modelin gerçek repo kodunu mevcut implementasyona uyumlu değiştirmesi.
+- Business acceptance criteria'nın karşılanması.
+- Allowed path içinde oluşan soft scope drift'in ölçülmesi.
+- Gerçek end-to-end token ve maliyet tasarrufu.
+- Provider failure'ın bütün canonical yollarda hard blocker olması.
+- Evidence referanslarının gerçekten mevcut kanıtlara bağlanması.
 
-Henüz eksik olan bölüm:
+Temel teşhis:
 
-- Semantic context sufficiency kontrolü.
-- Eksik symbol, dependency, caller veya test algılama.
-- Yapılandırılmış context request contract'ı.
-- Kontrollü context expansion döngüsü.
-- Yetersiz context'te fail-closed execution gate.
-
-Bu nedenle v0.1 yalnızca repository executor entegrasyonunu değil, minimum bir Context Sufficiency Gate'i de içermelidir.
+```text
+Frenler, emniyet kemeri ve kara kutu büyük ölçüde var.
+Navigasyonun doğru yolu seçtiği ve aracın hedefe ulaştığı aynı güçte kanıtlanmadı.
+```
 
 ---
 
-## 3. v0.1 MVP
+## 4. v0.1 MVP
 
 Kullanıcı deneyimi:
 
@@ -97,8 +130,9 @@ Kullanıcı görev verir
 → başlangıç bounded context'i oluşturur
 → Context Sufficiency Gate çalışır
 → gerekirse sınırlı context expansion yapılır
-→ planner ve coder çalışır
+→ planner ve coder gerçek bounded source context ile çalışır
 → verifier, remask ve governance tamamlanır
+→ acceptance criteria için validation planı çalışır
 → tek kullanımlık handoff üretilir
 → ayrı branch üzerinde kontrollü apply yapılır
 → testler çalışır
@@ -111,7 +145,7 @@ MVP vaadi:
 ```text
 Görevi ver; ana branch'e dokunmadan,
 scope drift'i sınırlandırılmış, context'i doğrulanmış,
-izlenebilir ve kanıtlı bir draft PR al.
+acceptance kanıtı bulunan ve izlenebilir bir draft PR al.
 ```
 
 v0.1 şunları yapmayacaktır:
@@ -122,11 +156,12 @@ v0.1 şunları yapmayacaktır:
 - Modelin doğrudan Git veya GitHub yetkisi kullanması.
 - Her provider'ı destekleme.
 - Tam özellikli IDE veya dashboard.
+- Distributed cloud registry garantisi.
 - CodexQB veya Ponytail entegrasyonu.
 
 ---
 
-## 4. Temel Kavramlar
+## 5. Temel Kavramlar
 
 ### Bounded context
 
@@ -136,9 +171,17 @@ Agent'ın rolü ve görevi için seçilmiş, token bütçesi bulunan sınırlı 
 
 Context'in küçük olması değil, görevi güvenilir biçimde çözmek için gerekli kanıtları içerip içermediğidir.
 
-### Scope drift
+### Hard scope violation
 
-Agent'ın görevin gerektirdiği dosya, modül, davranış veya değişiklik sınırının dışına taşmasıdır.
+Agent'ın izin verilmeyen dosya, path veya semantic region'a dokunmasıdır.
+
+### Soft scope drift
+
+Agent'ın izin verilen alan içinde kalmasına rağmen görev için gereksiz dosya, LOC, dependency, abstraction veya refactor üretmesidir.
+
+### Deterministic verifier
+
+Patch'in contract, scope ve belirli güvenlik kurallarını kontrol eder. Tek başına kodun davranışsal olarak doğru olduğunu kanıtlamaz.
 
 ### Governed artifact
 
@@ -166,16 +209,47 @@ Kontrollü değişikliği branch'e uygulayan, test eden, commit eden, push eden 
 
 ---
 
-## 5. v0.1 Kapanış Planı
+## 6. Release-Blocking Gap Register
+
+Ayrıntılı açıklamalar ve kapanış kriterleri [`RELEASE_BLOCKING_GAPS.md`](./RELEASE_BLOCKING_GAPS.md) içindedir.
+
+| Gap | Mevcut gerçek durum | Kapanacağı iş | v0.1 blocker |
+| --- | --- | --- | --- |
+| Gerçek repo-aware coder context | Live model çağrısı var; coder her akışta gerçek source içeriğini görmüyor | CSG + AC | Evet |
+| Context budget enforcement | Tahmin ve warning var; hard gate ve recomposition yok | CSG | Evet |
+| Semantic context sufficiency | Kaba risk etiketi var; missing symbol/dependency döngüsü yok | CSG | Evet |
+| Repo Intelligence depth | Path ve filename heuristics güçlü; AST/import/call graph yok | CSG v1 + post-MVP planner | Kısmen |
+| Soft scope drift | Hard file scope kontrolü var; minimality metriği eksik | AF | Evet |
+| Verifier claim boundary | Contract doğruluyor; davranışsal doğruluk iddiası yapmamalı | AC + AF docs | Evet |
+| Acceptance criteria | Test command çalışıyor; task-to-evidence mapping eksik | AC + AE | Evet |
+| Observed token/cost | Bazı live usage alanları var; unified run ledger yok | AF | Evet |
+| Provider failure semantics | Bazı yollar fail-closed; generic fallback sessiz ilerleyebilir | CSG/runtime integration | Evet |
+| Evidence reference integrity | Evidence string listesi var; referential validation yok | AE | Evet |
+| Hash trust boundary | Tamper-evident; authenticated signature değil | Known limitation | Hayır |
+| Distributed registry | Local SQLite persistent; multi-host distributed değil | Post-MVP | Hayır |
+| İki mimari nesil | Mock/legacy ve product runtime birlikte yaşıyor | AF cleanup | Evet |
+| Canonical public API | Primitive ve scriptler var; tek coordinator API eksik | AB–AE | Evet |
+
+Bir gap şu şartlar olmadan kapalı sayılmaz:
+
+- Canonical runtime yoluna bağlanmış olmalı.
+- Negatif fixture yanlış başarı üretmemeli.
+- Gerçek kullanım veya process sınırında kanıtlanmalı.
+- Release artifact'ında sonucu görünmeli.
+- README ve known limitations aynı iddiayı kullanmalı.
+
+---
+
+## 7. v0.1 Kapanış Planı
 
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Aktif |
-| **CSG v1** | Context'in yeterli olup olmadığını kontrol eden minimum gate | Zorunlu yatay iş |
-| **AC** | Disposable Git repo üzerinde entegre apply | Sıradaki |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Zorunlu yatay iş |
+| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
-| **AE** | Güvenli branch, commit ve draft PR | Planlandı |
-| **AF** | Birleşik benchmark, dokümantasyon ve v0.1 release | Planlandı |
+| **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -187,33 +261,12 @@ CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/
 
 Dar context kullanımının token tasarrufu sağlarken görev kalitesini düşürmesini engellemek.
 
-Doğru ilke:
-
 ```text
 Her zaman en az context'i kullanma.
 Görev için gerekli olan minimum doğru context'i kullan.
 ```
 
-## Mevcut durum
-
-Var:
-
-- Role-specific views.
-- Token budgets.
-- Included/excluded fact raporu.
-- Kaba `contextSufficiencyRisk` etiketi.
-
-Yok:
-
-- Semantic missing-evidence listesi.
-- Context request mutation'ı.
-- Expansion state machine.
-- Expansion sonrası yeniden değerlendirme.
-- Context yetersizse coder'ı durduran gate.
-
 ## CSG.1 — Context contract
-
-Önerilen kararlar:
 
 ```ts
 type ContextSufficiencyDecision =
@@ -221,11 +274,7 @@ type ContextSufficiencyDecision =
   | "context_expansion_required"
   | "replan_required"
   | "human_review_required";
-```
 
-Önerilen rapor:
-
-```ts
 type ContextSufficiencyReport = {
   decision: ContextSufficiencyDecision;
   missingEvidence: string[];
@@ -238,15 +287,11 @@ type ContextSufficiencyReport = {
 };
 ```
 
-## CSG.2 — Workspace mutation hedefi
+## CSG.2 — Context request mutation
 
-Mutation contract'a eklenir:
+Mutation contract'a `contextRequest` eklenir.
 
-```text
-contextRequest
-```
-
-Planner veya coder şu alanları isteyebilir:
+Planner veya coder şunları isteyebilir:
 
 - `requestedSymbols`
 - `requestedFiles`
@@ -254,19 +299,19 @@ Planner veya coder şu alanları isteyebilir:
 - `reason`
 - `scopeExpansionRequested`
 
-Agent serbest şekilde “daha fazla context ver” dememelidir.
+Agent serbest biçimde “daha fazla context ver” dememelidir.
 
-## CSG.3 — Minimum evidence kontrolleri
+## CSG.3 — Minimum kontroller
 
-v1 en az şunları kontrol eder:
-
-- Değiştirilecek kaynak dosya context'te mi?
+- Değiştirilecek source dosyası gerçekten context'te mi?
+- Coder'a source içeriği gönderildi mi?
 - İlgili paired file gerekli mi?
 - Required test mapping mevcut mu?
 - Authority ve policy bilgisi var mı?
-- Coder görünmeyen dosya veya symbol hakkında claim üretiyor mu?
-- Context bütçesi aşılmış mı?
-- Talep edilen dosya allowed scope veya read-only repo context içinde mi?
+- Görünmeyen dosya veya symbol hakkında claim üretiliyor mu?
+- Context hard budget içinde mi?
+- İstenen dosya allowed read context içinde mi?
+- Required provider çağrısı başarısız oldu mu?
 
 v1 tam call graph veya kusursuz semantic index iddiasında bulunmaz.
 
@@ -278,11 +323,12 @@ Initial bounded context
 → valid context request
 → deterministic repo lookup
 → bounded expansion
+→ budget recomposition
 → sufficiency re-check
 → coder execution veya safe stop
 ```
 
-Önerilen limitler:
+Limitler:
 
 - En fazla 2 expansion.
 - Her expansion için ayrı token limiti.
@@ -292,23 +338,23 @@ Initial bounded context
 
 ## CSG.5 — Fail-closed davranış
 
-Context yeterli değilse:
+Context yeterli değilse veya required provider başarısızsa:
 
 - Coder patch üretemez.
 - Handoff oluşturulamaz.
 - Apply çalışamaz.
 - `replan_required` veya `human_review_required` üretilir.
 
-`contextSufficiencyRisk: high` yalnızca rapor alanı olarak kalmamalı; execution kararına bağlanmalıdır.
-
 ## Definition of Done
 
 - `contextRequest` contract ve validator testleri geçer.
+- Coder gerçek source context görür.
 - Missing source/test/authority fixture'ları doğru route üretir.
-- En az bir fixture expansion sonrası başarıyla tamamlanır.
-- Expansion limiti aşılırsa safe stop oluşur.
+- En az bir fixture expansion sonrası tamamlanır.
+- Hard budget aşılırsa model çağrısı yapılmaz.
+- Provider failure yanlış approve üretmez.
 - Context yetersizken patch veya handoff üretilmez.
-- Tüm expansion'lar token ve provenance raporuna yazılır.
+- Expansion'lar token ve provenance ledger'ına yazılır.
 
 ---
 
@@ -320,12 +366,12 @@ Aynı controlled handoff'un process'ler ve restart'lar arasında yalnızca bir k
 
 ## Yapılacaklar
 
-- Registry public export'una eklenecek.
+- Registry public export'a eklenecek.
 - Local ve live npm scriptleri eklenecek.
 - İki process aynı key için yarışacak; tek winner çıkacak.
 - Restart sonrası kayıt korunacak.
-- Replay ve tamper fail-closed reddedilecek.
-- Evidence artifact üretilecek.
+- Replay ve casual tamper fail-closed reddedilecek.
+- SQLite trust boundary açıkça belgelenecek.
 
 ## Definition of Done
 
@@ -334,6 +380,7 @@ Aynı controlled handoff'un process'ler ve restart'lar arasında yalnızca bir k
 - Winner count tam olarak 1.
 - Replay ve tamper reddediliyor.
 - Gerçek repository write yapılmıyor.
+- Artifact'ın imzalı olmadığı known limitation'da yazıyor.
 
 ---
 
@@ -341,7 +388,7 @@ Aynı controlled handoff'un process'ler ve restart'lar arasında yalnızca bir k
 
 ## Amaç
 
-Governed handoff'tan başlayıp disposable Git repo üzerinde gerçek dosya değişikliği ve post-apply validation yapan tek coordinator oluşturmak.
+Governed handoff'tan başlayıp disposable Git repo üzerinde gerçek dosya değişikliği, acceptance validation ve rollback yapan tek coordinator oluşturmak.
 
 ```text
 handoff verified
@@ -350,23 +397,23 @@ handoff verified
 → rollback bundle
 → execution gate
 → controlled apply
-→ post-apply validation
+→ acceptance validation
 → registry finalization
 ```
 
-## Kurallar
+## Ek release blocker'lar
 
-- Kullanıcının ana reposuna dokunulmaz.
-- `git add`, commit, push veya GitHub API kullanılmaz.
-- Validation başarısızsa exact baseline geri gelir.
-- Scope dışı mutation hiçbir write yapamaz.
-- Symlink, stale state, dirty worktree ve race senaryoları fail-closed olur.
+- Task contract'a yapılandırılmış acceptance criteria eklenir.
+- Her criterion bir test, static check veya human review kanıtına bağlanır.
+- Deterministic verifier sonucu “contract approved” olarak adlandırılır; “code correct” denmez.
+- Validation yalnız exit code değil criterion coverage da raporlar.
 
 ## Definition of Done
 
 - Başarılı mutation disposable worktree'ye uygulanır.
 - Validation gerçek değişmiş state üzerinde geçer.
-- Başarısızlıkta rollback tamamlanır.
+- Acceptance criteria evidence mapping tamamlanır.
+- Başarısızlıkta exact baseline geri gelir.
 - Replay ikinci write üretemez.
 - Ana repo ve Git geçmişi değişmez.
 
@@ -387,16 +434,6 @@ after_write_started
 after_first_file_write
 after_apply_complete
 after_validation_started
-```
-
-Beklenen recovery route'ları:
-
-```text
-no_action_required
-close_prewrite_claim
-run_post_apply_validation
-restore_baseline
-human_recovery_required
 ```
 
 ## Definition of Done
@@ -425,33 +462,34 @@ Başarılı controlled apply sonucunu ayrı branch'e commit edip kanıtlarıyla 
 
 PR açıklaması:
 
-- Amaç ve plan.
+- Amaç, task contract ve acceptance criteria.
 - Değiştirilen dosyalar.
 - Context sufficiency ve expansion özeti.
+- Hard scope violation ve soft scope drift özeti.
 - Verifier ve remask kararı.
-- Shadow, Governance, Admin ve approval route.
-- Test sonuçları.
-- Token ve maliyet özeti.
-- Scope drift / unexpected file özeti.
+- Test ve criterion evidence sonuçları.
+- Gerçek token ve maliyet özeti.
 - Handoff, consumption ve receipt hash'leri.
 - Rollback/recovery bilgisi.
+- Provider failure veya fallback bilgisi.
 - Bilinen sınırlılıklar.
 
-## Güvenlik kuralları
+## Ek release blocker'lar
 
-- Main/master üzerinde doğrudan commit yok.
-- Validation geçmeden commit veya push yok.
-- `git add -A` yok.
-- Yalnız governed dosyalar stage edilir.
+- Evidence string değil typed reference olur.
+- File evidence content hash taşır.
+- Test evidence receipt hash taşır.
+- Ledger verifier referansların gerçekten var olduğunu kontrol eder.
 - Aynı run duplicate branch veya PR üretmez.
-- Otomatik merge ve deployment yok.
 
 ## Definition of Done
 
 - Ana branch değişmeden kalır.
 - Yeni bounded branch oluşturulur.
+- Yalnız governed dosyalar stage edilir.
 - Kontrollü commit ve push yapılır.
 - Draft PR açılır.
+- Evidence referansları doğrulanır.
 - Duplicate delivery engellenir.
 
 ---
@@ -460,7 +498,7 @@ PR açıklaması:
 
 ## Amaç
 
-Sistemin gerçekten daha güvenli, daha az scope drift üreten ve daha düşük maliyetli olup olmadığını ölçmek.
+Sistemin gerçekten daha güvenli, daha az scope drift üreten ve daha düşük maliyetli olup olmadığını ölçmek; ayrıca gap register'daki v0.1 blocker'ların kapandığını denetlemek.
 
 ## AF.1 — Release komutu
 
@@ -468,17 +506,18 @@ Sistemin gerçekten daha güvenli, daha az scope drift üreten ve daha düşük 
 npm run verify:release
 ```
 
-Akış:
-
 ```text
 typecheck
 → build
 → deterministic safety
 → context sufficiency
+→ provider failure fixtures
 → durable registry
 → disposable apply
+→ acceptance validation
 → crash recovery
 → draft PR fixture
+→ gap closure audit
 → benchmark aggregation
 → report generation
 ```
@@ -493,72 +532,39 @@ C — Adaptive bounded context + sufficiency gate
 
 Asıl ürün hedefi C'dir.
 
-Ek ablation'lar:
-
-```text
-D — Adaptive bounded, verifier kapalı
-E — Adaptive bounded, remask kapalı
-F — Adaptive bounded, remask açık
-```
-
-CodexQB-style planner ve Ponytail bu benchmark'a eklenmez. Önce mevcut v0.1 çekirdeğinin katkısı ölçülür.
+Aynı model, temperature, task seti ve provider kullanılır. Direct baseline gerçekten model çağırmalıdır; changed file varsa otomatik approve eden sentetik baseline release kanıtı sayılmaz.
 
 ## AF.3 — Context benchmark aileleri
 
-### Missing-context fixtures
+- Missing source/type/helper/caller/test fixtures.
+- Distractor context fixtures.
+- Context ablation.
+- Expansion sonrası başarı fixture'ları.
+- Hard budget overflow fixture'ları.
+- Provider timeout/invalid JSON fixture'ları.
 
-Kritik source, type, helper, caller veya test bilinçli olarak context'ten çıkarılır.
+## AF.4 — Scope benchmark
 
-İyi sonuç:
+Hard ve soft scope ayrı raporlanır.
 
-```text
-context_expansion_required
-```
+- Forbidden write count.
+- Unexpected-but-allowed file count.
+- Expected vs actual file set farkı.
+- Unnecessary LOC.
+- Unrequested refactor count.
+- New dependency count.
+- New abstraction justification rate.
 
-Kötü sonuç:
-
-```text
-Agent eksik bilgiyi tahmin ederek patch üretir.
-```
-
-### Distractor-context fixtures
-
-Gerekli dosyalara çok sayıda ilgisiz dosya eklenir. Sonuç, scope ve patch kararı gereksiz şekilde değişmemelidir.
-
-### Context ablation
-
-Tam context paketinden parçalar tek tek çıkarılır:
-
-- Source file.
-- Test file.
-- Interface/type.
-- Caller.
-- Policy.
-- Authority.
-
-### Expansion fixtures
-
-İlk context eksik olur; sistem doğru dosyayı getirir ve ikinci denemede görevi tamamlar.
-
-## AF.4 — Ölçümler
+## AF.5 — Ölçümler
 
 ### Görev kalitesi
 
 - Task success rate.
+- Acceptance criteria pass rate.
 - Test pass rate.
 - Patch apply success.
 - Human reviewer acceptance.
 - Correct file coverage.
-
-### Scope ve güvenlik
-
-- Scope drift rate.
-- Unexpected changed file count.
-- Forbidden write count.
-- Missed blocker rate.
-- False blocker rate.
-- Replay rejection.
-- Rollback ve recovery success.
 
 ### Context sufficiency
 
@@ -572,55 +578,57 @@ Tam context paketinden parçalar tek tek çıkarılır:
 
 ### Maliyet
 
-- Input, output ve toplam token.
-- Gerçek API maliyeti.
+- Observed input/output/total tokens.
 - Role bazında token dağılımı.
-- Expansion maliyeti.
-- Retry/remask maliyeti.
+- Retry/remask/expansion overhead.
+- Provider price snapshot.
 - Cost per accepted patch.
 
-### Üretkenlik
+### Reliability
 
-- End-to-end latency.
-- Model call count.
-- Human intervention count.
-- Draft PR hazırlama süresi.
-- Added/deleted LOC.
-- Değiştirilen dosya sayısı.
+- Missed ve false blocker.
+- Replay rejection.
+- Rollback ve recovery success.
+- Provider failure safe-stop rate.
+- Evidence reference validation rate.
 
-## AF.5 — Hard gates
+## AF.6 — Gap closure audit
 
-- Deterministic safety suite tamamen geçer.
-- Context yetersizken patch/handoff üretilmez.
-- Registry yarışında birden fazla winner oluşmaz.
-- Unauthorized write sıfırdır.
-- Recoverable failure baseline'a döner.
-- Incomplete transaction success sayılmaz.
-- Draft PR executor main'e yazmaz.
-- Otomatik merge veya deployment yapılmaz.
+Her v0.1 blocker için:
 
-Ürün hipotezleri:
+```text
+primitive
+→ contract tests
+→ canonical integration
+→ live/real evidence
+→ release artifact
+```
 
-- Adaptive bounded context token kullanımını düşürüyor mu?
-- Task success full context'e yakın veya daha iyi mi?
-- Scope drift belirgin biçimde azalıyor mu?
-- False sufficiency kabul edilebilir seviyede mi?
-- Expansion overhead toplam tasarrufu yok ediyor mu?
-- Remask full retry'dan daha ucuz mu?
+zinciri tamamlanmalıdır.
 
-Sonuç kötü çıkarsa saklanmaz; ürün iddiası benchmark sonucuna göre daraltılır.
+Aşağıdakiler release blocker'dır:
 
-## AF.6 — Release artifact'ları
+- Context yetersizken patch/handoff üretilmesi.
+- Coder'ın gerçek source içeriği olmadan başarı kabul edilmesi.
+- Provider failure sonrası yanlış approve.
+- Acceptance criteria'sız “tests passed” iddiası.
+- Soft scope drift'in ölçülmemesi.
+- Sentetik token tahmininin gerçek tasarruf diye sunulması.
+- Legacy/mock flow'un public canonical API ile karıştırılması.
+- Tek coordinator ve `verify:release` komutunun bulunmaması.
+
+## AF.7 — Release artifact'ları
 
 - README quickstart.
 - Architecture diagram.
-- Threat model.
+- Threat model ve trust assumptions.
 - Unified benchmark report.
 - Context sufficiency report.
-- Ablation report.
+- Hard/soft scope drift report.
+- Acceptance criteria coverage report.
+- Observed token/cost report.
 - Fail-closed matrix.
-- Token/cost report.
-- Demo runbook.
+- Gap closure matrix.
 - Known limitations.
 - v0.1 release notes.
 
@@ -629,20 +637,19 @@ Sonuç kötü çıkarsa saklanmaz; ürün iddiası benchmark sonucuna göre dara
 - `npm run verify:release` tekrarlanabilir çalışır.
 - Direct, fixed bounded ve adaptive bounded kıyası tamamlanır.
 - Safety ve product-value metrikleri ayrı raporlanır.
+- `RELEASE_BLOCKING_GAPS.md` içindeki bütün v0.1 blocker'lar kapalı veya açıkça release dışı bırakılmıştır.
+- Tek canonical runtime/public API seçilmiştir.
 - v0.1 tag hazırlanır.
-- Araştırma çekirdeğine yeni faz ekleme durdurulur.
 
 ---
 
-## 6. MVP Sonrası Ürün Yönü
+## 8. MVP Sonrası Ürün Yönü
 
 ```text
 AI Coding Cost and Reliability Layer
 ```
 
 Codex, Claude Code, Cursor, OpenCode veya başka bir coding agent'ın üstünde çalışan; context, maliyet, scope ve final patch güvenilirliğini yöneten bağımsız katman.
-
-Uzun vadeli akış:
 
 ```text
 Task
@@ -659,33 +666,26 @@ Task
 → Cost and Reliability Report
 ```
 
----
+### Bounded Project Planner
 
-## 7. Bounded Project Planner
-
-CodexQB'nin tamamı kopyalanmaz ve iki ayrı runtime birleştirilmez.
+CodexQB'nin tamamı kopyalanmaz ve iki runtime doğrudan birleştirilmez.
 
 Alınacak fikirler:
 
-- Repository comprehension.
+- Gerçek repository comprehension.
+- AST/import/dependency ve ileride call graph.
 - Project autopsy.
-- Domain ve dependency görünümü.
+- Domain görünümü.
 - Büyük hedefi alt görevlere bölme.
 - Implementation contract.
 - Plan audit.
-- Task ledger ve provenance.
+- Task ledger ve resume.
 
 Planner önerir; bounded runtime sınırlar; verifier doğrular; executor uygular.
 
-Planner v0.1 sonrasında aynı benchmark üzerinde ayrı ablation olarak ölçülür.
+### Conditional Minimality Policy
 
----
-
-## 8. Conditional Minimality Policy
-
-Ponytail yaklaşımı sistemin karar otoritesi değil, koşullu policy pack olur.
-
-İlk kurallar:
+Ponytail yaklaşımı karar otoritesi değil, koşullu policy pack olur.
 
 ```yaml
 minimality:
@@ -698,6 +698,19 @@ minimality:
 ```
 
 Authentication, payment, migration, cryptography, concurrency ve public API redesign gibi yüksek riskli görevlerde otomatik açılmaz.
+
+### Distributed ve production reliability
+
+v0.1 local/self-hosted SQLite registry kullanabilir. Multi-host üründe:
+
+- PostgreSQL unique idempotency key.
+- Transactional reservation veya advisory lock.
+- Lease/heartbeat.
+- Signed/HMAC artifact.
+- Authenticated human approval.
+- Append-only audit storage.
+
+ayrı production çalışmalarıdır.
 
 ---
 
@@ -716,7 +729,7 @@ Sorular:
 - Token kazancının ne kadarı context bounding'den geliyor?
 - Planner başarı oranını artırıyor mu?
 - Planner overhead kazancına değiyor mu?
-- Minimality LOC ve diff'i azaltıyor mu?
+- Minimality LOC, file count ve diff'i azaltıyor mu?
 - Minimality eksik çözüm riskini artırıyor mu?
 - Tam sistem human review süresini azaltıyor mu?
 
@@ -729,16 +742,21 @@ Sorular:
 - Durable registry tek winner üretiyor.
 - Replay restart sonrasında reddediliyor.
 - Context Sufficiency Gate eksik context'i algılıyor.
+- Coder gerçek bounded source context kullanıyor.
+- Hard budget aşılırsa model çağrısı duruyor.
+- Required provider failure yanlış approve üretmiyor.
 - Context yetersizken patch ve handoff üretilmiyor.
 - Bounded expansion limitli ve izlenebilir çalışıyor.
+- Task acceptance criteria yapılandırılmış ve kanıta bağlı.
 - Disposable apply gerçek write yapıyor.
 - Validation failure baseline'a dönüyor.
 - Crash recovery gerçek process restart ile çalışıyor.
 - Main branch'e doğrudan yazılmıyor.
-- Başarılı akış draft PR oluşturuyor.
-- Direct/fixed/adaptive benchmark tamamlanıyor.
-- Scope drift ve token sonuçları raporlanıyor.
-- Bilinen sınırlılıklar açıkça belgeleniyor.
+- Başarılı akış evidence-backed draft PR oluşturuyor.
+- Hard ve soft scope drift ayrı ölçülüyor.
+- Token sonuçları observed provider usage ile raporlanıyor.
+- Tek canonical runtime ve public coordinator API var.
+- Known limitations ve trust assumptions açıkça belgeleniyor.
 
 ---
 
@@ -757,12 +775,14 @@ Rekabet avantajı en fazla özelliğe sahip olmak değildir.
 Rekabet avantajı:
 
 - Minimum doğru ve adaptif context.
-- Ölçülebilir token tasarrufu.
-- Daha az scope drift ve gereksiz dosya değişikliği.
+- Ölçülebilir gerçek token tasarrufu.
+- Daha az hard ve soft scope drift.
 - Deterministik scope ve authority kontrolü.
 - Lokal repair.
+- Acceptance-evidence validation.
 - Transaction-safe apply.
 - Crash recovery.
 - Kanıtlı draft PR.
 - Provider bağımsızlığı.
 - Açık benchmark sonuçları.
+- Ürün iddialarıyla gerçek kanıt seviyesinin açıkça ayrılması.
