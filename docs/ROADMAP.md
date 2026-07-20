@@ -245,7 +245,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
-| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.1 contract |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.3 minimum controls |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
@@ -300,19 +300,32 @@ type ContextSufficiencyReport = {
 };
 ```
 
-## CSG.2 — Context request mutation
+## CSG.2 — Deterministic repository context resolver
 
-Mutation contract'a `contextRequest` eklenir.
+<!-- CSG_2_RESOLVER_STATUS -->
 
-Planner veya coder şunları isteyebilir:
+**Durum: Tamamlandı.**
 
-- `requestedSymbols`
-- `requestedFiles`
-- `requestedTests`
-- `reason`
-- `scopeExpansionRequested`
+Yapılandırılmış `contextRequest`, yalnız açıkça
+istenen repository-relative source ve test dosyalarını
+okuyan bounded bir evidence packetına çevrilir.
 
-Agent serbest biçimde “daha fazla context ver” dememelidir.
+Resolver:
+
+- Repository dışına çıkan pathleri reddeder.
+- Symlink takip etmez.
+- Binary ve geçersiz UTF-8 dosyaları reddeder.
+- Allowed ve forbidden read scopeu tekrar kontrol eder.
+- Scope expansion talebi ile ayrı policy onayını ayırır.
+- Aynı dosyanın ikinci kez istenmesini engeller.
+- Dosya, toplam byte ve hard token limitlerini uygular.
+- File, request ve packet hashlerini üretir.
+- Eksik dosya ve çözülemeyen symbolleri raporlar.
+- Repository write yapmaz.
+
+CSG.2 global AST, import graph veya repository-wide
+symbol search iddiasında bulunmaz. Symbol eşleşmesi
+yalnız açıkça yüklenen dosyalar içinde aranır.
 
 ## CSG.3 — Minimum kontroller
 

@@ -208,7 +208,8 @@
     "test:durable-consumption-registry": "node scripts/durable-consumption-registry-smoke.cjs",
     "live:durable-consumption-registry": "node scripts/live-durable-consumption-registry-suite.cjs",
     "test:context-sufficiency-contract": "node scripts/context-sufficiency-contract-smoke.cjs",
-    "test:context-request-mutation": "node scripts/context-request-mutation-smoke.cjs"
+    "test:context-request-mutation": "node scripts/context-request-mutation-smoke.cjs",
+    "test:context-expansion-resolver": "node scripts/context-expansion-resolver-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
