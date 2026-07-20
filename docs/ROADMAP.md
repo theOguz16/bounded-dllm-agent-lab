@@ -245,7 +245,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
-| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.4 adaptive expansion |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.5 fail-closed closure |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
@@ -366,6 +366,31 @@ entegrasyonu CSG.4 kapsamında yapılacaktır.
 v1 tam call graph veya kusursuz semantic index iddiasında bulunmaz.
 
 ## CSG.4 — Adaptive expansion
+
+<!-- CSG_4_ADAPTIVE_ORCHESTRATOR_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Context contract, deterministic repository resolver
+ve coder execution gate tek adaptive runtime
+döngüsünde birleştirildi.
+
+Orchestrator:
+
+- Initial context yeterliyse expansion yapmadan coder providerı çağırır.
+- Yalnız missing source, test veya symbol durumlarında context ister.
+- En fazla iki expansion gerçekleştirir.
+- Aynı dosyanın tekrar istenmesini engeller.
+- Scope expansion için ayrı ve açık policy onayı ister.
+- Resolver sonucunu coder gate üzerinden yeniden doğrular.
+- Total hard budget aşılırsa daha fazla context istemez.
+- Context request ve coder provider hatalarında fail-closed çalışır.
+- Coder providerı bütün akış boyunca en fazla bir kez çağırır.
+- Expansion request, resolution, token ve provenance tracei üretir.
+
+Model specific adapter, handoff ve apply seviyesindeki
+son fail-closed bağlantılar CSG.5 kapsamında yapılacaktır.
+
 
 ```text
 Initial bounded context
