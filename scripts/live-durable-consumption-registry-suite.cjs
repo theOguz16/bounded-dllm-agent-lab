@@ -78,7 +78,12 @@ async function main() {
       tamperRejected: tamperResult.decision === "durable_consumption_reservation_invalid",
       repositoryClean: clean(), realApplyExecuted: false, rollbackExecuted: false,
     };
-    const summary = { stable: Object.values(checks).every(Boolean), registryPath: DB, handoffHash: handoff.handoffHash, consumptionKey: handoff.singleUse.consumptionKey, raceDecisions: raced.map((entry) => entry.decision), finalDecision: finalized.decision, replayDecision: replay.decision, tamperDecision: tamperResult.decision, checks };
+    const stable = Object.entries(checks).every(([key, value]) =>
+      key === "realApplyExecuted" || key === "rollbackExecuted"
+        ? value === false
+        : value === true,
+    );
+    const summary = { stable, registryPath: DB, handoffHash: handoff.handoffHash, consumptionKey: handoff.singleUse.consumptionKey, raceDecisions: raced.map((entry) => entry.decision), finalDecision: finalized.decision, replayDecision: replay.decision, tamperDecision: tamperResult.decision, checks };
     fs.writeFileSync(path.join(BASE, "durable-consumption-registry-summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
     console.log(JSON.stringify(summary, null, 2));
     console.log(summary.stable ? "LIVE_DURABLE_CONSUMPTION_REGISTRY_PASSED" : "LIVE_DURABLE_CONSUMPTION_REGISTRY_FAILED");
