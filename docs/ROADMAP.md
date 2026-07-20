@@ -245,7 +245,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
-| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Zorunlu yatay iş |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.1 contract |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
@@ -267,6 +267,19 @@ Görev için gerekli olan minimum doğru context'i kullan.
 ```
 
 ## CSG.1 — Context contract
+
+<!-- CSG_1_CONTRACT_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Bu adımda context sufficiency kararları,
+bounded context expansion request contractı,
+role-target yetkileri ve fail-closed validator
+testleri eklendi.
+
+Gerçek repository lookup, adaptive expansion ve
+orchestration gate sonraki CSG adımlarında bağlanacaktır.
+
 
 ```ts
 type ContextSufficiencyDecision =

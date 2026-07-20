@@ -24,7 +24,7 @@ function check(name, fn) {
 
   check("planner can write plan", () => {
     assert.equal(canRoleWriteWorkspaceMutationTarget("planner", "plan"), true);
-    assert.deepEqual(getAllowedWorkspaceMutationTargets("planner"), ["plan"]);
+    assert.deepEqual(getAllowedWorkspaceMutationTargets("planner"), ["plan", "contextRequest"]);
   });
 
   check("coder can write patchDraft", () => {

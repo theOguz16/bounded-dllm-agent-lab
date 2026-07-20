@@ -6,6 +6,9 @@ import {
   type WorkspaceMutation,
   type WorkspaceMutationTarget
 } from "./workspace-mutation.js";
+import {
+  validateContextExpansionRequest
+} from "./context-sufficiency-contract.js";
 
 export type ModelMutationValidationIssueCode =
   | "invalid_json"
@@ -18,6 +21,10 @@ export type ModelMutationValidationIssueCode =
   | "claims_not_array"
   | "touched_files_not_array"
   | "invalid_confidence"
+  | "context_request_missing"
+  | "context_request_invalid"
+  | "context_request_touches_files"
+  | "context_request_scope_violation"
   | "scope_violation"
   | "forbidden_file_touch";
 
@@ -30,6 +37,7 @@ export type ModelMutationValidationIssue = {
 export type ModelMutationValidationContext = {
   role: ModelRole;
   allowedFiles?: string[];
+  allowedContextFiles?: string[];
   forbiddenFiles?: string[];
 };
 
@@ -44,6 +52,7 @@ const knownRoles = new Set<ModelRole>(["planner", "coder", "verifier", "remask"]
 const knownTargets = new Set<WorkspaceMutationTarget>([
   "plan",
   "patchDraft",
+  "contextRequest",
   "verifierFinding",
   "remaskRequest",
   "repairDraft"
@@ -90,6 +99,18 @@ function mapContractError(error: string): ModelMutationValidationIssueCode {
 
   if (error.includes("role cannot write target")) {
     return "role_target_violation";
+  }
+
+  if (error.includes("contextRequest is required")) {
+    return "context_request_missing";
+  }
+
+  if (error.includes("cannot touch files")) {
+    return "context_request_touches_files";
+  }
+
+  if (error.includes("contextRequest")) {
+    return "context_request_invalid";
   }
 
   if (error.includes("summary")) {
@@ -165,6 +186,44 @@ export function validateWorkspaceMutationScope(
           "forbidden_file_touch",
           `Touched file is forbidden: ${file}`,
           "touchedFiles"
+        );
+      }
+    }
+  }
+
+  if (
+    mutation.target === "contextRequest" &&
+    mutation.contextRequest
+  ) {
+    const allowedContextFiles = new Set(
+      context.allowedContextFiles ?? []
+    );
+
+    const requestedContextFiles = new Set([
+      ...mutation.contextRequest.requestedFiles,
+      ...mutation.contextRequest.requestedTests
+    ]);
+
+    for (const file of requestedContextFiles) {
+      if (forbiddenFiles.has(file)) {
+        addIssue(
+          issues,
+          "context_request_scope_violation",
+          `Requested context file is forbidden: ${file}`,
+          "contextRequest"
+        );
+      }
+
+      if (
+        allowedContextFiles.size > 0 &&
+        !allowedContextFiles.has(file) &&
+        !mutation.contextRequest.scopeExpansionRequested
+      ) {
+        addIssue(
+          issues,
+          "context_request_scope_violation",
+          `Requested context file is outside allowedContextFiles without explicit scope expansion: ${file}`,
+          "contextRequest"
         );
       }
     }
@@ -261,6 +320,48 @@ export function validateModelWorkspaceMutation(
       "touched_files_not_array",
       "touchedFiles must be an array",
       "touchedFiles"
+    );
+  }
+
+  if ("target" in candidate && target === "contextRequest") {
+    if (!("contextRequest" in candidate)) {
+      addIssue(
+        issues,
+        "context_request_missing",
+        "contextRequest is required for contextRequest target",
+        "contextRequest"
+      );
+    } else {
+      const contextRequestValidation =
+        validateContextExpansionRequest(candidate.contextRequest);
+
+      for (const error of contextRequestValidation.errors) {
+        addIssue(
+          issues,
+          "context_request_invalid",
+          `contextRequest: ${error}`,
+          "contextRequest"
+        );
+      }
+    }
+
+    if (
+      Array.isArray(candidate.touchedFiles) &&
+      candidate.touchedFiles.length > 0
+    ) {
+      addIssue(
+        issues,
+        "context_request_touches_files",
+        "contextRequest mutation cannot touch files",
+        "touchedFiles"
+      );
+    }
+  } else if ("contextRequest" in candidate) {
+    addIssue(
+      issues,
+      "context_request_invalid",
+      "contextRequest is only allowed for contextRequest target",
+      "contextRequest"
     );
   }
 

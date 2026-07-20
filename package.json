@@ -206,7 +206,9 @@
     "live:shadow-admin-stability": "node scripts/live-shadow-admin-stability-suite.cjs",
     "test:live-shadow-admin-stability-script": "node --check scripts/live-shadow-admin-stability-suite.cjs",
     "test:durable-consumption-registry": "node scripts/durable-consumption-registry-smoke.cjs",
-    "live:durable-consumption-registry": "node scripts/live-durable-consumption-registry-suite.cjs"
+    "live:durable-consumption-registry": "node scripts/live-durable-consumption-registry-suite.cjs",
+    "test:context-sufficiency-contract": "node scripts/context-sufficiency-contract-smoke.cjs",
+    "test:context-request-mutation": "node scripts/context-request-mutation-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
