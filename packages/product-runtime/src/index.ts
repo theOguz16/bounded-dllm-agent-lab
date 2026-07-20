@@ -1,6 +1,7 @@
 export * from "./model-mutation-validator.js";
 export * from "./context-sufficiency-contract.js";
 export * from "./context-expansion-resolver.js";
+export * from "./coder-context-execution-gate.js";
 export * from "./deterministic-verifier-gate.js";
 export * from "./repair-draft-verifier-gate.js";
 export * from "./patch-application-dry-run-gate.js";

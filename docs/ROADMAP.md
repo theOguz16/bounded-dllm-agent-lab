@@ -245,7 +245,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | İş | Amaç | Durum |
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
-| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.3 minimum controls |
+| **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Aktif — CSG.4 adaptive expansion |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
@@ -328,6 +328,30 @@ symbol search iddiasında bulunmaz. Symbol eşleşmesi
 yalnız açıkça yüklenen dosyalar içinde aranır.
 
 ## CSG.3 — Minimum kontroller
+
+<!-- CSG_3_CODER_GATE_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Coder provider çağrısından önce çalışan
+fail-closed execution gate eklendi.
+
+Gate:
+
+- Required source ve test dosyalarının görünür contextte bulunduğunu doğrular.
+- Required symbollerin gerçek evidence içeriğinde bulunduğunu doğrular.
+- Authority ve policy yoksa coder çağrısını engeller.
+- Initial ve expanded evidence arasında hash çatışmasını engeller.
+- Expansion packet bütünlüğünü yeniden doğrular.
+- Toplam input ve output rezervini hard token bütçesine karşı ölçer.
+- Hard budget aşılırsa provider çağrısını hiç yapmaz.
+- Provider başarısızlığını human review olarak route eder.
+- Providera source içeriği, provenance ve budget metadata gönderir.
+
+Bu adım generic provider callback ile doğrulanır.
+Gerçek adaptive resolver döngüsü ve model adapter
+entegrasyonu CSG.4 kapsamında yapılacaktır.
+
 
 - Değiştirilecek source dosyası gerçekten context'te mi?
 - Coder'a source içeriği gönderildi mi?
