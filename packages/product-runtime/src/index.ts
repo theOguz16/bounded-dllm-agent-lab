@@ -24,6 +24,7 @@ export * from "./controlled-apply-execution-gate.js";
 export * from "./controlled-repository-apply.js";
 export * from "./controlled-post-apply-validation.js";
 export * from "./controlled-transaction-recovery.js";
+export * from "./durable-consumption-registry.js";
 
 export type ReviewDecision =
   | "approve"

@@ -244,7 +244,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 
 | İş | Amaç | Durum |
 | --- | --- | --- |
-| **AB** | Durable registry'yi canlı ortamda doğrulamak | Aktif |
+| **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Zorunlu yatay iş |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
@@ -359,6 +359,19 @@ Context yeterli değilse veya required provider başarısızsa:
 ---
 
 # Phase AB — Durable Consumption Registry
+
+<!-- PHASE_AB_CLOSEOUT -->
+
+## Durum
+
+**Tamamlandı.**
+
+RunPod live validation `2026-07-20` tarihinde başarıyla tamamlandı.
+
+Kalıcı evidence:
+
+[`PHASE_AB_DURABLE_REGISTRY_LIVE_VALIDATION.md`](./results/PHASE_AB_DURABLE_REGISTRY_LIVE_VALIDATION.md)
+
 
 ## Amaç
 

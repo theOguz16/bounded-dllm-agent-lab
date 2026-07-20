@@ -204,7 +204,9 @@
     "report:phase-v-temporary-workspace-execution-suite": "node scripts/phase-v-temporary-workspace-execution-suite-report.cjs",
     "test:phase-v-temporary-workspace-execution-suite": "node scripts/phase-v-temporary-workspace-execution-suite-report-test.cjs",
     "live:shadow-admin-stability": "node scripts/live-shadow-admin-stability-suite.cjs",
-    "test:live-shadow-admin-stability-script": "node --check scripts/live-shadow-admin-stability-suite.cjs"
+    "test:live-shadow-admin-stability-script": "node --check scripts/live-shadow-admin-stability-suite.cjs",
+    "test:durable-consumption-registry": "node scripts/durable-consumption-registry-smoke.cjs",
+    "live:durable-consumption-registry": "node scripts/live-durable-consumption-registry-suite.cjs"
   },
   "workspaces": [
     "apps/*",
