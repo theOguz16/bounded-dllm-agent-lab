@@ -7,6 +7,8 @@ coverage/
 .turbo/
 .cache/
 *.log
+__pycache__/
+*.py[cod]
 apps/dllm-worker/.venv/
 apps/dllm-worker/__pycache__/
 data/
