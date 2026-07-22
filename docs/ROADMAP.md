@@ -247,7 +247,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
-| **AD** | Gerçek crash ve restart recovery | Planlandı |
+| **AD** | Gerçek crash ve restart recovery | Aktif — AD.2 X5 SIGKILL recovery |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
@@ -655,6 +655,33 @@ after_first_file_write
 after_apply_complete
 after_validation_started
 ```
+
+## AD.1 — Real X4 SIGKILL checkpoint recovery
+
+<!-- PHASE_AD_1_X4_SIGKILL_STATUS -->
+
+**Durum: Tamamlandı.**
+
+X.4 apply ayrı Node processinde çalıştırılır. Durable checkpointlar bağımsız
+worker thread tarafından izlenir; hedef checkpoint görüldüğünde process
+`SIGSTOP`, ardından parent process tarafından gerçek `SIGKILL` alır.
+
+Yeni process X.6 recovery primitiveini kullanarak kalıcı registry evidenceını
+okur ve güvenli state transitionı gerçekleştirir.
+
+Doğrulanan checkpointlar:
+
+- `after_reservation`: repository write olmadan durable prewrite closeout.
+- `after_transaction_intent`: repository write olmadan durable prewrite closeout.
+- `after_write_started`: sealed rollback bundle ile exact X.1 baseline.
+- `after_first_file_write`: kısmi multi-file mutation sonrası exact baseline.
+- `after_apply_complete`: committed X.4 state korunur ve X.5 yeni process tarafından devam ettirilir.
+
+Her senaryoda permanent consumption claim korunur; Git index, refs, config ve
+history metadata değişmez. Crash state başarı olarak yorumlanmaz.
+
+AD.2, gerçek `after_validation_started` SIGKILL senaryosunu, concurrent dış
+değişikliği ve recovery replay davranışını doğrulayacaktır.
 
 ## Definition of Done
 

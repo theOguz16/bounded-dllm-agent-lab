@@ -1045,17 +1045,75 @@ async function readRegistryEvidence(
       "controlled_transaction_recovery_terminal_markers_conflict", "Conflicting X.4 terminal markers."
     );
     const reservation = verifyControlledApplyConsumptionReservationRecord(
-      await readCanonical<ControlledApplyConsumptionReservation>(path.join(claim, "reservation.json"), maximum)
+      await readCanonical<ControlledApplyConsumptionReservation>(
+        path.join(claim, "reservation.json"),
+        maximum
+      )
     );
-    const transaction = verifyControlledRepositoryApplyTransactionRecord(
-      await readCanonical<ControlledRepositoryApplyTransactionIntent>(path.join(claim, "transaction.json"), maximum)
-    );
-    if (reservation.reservationHash !== computeControlledApplyConsumptionReservationHash(reservation) ||
-        transaction.transactionHash !== computeControlledRepositoryApplyTransactionHash(transaction) ||
-        transaction.reservationHash !== reservation.reservationHash || transaction.authorizationHash !== reservation.authorizationHash ||
-        transaction.consumptionKey !== reservation.consumptionKey) throw new RecoveryFailure(
-      "controlled_transaction_recovery_x4_registry_invalid", "X.4 registry binding is invalid."
-    );
+
+    if (
+      reservation.reservationHash !==
+      computeControlledApplyConsumptionReservationHash(reservation)
+    ) {
+      throw new RecoveryFailure(
+        "controlled_transaction_recovery_x4_registry_invalid",
+        "X.4 reservation binding is invalid."
+      );
+    }
+
+    const transactionPresent =
+      names.includes("transaction.json");
+
+    if (!transactionPresent) {
+      const reservationOnly =
+        names.length === 1 &&
+        names[0] === "reservation.json";
+
+      if (!reservationOnly || await exists(validation)) {
+        throw new RecoveryFailure(
+          "controlled_transaction_recovery_x4_registry_invalid",
+          "Reservation-only X.4 registry ordering is invalid."
+        );
+      }
+
+      return {
+        x4State:
+          "x4_claim_created_prewrite_incomplete",
+        x5State:
+          "x5_transaction_missing",
+        reservation,
+        transaction: null,
+        applyReceipt: null,
+        validationIntent: null,
+        validationRecord: null,
+        finalReceipt: null
+      };
+    }
+
+    const transaction =
+      verifyControlledRepositoryApplyTransactionRecord(
+        await readCanonical<ControlledRepositoryApplyTransactionIntent>(
+          path.join(claim, "transaction.json"),
+          maximum
+        )
+      );
+
+    if (
+      transaction.transactionHash !==
+        computeControlledRepositoryApplyTransactionHash(transaction) ||
+      transaction.reservationHash !==
+        reservation.reservationHash ||
+      transaction.authorizationHash !==
+        reservation.authorizationHash ||
+      transaction.consumptionKey !==
+        reservation.consumptionKey
+    ) {
+      throw new RecoveryFailure(
+        "controlled_transaction_recovery_x4_registry_invalid",
+        "X.4 registry binding is invalid."
+      );
+    }
+
     let stepCount = 0;
     if (names.includes("steps")) {
       const stepNames = (await readdir(path.join(claim, "steps"))).sort();
@@ -1407,11 +1465,39 @@ export async function inspectControlledTransactionRecovery(
     summary.x4State = evidence.x4State; summary.x5State = evidence.x5State;
     summary.x4RegistryValid = !["x4_claim_missing", "x4_registry_invalid"].includes(evidence.x4State);
     summary.x5RegistryValid = evidence.x5State !== "x5_registry_invalid";
-    if (evidence.reservation && (evidence.reservation.consumptionKey !== input.consumptionKey ||
-        evidence.reservation.authorizationHash !== input.authorization.authorizationHash ||
-        evidence.reservation.governedArtifactHash !== input.authorization.governedArtifactHash ||
-        evidence.reservation.handoffHash !== input.authorization.handoffHash)) {
-      summary.x4State = "x4_registry_invalid"; summary.x4RegistryValid = false;
+    if (
+      evidence.reservation &&
+      (
+        evidence.reservation.consumptionKey !==
+          input.consumptionKey ||
+        evidence.reservation.authorizationHash !==
+          input.authorization.authorizationHash ||
+        evidence.reservation.governedArtifactHash !==
+          input.authorization.governedArtifactHash ||
+        evidence.reservation.handoffHash !==
+          input.authorization.handoffHash ||
+        evidence.reservation.mutationHash !==
+          input.authorization.mutation.mutationHash ||
+        !canonicalEqual(
+          evidence.reservation.changedFiles,
+          input.authorization.mutation.changedFiles
+        ) ||
+        evidence.reservation.repositoryIdentityHash !==
+          input.authorization.target.repositoryIdentityHash ||
+        evidence.reservation.baseRevisionHash !==
+          input.authorization.target.baseRevisionHash ||
+        evidence.reservation.worktreeStateHash !==
+          input.authorization.target.worktreeStateHash ||
+        evidence.reservation.rollbackBundleManifestHash !==
+          input.authorization.evidence.rollbackBundleManifestHash ||
+        evidence.reservation.rollbackBundleReceiptHash !==
+          input.authorization.evidence.rollbackBundleReceiptHash
+      )
+    ) {
+      summary.x4State =
+        "x4_registry_invalid";
+      summary.x4RegistryValid =
+        false;
     }
     if (evidence.validationIntent && (evidence.validationIntent.consumptionKey !== input.consumptionKey ||
         evidence.validationIntent.authorizationHash !== input.authorization.authorizationHash)) {

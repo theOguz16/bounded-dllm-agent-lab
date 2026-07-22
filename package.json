@@ -216,7 +216,8 @@
     "test:acceptance-criteria-contract": "node scripts/acceptance-criteria-contract-smoke.cjs",
     "test:context-to-apply-binding": "node scripts/context-to-apply-binding-smoke.cjs",
     "test:integrated-disposable-apply-coordinator": "node scripts/integrated-disposable-apply-coordinator-smoke.cjs",
-    "test:integrated-disposable-apply-failure-matrix": "node scripts/integrated-disposable-apply-failure-matrix.cjs"
+    "test:integrated-disposable-apply-failure-matrix": "node scripts/integrated-disposable-apply-failure-matrix.cjs",
+    "test:cross-process-x4-crash-recovery": "node scripts/ad-cross-process-x4-crash-recovery-suite.cjs"
   },
   "workspaces": [
     "apps/*",
