@@ -246,7 +246,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
-| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.2b integrated coordinator |
+| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.3 integrated failure matrix |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
@@ -565,6 +565,35 @@ Binding:
 
 Bu receipt repository write yapmaz. AC.2b coordinator bu binding
 current olmadan X.4 apply çağrısı yapmayacaktır.
+
+## AC.2b — Integrated disposable apply coordinator
+
+<!-- PHASE_AC_2B_INTEGRATED_COORDINATOR_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Context authorization, context-to-apply binding, acceptance contract,
+X.4 gerçek repository apply ve X.5 isolated validation tek canonical
+coordinator altında birleştirildi.
+
+Coordinator:
+
+- Context-to-apply binding current değilse gerçek write başlatmaz.
+- Acceptance contract objective hashini governed artifact objective ile eşler.
+- Phase V evidence ile governed artifact bindingini write öncesinde doğrular.
+- Eksik human review, başarısız criterion veya bozuk mapping varsa X.4 çağrılmaz.
+- Yalnız `contract_approved` preflight sonrasında X.4 apply çalıştırır.
+- X.4 başarılı olduktan sonra aynı specificationı X.5 ile applied state üzerinde çalıştırır.
+- X.5 başarısızlığında sealed rollback bundle ile exact baseline dönüşünü taşır.
+- X.5 current evidenceını yeniden acceptance criteria evaluatora bağlar.
+- Yalnız final criterion coverage tamamlandıysa integrated final receipt üretir.
+- X.4, X.5, acceptance coverage, context binding, handoff ve consumption hashlerini
+  tek receipt içinde birleştirir.
+- Replay ikinci repository write veya ikinci başarı receiptı üretemez.
+- Git index ve history coordinator tarafından değiştirilmez.
+
+Bu karar `code correct` iddiası değildir. Yalnız tanımlı acceptance contractının
+gerçek applied state üzerindeki izole validation evidenceı ile onaylandığını gösterir.
 
 ## Definition of Done
 
