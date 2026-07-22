@@ -212,7 +212,8 @@
     "test:context-expansion-resolver": "node scripts/context-expansion-resolver-smoke.cjs",
     "test:coder-context-execution-gate": "node scripts/coder-context-execution-gate-smoke.cjs",
     "test:adaptive-context-orchestrator": "node scripts/adaptive-context-orchestrator-smoke.cjs",
-    "test:context-sufficiency-authorization": "node scripts/context-sufficiency-authorization-smoke.cjs"
+    "test:context-sufficiency-authorization": "node scripts/context-sufficiency-authorization-smoke.cjs",
+    "test:acceptance-criteria-contract": "node scripts/acceptance-criteria-contract-smoke.cjs"
   },
   "workspaces": [
     "apps/*",

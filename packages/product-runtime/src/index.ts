@@ -4,6 +4,7 @@ export * from "./context-expansion-resolver.js";
 export * from "./coder-context-execution-gate.js";
 export * from "./adaptive-context-orchestrator.js";
 export * from "./context-sufficiency-authorization.js";
+export * from "./acceptance-criteria-contract.js";
 export * from "./deterministic-verifier-gate.js";
 export * from "./repair-draft-verifier-gate.js";
 export * from "./patch-application-dry-run-gate.js";

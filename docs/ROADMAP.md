@@ -246,7 +246,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
-| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Sıradaki |
+| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.2 integrated coordinator |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
@@ -509,6 +509,34 @@ handoff verified
 - Her criterion bir test, static check veya human review kanıtına bağlanır.
 - Deterministic verifier sonucu “contract approved” olarak adlandırılır; “code correct” denmez.
 - Validation yalnız exit code değil criterion coverage da raporlar.
+
+## AC.1 — Structured acceptance criteria contract
+
+<!-- PHASE_AC_1_ACCEPTANCE_CONTRACT_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Task objective ile hash üzerinden bağlanan yapılandırılmış acceptance criteria contractı eklendi.
+
+Her version 1 criterion zorunludur ve tam olarak bir evidence kaynağına bağlanır:
+
+- `test` → temporary execution command id
+- `static_check` → temporary execution command id
+- `human_review` → hashli human review evidence key
+
+Evaluator:
+
+- Contract, command specification, execution step ve review evidence bütünlüğünü doğrular.
+- Command id ile step hashini deterministik olarak eşler.
+- Eksik evidence için `contract_needs_review` üretir.
+- Başarısız criterion için `contract_failed` üretir.
+- Bozuk veya eşleşmeyen evidence için `contract_invalid` üretir.
+- Yalnız bütün required criteria approved ise `contract_approved` üretir.
+- Criterion coverage receipt ve downstream verification sonucu oluşturur.
+
+Bu karar `code correct` iddiası değildir. Yalnız tanımlı acceptance contractının sağlandığını ifade eder.
+
+AC.2 integrated coordinator, X.4 apply ve X.5 validation sonuçlarını bu receipt olmadan başarılı kabul etmeyecektir.
 
 ## Definition of Done
 
