@@ -1,3 +1,9 @@
+import { execFile } from "node:child_process";
+import { lstat, realpath } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
 import { hashCanonicalJson } from "./agent-event-ledger.js";
 import {
   evaluateAcceptanceCriteria,
@@ -138,6 +144,7 @@ export type IntegratedDisposableApplyResult = {
     objectiveMatched: boolean;
     phaseVArtifactBindingMatched: boolean;
     acceptancePreflightApproved: boolean;
+    validationPreflightReady: boolean;
     applyCallCount: number;
     x4ApplySucceeded: boolean;
     validationCallCount: number;
@@ -227,6 +234,7 @@ function initialSummary(): IntegratedDisposableApplyResult["summary"] {
     objectiveMatched: false,
     phaseVArtifactBindingMatched: false,
     acceptancePreflightApproved: false,
+    validationPreflightReady: false,
     applyCallCount: 0,
     x4ApplySucceeded: false,
     validationCallCount: 0,
@@ -312,6 +320,446 @@ function validInput(input: RunIntegratedDisposableApplyInput): boolean {
     input.phaseVExecutionVerification !== null &&
     typeof input.phaseVExecutionVerification === "object"
   );
+}
+
+type IntegratedValidationPreflightKind =
+  | "ready"
+  | "blocked"
+  | "review"
+  | "invalid";
+
+type IntegratedValidationPreflightResult = {
+  kind: IntegratedValidationPreflightKind;
+  issues: readonly IntegratedDisposableApplyIssue[];
+};
+
+const INTEGRATED_VALIDATION_MAX_OUTPUT_CHARS =
+  5 * 1024 * 1024;
+
+const execFileAsync =
+  promisify(execFile);
+
+function pathInside(
+  root: string,
+  candidate: string
+): boolean {
+  const relative =
+    path.relative(root, candidate);
+
+  return (
+    relative === "" ||
+    (
+      !relative.startsWith("..") &&
+      !path.isAbsolute(relative)
+    )
+  );
+}
+
+async function pathHasSymlinkSegment(
+  configuredPath: string
+): Promise<boolean> {
+  const absolute =
+    path.resolve(configuredPath);
+  const parsed =
+    path.parse(absolute);
+  let current =
+    parsed.root;
+
+  for (
+    const segment of absolute
+      .slice(parsed.root.length)
+      .split(path.sep)
+      .filter(Boolean)
+  ) {
+    current =
+      path.join(current, segment);
+
+    const metadata =
+      await lstat(current);
+
+    if (metadata.isSymbolicLink()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function pathExists(
+  targetPath: string
+): Promise<boolean> {
+  try {
+    await lstat(targetPath);
+    return true;
+  } catch (error) {
+    if (
+      (error as NodeJS.ErrnoException)
+        .code === "ENOENT"
+    ) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function preflightIntegratedValidation(
+  input: RunIntegratedDisposableApplyInput
+): Promise<IntegratedValidationPreflightResult> {
+  try {
+    const configuredParent =
+      input.validationWorkspaceParentPath;
+
+    if (
+      configuredParent.length > 4096 ||
+      configuredParent.trim() !==
+        configuredParent ||
+      /[\u0000-\u001f\u007f]/.test(
+        configuredParent
+      )
+    ) {
+      return {
+        kind: "invalid",
+        issues: [
+          issue(
+            "integrated_validation_workspace_path_invalid",
+            "Validation workspace parent path is invalid.",
+            "error",
+            {
+              field:
+                "validationWorkspaceParentPath"
+            }
+          )
+        ]
+      };
+    }
+
+    if (
+      await pathHasSymlinkSegment(
+        configuredParent
+      )
+    ) {
+      return {
+        kind: "invalid",
+        issues: [
+          issue(
+            "integrated_validation_workspace_symlink_detected",
+            "Validation workspace parent contains a symbolic-link path segment.",
+            "error",
+            {
+              field:
+                "validationWorkspaceParentPath"
+            }
+          )
+        ]
+      };
+    }
+
+    const parentMetadata =
+      await lstat(configuredParent);
+
+    if (
+      !parentMetadata.isDirectory() ||
+      parentMetadata.isSymbolicLink()
+    ) {
+      return {
+        kind: "invalid",
+        issues: [
+          issue(
+            "integrated_validation_workspace_path_invalid",
+            "Validation workspace parent must be a real directory.",
+            "error",
+            {
+              field:
+                "validationWorkspaceParentPath"
+            }
+          )
+        ]
+      };
+    }
+
+    const repository =
+      await realpath(
+        input.bindingInput.gateInput
+          .repositoryPath
+      );
+    const registry =
+      await realpath(
+        input.registryDirectoryPath
+      );
+    const bundle =
+      await realpath(
+        input.bindingInput.gateInput
+          .bundleDirectoryPath
+      );
+    const parent =
+      await realpath(
+        configuredParent
+      );
+    const temporaryRoot =
+      await realpath(
+        os.tmpdir()
+      );
+
+    const gitCommonRaw =
+      (
+        await execFileAsync(
+          "git",
+          [
+            "rev-parse",
+            "--git-common-dir"
+          ],
+          {
+            cwd: repository,
+            encoding: "utf8",
+            timeout: 30_000,
+            maxBuffer:
+              5 * 1024 * 1024,
+            windowsHide: true,
+            env: {
+              ...process.env,
+              GIT_OPTIONAL_LOCKS: "0",
+              GIT_TERMINAL_PROMPT: "0"
+            }
+          }
+        )
+      ).stdout.trim();
+
+    const gitCommon =
+      await realpath(
+        path.resolve(
+          repository,
+          gitCommonRaw
+        )
+      );
+
+    if (
+      !pathInside(
+        temporaryRoot,
+        parent
+      )
+    ) {
+      return {
+        kind: "review",
+        issues: [
+          issue(
+            "integrated_validation_workspace_not_temporary",
+            "Validation workspace parent must be inside the operating-system temporary root.",
+            "review",
+            {
+              field:
+                "validationWorkspaceParentPath"
+            }
+          )
+        ]
+      };
+    }
+
+    const protectedRoots = [
+      {
+        code:
+          "integrated_validation_workspace_overlaps_repository",
+        root: repository
+      },
+      {
+        code:
+          "integrated_validation_workspace_overlaps_git_directory",
+        root: gitCommon
+      },
+      {
+        code:
+          "integrated_validation_workspace_overlaps_registry",
+        root: registry
+      },
+      {
+        code:
+          "integrated_validation_workspace_overlaps_rollback_bundle",
+        root: bundle
+      }
+    ];
+
+    for (
+      const protectedRoot of protectedRoots
+    ) {
+      if (
+        pathInside(
+          protectedRoot.root,
+          parent
+        ) ||
+        pathInside(
+          parent,
+          protectedRoot.root
+        )
+      ) {
+        return {
+          kind: "invalid",
+          issues: [
+            issue(
+              protectedRoot.code,
+              "Validation workspace parent overlaps protected runtime state.",
+              "error",
+              {
+                field:
+                  "validationWorkspaceParentPath"
+              }
+            )
+          ]
+        };
+      }
+    }
+
+    const maxOutputChars =
+      input.phaseVExecutionSpecification
+        .maxOutputChars ??
+      20_000;
+
+    if (
+      !Number.isSafeInteger(
+        maxOutputChars
+      ) ||
+      maxOutputChars <= 0 ||
+      maxOutputChars >
+        INTEGRATED_VALIDATION_MAX_OUTPUT_CHARS
+    ) {
+      return {
+        kind: "invalid",
+        issues: [
+          issue(
+            "integrated_validation_output_bound_invalid",
+            "Phase V output bound exceeds the integrated X.5 validation limit.",
+            "error",
+            {
+              field:
+                "phaseVExecutionSpecification.maxOutputChars"
+            }
+          )
+        ]
+      };
+    }
+
+    const consumptionKey =
+      input.bindingReceipt
+        .consumptionKey;
+
+    if (
+      !/^sha256:[0-9a-f]{64}$/.test(
+        consumptionKey
+      )
+    ) {
+      return {
+        kind: "invalid",
+        issues: [
+          issue(
+            "integrated_validation_consumption_key_invalid",
+            "Validation consumption key is invalid.",
+            "error"
+          )
+        ]
+      };
+    }
+
+    const keySuffix =
+      consumptionKey.slice(7);
+    const workspacePath =
+      path.join(
+        parent,
+        `controlled-post-apply-${keySuffix}.partial`
+      );
+
+    if (
+      await pathExists(
+        workspacePath
+      )
+    ) {
+      return {
+        kind: "review",
+        issues: [
+          issue(
+            "integrated_validation_workspace_already_exists",
+            "The isolated validation workspace already exists before repository apply.",
+            "review"
+          )
+        ]
+      };
+    }
+
+    const validationsPath =
+      path.join(
+        registry,
+        "validations"
+      );
+
+    if (
+      await pathExists(
+        validationsPath
+      )
+    ) {
+      const validationsMetadata =
+        await lstat(
+          validationsPath
+        );
+
+      if (
+        !validationsMetadata.isDirectory() ||
+        validationsMetadata
+          .isSymbolicLink() ||
+        (
+          validationsMetadata.mode &
+          0o777
+        ) !== 0o700
+      ) {
+        return {
+          kind: "invalid",
+          issues: [
+            issue(
+              "integrated_validation_registry_namespace_invalid",
+              "Validation registry namespace is unsafe before repository apply.",
+              "error"
+            )
+          ]
+        };
+      }
+
+      const transactionPath =
+        path.join(
+          validationsPath,
+          keySuffix
+        );
+
+      if (
+        await pathExists(
+          transactionPath
+        )
+      ) {
+        return {
+          kind: "blocked",
+          issues: [
+            issue(
+              "integrated_validation_transaction_already_exists",
+              "A validation transaction already exists for this consumption key.",
+              "error"
+            )
+          ]
+        };
+      }
+    }
+
+    return {
+      kind: "ready",
+      issues: []
+    };
+  } catch {
+    return {
+      kind: "invalid",
+      issues: [
+        issue(
+          "integrated_validation_preflight_failed",
+          "Validation infrastructure preflight failed without exposing unbounded details.",
+          "error"
+        )
+      ]
+    };
+  }
 }
 
 function preflightStop(
@@ -665,6 +1113,49 @@ export async function runIntegratedDisposableApply(
             }
           )
       ),
+      null,
+      bindingVerification,
+      preflightAcceptance,
+      preflightCoverageVerification,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      summary
+    );
+  }
+
+
+  const validationPreflight =
+    await preflightIntegratedValidation(
+      input
+    );
+
+  summary.validationPreflightReady =
+    validationPreflight.kind ===
+      "ready";
+
+  if (
+    !summary.validationPreflightReady
+  ) {
+    return finish(
+      validationPreflight.kind ===
+        "blocked"
+        ? "integrated_disposable_apply_blocked"
+        : validationPreflight.kind ===
+              "review"
+          ? "integrated_disposable_apply_needs_review"
+          : "integrated_disposable_apply_invalid",
+      validationPreflight.kind ===
+        "blocked"
+        ? "human_review_required"
+        : validationPreflight.kind ===
+              "review"
+          ? "human_review_required"
+          : "human_review_required",
+      validationPreflight.issues,
       null,
       bindingVerification,
       preflightAcceptance,

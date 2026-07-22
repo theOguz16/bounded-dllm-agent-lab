@@ -215,7 +215,8 @@
     "test:context-sufficiency-authorization": "node scripts/context-sufficiency-authorization-smoke.cjs",
     "test:acceptance-criteria-contract": "node scripts/acceptance-criteria-contract-smoke.cjs",
     "test:context-to-apply-binding": "node scripts/context-to-apply-binding-smoke.cjs",
-    "test:integrated-disposable-apply-coordinator": "node scripts/integrated-disposable-apply-coordinator-smoke.cjs"
+    "test:integrated-disposable-apply-coordinator": "node scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+    "test:integrated-disposable-apply-failure-matrix": "node scripts/integrated-disposable-apply-failure-matrix.cjs"
   },
   "workspaces": [
     "apps/*",

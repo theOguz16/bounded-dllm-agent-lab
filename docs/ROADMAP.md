@@ -246,7 +246,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
-| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.3 integrated failure matrix |
+| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
@@ -594,6 +594,39 @@ Coordinator:
 
 Bu karar `code correct` iddiası değildir. Yalnız tanımlı acceptance contractının
 gerçek applied state üzerindeki izole validation evidenceı ile onaylandığını gösterir.
+
+## AC.3 — Integrated failure matrix
+
+<!-- PHASE_AC_3_FAILURE_MATRIX_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Canonical coordinator gerçek disposable Git repositorylerde pozitif ve negatif
+failure matrix ile doğrulandı.
+
+Ek write-öncesi X.5 infrastructure preflight:
+
+- Validation workspace parentının gerçek, symlinksiz ve OS temporary root içinde olduğunu doğrular.
+- Repository, Git directory, durable registry ve rollback bundle overlaplerini engeller.
+- Beklenmeyen pre-existing isolated workspace veya validation transactionı write öncesinde durdurur.
+- X.5 output boundunun trusted limit içinde olduğunu doğrular.
+- Bilinen validation altyapı hatalarında X.4 consumption claim veya repository write üretmez.
+
+Failure matrix:
+
+- Başarılı apply, isolated validation ve `contract_approved` receipt.
+- Eksik veya reddedilmiş acceptance evidence için sıfır X.4 call.
+- Objective, Phase V ve context-to-apply binding mismatchleri için sıfır write.
+- Validation failure sonrası sealed bundle ile exact baseline rollback.
+- Workspace overlap, symlink, stale workspace ve stale transaction preflightları.
+- Concurrent coordinator çağrılarında yalnız bir finalized sonuç.
+- Replay sırasında ikinci write ve ikinci başarı receiptı üretilmemesi.
+- Repository drift sonrası integrated receiptın stale olması.
+- Git index, refs, config ve history metadata invariants.
+
+Phase AC kararı davranışsal olarak `code correct` değildir. Sonuç yalnız tanımlı
+acceptance contractının gerçek applied state üzerindeki evidence ile onaylandığını
+ve failure yollarının fail-closed çalıştığını kanıtlar.
 
 ## Definition of Done
 
