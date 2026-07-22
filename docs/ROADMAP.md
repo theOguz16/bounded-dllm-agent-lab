@@ -248,7 +248,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
-| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.2 local branch/commit executor |
+| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.3 remote push/draft PR executor |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
@@ -779,6 +779,32 @@ Contract guarantees:
 AE.2 contractı current repository state üzerinde yeniden doğrulayıp bounded local
 branch oluşturacak, yalnız governed dosyaları stage edecek ve evidence-bound commit
 üretecektir.
+
+## AE.2 — Controlled local branch and commit executor
+
+<!-- PHASE_AE_2_LOCAL_DELIVERY_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Current AE.1 delivery contract ve validated applied repository state yeniden
+doğrulanır. Executor deterministic bounded branch oluşturur, yalnız governed
+dosyaları indexe alır ve Git plumbing ile evidence-bound commit üretir.
+
+Garantiler:
+
+- Repository identity, base revision ve checked-out base branch eşleşir.
+- Başlangıç indexi temizdir; worktree changed path seti governed scope ile exact eşleşir.
+- Her worktree file state X.4 applied receipt ile yeniden doğrulanır.
+- Staged path seti ve staged blob bytes verified worktree bytes ile exact eşleşir.
+- Commit `write-tree`, `commit-tree`, `update-ref` ile oluşturulur; hooks çalışmaz.
+- Base branch ref ve remote-tracking refs değişmez.
+- Commit message delivery key, contract, evidence set, integrated/X.4/X.5 receipt trailerları taşır.
+- Durable local delivery claim duplicate branch/commit üretimini engeller.
+- Replay mevcut current receipt ve commit'i döndürür; ikinci Git write yapmaz.
+- Push, GitHub write veya shell execution yapılmaz.
+
+AE.3 current local delivery receiptini remote freshness ile doğrulayıp branch push
+ve draft PR oluşturma işini ayrı connector/executor sınırında gerçekleştirecektir.
 
 ## Definition of Done
 
