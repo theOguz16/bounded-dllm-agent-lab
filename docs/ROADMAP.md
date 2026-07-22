@@ -247,7 +247,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
-| **AD** | Gerçek crash ve restart recovery | Aktif — AD.2 X5 SIGKILL recovery |
+| **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
@@ -682,6 +682,32 @@ history metadata değişmez. Crash state başarı olarak yorumlanmaz.
 
 AD.2, gerçek `after_validation_started` SIGKILL senaryosunu, concurrent dış
 değişikliği ve recovery replay davranışını doğrulayacaktır.
+
+## AD.2 — Real X5 SIGKILL recovery
+
+<!-- PHASE_AD_2_X5_SIGKILL_STATUS -->
+
+**Durum: Tamamlandı.**
+
+X.5 isolated validation ayrı Node processinde çalıştırılır ve gerçek durable
+checkpointlarda `SIGSTOP` ardından parent process tarafından `SIGKILL` alır.
+Yeni process X.6 registry inspection ve recovery boundarysini çalıştırır.
+
+Doğrulanan durumlar:
+
+- `validation-intent.json` sonrası crash başarı sayılmaz ve exact X.1 baseline geri yüklenir.
+- `VALIDATION_STARTED` sonrası crash hiçbir zaman validation pass olarak yorumlanmaz.
+- Validation subprocessi çalışırken crash sonrası orphan process sonlandırılır,
+  deterministic isolated workspace temizlenir ve baseline geri yüklenir.
+- Concurrent unrelated worktree drift varken automatic rollback yapılmaz;
+  human review üretilir ve recovery attempt açılmaz.
+- Drift kaldırıldıktan sonra fresh inspection güvenli rollback yapabilir.
+- Başarılı recovery replay ikinci repository write veya ikinci recovery attempt üretmez.
+- Original X.4/X.5 registry evidenceı korunur; recovery ayrı immutable namespace kullanır.
+- Git index, refs, config ve history metadata değişmez.
+
+Bu sonuç local transaction crash recovery garantisidir; deployment veya distributed
+multi-host recovery garantisi değildir.
 
 ## Definition of Done
 
