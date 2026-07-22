@@ -248,7 +248,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
-| **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
+| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.2 local branch/commit executor |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
@@ -754,6 +754,31 @@ PR açıklaması:
 - Test evidence receipt hash taşır.
 - Ledger verifier referansların gerçekten var olduğunu kontrol eder.
 - Aynı run duplicate branch veya PR üretmez.
+
+## AE.1 — Evidence-bound draft PR delivery contract
+
+<!-- PHASE_AE_1_DELIVERY_CONTRACT_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Validated integrated apply receipt, X.4 applied file hashes, target repository,
+deterministic branch, commit/PR metni ve typed evidence referansları tek bir
+hash-bound delivery contractında birleştirilir.
+
+Contract guarantees:
+
+- Her governed changed file için exact content-hash bağlı file evidence.
+- Integrated apply, context binding, acceptance coverage, X.4 ve X.5 için typed receipt references.
+- Final isolated validation resultı için typed test evidence.
+- Deterministic branch ve duplicate-safe delivery key.
+- Base revision ve repository identity bağları.
+- Builder hiçbir Git veya GitHub write gerçekleştirmez.
+- `ready` sonucu repository/GitHub freshness veya delivery başarısı değildir;
+  yalnız structural ve cryptographic delivery-plan bütünlüğüdür.
+
+AE.2 contractı current repository state üzerinde yeniden doğrulayıp bounded local
+branch oluşturacak, yalnız governed dosyaları stage edecek ve evidence-bound commit
+üretecektir.
 
 ## Definition of Done
 

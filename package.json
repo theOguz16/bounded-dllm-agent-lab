@@ -218,7 +218,8 @@
     "test:integrated-disposable-apply-coordinator": "node scripts/integrated-disposable-apply-coordinator-smoke.cjs",
     "test:integrated-disposable-apply-failure-matrix": "node scripts/integrated-disposable-apply-failure-matrix.cjs",
     "test:cross-process-x4-crash-recovery": "node scripts/ad-cross-process-x4-crash-recovery-suite.cjs",
-    "test:cross-process-x5-crash-recovery": "node scripts/ad-cross-process-x5-crash-recovery-suite.cjs"
+    "test:cross-process-x5-crash-recovery": "node scripts/ad-cross-process-x5-crash-recovery-suite.cjs",
+    "test:draft-pr-delivery-contract": "node scripts/draft-pr-delivery-contract-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
