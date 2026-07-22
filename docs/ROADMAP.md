@@ -246,7 +246,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | --- | --- | --- |
 | **AB** | Durable registry'yi canlı ortamda doğrulamak | Tamamlandı |
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
-| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.2 integrated coordinator |
+| **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Aktif — AC.2b integrated coordinator |
 | **AD** | Gerçek crash ve restart recovery | Planlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Planlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
@@ -536,7 +536,35 @@ Evaluator:
 
 Bu karar `code correct` iddiası değildir. Yalnız tanımlı acceptance contractının sağlandığını ifade eder.
 
-AC.2 integrated coordinator, X.4 apply ve X.5 validation sonuçlarını bu receipt olmadan başarılı kabul etmeyecektir.
+AC.2b integrated coordinator, X.4 apply ve X.5 validation sonuçlarını bu receipt ve context-to-apply binding olmadan başarılı kabul etmeyecektir.
+
+## AC.2a — Context-to-apply derivation binding
+
+<!-- PHASE_AC_2A_CONTEXT_APPLY_BINDING_STATUS -->
+
+**Durum: Tamamlandı.**
+
+X.4 gerçek repository executor yalnız `remask → repairDraft`
+mutationını uygularken CSG authorization `coder → patchDraft`
+için üretilir.
+
+Bu iki güvenlik alanı hashli ve fail-closed bir derivation
+binding ile birleştirildi.
+
+Binding:
+
+- Context authorization receipt ile kaynak coder patch mutationını doğrular.
+- X.3 execution authorizationı gerçek gate inputuna karşı yeniden doğrular.
+- Final mutationın yalnız validated `remask → repairDraft` olmasına izin verir.
+- Repair mutation hash ve changed files alanlarını X.3 authorization ile eşler.
+- Repair dosyalarının context-authorized coder scopeunun dışına çıkmasını engeller.
+- Final repair dosyalarının coderın gördüğü evidence içinde bulunmasını zorunlu kılar.
+- Context authorization, coder mutation, repair mutation, governed artifact,
+  handoff, consumption key ve X.3 authorization hashlerini tek receiptte bağlar.
+- Tampered veya stale bindingi downstream apply için uygun saymaz.
+
+Bu receipt repository write yapmaz. AC.2b coordinator bu binding
+current olmadan X.4 apply çağrısı yapmayacaktır.
 
 ## Definition of Done
 
