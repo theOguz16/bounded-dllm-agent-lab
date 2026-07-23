@@ -1459,34 +1459,43 @@ taşır. Live-model kalite, token, latency veya maliyet iddiası değildir.
 
 ### AG.2a — Bounded planner proposal contract
 
-Bir sonraki adım, implementation contract inputunu doğrudan kullanıcıdan almak
-yerine bounded planner providerından üretmek; planner çıktısını schema, authority,
-seed relevance, symbol/test coverage ve expansion budget kurallarıyla
-deterministic olarak doğrulamaktır.
----
+<!-- PHASE_AG_2A_BOUNDED_PLANNER_STATUS -->
 
-## 8. MVP Sonrası Ürün Yönü
+**Durum: Tamamlandı.**
 
-```text
-AI Coding Cost and Reliability Layer
-```
-
-Codex, Claude Code, Cursor, OpenCode veya başka bir coding agent'ın üstünde çalışan; context, maliyet, scope ve final patch güvenilirliğini yöneten bağımsız katman.
+Task identity, acceptance contract, authority ve policy hashleri tek bounded
+planner proposal içinde bağlandı. Planner yalnızca seed file, seed rationale,
+required symbol, required test ve expansion-attempt önerisi üretebilir.
 
 ```text
-Task
-→ Repo Intelligence
-→ CodexQB-inspired Bounded Project Planner
-→ Implementation Contract
-→ Adaptive Context Sufficiency
-→ Coding Agent
-→ Conditional Ponytail-inspired Minimality Policy
-→ Deterministic Verifier
-→ Governance
-→ Controlled Executor
-→ Draft PR
-→ Cost and Reliability Report
+task
+→ bounded planner proposal
+→ exact schema + authority/policy checks
+→ scope and forbidden-file budgets
+→ AG.1c implementation contract
+→ graph audit
+→ coder
 ```
+
+Proposal geçersizse AG.1c ve coder çağrılmaz. Proposal hash, implementation
+contract hash ve task-seed execution binding hash başarılı akışta tek execution
+binding receipt içinde zincirlenir.
+
+AG.2a evidence:
+
+- `docs/results/AG2A_BOUNDED_PLANNER_PROPOSAL_CONTRACT.md`
+- `reports/ag/AG2A_BOUNDED_PLANNER_PROPOSAL_CONTRACT.json`
+- `npm run verify:ag2a`
+
+Evidence class `deterministic_fixture`dır ve 15 check taşır. Live-model kalite,
+token, latency veya maliyet iddiası değildir.
+
+### AG.2b — Planner provider adapter and live proposal validation
+
+Bir sonraki adım bounded proposal contractını gerçek provider adapterına
+bağlamak; planner prompt/output contractını live model üzerinde ölçmek ve
+proposal failure taxonomy, retry/replan route ve observed token/cost evidence
+üretmektir.
 
 ### Bounded Project Planner
 

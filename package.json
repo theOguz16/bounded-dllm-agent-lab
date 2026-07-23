@@ -1,6 +1,6 @@
 {
   "name": "bounded-dllm-agent-lab",
-  "version": "0.2.0-dev.1",
+  "version": "0.2.0-dev.2",
   "private": false,
   "type": "module",
   "description": "Open-source research lab for bounded-context dLLM agents, synthetic context enrichment, and shared semantic workspaces.",
@@ -245,7 +245,10 @@
     "verify:ag1b": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify",
     "test:task-to-seed-implementation-contract": "npm run build && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs",
     "generate:ag1c-evidence": "npm run build && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs --report",
-    "verify:ag1c": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs --verify"
+    "verify:ag1c": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs --verify",
+    "test:bounded-planner-proposal-contract": "npm run build && node scripts/ag2a-bounded-planner-proposal-contract-smoke.cjs",
+    "generate:ag2a-evidence": "npm run build && node scripts/ag2a-bounded-planner-proposal-contract-smoke.cjs --report",
+    "verify:ag2a": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs --verify && node scripts/ag2a-bounded-planner-proposal-contract-smoke.cjs --verify"
   },
   "workspaces": [
     "apps/*",

@@ -1,0 +1,30 @@
+{
+  "evidenceClass": "deterministic_fixture",
+  "phase": "AG.2a",
+  "decision": "ag2a_evidence_ready",
+  "checkCount": 15,
+  "checks": [
+    "canonical runtime exports the bounded planner surface",
+    "planner proposal is deterministic and tamper evident",
+    "unknown planner fields fail exact schema validation",
+    "task objective and acceptance identity must match",
+    "authority and policy hashes must match",
+    "repository path escape is rejected",
+    "planner scope cannot exceed configured limits",
+    "seed rationales must cover seed files exactly",
+    "forbidden path conflicts require replanning",
+    "missing authority blocks before planner provider",
+    "planner provider failure stops before implementation flow",
+    "graph audit blocks unresolved planner symbols before coder",
+    "valid proposal reaches exactly one planner and coder call",
+    "coder context is bound to the planner proposal hash",
+    "planner execution binding is hash linked and tamper evident"
+  ],
+  "claims": {
+    "observedLiveModelQuality": false,
+    "observedTokenSavings": false,
+    "observedLatency": false,
+    "observedInfrastructureCost": false
+  },
+  "reportHash": "sha256:8ea307d980c000d04147d45b92e161160e50c787d663cd8da4493ec387e49ce4"
+}
