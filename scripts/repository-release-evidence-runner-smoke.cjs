@@ -59,6 +59,20 @@ async function main() {
     ];
   }
 
+  function artifactPaths() {
+    return matrix.requiredArtifacts
+      .filter(
+        (artifact) =>
+          artifact.status === "present"
+      )
+      .map(
+        (artifact) =>
+          V01_RELEASE_ARTIFACT_PATHS[
+            artifact.artifactId
+          ]
+      );
+  }
+
   function fixture() {
     const target = fs.realpathSync(
       fs.mkdtempSync(
@@ -74,7 +88,8 @@ async function main() {
       "package.json",
       "packages/product-runtime/src/index.ts",
       matrix.canonicalCoordinator.modulePath,
-      ...evidencePaths()
+      ...evidencePaths(),
+      ...artifactPaths()
     ]);
     for (const relative of required) {
       copyFile(root, target, relative);
@@ -83,7 +98,7 @@ async function main() {
   }
 
   await check(
-    "current repository evidence has no open blocker but release artifacts remain missing",
+    "current repository evidence is release ready",
     async () => {
       const result = await runRepositoryReleaseEvidence({
         repositoryPath: root,
@@ -91,14 +106,14 @@ async function main() {
       });
       assert.equal(
         result.decision,
-        "repository_release_evidence_blocked",
+        "repository_release_evidence_ready",
         JSON.stringify(result)
       );
       assert.deepEqual(
         result.report.gapAudit.openBlockerIds,
         []
       );
-      assert.equal(result.report.releaseReady, false);
+      assert.equal(result.report.releaseReady, true);
     }
   );
 
@@ -146,7 +161,8 @@ async function main() {
         true
       );
       const tampered = clone(first.report);
-      tampered.releaseReady = true;
+      tampered.releaseReady =
+        !tampered.releaseReady;
       assert.equal(
         verifyRepositoryReleaseEvidenceReport(tampered),
         false
@@ -295,14 +311,15 @@ async function main() {
   );
 
   await check(
-    "undeclared release artifact appearance is invalid",
+    "tampered declared release artifact is invalid",
     async () => {
       const target = fixture();
       const artifactPath =
         V01_RELEASE_ARTIFACT_PATHS.readme_quickstart;
-      const absolute = path.join(target, artifactPath);
-      fs.mkdirSync(path.dirname(absolute), { recursive: true });
-      fs.writeFileSync(absolute, "quickstart\n");
+      fs.appendFileSync(
+        path.join(target, artifactPath),
+        "\n<!-- tampered -->\n"
+      );
 
       const result = await runRepositoryReleaseEvidence({
         repositoryPath: target,

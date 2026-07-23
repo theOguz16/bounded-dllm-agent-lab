@@ -1,0 +1,204 @@
+{
+  "reportVersion": "1",
+  "releaseVersion": "0.1.0",
+  "reportKind": "repository_evidence_summary",
+  "evidenceClass": "repository_evidence_summary",
+  "performanceClaimEligible": false,
+  "coveredGapIds": [
+    "G1",
+    "G2",
+    "G3",
+    "G9"
+  ],
+  "gaps": [
+    {
+      "gapId": "G1",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g1.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/coder-context-execution-gate.ts",
+          "evidenceHash": "sha256:ec65f764aa297f75ada7386f9ec8e07bfd080033b522123f3d96d137207ccad8"
+        },
+        {
+          "evidenceId": "g1.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/coder-context-execution-gate-smoke.cjs",
+          "evidenceHash": "sha256:ea3fbb4a20b7f60d4c3f6f1da83e34b69cc38ddeca4a32368b2a68ece0d96b05"
+        },
+        {
+          "evidenceId": "g1.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/context-to-apply-binding.ts",
+          "evidenceHash": "sha256:844d16f6c276f74b56fbf0bfdaa99a0b1bba3a4694c6d4584be60585c3c7f451"
+        },
+        {
+          "evidenceId": "g1.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
+        },
+        {
+          "evidenceId": "g1.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G2",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g2.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/context-sufficiency-contract.ts",
+          "evidenceHash": "sha256:4439ed17667d73f815c0d37447be6e23d58d293a27678f407d42a19f9ceb4c99"
+        },
+        {
+          "evidenceId": "g2.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/context-sufficiency-contract-smoke.cjs",
+          "evidenceHash": "sha256:dd2df078fb0b8334ff217992e00cd5e5e6a145a7b99fb0cf6fb269ab6dff6eaa"
+        },
+        {
+          "evidenceId": "g2.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/context-sufficiency-authorization.ts",
+          "evidenceHash": "sha256:6e15dbee4d38f3d3f501a428faa0063084e908f8d71eac51ed6ba54fcf7c4bed"
+        },
+        {
+          "evidenceId": "g2.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/context-sufficiency-authorization-smoke.cjs",
+          "evidenceHash": "sha256:7a4207702a33e186813d9f10ba0c7e770bb791a108d80c30a3f314c01ed20643"
+        },
+        {
+          "evidenceId": "g2.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G3",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g3.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/context-expansion-resolver.ts",
+          "evidenceHash": "sha256:0f7d1228948d9254ff9ea20067ce4443b6d25d74b28e2c9243918430d6fd4407"
+        },
+        {
+          "evidenceId": "g3.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/context-request-mutation-smoke.cjs",
+          "evidenceHash": "sha256:c36646d8edafc77f3b49872f3272ae63af986e59f12b2c514a01d94d986a86a2"
+        },
+        {
+          "evidenceId": "g3.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/adaptive-context-orchestrator.ts",
+          "evidenceHash": "sha256:ee7f6c6580efbaaf32eb3d19196b1b76c3a6350f2b52181ccd01758285157702"
+        },
+        {
+          "evidenceId": "g3.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/adaptive-context-orchestrator-smoke.cjs",
+          "evidenceHash": "sha256:e2ef2fd85b5416bd3dcf3db0dc9345cad21324ceed51ce6ba633401c83925822"
+        },
+        {
+          "evidenceId": "g3.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G9",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g9.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/coder-context-execution-gate.ts",
+          "evidenceHash": "sha256:ec65f764aa297f75ada7386f9ec8e07bfd080033b522123f3d96d137207ccad8"
+        },
+        {
+          "evidenceId": "g9.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/coder-context-execution-gate-smoke.cjs",
+          "evidenceHash": "sha256:ea3fbb4a20b7f60d4c3f6f1da83e34b69cc38ddeca4a32368b2a68ece0d96b05"
+        },
+        {
+          "evidenceId": "g9.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/adaptive-context-orchestrator.ts",
+          "evidenceHash": "sha256:ee7f6c6580efbaaf32eb3d19196b1b76c3a6350f2b52181ccd01758285157702"
+        },
+        {
+          "evidenceId": "g9.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
+        },
+        {
+          "evidenceId": "g9.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    }
+  ],
+  "canonicalGuarantees": [
+    "Coder authorization is bound to repository source evidence.",
+    "Hard budget overflow blocks provider execution.",
+    "Adaptive expansion is bounded and re-evaluated.",
+    "Provider failure is fail-closed on the canonical path."
+  ],
+  "nonClaims": [
+    "This report is not a new live-model benchmark.",
+    "Repository intelligence remains heuristic in v0.1.",
+    "Full-context parity across broad production repositories is not claimed."
+  ],
+  "sourceMatrixReleaseVersion": "0.1.0",
+  "reportHash": "sha256:99afb541658db220643a2f22648a86661cac804b650fe78e31638e24fcaf245e"
+}

@@ -1,0 +1,211 @@
+{
+  "reportVersion": "1",
+  "releaseVersion": "0.1.0",
+  "reportKind": "release_synthesis",
+  "evidenceClass": "mixed_observed_release_evidence",
+  "releaseClaimEligible": true,
+  "sourceArtifacts": {
+    "observedTokenCost": {
+      "path": "reports/release/OBSERVED_TOKEN_COST.json",
+      "fileHash": "sha256:26f17a677d8097ff0d1c7ff2336cc872d7e8916ca7d26668e6de9f9fffb17794",
+      "evidenceClass": "observed_run",
+      "observationSource": "live_provider_call",
+      "providerId": "runpod-llama-cpp",
+      "modelId": "qwen2.5-coder-7b",
+      "capturedAt": "2026-07-23T13:33:09.691Z",
+      "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+      "sourceReportHash": "sha256:ab3ac7cd314cbc636ee425b631a04d3529b0c55d8f304b86190912c35bc953ff"
+    },
+    "scopeDrift": {
+      "path": "reports/release/SCOPE_DRIFT.json",
+      "fileHash": "sha256:b036441116020ee3026bf8d236ceae59d5a22592cadbbacef8c844f7d9d300c3",
+      "evidenceClass": "observed_run",
+      "sourceClass": "disposable_repository_observation",
+      "runId": "af2b-release-disposable-observed-v1",
+      "sourceReportHash": "sha256:1caae7b89c3db910a4c8f106cb249b6c72908b81670c52bd11d8b756ca11a080"
+    },
+    "runtimeGenerationBoundary": {
+      "path": "reports/release/RUNTIME_GENERATION_BOUNDARY.json",
+      "fileHash": "sha256:3eb1c0f7f1a9ff5f6bcf03966b4374b38dab6aa4e8f540c8d3850992288ed69c",
+      "evidenceClass": "observed_run",
+      "observationSource": "repository_source_scan",
+      "sourceReportHash": "sha256:9c3d76e64889034e9daa27c7ec8a264b6a1d78e608e74a5a89fd1af4fa53b7e9"
+    }
+  },
+  "observedTokenCost": {
+    "providerId": "runpod-llama-cpp",
+    "modelId": "qwen2.5-coder-7b",
+    "strategyAggregates": [
+      {
+        "strategy": "direct_large_context",
+        "acceptedPatchCount": 2,
+        "observedInvocationCount": 6,
+        "observedInputTokens": 2187,
+        "observedOutputTokens": 287,
+        "observedTotalTokens": 2474,
+        "normalizedCostNanoUsd": 2474,
+        "costPerAcceptedPatchNanoUsd": 1237,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1
+      },
+      {
+        "strategy": "fixed_bounded_context",
+        "acceptedPatchCount": 2,
+        "observedInvocationCount": 6,
+        "observedInputTokens": 1373,
+        "observedOutputTokens": 277,
+        "observedTotalTokens": 1650,
+        "normalizedCostNanoUsd": 1650,
+        "costPerAcceptedPatchNanoUsd": 825,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1
+      },
+      {
+        "strategy": "adaptive_bounded_context",
+        "acceptedPatchCount": 2,
+        "observedInvocationCount": 6,
+        "observedInputTokens": 1321,
+        "observedOutputTokens": 305,
+        "observedTotalTokens": 1626,
+        "normalizedCostNanoUsd": 1626,
+        "costPerAcceptedPatchNanoUsd": 813,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1
+      }
+    ],
+    "comparisons": {
+      "fixedVsDirectObservedTokenSavingsRate": 0.333064,
+      "adaptiveVsDirectObservedTokenSavingsRate": 0.342765,
+      "fixedVsDirectObservedCostSavingsRate": 0.333064,
+      "adaptiveVsDirectObservedCostSavingsRate": 0.342765
+    },
+    "taskResults": [
+      {
+        "strategy": "direct_large_context",
+        "taskResults": [
+          {
+            "taskId": "clamp-helper",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          },
+          {
+            "taskId": "normalize-title",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          }
+        ]
+      },
+      {
+        "strategy": "fixed_bounded_context",
+        "taskResults": [
+          {
+            "taskId": "clamp-helper",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          },
+          {
+            "taskId": "normalize-title",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          }
+        ]
+      },
+      {
+        "strategy": "adaptive_bounded_context",
+        "taskResults": [
+          {
+            "taskId": "clamp-helper",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          },
+          {
+            "taskId": "normalize-title",
+            "plannerValid": true,
+            "candidateValid": true,
+            "verifierApproved": true,
+            "accepted": true,
+            "callsObserved": true,
+            "errors": []
+          }
+        ]
+      }
+    ],
+    "everyTaskAccepted": true,
+    "pricing": {
+      "sourceKind": "operator_configured",
+      "normalizedComparisonOnly": true,
+      "infrastructureTcoClaimed": false
+    }
+  },
+  "observedScopeDrift": {
+    "decision": "scope_clean",
+    "overall": {
+      "caseCount": 1,
+      "cleanCaseCount": 1,
+      "reviewCaseCount": 0,
+      "blockedCaseCount": 0,
+      "hardViolationCount": 0,
+      "unexpectedButAllowedFileCount": 0,
+      "missingExpectedFileCount": 0,
+      "unnecessaryLoc": 0,
+      "uncertainLoc": 0,
+      "unrequestedRefactorCount": 0,
+      "newDependencyCount": 0,
+      "unrequestedDependencyCount": 0,
+      "unjustifiedDependencyCount": 0,
+      "newAbstractionCount": 0,
+      "unrequestedAbstractionCount": 0,
+      "justifiedAbstractionCount": 0,
+      "abstractionJustificationRate": null,
+      "humanUnnecessaryLabelCount": 0
+    },
+    "summaryHash": "sha256:22db0c2178ddb29f0b1dfc6ddf09e69f9c0ca145d49c8b850cf8742f9eb0bd98",
+    "integratedReceiptHash": "sha256:cb138da02ad17982a21b1970ce547b265801d599e6167ec356803e1193005cdd",
+    "applyReceiptHash": "sha256:46d26d3e0b2bbc5f015a1a942bd9717e0dc9225e0d45bd97f847c1cafe5f0aa3",
+    "deliveryContractHash": "sha256:be4cd63e26d54df857d1a598bebf5d825fb07e01f3da06b87849fe7c22a7ebbd"
+  },
+  "runtimeGenerationBoundary": {
+    "decision": "runtime_generation_boundary_ready",
+    "canonicalEntrypoint": "src/canonical-runtime.ts",
+    "canonicalPackageExport": "./src/canonical-runtime.ts",
+    "legacyEntrypoint": "src/index.ts",
+    "checks": {
+      "packageNameMatched": true,
+      "packageMainCanonical": true,
+      "packageExportsOnlyCanonical": true,
+      "canonicalMetadataPresent": true,
+      "canonicalRequiredExportsPresent": true,
+      "canonicalLegacySymbolsAbsent": true,
+      "legacyResearchMarkerPresent": true,
+      "legacySurfaceNotPubliclyExported": true
+    }
+  },
+  "claimBoundaries": {
+    "tokenSavingsObservedOnDeclaredTaskSet": true,
+    "normalizedTokenPricingIsNotRunPodTco": true,
+    "scopeResultIsOneObservedDisposableRepoCase": true,
+    "deterministicFixturesAreNotObservedEvidence": true,
+    "verifierApprovalIsNotBehavioralCorrectness": true
+  },
+  "reportHash": "sha256:b74fba212cee0f98c77c8d4505e6fed78a372f2b07c30e08086a6fadea6001bd"
+}

@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4b unified release artifact pack (G13 closed) |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4c v0.1 tag and publication (release evidence ready) |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1220,24 +1220,40 @@ AF.2a/AF.2b hard ve soft scope benchmarklarını daha önce tamamlamıştır.
 
 <!-- PHASE_AF_4B_RELEASE_PACK_STATUS -->
 
-**Durum: Sıradaki adım.**
+**Durum: Tamamlandı.**
 
-G13 kapalıdır. Kalan release işi, repositoryde zaten bulunan canonical
-evidenceı yeni deney sonucu gibi sunmadan dokuz eksik artifactta birleştirmektir:
+Repositorydeki observed Qwen token/cost, disposable-repo scope ve canonical
+runtime boundary evidenceı tek release synthesis altında birleştirildi.
+Synthesis yeni live sonuç uydurmaz; her source artifactın evidence classını,
+file hashini ve claim boundarysini korur.
+
+Tamamlanan artifactlar:
 
 - README quickstart.
+- Architecture diagram.
 - Threat model.
 - Unified benchmark report.
 - Context sufficiency report.
-- Acceptance coverage report.
+- Hard/soft scope drift report.
+- Acceptance criteria coverage report.
+- Observed token/cost report.
 - Fail-closed matrix.
 - Gap closure audit.
 - Known limitations.
 - v0.1 release notes.
 
-AF.4b sonunda `npm run verify:release` yalnız bütün artifact hashleri repository
-stateiyle eşleştiğinde green olabilir.
+`npm run verify:release`, 55/55 repository evidence locatorı ve 12/12 required
+artifact hashini doğruladığında `repository_release_evidence_ready` üretir.
 
+## AF.4c — v0.1 tag and release publication
+
+<!-- PHASE_AF_4C_RELEASE_PUBLICATION_STATUS -->
+
+**Durum: Sıradaki adım.**
+
+Release evidence hazırdır. Son adım clean `main` üzerinde verificationı tekrar
+çalıştırmak, `v0.1.0` annotated tagini hazırlamak ve release notes ile GitHub
+release publicationını açık kullanıcı onayıyla gerçekleştirmektir.
 ## AF.5 — Ölçümler
 
 ### Görev kalitesi

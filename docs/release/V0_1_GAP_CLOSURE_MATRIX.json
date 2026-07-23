@@ -526,7 +526,8 @@
   "requiredArtifacts": [
     {
       "artifactId": "readme_quickstart",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:e0286cdea47cc17c92b00da604f23de670b67d9151e168bb9a7cc4a8fd27d022"
     },
     {
       "artifactId": "architecture_diagram",
@@ -535,15 +536,18 @@
     },
     {
       "artifactId": "threat_model",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:e1b3b0b2ca159778c6c126cd9e7ad104dcecb83620795b37eae0baedfd2e09a9"
     },
     {
       "artifactId": "unified_benchmark_report",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:d79b34d03045fcfeb691284f52a16caae2fd176b3be5df473495aac75a5598d4"
     },
     {
       "artifactId": "context_sufficiency_report",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:9452c4180227dbef9d5ec737d5fad3da015e5885c26f229d674d2c52a719b326"
     },
     {
       "artifactId": "scope_drift_report",
@@ -552,7 +556,8 @@
     },
     {
       "artifactId": "acceptance_coverage_report",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:34a72e7a7c772e31be52cdfb4007d4ae8444c176f2cf63d0929b2a216c330d57"
     },
     {
       "artifactId": "observed_token_cost_report",
@@ -561,19 +566,23 @@
     },
     {
       "artifactId": "fail_closed_matrix",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:30ef89595a42533f4003f1c193d19ccf49ba66c342ec67d1970363cc90971222"
     },
     {
       "artifactId": "gap_closure_matrix",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:20c75a70b484f016f4a1e5a03cb371a78c5c6ac82fa7cdbddec37ca6dd4178c1"
     },
     {
       "artifactId": "known_limitations",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:5458a1cb9cfbfb3be2b4a38826898a8e366ade276ab3252082e127527f041e37"
     },
     {
       "artifactId": "v0_1_release_notes",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:2435e79ce51b71bcbc679b36cb48026b9d5f754ee79489cbb4046f02e1d02d45"
     }
   ]
 }

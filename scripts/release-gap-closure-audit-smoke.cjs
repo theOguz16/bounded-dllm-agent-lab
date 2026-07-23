@@ -89,7 +89,7 @@ async function main() {
   }
 
   await check(
-    "current v0.1 matrix has no open blocker but release artifacts remain missing",
+    "current v0.1 matrix is release ready",
     () => {
       const result =
         buildV01ReleaseGapClosureAudit(
@@ -97,7 +97,7 @@ async function main() {
         );
       assert.equal(
         result.decision,
-        "v01_release_gap_audit_blocked",
+        "v01_release_gap_audit_ready",
         JSON.stringify(result)
       );
       assert.deepEqual(
@@ -106,7 +106,7 @@ async function main() {
       );
       assert.equal(
         result.audit.releaseReady,
-        false
+        true
       );
     }
   );
@@ -130,7 +130,7 @@ async function main() {
   );
 
   await check(
-    "current matrix explicitly records all missing release artifacts",
+    "current matrix declares every required release artifact present",
     () => {
       const result =
         buildV01ReleaseGapClosureAudit(
@@ -138,11 +138,11 @@ async function main() {
         );
       assert.equal(
         result.audit.missingArtifactIds.length,
-        9
+        0
       );
       assert.equal(
         result.summary.requiredArtifactsComplete,
-        false
+        true
       );
     }
   );

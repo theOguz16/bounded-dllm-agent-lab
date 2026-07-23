@@ -1,0 +1,205 @@
+{
+  "reportVersion": "1",
+  "releaseVersion": "0.1.0",
+  "reportKind": "repository_evidence_summary",
+  "evidenceClass": "repository_evidence_summary",
+  "behavioralCorrectnessClaimed": false,
+  "coveredGapIds": [
+    "G6",
+    "G7",
+    "G10",
+    "G14"
+  ],
+  "gaps": [
+    {
+      "gapId": "G6",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g6.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/deterministic-governance-policy.ts",
+          "evidenceHash": "sha256:8db75c11ffc964103ffff180bc76a2dce94eab6b6339bce43864f36880b70716"
+        },
+        {
+          "evidenceId": "g6.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/deterministic-governance-policy-smoke.cjs",
+          "evidenceHash": "sha256:d0f5773bf6151b12f48d7f59a06dc7316ae7264e408444d6b51f8c3e1836b621"
+        },
+        {
+          "evidenceId": "g6.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
+        },
+        {
+          "evidenceId": "g6.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
+        },
+        {
+          "evidenceId": "g6.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G7",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g7.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/acceptance-criteria-contract.ts",
+          "evidenceHash": "sha256:3b54bb477d86b29e151ea5b2d6675018462e62f122f66c1f92d05a241d2c8e55"
+        },
+        {
+          "evidenceId": "g7.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/acceptance-criteria-contract-smoke.cjs",
+          "evidenceHash": "sha256:f5dceccad1fa3ebf0b1a6efc0a74eafcf2122bb7d1c0b9a550ca05739981c27c"
+        },
+        {
+          "evidenceId": "g7.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
+        },
+        {
+          "evidenceId": "g7.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
+        },
+        {
+          "evidenceId": "g7.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G10",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g10.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/draft-pr-delivery-contract.ts",
+          "evidenceHash": "sha256:fc7a6274ff7a02676a5e822b37fbfbef0f300def47cc2638c089ec1da363f1f3"
+        },
+        {
+          "evidenceId": "g10.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/draft-pr-delivery-contract-smoke.cjs",
+          "evidenceHash": "sha256:eba05bb41c47c32416fe208b17ae2c09e79ddd60c48f41161836fb8773d2f313"
+        },
+        {
+          "evidenceId": "g10.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/controlled-github-draft-pr.ts",
+          "evidenceHash": "sha256:edc35e4e3720a447569d671922ffc1ec61d93ac80690a31cf9a10d6784f261d8"
+        },
+        {
+          "evidenceId": "g10.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/controlled-github-draft-pr-smoke.cjs",
+          "evidenceHash": "sha256:d11dd8d8c195150d0eb635c655ca7581976acd256c39d59e72c30e8c63a07839"
+        },
+        {
+          "evidenceId": "g10.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    },
+    {
+      "gapId": "G14",
+      "disposition": "closed",
+      "v01Blocker": true,
+      "evidenceStages": [
+        "primitive",
+        "contract_tests",
+        "canonical_integration",
+        "live_or_real_evidence",
+        "release_artifact"
+      ],
+      "evidence": [
+        {
+          "evidenceId": "g14.primitive",
+          "artifactKind": "module",
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
+        },
+        {
+          "evidenceId": "g14.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
+        },
+        {
+          "evidenceId": "g14.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/context-to-apply-binding.ts",
+          "evidenceHash": "sha256:844d16f6c276f74b56fbf0bfdaa99a0b1bba3a4694c6d4584be60585c3c7f451"
+        },
+        {
+          "evidenceId": "g14.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
+        },
+        {
+          "evidenceId": "g14.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
+        }
+      ]
+    }
+  ],
+  "acceptanceBoundary": {
+    "testsPassedIsNotTaskAccepted": true,
+    "criterionEvidenceRequired": true,
+    "finalAppliedStateValidationRequired": true,
+    "evidenceReferencesHashVerified": true,
+    "deterministicVerifierMeansContractApproved": true,
+    "deterministicVerifierMeansCodeCorrect": false
+  },
+  "canonicalCoordinator": {
+    "exportName": "runIntegratedDisposableApply",
+    "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+    "publicApiVerified": true
+  },
+  "reportHash": "sha256:94b1fd6a37de9dda9572ac540c676b55662e4a790a90ac5f88997aa23cfd5802"
+}
