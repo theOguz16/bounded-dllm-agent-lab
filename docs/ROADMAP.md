@@ -248,7 +248,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
-| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.3b GitHub draft PR connector |
+| **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
@@ -834,6 +834,34 @@ Garantiler:
 AE.3b yalnız current remote push receipt üzerinden GitHub draft PR oluşturacak,
 base/head/draft/evidence alanlarını API'den yeniden okuyacak ve duplicate PR
 deliverysini engelleyecektir.
+
+## AE.3b — Controlled GitHub draft PR delivery
+
+<!-- PHASE_AE_3B_GITHUB_DRAFT_PR_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Current AE.3a remote push receipt Git ve durable registry üzerinden yeniden
+doğrulanır. Typed GitHub client repository/base/head durumunu okur, duplicate
+open PR kontrolü yapar ve yalnız durable intentten sonra draft PR oluşturur.
+
+Garantiler:
+
+- GitHub repository owner/name/default branch contract ile exact eşleşir.
+- GitHub base/head commitleri remote push receipt ile exact eşleşir.
+- Aynı base/head için mevcut open PR varken unclaimed duplicate oluşturulmaz.
+- Durable `CREATE_STARTED` claim GitHub write öncesinde yazılır.
+- Create isteği title/body/base/head ve `draft: true` alanlarını exact taşır.
+- Oluşturulan PR API'den yeniden okunur; open/draft/text/ref alanları doğrulanır.
+- PR changed-file seti governed file setiyle exact eşleşir.
+- PR oluşturma sırasında base/head branch commitleri değişemez.
+- Immutable receipt contract, push receipt, local receipt, evidence set ve PR numarasına bağlıdır.
+- Replay current receipt üzerinden ikinci PR oluşturmaz.
+- Create sonrası belirsiz veya uyumsuz durum recovery-required üretir.
+- Core executor shell veya Git write çalıştırmaz.
+
+Production REST adapter yalnız `https://api.github.com` kullanır, bounded JSON
+responses uygular ve token değerini hiçbir receipt veya sonuç nesnesine koymaz.
 
 ## Definition of Done
 
