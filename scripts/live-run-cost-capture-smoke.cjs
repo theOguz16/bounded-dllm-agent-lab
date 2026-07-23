@@ -8,6 +8,8 @@ const path = require("node:path");
 
 const {
   LIVE_ATTESTATION,
+  TASKS,
+  validateCandidate,
   runCapture
 } = require(
   "./live-run-cost-capture.cjs"
@@ -253,6 +255,69 @@ async function main() {
     checks += 1;
     console.log(`[ok] ${name}`);
   };
+
+  await check(
+    "guard-clause clamp implementation passes semantic AST validation",
+    () => {
+      const task = TASKS.find(
+        (entry) =>
+          entry.taskId ===
+            "clamp-helper"
+      );
+      assert.ok(task);
+      assert.equal(
+        validateCandidate(
+          task,
+          {
+            filePath:
+              "src/math.ts",
+            replacement: [
+              "export function add(left: number, right: number): number {",
+              "  return left + right;",
+              "}",
+              "",
+              "export function clamp(value: number, min: number, max: number): number {",
+              "  if (value < min) return min;",
+              "  if (value > max) return max;",
+              "  return value;",
+              "}",
+              ""
+            ].join("\n")
+          }
+        ),
+        true
+      );
+    }
+  );
+
+  await check(
+    "one-sided clamp implementation fails semantic AST validation",
+    () => {
+      const task = TASKS.find(
+        (entry) =>
+          entry.taskId ===
+            "clamp-helper"
+      );
+      assert.ok(task);
+      assert.equal(
+        validateCandidate(
+          task,
+          {
+            filePath:
+              "src/math.ts",
+            replacement: [
+              "export function clamp(value: number, min: number, max: number): number {",
+              "  if (value < min) return min;",
+              "  return value;",
+              "}",
+              ""
+            ].join("\n")
+          }
+        ),
+        false
+      );
+    }
+  );
 
   await check(
     "fixture HTTP round-trip covers A B C with 18 observed invocations",

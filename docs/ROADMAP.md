@@ -1159,6 +1159,10 @@ Release artifact yazımı ancak aşağıdaki şartların tamamında açılır:
 Local HTTP mock suite gerçek network round-trip yapar fakat
 `evidenceClass=deterministic_fixture` taşır ve hiçbir release artifact yazamaz.
 
+Coder acceptance, literal implementation parçaları yerine TypeScript AST üzerinden
+doğrulanır. Böylece `Math.min/Math.max` ve eşdeğer guard-clause clamp
+uygulamaları kabul edilir; tek taraflı veya eksik sınır uygulamaları reddedilir.
+
 Başarılı live koşu:
 
 - `reports/release/OBSERVED_TOKEN_COST.json`

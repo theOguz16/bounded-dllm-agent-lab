@@ -3,6 +3,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createHash } = require("node:crypto");
+const ts = require("typescript");
 
 const LIVE_ATTESTATION =
   "I_CONFIRM_REAL_PROVIDER_CALLS";
@@ -427,17 +428,329 @@ function validatePlanner(task, parsed) {
   };
 }
 
+function hasExportModifier(node) {
+  return (
+    node.modifiers?.some(
+      (modifier) =>
+        modifier.kind ===
+          ts.SyntaxKind.ExportKeyword
+    ) ?? false
+  );
+}
+
+function findExportedFunction(
+  sourceFile,
+  functionName
+) {
+  return sourceFile.statements.find(
+    (statement) =>
+      ts.isFunctionDeclaration(
+        statement
+      ) &&
+      statement.name?.text ===
+        functionName &&
+      hasExportModifier(statement)
+  ) ?? null;
+}
+
+function hasSyntaxErrors(source) {
+  const result =
+    ts.transpileModule(source, {
+      compilerOptions: {
+        target:
+          ts.ScriptTarget.ES2022,
+        module:
+          ts.ModuleKind.ESNext,
+        strict: true
+      },
+      reportDiagnostics: true,
+      fileName: "candidate.ts"
+    });
+  return (
+    result.diagnostics?.some(
+      (diagnostic) =>
+        diagnostic.category ===
+          ts.DiagnosticCategory.Error
+    ) ?? false
+  );
+}
+
+function identifierName(node) {
+  return ts.isIdentifier(node)
+    ? node.text
+    : null;
+}
+
+function pairMatches(
+  left,
+  right,
+  first,
+  second
+) {
+  const leftName =
+    identifierName(left);
+  const rightName =
+    identifierName(right);
+  return (
+    (
+      leftName === first &&
+      rightName === second
+    ) ||
+    (
+      leftName === second &&
+      rightName === first
+    )
+  );
+}
+
+function validateClampFunction(
+  sourceFile
+) {
+  const declaration =
+    findExportedFunction(
+      sourceFile,
+      "clamp"
+    );
+  if (
+    declaration === null ||
+    declaration.body === undefined ||
+    declaration.parameters.length !== 3
+  ) {
+    return false;
+  }
+
+  const parameterNames =
+    declaration.parameters.map(
+      (parameter) =>
+        ts.isIdentifier(
+          parameter.name
+        )
+          ? parameter.name.text
+          : null
+    );
+  if (
+    parameterNames.some(
+      (name) => name === null
+    )
+  ) {
+    return false;
+  }
+
+  const [
+    valueName,
+    minName,
+    maxName
+  ] = parameterNames;
+
+  let hasMathMin = false;
+  let hasMathMax = false;
+  let hasLowerComparison = false;
+  let hasUpperComparison = false;
+  const returnedIdentifiers =
+    new Set();
+
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(
+        node.expression
+      ) &&
+      ts.isIdentifier(
+        node.expression.expression
+      ) &&
+      node.expression.expression.text ===
+        "Math"
+    ) {
+      if (
+        node.expression.name.text ===
+          "min"
+      ) {
+        hasMathMin = true;
+      }
+      if (
+        node.expression.name.text ===
+          "max"
+      ) {
+        hasMathMax = true;
+      }
+    }
+
+    if (ts.isBinaryExpression(node)) {
+      const operator =
+        node.operatorToken.kind;
+      const isOrderingOperator = [
+        ts.SyntaxKind.LessThanToken,
+        ts.SyntaxKind
+          .LessThanEqualsToken,
+        ts.SyntaxKind
+          .GreaterThanToken,
+        ts.SyntaxKind
+          .GreaterThanEqualsToken
+      ].includes(operator);
+
+      if (isOrderingOperator) {
+        if (
+          pairMatches(
+            node.left,
+            node.right,
+            valueName,
+            minName
+          )
+        ) {
+          hasLowerComparison = true;
+        }
+        if (
+          pairMatches(
+            node.left,
+            node.right,
+            valueName,
+            maxName
+          )
+        ) {
+          hasUpperComparison = true;
+        }
+      }
+    }
+
+    if (
+      ts.isReturnStatement(node) &&
+      node.expression !== undefined
+    ) {
+      const collectIdentifiers =
+        (child) => {
+          if (
+            ts.isIdentifier(child)
+          ) {
+            returnedIdentifiers.add(
+              child.text
+            );
+          }
+          ts.forEachChild(
+            child,
+            collectIdentifiers
+          );
+        };
+      collectIdentifiers(
+        node.expression
+      );
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(declaration.body);
+
+  const mathClamp =
+    hasMathMin && hasMathMax;
+
+  const guardClamp =
+    hasLowerComparison &&
+    hasUpperComparison &&
+    returnedIdentifiers.has(
+      valueName
+    ) &&
+    returnedIdentifiers.has(
+      minName
+    ) &&
+    returnedIdentifiers.has(
+      maxName
+    );
+
+  return mathClamp || guardClamp;
+}
+
+function validateNormalizeTitleFunction(
+  sourceFile
+) {
+  const declaration =
+    findExportedFunction(
+      sourceFile,
+      "normalizeTitle"
+    );
+  if (
+    declaration === null ||
+    declaration.body === undefined ||
+    declaration.parameters.length !== 1
+  ) {
+    return false;
+  }
+
+  let hasTrim = false;
+  let hasToLowerCase = false;
+
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(
+        node.expression
+      )
+    ) {
+      if (
+        node.expression.name.text ===
+          "trim"
+      ) {
+        hasTrim = true;
+      }
+      if (
+        node.expression.name.text ===
+          "toLowerCase"
+      ) {
+        hasToLowerCase = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+
+  visit(declaration.body);
+  return hasTrim && hasToLowerCase;
+}
+
 function validateCandidate(task, parsed) {
   if (
     parsed === null ||
     parsed.filePath !== task.expectedFile ||
-    typeof parsed.replacement !== "string"
+    typeof parsed.replacement !== "string" ||
+    hasSyntaxErrors(
+      parsed.replacement
+    )
   ) {
     return false;
   }
+
+  const sourceFile =
+    ts.createSourceFile(
+      task.expectedFile,
+      parsed.replacement,
+      ts.ScriptTarget.ES2022,
+      true,
+      ts.ScriptKind.TS
+    );
+
+  if (
+    task.taskId ===
+      "clamp-helper"
+  ) {
+    return validateClampFunction(
+      sourceFile
+    );
+  }
+
+  if (
+    task.taskId ===
+      "normalize-title"
+  ) {
+    return (
+      validateNormalizeTitleFunction(
+        sourceFile
+      )
+    );
+  }
+
   return task.requiredFragments.every(
     (fragment) =>
-      parsed.replacement.includes(fragment)
+      parsed.replacement.includes(
+        fragment
+      )
   );
 }
 
@@ -1816,5 +2129,6 @@ module.exports = {
   LIVE_ATTESTATION,
   STRATEGIES,
   TASKS,
+  validateCandidate,
   runCapture
 };
