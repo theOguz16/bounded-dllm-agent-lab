@@ -7,7 +7,7 @@
     "exportName": "runIntegratedDisposableApply",
     "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
     "publicApiVerified": true,
-    "evidenceHash": "sha256:9a5aac4d0bebcf9356e80945da33c3b9612bb495dad684638a4da1bdf71e70c5"
+    "evidenceHash": "sha256:e615caa3ca010000220c97dfd2d4b59b8b3bd27361fce3c243a15ba6f4688ee0"
   },
   "gaps": [
     {
@@ -291,8 +291,22 @@
           "stage": "primitive",
           "evidenceId": "g8.primitive",
           "artifactKind": "module",
-          "locator": "packages/product-runtime/src/agent-event-ledger.ts",
-          "evidenceHash": "sha256:71b692b64e6da6e1c1809980e1e6830bc953a0b0969f1b75f0dedd1a11453230"
+          "locator": "packages/product-runtime/src/run-cost-ledger.ts",
+          "evidenceHash": "sha256:f68ea7d9e7228dcecb13ec6c9836427760e3f49e2ec2c4e3f71af766e0b8fcac"
+        },
+        {
+          "stage": "contract_tests",
+          "evidenceId": "g8.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/run-cost-ledger-smoke.cjs",
+          "evidenceHash": "sha256:2d69a2c5e402ab421593494fb26fdcb32cd40087229d337f7ee8c7e32232a080"
+        },
+        {
+          "stage": "canonical_integration",
+          "evidenceId": "g8.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/agent-event-cost-binding.ts",
+          "evidenceHash": "sha256:8581b404cac885704d409a43cfcf1ab729ab3e3a03ed8fa44eb71dbf0944350a"
         }
       ]
     },
@@ -419,7 +433,7 @@
           "evidenceId": "g13.primitive",
           "artifactKind": "module",
           "locator": "packages/product-runtime/src/index.ts",
-          "evidenceHash": "sha256:2b07b6ef191e63adcd8bfbb35427824fc560d9e5194d81dad206719192a76a12"
+          "evidenceHash": "sha256:1287c38cdbed5ba889850061e671a1420300e7757d8b00d2b7c648c31cdf611c"
         }
       ]
     },

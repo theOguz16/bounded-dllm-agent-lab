@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.3 observed token/cost ledger and benchmark aggregation |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.3b live A/B/C token-cost capture |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1054,6 +1054,77 @@ primitive
 
 AF.2b sonunda G5 kapanır. Release audit G8 ve G13 blockerları ile diğer eksik
 release artifactları nedeniyle blocked kalmaya devam eder.
+
+## AF.3a — Unified run cost ledger contract
+
+<!-- PHASE_AF_3A_RUN_COST_LEDGER_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Provider usage ve maliyet muhasebesi tek `RunCostLedger` contractında
+birleştirilir. Ledger mevcut `AgentEventLedger` hash zincirine bağlanır; event
+token usage ile cost observation token usage exact eşleşmeden maliyet kaydı
+üretilemez.
+
+Usage sınıfları kesin biçimde ayrıdır:
+
+```text
+observed
+estimated
+unavailable
+```
+
+`estimated` veya `unavailable` değerler observed token/cost toplamına hiçbir
+zaman eklenmez.
+
+Ledger aşağıdaki dağılımları ayrı taşır:
+
+- Planner, coder ve verifier input/output/total tokenları.
+- Remask ve repair tokenları.
+- Expansion overhead.
+- Shadow ve admin overhead.
+- Retry invocation ve retry tokenları.
+- Provider/model provenance.
+- Provider price snapshot.
+- Exact nano-USD/token maliyeti.
+- Tam observed coverage varsa cost per accepted patch.
+
+A/B/C benchmark contractı:
+
+```text
+A — direct_large_context
+B — fixed_bounded_context
+C — adaptive_bounded_context
+```
+
+Tasarruf karşılaştırmasının release-claim eligible olması için:
+
+- Üç stratejinin de bulunması.
+- Aynı task seti.
+- Aynı provider/model seti.
+- Aynı pricing snapshot seti.
+- Bütün run'ların live provider call olması.
+- Her invocation'ın provider-reported usage taşıması.
+- Bütün invocation'ların fiyatlandırılmış olması.
+- En az bir accepted patch bulunması.
+
+AF.3a smoke reportu `evidenceClass=deterministic_fixture` ve
+`releaseClaimEligible=false` taşır. Sentetik fixture gerçek token veya maliyet
+tasarrufu kanıtı sayılamaz.
+
+G8 bu aşamada tamamen kapanmaz. Evidence zinciri:
+
+```text
+primitive                 ✅
+contract tests            ✅
+canonical integration     ✅
+live/real evidence        ⏳
+release artifact          ⏳
+```
+
+AF.3b aynı provider, model, task seti ve pricing snapshot ile gerçek A/B/C
+çağrılarını capture edecek ve yalnız o zaman
+`reports/release/OBSERVED_TOKEN_COST.json` artifactını üretecektir.
 
 ## AF.3 — Context benchmark aileleri
 
