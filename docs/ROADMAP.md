@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4c v0.1 tag and publication (release evidence ready) |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Tamamlandı — `v0.1.0` yayımlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1249,11 +1249,11 @@ artifact hashini doğruladığında `repository_release_evidence_ready` üretir.
 
 <!-- PHASE_AF_4C_RELEASE_PUBLICATION_STATUS -->
 
-**Durum: Sıradaki adım.**
+**Durum: Tamamlandı.**
 
-Release evidence hazırdır. Son adım clean `main` üzerinde verificationı tekrar
-çalıştırmak, `v0.1.0` annotated tagini hazırlamak ve release notes ile GitHub
-release publicationını açık kullanıcı onayıyla gerçekleştirmektir.
+Clean `main` üzerinde `npm run verify:release` tekrar geçti. `v0.1.0`
+annotated tagi doğrulanmış AF.4b commitine bağlandı ve aynı tagden kararlı
+GitHub Release yayımlandı. v0.1 evidence zinciri bu tag ile dondurulmuştur.
 ## AF.5 — Ölçümler
 
 ### Görev kalitesi
@@ -1340,6 +1340,45 @@ Aşağıdakiler release blocker'dır:
 - Tek canonical runtime/public API seçilmiştir.
 - v0.1 tag hazırlanır.
 
+## AG — Post-v0.1 Product Intelligence
+
+`v0.1.0` release evidenceı yayımlanmış tag üzerinde dondurulmuştur. Post-v0.1
+geliştirmeler eski release hashlerini geriye dönük yeniden yazmaz; yeni primitive,
+integration ve benchmark zincirleri ayrı AG evidenceı üretir.
+
+### AG.1a — Canonical Repo Intelligence primitive and contract
+
+<!-- PHASE_AG_1A_REPO_INTELLIGENCE_STATUS -->
+
+**Durum: Aktif.**
+
+Amaç, eski `packages/repo-intelligence` path ve naming heuristiklerini doğrudan
+canonical API diye yeniden kullanmak değil; product runtime neslinde deterministic,
+salt-okunur ve hard-limitli bir repository intelligence primitive'i oluşturmaktır.
+
+AG.1a kapsamı:
+
+- TypeScript compiler AST ile JavaScript/TypeScript import, re-export, dynamic
+  import ve CommonJS `require` referanslarını çıkarmak.
+- NodeNext `.js` source specifierlarını repositorydeki `.ts`/`.tsx` kaynaklarına
+  deterministik biçimde çözmek.
+- Top-level symbol, export ve external dependency envanteri üretmek.
+- Seed file'lardan bounded dependency closure oluşturmak.
+- File, byte, edge ve dependency-depth limitlerinde fail-closed davranmak.
+- Root traversal, eksik seed, unresolved reachable relative import ve symlink
+  durumlarını reddetmek.
+- Çıktıyı canonical JSON hashine bağlamak ve tamper verification sağlamak.
+- Filesystem write, shell ve network erişimi yapmamak.
+
+Bu adım primitive ve contract seviyesidir. `canonical-runtime.ts` package exportu
+bilinçli olarak AG.1b'ye bırakılır; böylece yayımlanmış v0.1 runtime-boundary
+evidence hashleri geriye dönük değiştirilmez.
+
+### AG.1b — Canonical integration and context binding
+
+AG.1a intelligence çıktısını Context Sufficiency Gate ve bounded context composer
+öncesinde zorunlu canonical gate olarak bağlar. Package dependency/export
+değişiklikleri ve yeni post-v0.1 release evidenceı bu adımda sürümlenir.
 ---
 
 ## 8. MVP Sonrası Ürün Yönü

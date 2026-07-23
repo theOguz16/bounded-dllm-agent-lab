@@ -238,7 +238,8 @@
     "test:runtime-generation-boundary": "node scripts/runtime-generation-boundary-smoke.cjs",
     "generate:runtime-generation-boundary": "npm run build && node scripts/generate-runtime-generation-boundary.cjs",
     "generate:v0-1-release-pack": "node scripts/generate-v0-1-release-pack.cjs",
-    "test:v0-1-release-pack": "npm run build && node scripts/v0-1-release-pack-smoke.cjs"
+    "test:v0-1-release-pack": "npm run build && node scripts/v0-1-release-pack-smoke.cjs",
+    "test:canonical-repo-intelligence": "npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
