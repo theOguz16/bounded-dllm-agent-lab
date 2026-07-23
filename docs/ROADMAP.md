@@ -1126,6 +1126,50 @@ AF.3b aynı provider, model, task seti ve pricing snapshot ile gerçek A/B/C
 çağrılarını capture edecek ve yalnız o zaman
 `reports/release/OBSERVED_TOKEN_COST.json` artifactını üretecektir.
 
+## AF.3b — Live A/B/C token-cost capture
+
+<!-- PHASE_AF_3B_LIVE_COST_STATUS -->
+
+**Durum: Uygulama hazır; live validation bekleniyor.**
+
+Aynı provider, model, temperature, task seti ve price snapshot altında üç
+strateji gerçek OpenAI-compatible HTTP çağrılarıyla çalıştırılır:
+
+```text
+A — direct_large_context
+B — fixed_bounded_context
+C — adaptive_bounded_context
+```
+
+Her strateji iki aynı görev için planner, coder ve verifier çağrısı yapar.
+Toplam 18 provider invocation gözlemlenir.
+
+Release artifact yazımı ancak aşağıdaki şartların tamamında açılır:
+
+- `AF3B_LIVE_REQUIRED=1`.
+- Açık operator attestation vardır.
+- Bütün provider response'ları observed usage taşır.
+- Üç stratejide bütün görevler deterministic acceptance ve verifier onayından geçer.
+- Provider/model seti aynıdır.
+- Pricing snapshot seti aynıdır.
+- Input/output price snapshot birlikte sıfır değildir.
+- Benchmark `releaseClaimEligible=true` üretir.
+- `AF3B_WRITE_RELEASE_ARTIFACTS=1`.
+
+Local HTTP mock suite gerçek network round-trip yapar fakat
+`evidenceClass=deterministic_fixture` taşır ve hiçbir release artifact yazamaz.
+
+Başarılı live koşu:
+
+- `reports/release/OBSERVED_TOKEN_COST.json`
+- `docs/release/OBSERVED_TOKEN_COST.md`
+
+artifactlarını üretir, G8'i beş aşamalı evidence zinciriyle kapatır ve release
+audit'i yalnız G13 blockerıyla bırakır.
+
+Self-hosted inference için operator-configured token fiyatı tam altyapı TCO'su
+olarak sunulamaz; yalnız operatorün açıkça tanımladığı maliyet snapshot'ıdır.
+
 ## AF.3 — Context benchmark aileleri
 
 - Missing source/type/helper/caller/test fixtures.

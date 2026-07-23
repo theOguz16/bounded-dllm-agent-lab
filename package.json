@@ -232,7 +232,9 @@
     "test:observed-soft-scope-release": "node scripts/observed-soft-scope-release-smoke.cjs",
     "generate:scope-drift-release": "node scripts/generate-scope-drift-release.cjs",
     "test:run-cost-ledger": "node scripts/run-cost-ledger-smoke.cjs --test",
-    "report:run-cost-ledger-fixture": "npm run build && node scripts/run-cost-ledger-smoke.cjs --report"
+    "report:run-cost-ledger-fixture": "npm run build && node scripts/run-cost-ledger-smoke.cjs --report",
+    "test:live-run-cost-capture": "node scripts/live-run-cost-capture-smoke.cjs",
+    "live:run-cost-capture": "npm run build && node scripts/live-run-cost-capture.cjs"
   },
   "workspaces": [
     "apps/*",
