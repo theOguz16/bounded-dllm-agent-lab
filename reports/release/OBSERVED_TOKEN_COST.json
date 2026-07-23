@@ -1,0 +1,938 @@
+{
+  "artifactVersion": "1",
+  "evidenceClass": "observed_run",
+  "observationSource": "live_provider_call",
+  "providerAttestation": "I_CONFIRM_REAL_PROVIDER_CALLS",
+  "capturedAt": "2026-07-23T13:33:09.691Z",
+  "providerId": "runpod-llama-cpp",
+  "modelId": "qwen2.5-coder-7b",
+  "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+  "benchmarkReport": {
+    "reportVersion": "1",
+    "benchmarkId": "af3b:af3b-qwen-live-release-20260723-v1",
+    "evidenceClass": "observed_run",
+    "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+    "sameProviderModelSet": true,
+    "samePricingSnapshotSet": true,
+    "allStrategiesPresent": true,
+    "releaseClaimEligible": true,
+    "sourceInputHash": "sha256:7db1fb8f5c563a5f144846a837da80a692085ae7159e5e4147547efa91b4510c",
+    "ledgers": [
+      {
+        "ledgerVersion": "1",
+        "evidenceClass": "observed_run",
+        "observationSource": "live_provider_call",
+        "observationReceiptHash": "sha256:3dea4898ac2ef50e9a648bbf11500556e41436fb83520b6dde2abfc2054abf52",
+        "releaseClaimEligible": true,
+        "runId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1",
+        "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+        "sourceLedgerRootHash": "sha256:47cc93f3b3c439adf8ac07faa056eae5a0be23caddbb10b83cfaeb194bcf8308",
+        "strategy": "adaptive_bounded_context",
+        "outcome": "accepted_patch",
+        "acceptedPatchCount": 2,
+        "providerModelSetHash": "sha256:7277e030984de3b795c2c4fe09b93353992ed7c31f6f4bb27f021a656b13466b",
+        "pricingSnapshotSetHash": "sha256:5b82484df5fb8154b6432ad493779eee26e1bdba6eb67bb2524f2dc2f9cf32c7",
+        "pricingSnapshots": [
+          {
+            "snapshotVersion": "1",
+            "snapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "currency": "USD",
+            "inputNanoUsdPerToken": 1,
+            "outputNanoUsdPerToken": 1,
+            "capturedAt": "2026-07-23T13:33:09.691Z",
+            "sourceKind": "operator_configured",
+            "sourceHash": "sha256:a0b26ae25d195e02e86fcfd6e7ca3fd2188ae4e554e729f12b9d00301eb09d48"
+          }
+        ],
+        "invocations": [
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000001",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000001",
+            "eventHash": "sha256:9739b416b59226b4359e4ba3b90629b5c6c5b15f991f4651f7a34ff1943c3c10",
+            "operation": "planner",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 206,
+              "outputTokens": 33,
+              "totalTokens": 239,
+              "providerResponseHash": "sha256:0fa1a152cab8844462981d2fc1869594d1060132c0f4605a48265195e7db0957",
+              "providerRequestId": "chatcmpl-vbatlrzmp4akI6hWcPbWDlosvhh2o7BG"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 239,
+            "invocationHash": "sha256:d0ae1cc325db46e812f8635a7a04c507b2b83fff3ec47b22f1d72a780d0e8a9f"
+          },
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000002",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000002",
+            "eventHash": "sha256:a13f14c6b105f5e1b925bdd8c8de2dab20f760b21f946a60af1d266362417e8e",
+            "operation": "coder",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 192,
+              "outputTokens": 103,
+              "totalTokens": 295,
+              "providerResponseHash": "sha256:e401c23abe9b1ad2adb9070ded10420fcf79846f40880cef1b644dc8c8dbe33f",
+              "providerRequestId": "chatcmpl-Kf9RAgJiyR2R1iMWankAg2ddjShzthfU"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 295,
+            "invocationHash": "sha256:6908afc92940bc451340502073bf290125196a70687a359c6e3392bebd86db5b"
+          },
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000003",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000003",
+            "eventHash": "sha256:4e587b754871fa58e533e689f7813680db5b72e43de76938afe872aca04e877b",
+            "operation": "verifier",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 304,
+              "outputTokens": 28,
+              "totalTokens": 332,
+              "providerResponseHash": "sha256:af7610cb42dc1422e48df0b1e09446ec79d725145654f00a9fafd7b067bc2c8f",
+              "providerRequestId": "chatcmpl-ZL5RUedzVLwpAwjGxiVCH5H1KNNbyRDu"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 332,
+            "invocationHash": "sha256:fd482ce78cd17239aaa2828ed4fbc861c5524749a67b32b13bb2ea431e3e5d53"
+          },
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000004",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000004",
+            "eventHash": "sha256:f79c2de7ace0d218daba33065457c6ad4e6cbbe97f60247803690e067b1ac42a",
+            "operation": "planner",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 197,
+              "outputTokens": 49,
+              "totalTokens": 246,
+              "providerResponseHash": "sha256:b6457600c6bc8d8520df17d05b4512e3707a6f0a97777b08816431af8ef71967",
+              "providerRequestId": "chatcmpl-lKjjKXHcLXBtspRRo3WwuWPr5axcUOIF"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 246,
+            "invocationHash": "sha256:19f0bff45fd4430551df6b6b660fda76150518b4e74a7deaee0637a03a9d7def"
+          },
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000005",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000005",
+            "eventHash": "sha256:e3043f3bfe4ef170063c67b9a1b46246a02683a7d7f4f304a146c9eb6413d289",
+            "operation": "coder",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 177,
+              "outputTokens": 56,
+              "totalTokens": 233,
+              "providerResponseHash": "sha256:ff9280cc1621b149748d4d60debb371d86caf58b65801d301d4e0326d37e685b",
+              "providerRequestId": "chatcmpl-CMPs2pAfCpT2fJvTSmkEvA3vhI8nKKDf"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 233,
+            "invocationHash": "sha256:98cea751d6903cf262f34d24f95de12287e203c38cd9ae220aab0a51f8635209"
+          },
+          {
+            "invocationId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000006",
+            "eventId": "af3b:adaptive_bounded_context:af3b-qwen-live-release-20260723-v1:event:000006",
+            "eventHash": "sha256:47cc93f3b3c439adf8ac07faa056eae5a0be23caddbb10b83cfaeb194bcf8308",
+            "operation": "verifier",
+            "strategy": "adaptive_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 245,
+              "outputTokens": 36,
+              "totalTokens": 281,
+              "providerResponseHash": "sha256:c8151435d82298fbc88a284cfb229989927e4e73e25627cf080b218f2eb326b6",
+              "providerRequestId": "chatcmpl-eZLutdijHvjUHVpA15AaaoJrRXSw4fo8"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 281,
+            "invocationHash": "sha256:8c2605bfcf3dfbea4852ccc739857409e3ba91ca03b54990554c7447fa2db43a"
+          }
+        ],
+        "operationAggregates": [
+          {
+            "operation": "planner",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 403,
+              "outputTokens": 82,
+              "totalTokens": 485,
+              "costNanoUsd": 485
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "coder",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 369,
+              "outputTokens": 159,
+              "totalTokens": 528,
+              "costNanoUsd": 528
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "verifier",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 549,
+              "outputTokens": 64,
+              "totalTokens": 613,
+              "costNanoUsd": 613
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          }
+        ],
+        "totals": {
+          "observed": {
+            "invocationCount": 6,
+            "inputTokens": 1321,
+            "outputTokens": 305,
+            "totalTokens": 1626,
+            "costNanoUsd": 1626
+          },
+          "estimated": {
+            "invocationCount": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "totalTokens": 0,
+            "costNanoUsd": 0
+          },
+          "unavailableInvocationCount": 0,
+          "unpricedObservedInvocationCount": 0,
+          "unpricedEstimatedInvocationCount": 0,
+          "retryInvocationCount": 0,
+          "retryObservedTokens": 0,
+          "remaskObservedTokens": 0,
+          "expansionObservedTokens": 0,
+          "shadowAdminObservedTokens": 0,
+          "fullObservedCoverage": true,
+          "costPerAcceptedPatchNanoUsd": 813
+        },
+        "ledgerHash": "sha256:8521ff9b0e43053a60a52d220da92f380baf64d5d2ca77fcdac7d8ed504ac342"
+      },
+      {
+        "ledgerVersion": "1",
+        "evidenceClass": "observed_run",
+        "observationSource": "live_provider_call",
+        "observationReceiptHash": "sha256:f4390baa5589c8a8d86ead76d4dece175ec750e57f4bf6056617ddbe8ac7c44e",
+        "releaseClaimEligible": true,
+        "runId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1",
+        "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+        "sourceLedgerRootHash": "sha256:51f0aaa643b93be1d128905770187dee4e0543a8838512a588de8fff8c20b447",
+        "strategy": "direct_large_context",
+        "outcome": "accepted_patch",
+        "acceptedPatchCount": 2,
+        "providerModelSetHash": "sha256:7277e030984de3b795c2c4fe09b93353992ed7c31f6f4bb27f021a656b13466b",
+        "pricingSnapshotSetHash": "sha256:5b82484df5fb8154b6432ad493779eee26e1bdba6eb67bb2524f2dc2f9cf32c7",
+        "pricingSnapshots": [
+          {
+            "snapshotVersion": "1",
+            "snapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "currency": "USD",
+            "inputNanoUsdPerToken": 1,
+            "outputNanoUsdPerToken": 1,
+            "capturedAt": "2026-07-23T13:33:09.691Z",
+            "sourceKind": "operator_configured",
+            "sourceHash": "sha256:a0b26ae25d195e02e86fcfd6e7ca3fd2188ae4e554e729f12b9d00301eb09d48"
+          }
+        ],
+        "invocations": [
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000001",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000001",
+            "eventHash": "sha256:3b01f569b9b9bf4dc528dc27f0f6243e258b55627c46c8a838c346aa75610006",
+            "operation": "planner",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 334,
+              "outputTokens": 37,
+              "totalTokens": 371,
+              "providerResponseHash": "sha256:2f45fd3c38ed2124e5cc5cc911e15d88ee5753653a05fa365d6822f5b211e7aa",
+              "providerRequestId": "chatcmpl-wpZhsuiUWa9z2WqUvAaTu2Qu5EMWneUu"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 371,
+            "invocationHash": "sha256:e6ec81ef370b4e8ef8ab9ed4409b174683e9bd68da1d336ac6001211b9ef20cf"
+          },
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000002",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000002",
+            "eventHash": "sha256:9b3a216b96fa8a37e760f1307c4bb8e84a294a664f6d1cd6da4f53932faa9c72",
+            "operation": "coder",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 354,
+              "outputTokens": 73,
+              "totalTokens": 427,
+              "providerResponseHash": "sha256:8a7de347061cb3b370e275e171b260b9bd81a1858ace3d9b9ae99287b8a0a0e4",
+              "providerRequestId": "chatcmpl-2oM8IGxOGVf3kLp7bNSx5EFjgQNyeXuA"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 427,
+            "invocationHash": "sha256:cf1fa70016cf9e7727763ca628836efbdb8fdf8b8b66ab5b107a1792bfd5e739"
+          },
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000003",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000003",
+            "eventHash": "sha256:ac56588c0b998334e07c8b0709763ca3114d211d81c0ed4d54b58ebad4f36540",
+            "operation": "verifier",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 436,
+              "outputTokens": 27,
+              "totalTokens": 463,
+              "providerResponseHash": "sha256:92d3f9f1b22882cd34daf25b3634e372edf8f2fc87163da27ff49e35ad1c6b9a",
+              "providerRequestId": "chatcmpl-QkoRZS3KAcJgLR3Ze5B82cxA8yJYfaKz"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 463,
+            "invocationHash": "sha256:3232b71198e8b92fa4b53535afee19a49c7ff4048442d355a7033583f5c54ccb"
+          },
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000004",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000004",
+            "eventHash": "sha256:6a979afbc5d80cc0814ee828197ed49d633b45da52d4c550416afc6d11347eeb",
+            "operation": "planner",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 318,
+              "outputTokens": 48,
+              "totalTokens": 366,
+              "providerResponseHash": "sha256:3b0a9ea58f7afeec2f441efbaa3ee6a0fd21bc72de87e0fc084f337453417945",
+              "providerRequestId": "chatcmpl-VJzrJl0a5a6qeBxAww7l8TTQsySDOoSN"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 366,
+            "invocationHash": "sha256:3c6673a54f57a89489eb4a773461995431777d9236533701ed5b827d4f9abc29"
+          },
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000005",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000005",
+            "eventHash": "sha256:60ef45277bf4c2cdf2a6b59446a45a91e6b6ababac67f72295a3ab8b502fee4f",
+            "operation": "coder",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 338,
+              "outputTokens": 58,
+              "totalTokens": 396,
+              "providerResponseHash": "sha256:aa8004d6cd8e17e37e059d18e6e6c200f3d9b257a9c42f8737d4c65a60aaaf45",
+              "providerRequestId": "chatcmpl-eGuV6EwfCrgskWqBLgHdPxPKUR7XbDiM"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 396,
+            "invocationHash": "sha256:085720882c5d7a2e43eafb63a1a08ad568096343ab81cb2d3fcb088fd1148c38"
+          },
+          {
+            "invocationId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:cost:000006",
+            "eventId": "af3b:direct_large_context:af3b-qwen-live-release-20260723-v1:event:000006",
+            "eventHash": "sha256:51f0aaa643b93be1d128905770187dee4e0543a8838512a588de8fff8c20b447",
+            "operation": "verifier",
+            "strategy": "direct_large_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 407,
+              "outputTokens": 44,
+              "totalTokens": 451,
+              "providerResponseHash": "sha256:9e25cebdd84f1bc054196794326049c01c603ddf826afd85a20741660338e59a",
+              "providerRequestId": "chatcmpl-nbLBRrVfjtkV3UJOcXBBzPhW6kGHN2Mu"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 451,
+            "invocationHash": "sha256:181b70ef168b43485a42c5c7a122d6cc4e7ecba658a0323d27eb8b8d3fac0555"
+          }
+        ],
+        "operationAggregates": [
+          {
+            "operation": "planner",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 652,
+              "outputTokens": 85,
+              "totalTokens": 737,
+              "costNanoUsd": 737
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "coder",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 692,
+              "outputTokens": 131,
+              "totalTokens": 823,
+              "costNanoUsd": 823
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "verifier",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 843,
+              "outputTokens": 71,
+              "totalTokens": 914,
+              "costNanoUsd": 914
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          }
+        ],
+        "totals": {
+          "observed": {
+            "invocationCount": 6,
+            "inputTokens": 2187,
+            "outputTokens": 287,
+            "totalTokens": 2474,
+            "costNanoUsd": 2474
+          },
+          "estimated": {
+            "invocationCount": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "totalTokens": 0,
+            "costNanoUsd": 0
+          },
+          "unavailableInvocationCount": 0,
+          "unpricedObservedInvocationCount": 0,
+          "unpricedEstimatedInvocationCount": 0,
+          "retryInvocationCount": 0,
+          "retryObservedTokens": 0,
+          "remaskObservedTokens": 0,
+          "expansionObservedTokens": 0,
+          "shadowAdminObservedTokens": 0,
+          "fullObservedCoverage": true,
+          "costPerAcceptedPatchNanoUsd": 1237
+        },
+        "ledgerHash": "sha256:fe63baf2720c56097e34936225d301a22f7db669ebb8ffee7c949f5fe14ff64f"
+      },
+      {
+        "ledgerVersion": "1",
+        "evidenceClass": "observed_run",
+        "observationSource": "live_provider_call",
+        "observationReceiptHash": "sha256:e28ad74a45c9a165e77f783773b451a624a842fa93b135e760300407e447d10d",
+        "releaseClaimEligible": true,
+        "runId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1",
+        "taskSetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+        "sourceLedgerRootHash": "sha256:43dedc11403893b24394ee4bc57313033da8e24894ea6dfd39037995886804ad",
+        "strategy": "fixed_bounded_context",
+        "outcome": "accepted_patch",
+        "acceptedPatchCount": 2,
+        "providerModelSetHash": "sha256:7277e030984de3b795c2c4fe09b93353992ed7c31f6f4bb27f021a656b13466b",
+        "pricingSnapshotSetHash": "sha256:5b82484df5fb8154b6432ad493779eee26e1bdba6eb67bb2524f2dc2f9cf32c7",
+        "pricingSnapshots": [
+          {
+            "snapshotVersion": "1",
+            "snapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "currency": "USD",
+            "inputNanoUsdPerToken": 1,
+            "outputNanoUsdPerToken": 1,
+            "capturedAt": "2026-07-23T13:33:09.691Z",
+            "sourceKind": "operator_configured",
+            "sourceHash": "sha256:a0b26ae25d195e02e86fcfd6e7ca3fd2188ae4e554e729f12b9d00301eb09d48"
+          }
+        ],
+        "invocations": [
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000001",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000001",
+            "eventHash": "sha256:80c0fea6e4cb82b3afeb275689d2b3d12da94f78b6a52e1d7f0b6034ed3e3ce1",
+            "operation": "planner",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 203,
+              "outputTokens": 28,
+              "totalTokens": 231,
+              "providerResponseHash": "sha256:9c8d8a94fb3b14b688e30b3c39d6bde7690a00a42b21ff2940b2d3d941d9f1bb",
+              "providerRequestId": "chatcmpl-bHry15rfK6khitWiLSZhwpSe0HNLxsGl"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 231,
+            "invocationHash": "sha256:4d9e09d533321103e1360ceaedfd13a8629e15c1f68f2e7555a8432bfcff9336"
+          },
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000002",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000002",
+            "eventHash": "sha256:b3abd47cf318f546d262fcc7f430ee9e35463796b1b3403c0cc4c021da50faa3",
+            "operation": "coder",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 223,
+              "outputTokens": 105,
+              "totalTokens": 328,
+              "providerResponseHash": "sha256:2f69d21884db545165d473f5a9ac3b8fa51433c624947ff42350b850accb2e27",
+              "providerRequestId": "chatcmpl-AQITjfK2FIpwpGwihSQbkyJrDFrCY9oB"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 328,
+            "invocationHash": "sha256:b7bf319b46b01ffc75df31b96be1fc7e238635c45f60db90e34409a365a767db"
+          },
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000003",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000003",
+            "eventHash": "sha256:88c532dad93f9d925e36fb9bea14cc9889a38f3a1237ef277e657884e6d38cc0",
+            "operation": "verifier",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 305,
+              "outputTokens": 28,
+              "totalTokens": 333,
+              "providerResponseHash": "sha256:5f99bbc1b19f4c948ca8ead08b2ea6153f6e396de41ddf36819c21b48a26aaff",
+              "providerRequestId": "chatcmpl-p4fuHC39z7Y0EgsdKOi98CB0uCAvOfDy"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 333,
+            "invocationHash": "sha256:3e318f3c9790aaa736c65a8079298ff3925f6b042d48dd08d54c627b1751136f"
+          },
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000004",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000004",
+            "eventHash": "sha256:c4445fd74bc9b673f903323a3232aa729b9a7c1a7d45d55c304ec36c051295ca",
+            "operation": "planner",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 188,
+              "outputTokens": 30,
+              "totalTokens": 218,
+              "providerResponseHash": "sha256:4be7f9f15802ed8445fd98b67f301fa56f109557b4c5bdca158c68bec20b16e0",
+              "providerRequestId": "chatcmpl-Ih3ncHgOhTge0igR1XGxZVbjUlxulDlh"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 218,
+            "invocationHash": "sha256:572a2c388b2ed87a91d7d30d3fd15ac34d5b710ce66d215f01530d7ba81b7bb8"
+          },
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000005",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000005",
+            "eventHash": "sha256:19f8787f478f0fe5250fa03f52d37c376d780099eb4ecd73a9913530b20af105",
+            "operation": "coder",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 208,
+              "outputTokens": 58,
+              "totalTokens": 266,
+              "providerResponseHash": "sha256:458608821535ffbf6edb9cfa138fc5de81acc6e3217a530cc6669c47006de326",
+              "providerRequestId": "chatcmpl-Jx08e6MVc0IqV0y4rx1mvXsArOH6iVbB"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 266,
+            "invocationHash": "sha256:793aebf36b5c223d56da42c4bbff66a0e4b1be69e43a0c12bac17d9c2f8db6e9"
+          },
+          {
+            "invocationId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:cost:000006",
+            "eventId": "af3b:fixed_bounded_context:af3b-qwen-live-release-20260723-v1:event:000006",
+            "eventHash": "sha256:43dedc11403893b24394ee4bc57313033da8e24894ea6dfd39037995886804ad",
+            "operation": "verifier",
+            "strategy": "fixed_bounded_context",
+            "providerId": "runpod-llama-cpp",
+            "modelId": "qwen2.5-coder-7b",
+            "attempt": 1,
+            "isRetry": false,
+            "usage": {
+              "status": "observed",
+              "inputTokens": 246,
+              "outputTokens": 28,
+              "totalTokens": 274,
+              "providerResponseHash": "sha256:535e76de8e3b68ba802beb73251841fa4718a7924de44c4fd2d96212b3bc5bd5",
+              "providerRequestId": "chatcmpl-Y7QyFuHA0rUyBeXVOtjoZE3ABinIJcP9"
+            },
+            "priceSnapshotId": "af3b-price:af3b-qwen-live-release-20260723-v1",
+            "costStatus": "observed",
+            "costNanoUsd": 274,
+            "invocationHash": "sha256:3d83b775f0149c49d2a940b140cff05d6520a7f0773f40459300f34ace594557"
+          }
+        ],
+        "operationAggregates": [
+          {
+            "operation": "planner",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 391,
+              "outputTokens": 58,
+              "totalTokens": 449,
+              "costNanoUsd": 449
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "coder",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 431,
+              "outputTokens": 163,
+              "totalTokens": 594,
+              "costNanoUsd": 594
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          },
+          {
+            "operation": "verifier",
+            "observed": {
+              "invocationCount": 2,
+              "inputTokens": 551,
+              "outputTokens": 56,
+              "totalTokens": 607,
+              "costNanoUsd": 607
+            },
+            "estimated": {
+              "invocationCount": 0,
+              "inputTokens": 0,
+              "outputTokens": 0,
+              "totalTokens": 0,
+              "costNanoUsd": 0
+            },
+            "unavailableInvocationCount": 0,
+            "retryInvocationCount": 0
+          }
+        ],
+        "totals": {
+          "observed": {
+            "invocationCount": 6,
+            "inputTokens": 1373,
+            "outputTokens": 277,
+            "totalTokens": 1650,
+            "costNanoUsd": 1650
+          },
+          "estimated": {
+            "invocationCount": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "totalTokens": 0,
+            "costNanoUsd": 0
+          },
+          "unavailableInvocationCount": 0,
+          "unpricedObservedInvocationCount": 0,
+          "unpricedEstimatedInvocationCount": 0,
+          "retryInvocationCount": 0,
+          "retryObservedTokens": 0,
+          "remaskObservedTokens": 0,
+          "expansionObservedTokens": 0,
+          "shadowAdminObservedTokens": 0,
+          "fullObservedCoverage": true,
+          "costPerAcceptedPatchNanoUsd": 825
+        },
+        "ledgerHash": "sha256:f4b46f7d780c3715548ff741d77ca9ac87ce09fffae68ef73c717f23811713e5"
+      }
+    ],
+    "strategyAggregates": [
+      {
+        "strategy": "direct_large_context",
+        "runCount": 1,
+        "acceptedPatchCount": 2,
+        "observed": {
+          "invocationCount": 6,
+          "inputTokens": 2187,
+          "outputTokens": 287,
+          "totalTokens": 2474,
+          "costNanoUsd": 2474
+        },
+        "estimated": {
+          "invocationCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 0,
+          "costNanoUsd": 0
+        },
+        "unavailableInvocationCount": 0,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1,
+        "costPerAcceptedPatchNanoUsd": 1237
+      },
+      {
+        "strategy": "fixed_bounded_context",
+        "runCount": 1,
+        "acceptedPatchCount": 2,
+        "observed": {
+          "invocationCount": 6,
+          "inputTokens": 1373,
+          "outputTokens": 277,
+          "totalTokens": 1650,
+          "costNanoUsd": 1650
+        },
+        "estimated": {
+          "invocationCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 0,
+          "costNanoUsd": 0
+        },
+        "unavailableInvocationCount": 0,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1,
+        "costPerAcceptedPatchNanoUsd": 825
+      },
+      {
+        "strategy": "adaptive_bounded_context",
+        "runCount": 1,
+        "acceptedPatchCount": 2,
+        "observed": {
+          "invocationCount": 6,
+          "inputTokens": 1321,
+          "outputTokens": 305,
+          "totalTokens": 1626,
+          "costNanoUsd": 1626
+        },
+        "estimated": {
+          "invocationCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "totalTokens": 0,
+          "costNanoUsd": 0
+        },
+        "unavailableInvocationCount": 0,
+        "fullObservedRunCount": 1,
+        "releaseEligibleRunCount": 1,
+        "costPerAcceptedPatchNanoUsd": 813
+      }
+    ],
+    "comparisons": {
+      "fixedVsDirectObservedTokenSavingsRate": 0.333064,
+      "adaptiveVsDirectObservedTokenSavingsRate": 0.342765,
+      "fixedVsDirectObservedCostSavingsRate": 0.333064,
+      "adaptiveVsDirectObservedCostSavingsRate": 0.342765
+    },
+    "reportHash": "sha256:ab3ac7cd314cbc636ee425b631a04d3529b0c55d8f304b86190912c35bc953ff"
+  },
+  "taskResults": [
+    {
+      "strategy": "direct_large_context",
+      "taskResults": [
+        {
+          "taskId": "clamp-helper",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        },
+        {
+          "taskId": "normalize-title",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "strategy": "fixed_bounded_context",
+      "taskResults": [
+        {
+          "taskId": "clamp-helper",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        },
+        {
+          "taskId": "normalize-title",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        }
+      ]
+    },
+    {
+      "strategy": "adaptive_bounded_context",
+      "taskResults": [
+        {
+          "taskId": "clamp-helper",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        },
+        {
+          "taskId": "normalize-title",
+          "plannerValid": true,
+          "candidateValid": true,
+          "verifierApproved": true,
+          "accepted": true,
+          "callsObserved": true,
+          "errors": []
+        }
+      ]
+    }
+  ],
+  "artifactHash": "sha256:c0d8e2a100a89043ebab82ce3f347b17f6382221490365e278a4ba2d89488a42"
+}

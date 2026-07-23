@@ -102,7 +102,7 @@ async function main() {
       );
       assert.deepEqual(
         result.audit.openBlockerIds,
-        ["G8", "G13"]
+        ["G13"]
       );
       assert.equal(
         result.audit.releaseReady,
@@ -138,7 +138,7 @@ async function main() {
         );
       assert.equal(
         result.audit.missingArtifactIds.length,
-        11
+        10
       );
       assert.equal(
         result.summary.requiredArtifactsComplete,

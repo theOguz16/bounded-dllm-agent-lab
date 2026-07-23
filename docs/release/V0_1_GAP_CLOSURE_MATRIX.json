@@ -285,7 +285,7 @@
       "id": "G8",
       "title": "Observed token and cost ledger is unified",
       "v01Blocker": true,
-      "disposition": "open",
+      "disposition": "closed",
       "evidence": [
         {
           "stage": "primitive",
@@ -307,6 +307,20 @@
           "artifactKind": "integration",
           "locator": "packages/product-runtime/src/agent-event-cost-binding.ts",
           "evidenceHash": "sha256:8581b404cac885704d409a43cfcf1ab729ab3e3a03ed8fa44eb71dbf0944350a"
+        },
+        {
+          "stage": "live_or_real_evidence",
+          "evidenceId": "g8.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "reports/release/OBSERVED_TOKEN_COST.json",
+          "evidenceHash": "sha256:26f17a677d8097ff0d1c7ff2336cc872d7e8916ca7d26668e6de9f9fffb17794"
+        },
+        {
+          "stage": "release_artifact",
+          "evidenceId": "g8.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/release/OBSERVED_TOKEN_COST.md",
+          "evidenceHash": "sha256:7aa27ad5ad2168a6852d75a336d4a95f098afa079b2a100e6f47ba32269f12ea"
         }
       ]
     },
@@ -513,7 +527,8 @@
     },
     {
       "artifactId": "observed_token_cost_report",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:26f17a677d8097ff0d1c7ff2336cc872d7e8916ca7d26668e6de9f9fffb17794"
     },
     {
       "artifactId": "fail_closed_matrix",

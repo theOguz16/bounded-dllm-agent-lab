@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.3b live A/B/C token-cost capture |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4 unified release artifacts and G13 closure |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1130,7 +1130,7 @@ AF.3b aynı provider, model, task seti ve pricing snapshot ile gerçek A/B/C
 
 <!-- PHASE_AF_3B_LIVE_COST_STATUS -->
 
-**Durum: Uygulama hazır; live validation bekleniyor.**
+**Durum: Tamamlandı.**
 
 Aynı provider, model, temperature, task seti ve price snapshot altında üç
 strateji gerçek OpenAI-compatible HTTP çağrılarıyla çalıştırılır:
