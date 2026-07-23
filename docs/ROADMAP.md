@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.1b repository-bound verify:release runner |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -902,6 +902,42 @@ typecheck
 → benchmark aggregation
 → report generation
 ```
+
+## AF.1a — Deterministic v0.1 gap closure audit
+
+<!-- PHASE_AF_1A_GAP_AUDIT_STATUS -->
+
+**Durum: Tamamlandı.**
+
+G1–G14 gap registrysi typed ve tamper-evident bir audit contractına çevrilir.
+Her kapalı v0.1 blocker için aşağıdaki beş aşamalı evidence zinciri zorunludur:
+
+```text
+primitive
+→ contract tests
+→ canonical integration
+→ live/real evidence
+→ release artifact
+```
+
+Audit ayrıca tek canonical coordinator declarationını, `verify:release` komutunu
+ve on iki zorunlu release artifactını ayrı blocker olarak değerlendirir.
+
+Mevcut matrix kasıtlı olarak release-ready değildir:
+
+- G5 soft scope drift ölçümü açıktır.
+- G8 unified observed token/cost ledger açıktır.
+- G13 legacy/canonical runtime ayrımı açıktır.
+- `verify:release` henüz repository-bound runner değildir.
+- Release artifact seti henüz üretilmemiştir.
+
+Bu aşama yalnız structural ve cryptographic audit contractını kapatır. Evidence
+locatorlarının repository içindeki gerçek dosya/komutlarla eşleşmesi AF.1b'de
+read-only repository inspection ile doğrulanacaktır.
+
+AF.1b audit matrixini gerçek package scripts, runtime exports, test/report
+artifacts ve repository hashes ile bağlayacak; yalnız tüm blockerlar kapandığında
+`npm run verify:release` başarı döndürecektir.
 
 ## AF.2 — Ana karşılaştırma
 

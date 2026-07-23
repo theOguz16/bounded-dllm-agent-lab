@@ -222,7 +222,8 @@
     "test:draft-pr-delivery-contract": "node scripts/draft-pr-delivery-contract-smoke.cjs",
     "test:controlled-local-delivery": "node scripts/controlled-local-delivery-smoke.cjs",
     "test:controlled-remote-branch-push": "node scripts/controlled-remote-branch-push-smoke.cjs",
-    "test:controlled-github-draft-pr": "node scripts/controlled-github-draft-pr-smoke.cjs"
+    "test:controlled-github-draft-pr": "node scripts/controlled-github-draft-pr-smoke.cjs",
+    "test:release-gap-closure-audit": "node scripts/release-gap-closure-audit-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
