@@ -1,3 +1,13 @@
+/**
+ * @deprecated RESEARCH_ONLY_COMPATIBILITY_ENTRYPOINT
+ *
+ * Historical research, mock orchestration and compatibility APIs live here so
+ * old fixtures remain reproducible. Package consumers must use the package root,
+ * which resolves to ./canonical-runtime.ts. This file is not release evidence.
+ */
+export const RESEARCH_ONLY_COMPATIBILITY_ENTRYPOINT =
+  "research-only-compatibility/v1" as const;
+
 export * from "./model-mutation-validator.js";
 export * from "./context-sufficiency-contract.js";
 export * from "./context-expansion-resolver.js";

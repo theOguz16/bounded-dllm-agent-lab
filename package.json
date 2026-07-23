@@ -234,7 +234,9 @@
     "test:run-cost-ledger": "node scripts/run-cost-ledger-smoke.cjs --test",
     "report:run-cost-ledger-fixture": "npm run build && node scripts/run-cost-ledger-smoke.cjs --report",
     "test:live-run-cost-capture": "node scripts/live-run-cost-capture-smoke.cjs",
-    "live:run-cost-capture": "npm run build && node scripts/live-run-cost-capture.cjs"
+    "live:run-cost-capture": "npm run build && node scripts/live-run-cost-capture.cjs",
+    "test:runtime-generation-boundary": "node scripts/runtime-generation-boundary-smoke.cjs",
+    "generate:runtime-generation-boundary": "npm run build && node scripts/generate-runtime-generation-boundary.cjs"
   },
   "workspaces": [
     "apps/*",

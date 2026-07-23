@@ -1,0 +1,47 @@
+{
+  "reportVersion": "1",
+  "boundaryVersion": "1",
+  "evidenceClass": "observed_run",
+  "observationSource": "repository_source_scan",
+  "releaseClaimEligible": true,
+  "decision": "runtime_generation_boundary_ready",
+  "packageName": "@bounded-dllm-agent-lab/product-runtime",
+  "canonicalEntrypoint": "src/canonical-runtime.ts",
+  "canonicalPackageExport": "./src/canonical-runtime.ts",
+  "legacyEntrypoint": "src/index.ts",
+  "requiredCanonicalExports": [
+    "export * from \"./integrated-disposable-apply-coordinator.js\";",
+    "export * from \"./context-sufficiency-authorization.js\";",
+    "export * from \"./acceptance-criteria-contract.js\";",
+    "export * from \"./controlled-repository-apply.js\";",
+    "export * from \"./controlled-post-apply-validation.js\";",
+    "export * from \"./durable-consumption-registry.js\";"
+  ],
+  "forbiddenCanonicalSymbols": [
+    "createMockOrchestrationFlowDefinition",
+    "mock-bounded-workspace-flow-v1",
+    "SharedWorkspaceSnapshot",
+    "SyntheticWorkspacePacket",
+    "reviewPatch("
+  ],
+  "requiredLegacyMarkers": [
+    "RESEARCH_ONLY_COMPATIBILITY_ENTRYPOINT",
+    "createMockOrchestrationFlowDefinition",
+    "mock-bounded-workspace-flow-v1"
+  ],
+  "canonicalSourceHash": "sha256:03a967ff1a29c1f9f4519fc456e357c64e4b083dad955822183c4ddfb82df867",
+  "legacySourceHash": "sha256:3dfa1303727189918e2e0bb8aab563b32fd7b288f367a653cfd9595cbfe1108d",
+  "packageManifestHash": "sha256:a9241308f7fb1bfc3fafa323a7820d8d8972fc79fe4b412a27010f6eb1f43c5d",
+  "checks": {
+    "packageNameMatched": true,
+    "packageMainCanonical": true,
+    "packageExportsOnlyCanonical": true,
+    "canonicalMetadataPresent": true,
+    "canonicalRequiredExportsPresent": true,
+    "canonicalLegacySymbolsAbsent": true,
+    "legacyResearchMarkerPresent": true,
+    "legacySurfaceNotPubliclyExported": true
+  },
+  "errors": [],
+  "reportHash": "sha256:9c3d76e64889034e9daa27c7ec8a264b6a1d78e608e74a5a89fd1af4fa53b7e9"
+}

@@ -89,7 +89,7 @@ async function main() {
   }
 
   await check(
-    "current v0.1 matrix is structurally valid but release blocked",
+    "current v0.1 matrix has no open blocker but release artifacts remain missing",
     () => {
       const result =
         buildV01ReleaseGapClosureAudit(
@@ -102,7 +102,7 @@ async function main() {
       );
       assert.deepEqual(
         result.audit.openBlockerIds,
-        ["G13"]
+        []
       );
       assert.equal(
         result.audit.releaseReady,
@@ -138,7 +138,7 @@ async function main() {
         );
       assert.equal(
         result.audit.missingArtifactIds.length,
-        10
+        9
       );
       assert.equal(
         result.summary.requiredArtifactsComplete,
@@ -374,7 +374,8 @@ async function main() {
       );
       const tampered =
         clone(built.audit);
-      tampered.openBlockerIds = [];
+      tampered.releaseReady =
+        !tampered.releaseReady;
       const invalid =
         verifyV01ReleaseGapClosureAudit(
           matrix,

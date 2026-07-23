@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4 unified release artifacts and G13 closure |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.4b unified release artifact pack (G13 closed) |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1183,17 +1183,60 @@ olarak sunulamaz; yalnız operatorün açıkça tanımladığı maliyet snapshot
 - Hard budget overflow fixture'ları.
 - Provider timeout/invalid JSON fixture'ları.
 
-## AF.4 — Scope benchmark
+## AF.4a — Canonical runtime generation boundary
 
-Hard ve soft scope ayrı raporlanır.
+<!-- PHASE_AF_4A_RUNTIME_BOUNDARY_STATUS -->
 
-- Forbidden write count.
-- Unexpected-but-allowed file count.
-- Expected vs actual file set farkı.
-- Unnecessary LOC.
-- Unrequested refactor count.
-- New dependency count.
-- New abstraction justification rate.
+**Durum: Tamamlandı.**
+
+`@bounded-dllm-agent-lab/product-runtime` package rootu yalnız
+`canonical-runtime.ts` yüzeyini dışa açar. Historical `index.ts` mock,
+synthetic workspace ve research compatibility API'lerini korur fakat package
+`exports` mapinde bulunmaz.
+
+Repository-bound boundary reportu:
+
+- package `main` ve `exports` alanlarını,
+- canonical coordinator exportunu,
+- canonical entrypointte legacy symbol bulunmamasını,
+- research-only entrypoint markerını,
+- fixture scan ile observed repository scan ayrımını
+
+fail-closed olarak doğrular.
+
+G13 evidence zinciri:
+
+```text
+runtime boundary primitive
+→ negative contract tests
+→ package export integration
+→ repository source scan report
+→ architecture release artifact
+```
+
+AF.2a/AF.2b hard ve soft scope benchmarklarını daha önce tamamlamıştır.
+
+## AF.4b — Unified v0.1 release artifact pack
+
+<!-- PHASE_AF_4B_RELEASE_PACK_STATUS -->
+
+**Durum: Sıradaki adım.**
+
+G13 kapalıdır. Kalan release işi, repositoryde zaten bulunan canonical
+evidenceı yeni deney sonucu gibi sunmadan dokuz eksik artifactta birleştirmektir:
+
+- README quickstart.
+- Threat model.
+- Unified benchmark report.
+- Context sufficiency report.
+- Acceptance coverage report.
+- Fail-closed matrix.
+- Gap closure audit.
+- Known limitations.
+- v0.1 release notes.
+
+AF.4b sonunda `npm run verify:release` yalnız bütün artifact hashleri repository
+stateiyle eşleştiğinde green olabilir.
 
 ## AF.5 — Ölçümler
 

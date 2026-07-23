@@ -543,30 +543,40 @@ Local/self-hosted kullanım sınırı açıkça belirtilirse release blocker de�
 
 # G13 — İki mimari nesil birlikte yaşıyor
 
-## Mevcut durum
+## Kapanış durumu
 
-Repo içinde araştırma döneminden kalan:
+**Kapalı — AF.4a.**
 
-- mock orchestration,
-- legacy SharedSemanticWorkspace,
-- yeni product runtime/workspace snapshot,
-- farklı context sufficiency type'ları
+Repository tarihsel araştırma ve fixture yüzeylerini silmez; bunun yerine
+ürün ve araştırma nesillerini package boundary seviyesinde ayırır:
 
-birlikte bulunabilir.
+- Package root yalnız `canonical-runtime.ts` yüzeyine çözülür.
+- Historical `index.ts`, `RESEARCH_ONLY_COMPATIBILITY_ENTRYPOINT` olarak etiketlidir.
+- Package `exports` mapinde legacy veya research subpath yoktur.
+- Canonical entrypoint mock orchestration, synthetic workspace veya legacy
+  `reviewPatch` sembollerini dışa açmaz.
+- Fixture source scan release-claim eligible olamaz.
+- Yalnız gerçek repository source scan sonucu observed evidence sayılır.
 
-## Risk
+## Kapanış kanıtı
 
-- Aynı bug iki yerde farklı davranır.
-- Public kullanıcı yanlış entrypoint seçer.
-- Benchmark legacy flow'u ürün flow'u sanabilir.
-- Dokümantasyon iddiaları karışır.
+```text
+runtime-generation-boundary.ts
+→ runtime-generation-boundary-smoke.cjs
+→ packages/product-runtime/package.json
+→ reports/release/RUNTIME_GENERATION_BOUNDARY.json
+→ docs/release/ARCHITECTURE.md
+```
 
-## Kapanış kriteri
+## Doğru claim
 
-- Tek canonical runtime seçilir.
-- Legacy research paketleri açıkça `legacy`, `fixture` veya `research-only` etiketlenir.
-- Public package export yalnız canonical yolu sunar.
-- `verify:release` legacy mock sonucu ürün kanıtı saymaz.
+```text
+v0.1 package consumers receive one canonical product-runtime entrypoint;
+historical research APIs remain repository-internal compatibility surfaces.
+```
+
+Bu kapanış historical araştırma kodunun silindiği veya npm packaging/publishing
+zincirinin production-grade olduğu iddiasını yapmaz.
 
 ## Faz sahibi
 

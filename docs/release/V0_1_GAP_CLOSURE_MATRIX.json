@@ -7,7 +7,7 @@
     "exportName": "runIntegratedDisposableApply",
     "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
     "publicApiVerified": true,
-    "evidenceHash": "sha256:e615caa3ca010000220c97dfd2d4b59b8b3bd27361fce3c243a15ba6f4688ee0"
+    "evidenceHash": "sha256:7a3eed92f0d0cd1c470c520eede6d86788add1bd44c1ed515eb313a2cc7fded4"
   },
   "gaps": [
     {
@@ -49,7 +49,7 @@
           "evidenceId": "g1.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -92,7 +92,7 @@
           "evidenceId": "g2.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -135,7 +135,7 @@
           "evidenceId": "g3.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -234,7 +234,7 @@
           "evidenceId": "g6.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -277,7 +277,7 @@
           "evidenceId": "g7.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -363,7 +363,7 @@
           "evidenceId": "g9.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -406,7 +406,7 @@
           "evidenceId": "g10.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     },
@@ -440,14 +440,42 @@
       "id": "G13",
       "title": "Legacy and canonical runtime generations are separated",
       "v01Blocker": true,
-      "disposition": "open",
+      "disposition": "closed",
       "evidence": [
         {
           "stage": "primitive",
           "evidenceId": "g13.primitive",
           "artifactKind": "module",
-          "locator": "packages/product-runtime/src/index.ts",
-          "evidenceHash": "sha256:1287c38cdbed5ba889850061e671a1420300e7757d8b00d2b7c648c31cdf611c"
+          "locator": "packages/product-runtime/src/runtime-generation-boundary.ts",
+          "evidenceHash": "sha256:518cb7b02c436b3e025e279c7ff2164ad48149f6dd08002a610b5fb7fadde263"
+        },
+        {
+          "stage": "contract_tests",
+          "evidenceId": "g13.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/runtime-generation-boundary-smoke.cjs",
+          "evidenceHash": "sha256:4aa636b4d20ed6f00f4b88762a8c161956eb7297e5ebb9cebdc4b957a582fb27"
+        },
+        {
+          "stage": "canonical_integration",
+          "evidenceId": "g13.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/package.json",
+          "evidenceHash": "sha256:21be0ab38819900de8afd026c5f5f60e0f52adf8f5222dc67f137a7737292403"
+        },
+        {
+          "stage": "live_or_real_evidence",
+          "evidenceId": "g13.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "reports/release/RUNTIME_GENERATION_BOUNDARY.json",
+          "evidenceHash": "sha256:3eb1c0f7f1a9ff5f6bcf03966b4374b38dab6aa4e8f540c8d3850992288ed69c"
+        },
+        {
+          "stage": "release_artifact",
+          "evidenceId": "g13.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/release/ARCHITECTURE.md",
+          "evidenceHash": "sha256:3d5d3a049a53e5f0fd7a9195014eaa628238b77172c5f7a4935e35cf934d33f9"
         }
       ]
     },
@@ -490,7 +518,7 @@
           "evidenceId": "g14.release_artifact",
           "artifactKind": "document",
           "locator": "docs/RELEASE_BLOCKING_GAPS.md",
-          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
+          "evidenceHash": "sha256:51162b781bcab9948c3a5be5d00b028ba3303d57091a939ca310f04735c76160"
         }
       ]
     }
@@ -502,7 +530,8 @@
     },
     {
       "artifactId": "architecture_diagram",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:3d5d3a049a53e5f0fd7a9195014eaa628238b77172c5f7a4935e35cf934d33f9"
     },
     {
       "artifactId": "threat_model",

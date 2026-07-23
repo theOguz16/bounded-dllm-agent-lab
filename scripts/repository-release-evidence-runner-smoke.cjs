@@ -83,7 +83,7 @@ async function main() {
   }
 
   await check(
-    "current repository evidence is valid but release blocked",
+    "current repository evidence has no open blocker but release artifacts remain missing",
     async () => {
       const result = await runRepositoryReleaseEvidence({
         repositoryPath: root,
@@ -96,7 +96,7 @@ async function main() {
       );
       assert.deepEqual(
         result.report.gapAudit.openBlockerIds,
-        ["G13"]
+        []
       );
       assert.equal(result.report.releaseReady, false);
     }
