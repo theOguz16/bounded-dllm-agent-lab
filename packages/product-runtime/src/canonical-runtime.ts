@@ -1,14 +1,16 @@
 /**
- * Canonical v0.1 product runtime entrypoint.
+ * Canonical post-v0.1 product runtime entrypoint.
  *
  * The historical research and mock workspace APIs remain in ./index.ts for
  * repository-internal fixtures only. Package consumers receive this entrypoint.
  */
 export const CANONICAL_PRODUCT_RUNTIME_ENTRYPOINT =
-  "canonical-product-runtime/v0.1" as const;
+  "canonical-product-runtime/v0.2-dev" as const;
 
 export * from "./model-mutation-validator.js";
 export * from "./context-sufficiency-contract.js";
+export * from "./canonical-repo-intelligence.js";
+export * from "./repo-intelligence-context-binding.js";
 export * from "./context-expansion-resolver.js";
 export * from "./coder-context-execution-gate.js";
 export * from "./adaptive-context-orchestrator.js";

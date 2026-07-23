@@ -1021,7 +1021,12 @@ export async function analyzeCanonicalRepository(
     const reachableUnresolved = graph.unresolved.filter((item) => closureSet.has(item.from));
     summary.unresolvedRelativeImportCount = reachableUnresolved.length;
 
-    const repositoryIdentityHash = `sha256:${createHash("sha256").update(root, "utf8").digest("hex")}`;
+    const repositoryIdentityHash = hashCanonicalJson(
+      parsedFiles.map((parsed) => ({
+        path: parsed.fact.path,
+        contentHash: parsed.fact.contentHash
+      }))
+    );
     const intelligence = buildIntelligence(
       repositoryIdentityHash,
       parsedInput.seedFiles,

@@ -1350,7 +1350,7 @@ integration ve benchmark zincirleri ayrı AG evidenceı üretir.
 
 <!-- PHASE_AG_1A_REPO_INTELLIGENCE_STATUS -->
 
-**Durum: Aktif.**
+**Durum: Tamamlandı.**
 
 Amaç, eski `packages/repo-intelligence` path ve naming heuristiklerini doğrudan
 canonical API diye yeniden kullanmak değil; product runtime neslinde deterministic,
@@ -1376,9 +1376,54 @@ evidence hashleri geriye dönük değiştirilmez.
 
 ### AG.1b — Canonical integration and context binding
 
-AG.1a intelligence çıktısını Context Sufficiency Gate ve bounded context composer
-öncesinde zorunlu canonical gate olarak bağlar. Package dependency/export
-değişiklikleri ve yeni post-v0.1 release evidenceı bu adımda sürümlenir.
+<!-- PHASE_AG_1B_CONTEXT_BINDING_STATUS -->
+
+**Durum: Tamamlandı.**
+
+AG.1a intelligence çıktısı coder çağrısından önce zorunlu bir canonical gate
+olarak bağlandı:
+
+```text
+seed files
+→ AST import/export/symbol graph
+→ bounded dependency closure
+→ content-hash evidence validation
+→ context binding receipt
+→ adaptive Context Sufficiency Gate
+→ coder provider
+```
+
+Dependency closure `requiredSourceFiles` ve `allowedContextFiles` sınırını üretir.
+Required testler yalnız aynı intelligence snapshotında mevcutsa eklenir. Initial
+evidence path, byte length ve content hash ile snapshot'a bağlanır. Stale,
+boundary dışı veya allowed/forbidden çakışmalı evidence coder çağrısından önce
+fail-closed reddedilir.
+
+`repositoryIdentityHash`, absolute checkout path yerine sıralı path/content-hash
+snapshotından üretilir. Aynı repository bytesı farklı checkout klasörlerinde aynı
+intelligence ve binding hashlerini verir.
+
+Canonical public entrypoint `canonical-product-runtime/v0.2-dev` olarak
+sürümlendi. `typescript`, AST analizi runtime dependency'si olarak
+`@bounded-dllm-agent-lab/product-runtime` package sınırına eklendi.
+
+AG evidence:
+
+- `docs/results/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.md`
+- `reports/ag/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.json`
+- `npm run verify:ag1b`
+
+Evidence class `deterministic_fixture`dır. Live-model task quality, latency,
+token savings veya altyapı maliyeti iddiası üretmez. Yayımlanmış v0.1 evidenceı
+`v0.1.0` taginde dondurulmuş kalır; post-v0.1 main üzerinde eski artifact hashleri
+geriye dönük yeniden yazılmaz.
+
+### AG.1c — Task-to-seed implementation contract
+
+Bir sonraki adım, kullanıcı görevini doğrudan geniş repository taramasına
+çevirmek yerine planner tarafından önerilen seed file, symbol, test ve acceptance
+contractına bağlamak; bu öneriyi Repo Intelligence graphıyla deterministic olarak
+audit etmektir.
 ---
 
 ## 8. MVP Sonrası Ürün Yönü

@@ -1,0 +1,58 @@
+{
+  "reportVersion": "1",
+  "phase": "AG.1b",
+  "evidenceClass": "deterministic_fixture",
+  "decision": "ag1b_repo_intelligence_context_binding_verified",
+  "claimBoundary": "This report verifies deterministic integration and fail-closed fixtures. It is not live-model task-quality or token-savings evidence.",
+  "fixture": {
+    "seedFiles": [
+      "src/index.ts"
+    ],
+    "requiredSourceFiles": [
+      "src/index.ts",
+      "src/service.ts",
+      "src/types.ts"
+    ],
+    "requiredTestFiles": [
+      "tests/service.test.ts"
+    ],
+    "allowedContextFiles": [
+      "src/index.ts",
+      "src/service.ts",
+      "src/types.ts",
+      "tests/service.test.ts"
+    ],
+    "repositoryIdentityHash": "sha256:d6424cb6ae2bdf184feddd129e54bb76e454402728f9a9a82267ac7c414bba25",
+    "intelligenceHash": "sha256:7856bac11e6daab002ab7abfe5a42992f4516cf6bbd64d7914ee8e4a01326fb7",
+    "bindingHash": "sha256:061486990238ba91ae90ec3dafd90265123c108430364d6103686eb095b26d65",
+    "coderProviderCallCount": 1,
+    "contextRequestProviderCallCount": 0
+  },
+  "checks": [
+    "canonical v0.2-dev entrypoint exports intelligence binding",
+    "intelligence binding completes before exactly one coder call",
+    "dependency closure becomes required and allowed context",
+    "coder receives hash-bound graph context and repository evidence",
+    "binding receipt is deterministic and tamper evident",
+    "repository identity and intelligence hash are clone-path independent",
+    "missing seed blocks before context and coder providers",
+    "evidence outside the intelligence boundary is rejected",
+    "stale or tampered evidence bytes are rejected",
+    "required tests must exist in the intelligence snapshot",
+    "allowed and forbidden context overlap is invalid",
+    "required context-request provider failure stops before coder",
+    "integration is read-only and declares no shell or network use"
+  ],
+  "summary": {
+    "checkCount": 13,
+    "intelligenceReady": true,
+    "intelligenceVerified": true,
+    "bindingVerified": true,
+    "adaptiveFlowCallCount": 1,
+    "coderProviderCallCount": 1,
+    "repositoryWritePerformed": false,
+    "shellExecuted": false,
+    "networkAccessed": false
+  },
+  "reportHash": "sha256:f2853106e34bcb09ab5670f71b94bad2fce03aea95b0a59da8008966fc48f5b9"
+}

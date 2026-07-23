@@ -1,6 +1,6 @@
 {
   "name": "bounded-dllm-agent-lab",
-  "version": "0.1.0",
+  "version": "0.2.0-dev.0",
   "private": false,
   "type": "module",
   "description": "Open-source research lab for bounded-context dLLM agents, synthetic context enrichment, and shared semantic workspaces.",
@@ -239,7 +239,10 @@
     "generate:runtime-generation-boundary": "npm run build && node scripts/generate-runtime-generation-boundary.cjs",
     "generate:v0-1-release-pack": "node scripts/generate-v0-1-release-pack.cjs",
     "test:v0-1-release-pack": "npm run build && node scripts/v0-1-release-pack-smoke.cjs",
-    "test:canonical-repo-intelligence": "npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs"
+    "test:canonical-repo-intelligence": "npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs",
+    "test:repo-intelligence-context-binding": "npm run build && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs",
+    "generate:ag1b-evidence": "npm run build && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --report",
+    "verify:ag1b": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify"
   },
   "workspaces": [
     "apps/*",
