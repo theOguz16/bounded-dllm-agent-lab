@@ -1,0 +1,40 @@
+{
+  "artifactVersion": "1",
+  "artifactType": "ag1c_task_to_seed_implementation_contract",
+  "evidenceClass": "deterministic_fixture",
+  "decision": "ag1c_evidence_ready",
+  "scope": {
+    "liveModelTaskQualityMeasured": false,
+    "tokenSavingsMeasured": false,
+    "latencyMeasured": false,
+    "infrastructureCostMeasured": false
+  },
+  "summary": {
+    "checkCount": 14,
+    "contractVerified": true,
+    "acceptanceIdentityBound": true,
+    "graphAuditReady": true,
+    "snapshotMismatchBlockedBeforeProvider": true,
+    "executionBindingVerified": true,
+    "repositoryWritePerformed": false,
+    "shellExecuted": false,
+    "networkAccessed": false
+  },
+  "checks": [
+    "canonical runtime exports the task-to-seed contract surface",
+    "implementation contract is deterministic and tamper evident",
+    "acceptance criteria must bind to the same task and objective",
+    "repository graph audit resolves seeds symbols tests and acceptance",
+    "implementation audit receipt is deterministic and tamper evident",
+    "missing seed blocks before context and coder providers",
+    "unresolved required symbols block before coder execution",
+    "missing required tests block before coder execution",
+    "audited contract reaches exactly one coder call",
+    "coder context contains contract audit and bounded graph hashes",
+    "AG.1b enforces the audited intelligence snapshot before providers",
+    "tampered implementation contract is rejected before intelligence execution",
+    "execution binding receipt is hash linked and tamper evident",
+    "contract audit and execution are read only and declare no shell or network"
+  ],
+  "reportHash": "sha256:0feaa6b75df605c506749d7830aa952f45f10baf89904f5a5173352c06e86128"
+}

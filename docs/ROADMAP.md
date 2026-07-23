@@ -1420,10 +1420,49 @@ geriye dönük yeniden yazılmaz.
 
 ### AG.1c — Task-to-seed implementation contract
 
-Bir sonraki adım, kullanıcı görevini doğrudan geniş repository taramasına
-çevirmek yerine planner tarafından önerilen seed file, symbol, test ve acceptance
-contractına bağlamak; bu öneriyi Repo Intelligence graphıyla deterministic olarak
-audit etmektir.
+<!-- PHASE_AG_1C_TASK_TO_SEED_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Kullanıcı görevinin kimliği; seed file, required symbol, required test ve mevcut
+Acceptance Criteria Contract hashine bağlandı. Implementation contract ve graph
+audit receipt canonical JSON hashleri taşır.
+
+```text
+taskId + objectiveHash
+→ seed/symbol/test proposal
+→ acceptance identity binding
+→ Repo Intelligence graph audit
+→ intelligence snapshot lock
+→ AG.1b context binding
+→ coder
+```
+
+Seed dependency closure içinde çözülemeyen symbol, intelligence snapshotında
+bulunmayan test veya bozuk acceptance kimliği provider çağrılarından önce
+fail-closed durur.
+
+Audit sonrası repository AG.1b tarafından yeniden taranır. İkinci
+`intelligenceHash` audit hashinden farklıysa
+`repo_context_intelligence_snapshot_mismatch` üretilir ve coder çağrılmaz.
+Başarılı akış contract, audit, repo binding ve coder context hashlerini tek
+execution receiptte bağlar.
+
+AG.1c evidence:
+
+- `docs/results/AG1C_TASK_TO_SEED_IMPLEMENTATION_CONTRACT.md`
+- `reports/ag/AG1C_TASK_TO_SEED_IMPLEMENTATION_CONTRACT.json`
+- `npm run verify:ag1c`
+
+Evidence class `deterministic_fixture`dır ve 14 contract/integration checki
+taşır. Live-model kalite, token, latency veya maliyet iddiası değildir.
+
+### AG.2a — Bounded planner proposal contract
+
+Bir sonraki adım, implementation contract inputunu doğrudan kullanıcıdan almak
+yerine bounded planner providerından üretmek; planner çıktısını schema, authority,
+seed relevance, symbol/test coverage ve expansion budget kurallarıyla
+deterministic olarak doğrulamaktır.
 ---
 
 ## 8. MVP Sonrası Ürün Yönü

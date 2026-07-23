@@ -97,6 +97,7 @@ export type RunRepoIntelligenceBoundCoderFlowInput<T> = {
   maxExpansionAttempts?: 1 | 2;
   maxContextFileBytes?: number;
   maxContextTotalBytes?: number;
+  requiredIntelligenceHash?: string;
   intelligenceLimits?: {
     maxFiles?: number;
     maxFileBytes?: number;
@@ -138,6 +139,7 @@ export type RepoIntelligenceBoundCoderFlowResult<T> = {
   };
 };
 
+const HASH = /^sha256:[0-9a-f]{64}$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
 
@@ -508,6 +510,13 @@ export async function runRepoIntelligenceBoundCoderFlow<T>(
     requiredTestFiles = normalizePaths(input.requiredTestFiles, "requiredTestFiles");
     requiredSymbols = normalizeSymbols(input.requiredSymbols);
     forbiddenFiles = normalizePaths(input.forbiddenFiles, "forbiddenFiles");
+    if (
+      input.requiredIntelligenceHash !== undefined &&
+      (typeof input.requiredIntelligenceHash !== "string" ||
+        !HASH.test(input.requiredIntelligenceHash))
+    ) {
+      throw new Error("requiredIntelligenceHash must be a sha256 hash.");
+    }
   } catch (error) {
     return finish(
       "repo_context_binding_invalid",
@@ -560,6 +569,25 @@ export async function runRepoIntelligenceBoundCoderFlow<T>(
         "repo_intelligence_integrity_invalid",
         "Repository intelligence integrity verification failed.",
         "error"
+      )],
+      null,
+      intelligence,
+      null,
+      summary
+    );
+  }
+
+  if (
+    input.requiredIntelligenceHash !== undefined &&
+    intelligence.intelligenceHash !== input.requiredIntelligenceHash
+  ) {
+    return finish(
+      "repo_context_binding_stopped",
+      "replan_required",
+      [issue(
+        "repo_context_intelligence_snapshot_mismatch",
+        "Repository intelligence changed after the implementation contract audit.",
+        "review"
       )],
       null,
       intelligence,
