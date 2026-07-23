@@ -248,7 +248,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **CSG v1** | Context yeterliliği, source context ve provider fail-closed gate | Tamamlandı |
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
-| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.3 remote push/draft PR executor |
+| **AE** | Güvenli branch, commit, evidence ve draft PR | Aktif — AE.3b GitHub draft PR connector |
 | **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Planlandı |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
@@ -805,6 +805,35 @@ Garantiler:
 
 AE.3 current local delivery receiptini remote freshness ile doğrulayıp branch push
 ve draft PR oluşturma işini ayrı connector/executor sınırında gerçekleştirecektir.
+
+## AE.3a — Controlled remote branch push
+
+<!-- PHASE_AE_3A_REMOTE_PUSH_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Current AE.2 local delivery receipt yeniden doğrulanır. Repository identity, local
+base/head refs ve remote base freshness eşleşirse deterministic bounded branch
+lease-protected exact-commit refspec ile remote'a gönderilir.
+
+Garantiler:
+
+- Repository identity X.1 ile aynı root-commit ve normalized remote hash algoritmasıyla doğrulanır.
+- Local base ve bounded branch refs AE.2 receipt ile exact eşleşir.
+- Remote base branch contracted revisionda olmalıdır.
+- Remote bounded branch ilk push öncesinde mevcut olamaz.
+- Durable push claim `PUSH_STARTED` markerından önce yazılır.
+- Push exact commit hash refspeci ve empty-expectation `--force-with-lease` kullanır.
+- Unconditional force push kullanılmaz.
+- Push sonrası remote base değişmemiş, remote head exact commit olmuş olmalıdır.
+- Local base ve bounded branch refs push sırasında değişmez.
+- Replay current durable receipt üzerinden ikinci push yapmaz.
+- Push reddi veya post-push doğrulama sorunu recovery-required üretir.
+- GitHub API, draft PR veya shell execution bu boundaryde yoktur.
+
+AE.3b yalnız current remote push receipt üzerinden GitHub draft PR oluşturacak,
+base/head/draft/evidence alanlarını API'den yeniden okuyacak ve duplicate PR
+deliverysini engelleyecektir.
 
 ## Definition of Done
 

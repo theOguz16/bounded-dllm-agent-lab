@@ -220,7 +220,8 @@
     "test:cross-process-x4-crash-recovery": "node scripts/ad-cross-process-x4-crash-recovery-suite.cjs",
     "test:cross-process-x5-crash-recovery": "node scripts/ad-cross-process-x5-crash-recovery-suite.cjs",
     "test:draft-pr-delivery-contract": "node scripts/draft-pr-delivery-contract-smoke.cjs",
-    "test:controlled-local-delivery": "node scripts/controlled-local-delivery-smoke.cjs"
+    "test:controlled-local-delivery": "node scripts/controlled-local-delivery-smoke.cjs",
+    "test:controlled-remote-branch-push": "node scripts/controlled-remote-branch-push-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
