@@ -7,7 +7,7 @@
     "exportName": "runIntegratedDisposableApply",
     "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
     "publicApiVerified": true,
-    "evidenceHash": "sha256:e81fed2eceb9131c06c5d9c7122e3fd8d4d76ac48635c94e9f544f3b340d194d"
+    "evidenceHash": "sha256:0ca568c4399ffdb2837503668124b2f8bf5271458a4239448ea6852def0d7cdf"
   },
   "gaps": [
     {
@@ -162,8 +162,15 @@
           "stage": "primitive",
           "evidenceId": "g5.primitive",
           "artifactKind": "module",
-          "locator": "packages/product-runtime/src/deterministic-governance-policy.ts",
-          "evidenceHash": "sha256:8db75c11ffc964103ffff180bc76a2dce94eab6b6339bce43864f36880b70716"
+          "locator": "packages/product-runtime/src/soft-scope-drift-benchmark.ts",
+          "evidenceHash": "sha256:5b5f0918ef00782c2eb05c4301a70a5978b8ec4800193d2829390c2d36a65d1c"
+        },
+        {
+          "stage": "contract_tests",
+          "evidenceId": "g5.contract_tests",
+          "artifactKind": "test",
+          "locator": "scripts/soft-scope-drift-benchmark-smoke.cjs",
+          "evidenceHash": "sha256:0e00656eb7d8b5a0754c06ed448c80ae2fdeaf446a64b5494cde577cc8405f02"
         }
       ]
     },
@@ -391,7 +398,7 @@
           "evidenceId": "g13.primitive",
           "artifactKind": "module",
           "locator": "packages/product-runtime/src/index.ts",
-          "evidenceHash": "sha256:d8c6d9454a8809d1fe237eb1e8f6a57198b7d82ce6622cd5be439e3427b10767"
+          "evidenceHash": "sha256:673015343c9f9f79862cfc78fc74d21990bfc99259681855b674c69b245bdf76"
         }
       ]
     },

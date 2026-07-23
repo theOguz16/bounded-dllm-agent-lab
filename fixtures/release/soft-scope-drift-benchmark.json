@@ -1,0 +1,251 @@
+{
+  "benchmarkVersion": "1",
+  "benchmarkId": "af2a-soft-scope-fixture-v1",
+  "evidenceClass": "deterministic_fixture",
+  "cases": [
+    {
+      "caseId": "adaptive-clean",
+      "strategy": "adaptive_bounded_context",
+      "expectedFiles": [
+        "src/service.ts",
+        "test/service.test.ts"
+      ],
+      "allowedFiles": [
+        "src/helper.ts",
+        "src/service.ts",
+        "test/service.test.ts"
+      ],
+      "forbiddenFiles": [
+        "package-lock.json"
+      ],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "src/service.ts",
+          "linesAdded": 12,
+          "linesDeleted": 3,
+          "changeKind": "bugfix",
+          "necessity": "required",
+          "humanReview": "necessary"
+        },
+        {
+          "filePath": "test/service.test.ts",
+          "linesAdded": 10,
+          "linesDeleted": 0,
+          "changeKind": "test",
+          "necessity": "required",
+          "humanReview": "necessary"
+        }
+      ],
+      "newDependencies": [],
+      "newAbstractions": []
+    },
+    {
+      "caseId": "adaptive-human-unnecessary",
+      "strategy": "adaptive_bounded_context",
+      "expectedFiles": [
+        "src/service.ts"
+      ],
+      "allowedFiles": [
+        "src/helper.ts",
+        "src/service.ts"
+      ],
+      "forbiddenFiles": [
+        "package.json"
+      ],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "src/service.ts",
+          "linesAdded": 8,
+          "linesDeleted": 2,
+          "changeKind": "bugfix",
+          "necessity": "required",
+          "humanReview": "necessary"
+        },
+        {
+          "filePath": "src/helper.ts",
+          "linesAdded": 5,
+          "linesDeleted": 5,
+          "changeKind": "refactor",
+          "necessity": "unnecessary",
+          "humanReview": "unnecessary"
+        }
+      ],
+      "newDependencies": [],
+      "newAbstractions": []
+    },
+    {
+      "caseId": "direct-hard-forbidden",
+      "strategy": "direct_large_context",
+      "expectedFiles": [
+        "src/service.ts"
+      ],
+      "allowedFiles": [
+        "src/service.ts",
+        "src/util.ts"
+      ],
+      "forbiddenFiles": [
+        "package-lock.json"
+      ],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "src/service.ts",
+          "linesAdded": 9,
+          "linesDeleted": 1,
+          "changeKind": "feature",
+          "necessity": "required",
+          "humanReview": "necessary"
+        },
+        {
+          "filePath": "package-lock.json",
+          "linesAdded": 25,
+          "linesDeleted": 2,
+          "changeKind": "dependency",
+          "necessity": "unnecessary",
+          "humanReview": "unnecessary"
+        }
+      ],
+      "newDependencies": [
+        {
+          "name": "left-pad",
+          "requested": false,
+          "justification": null
+        }
+      ],
+      "newAbstractions": []
+    },
+    {
+      "caseId": "direct-soft-expansion",
+      "strategy": "direct_large_context",
+      "expectedFiles": [
+        "src/service.ts"
+      ],
+      "allowedFiles": [
+        "src/adapter.ts",
+        "src/factory.ts",
+        "src/service.ts"
+      ],
+      "forbiddenFiles": [
+        "package.json"
+      ],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "src/service.ts",
+          "linesAdded": 14,
+          "linesDeleted": 4,
+          "changeKind": "feature",
+          "necessity": "required",
+          "humanReview": "necessary"
+        },
+        {
+          "filePath": "src/adapter.ts",
+          "linesAdded": 35,
+          "linesDeleted": 0,
+          "changeKind": "refactor",
+          "necessity": "unnecessary",
+          "humanReview": "unnecessary"
+        },
+        {
+          "filePath": "src/factory.ts",
+          "linesAdded": 28,
+          "linesDeleted": 0,
+          "changeKind": "refactor",
+          "necessity": "uncertain",
+          "humanReview": "not_reviewed"
+        }
+      ],
+      "newDependencies": [
+        {
+          "name": "tiny-invariant",
+          "requested": false,
+          "justification": "Used by the new factory layer."
+        }
+      ],
+      "newAbstractions": [
+        {
+          "abstractionId": "service-adapter",
+          "filePath": "src/adapter.ts",
+          "requested": false,
+          "justification": null
+        },
+        {
+          "abstractionId": "service-factory",
+          "filePath": "src/factory.ts",
+          "requested": false,
+          "justification": "Separates construction."
+        }
+      ]
+    },
+    {
+      "caseId": "fixed-clean-requested-dependency",
+      "strategy": "fixed_bounded_context",
+      "expectedFiles": [
+        "package.json",
+        "src/client.ts"
+      ],
+      "allowedFiles": [
+        "package.json",
+        "src/client.ts"
+      ],
+      "forbiddenFiles": [
+        "package-lock.json"
+      ],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "package.json",
+          "linesAdded": 1,
+          "linesDeleted": 0,
+          "changeKind": "dependency",
+          "necessity": "required",
+          "humanReview": "necessary"
+        },
+        {
+          "filePath": "src/client.ts",
+          "linesAdded": 18,
+          "linesDeleted": 2,
+          "changeKind": "feature",
+          "necessity": "required",
+          "humanReview": "necessary"
+        }
+      ],
+      "newDependencies": [
+        {
+          "name": "zod",
+          "requested": true,
+          "justification": "The task explicitly requires schema validation."
+        }
+      ],
+      "newAbstractions": []
+    },
+    {
+      "caseId": "fixed-missing-expected",
+      "strategy": "fixed_bounded_context",
+      "expectedFiles": [
+        "src/service.ts",
+        "test/service.test.ts"
+      ],
+      "allowedFiles": [
+        "src/service.ts",
+        "test/service.test.ts"
+      ],
+      "forbiddenFiles": [],
+      "requestedRefactor": false,
+      "actualChanges": [
+        {
+          "filePath": "src/service.ts",
+          "linesAdded": 4,
+          "linesDeleted": 1,
+          "changeKind": "bugfix",
+          "necessity": "required",
+          "humanReview": "not_reviewed"
+        }
+      ],
+      "newDependencies": [],
+      "newAbstractions": []
+    }
+  ]
+}

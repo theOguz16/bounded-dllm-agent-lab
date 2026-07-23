@@ -226,7 +226,9 @@
     "test:release-gap-closure-audit": "node scripts/release-gap-closure-audit-smoke.cjs",
     "report:release-evidence": "npm run build && node scripts/repository-release-evidence-runner.cjs --report",
     "verify:release": "npm run typecheck && npm run build && node scripts/repository-release-evidence-runner.cjs --verify",
-    "test:repository-release-evidence-runner": "node scripts/repository-release-evidence-runner-smoke.cjs"
+    "test:repository-release-evidence-runner": "node scripts/repository-release-evidence-runner-smoke.cjs",
+    "test:soft-scope-drift-benchmark": "node scripts/soft-scope-drift-benchmark-smoke.cjs --test",
+    "report:soft-scope-drift-fixture": "npm run build && node scripts/soft-scope-drift-benchmark-smoke.cjs --report"
   },
   "workspaces": [
     "apps/*",

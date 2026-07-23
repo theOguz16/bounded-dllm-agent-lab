@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.2 soft scope drift benchmark |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.2b observed scope integration and release report |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -982,6 +982,43 @@ C — Adaptive bounded context + sufficiency gate
 Asıl ürün hedefi C'dir.
 
 Aynı model, temperature, task seti ve provider kullanılır. Direct baseline gerçekten model çağırmalıdır; changed file varsa otomatik approve eden sentetik baseline release kanıtı sayılmaz.
+
+## AF.2a — Deterministic soft scope drift benchmark contract
+
+<!-- PHASE_AF_2A_SOFT_SCOPE_STATUS -->
+
+**Durum: Tamamlandı.**
+
+Hard scope violation ile izinli alan içindeki soft scope drift ayrı contract,
+metric ve karar alanlarıyla değerlendirilir.
+
+Ölçümler:
+
+- Expected ve actual file set farkı.
+- Unexpected-but-allowed file count.
+- Forbidden ve outside-allowed file count.
+- Unnecessary ve uncertain LOC.
+- Unrequested refactor count.
+- New, unrequested ve unjustified dependency count.
+- New abstraction justification rate.
+- Human reviewer unnecessary-label count ve rate.
+- Direct, fixed bounded ve adaptive bounded strategy aggregate'ları.
+
+Kararlar:
+
+```text
+hard_scope_blocked
+soft_scope_review
+scope_clean
+```
+
+Fixture reportu `evidenceClass=deterministic_fixture` ve
+`releaseClaimEligible=false` taşır. Bu nedenle sentetik fixture sonucu gerçek
+model performansı, ürün tasarrufu veya release benchmark kanıtı sayılamaz.
+
+G5 bu aşamada tamamen kapanmaz. AF.2b observed run evidence'ını canonical
+runtime/PR delivery akışına bağlayacak, `reports/release/SCOPE_DRIFT.json`
+artifactını üretecek ve draft PR body içinde soft drift özetini zorunlu kılacaktır.
 
 ## AF.3 — Context benchmark aileleri
 
