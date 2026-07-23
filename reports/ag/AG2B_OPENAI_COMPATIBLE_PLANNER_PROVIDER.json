@@ -1,0 +1,37 @@
+{
+  "evidenceVersion": "1",
+  "phase": "AG.2b",
+  "evidenceClass": "deterministic_fixture",
+  "decision": "ag2b_adapter_evidence_ready",
+  "checkCount": 16,
+  "checks": [
+    "canonical runtime exports the OpenAI-compatible planner adapter",
+    "adapter configuration rejects unsafe endpoints and invalid bounds",
+    "exact provider request produces a canonical bounded proposal",
+    "observed run evidence is hash linked and tamper evident",
+    "strict fenced JSON is accepted without trusting model hashes",
+    "unknown fields and identity drift fail exact draft validation",
+    "oversized task context stops before the provider call",
+    "oversized provider responses fail closed",
+    "HTTP 429 is retried once and then succeeds",
+    "non-retryable HTTP failures stop after one attempt",
+    "timeout failures participate in bounded retry",
+    "malformed JSON triggers one corrective retry",
+    "missing usage remains explicit and does not fabricate cost",
+    "usage and operator-configured comparison rates aggregate across attempts",
+    "AG.2a maps adapter exhaustion to replan before coder execution",
+    "provider execution does not mutate repository fixture bytes"
+  ],
+  "readyForRunPodLiveValidation": true,
+  "claims": {
+    "openAICompatibleAdapterReady": true,
+    "boundedRetryReady": true,
+    "failureTaxonomyReady": true,
+    "usageCaptureReady": true,
+    "operatorRateEstimateReady": true,
+    "liveModelQualityObserved": false,
+    "liveTokenUsageObserved": false,
+    "infrastructureCostObserved": false
+  },
+  "reportHash": "sha256:e73ca39af33209c4639f2f5985c37d50f987d357813048838316be4e97003968"
+}

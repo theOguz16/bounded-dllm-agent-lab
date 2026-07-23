@@ -1492,10 +1492,60 @@ token, latency veya maliyet iddiası değildir.
 
 ### AG.2b — Planner provider adapter and live proposal validation
 
-Bir sonraki adım bounded proposal contractını gerçek provider adapterına
-bağlamak; planner prompt/output contractını live model üzerinde ölçmek ve
-proposal failure taxonomy, retry/replan route ve observed token/cost evidence
-üretmektir.
+<!-- PHASE_AG_2B_PLANNER_PROVIDER_STATUS -->
+
+**Durum: Adapter ve deterministic contract tamamlandı; RunPod live doğrulaması bekleniyor.**
+
+AG.2a planner-provider yüzeyi OpenAI-compatible chat-completions adapterına
+bağlandı:
+
+```text
+bounded planner context
+→ strict provider prompt
+→ JSON draft
+→ trusted reason/proposal hashing
+→ AG.2a proposal validation
+→ observed attempt/run evidence
+```
+
+Modelden cryptographic hash üretmesi beklenmez. Model yalnız seed, rationale
+text, symbol, test ve expansion önerisi döndürür. Adapter reason ve proposal
+hashlerini üretip AG.2a contractına yeniden doğrulatır.
+
+Adapter:
+
+- timeout, network, 429 ve 5xx için en fazla iki bounded attempt;
+- malformed JSON/draft için tek corrective retry;
+- non-retryable HTTP, response-byte ve task-context-byte fail-closed sınırları;
+- provider-reported usage capture;
+- operator-configured token-rate comparison;
+- hash-linked attempt ve run evidence
+
+sağlar.
+
+Deterministic evidence:
+
+- `docs/results/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.md`
+- `reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json`
+- `npm run verify:ag2b`
+- 16 check
+- `readyForRunPodLiveValidation=true`
+
+Deterministic fixture live-model kalite, live token veya altyapı maliyeti iddiası
+değildir. AG.2b yalnız iki Qwen live planner vakası
+`ag2b_live_planner_validation_passed` ürettiğinde tamamlanacaktır.
+
+Live komut:
+
+```text
+npm run validate:ag2b-live
+```
+
+Live artifact:
+
+```text
+reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER_LIVE.json
+```
 
 ### Bounded Project Planner
 
