@@ -228,7 +228,9 @@
     "verify:release": "npm run typecheck && npm run build && node scripts/repository-release-evidence-runner.cjs --verify",
     "test:repository-release-evidence-runner": "node scripts/repository-release-evidence-runner-smoke.cjs",
     "test:soft-scope-drift-benchmark": "node scripts/soft-scope-drift-benchmark-smoke.cjs --test",
-    "report:soft-scope-drift-fixture": "npm run build && node scripts/soft-scope-drift-benchmark-smoke.cjs --report"
+    "report:soft-scope-drift-fixture": "npm run build && node scripts/soft-scope-drift-benchmark-smoke.cjs --report",
+    "test:observed-soft-scope-release": "node scripts/observed-soft-scope-release-smoke.cjs",
+    "generate:scope-drift-release": "node scripts/generate-scope-drift-release.cjs"
   },
   "workspaces": [
     "apps/*",

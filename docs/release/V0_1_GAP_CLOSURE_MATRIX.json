@@ -7,7 +7,7 @@
     "exportName": "runIntegratedDisposableApply",
     "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
     "publicApiVerified": true,
-    "evidenceHash": "sha256:0ca568c4399ffdb2837503668124b2f8bf5271458a4239448ea6852def0d7cdf"
+    "evidenceHash": "sha256:9a5aac4d0bebcf9356e80945da33c3b9612bb495dad684638a4da1bdf71e70c5"
   },
   "gaps": [
     {
@@ -156,7 +156,7 @@
       "id": "G5",
       "title": "Hard and soft scope drift are measured separately",
       "v01Blocker": true,
-      "disposition": "open",
+      "disposition": "closed",
       "evidence": [
         {
           "stage": "primitive",
@@ -171,6 +171,27 @@
           "artifactKind": "test",
           "locator": "scripts/soft-scope-drift-benchmark-smoke.cjs",
           "evidenceHash": "sha256:0e00656eb7d8b5a0754c06ed448c80ae2fdeaf446a64b5494cde577cc8405f02"
+        },
+        {
+          "stage": "canonical_integration",
+          "evidenceId": "g5.canonical_integration",
+          "artifactKind": "integration",
+          "locator": "packages/product-runtime/src/observed-soft-scope-release.ts",
+          "evidenceHash": "sha256:ca87618fc8ac302f33486ade7ab609095ce330a986b428a2e93232ee778ddb95"
+        },
+        {
+          "stage": "live_or_real_evidence",
+          "evidenceId": "g5.live_or_real_evidence",
+          "artifactKind": "report",
+          "locator": "reports/release/SCOPE_DRIFT.json",
+          "evidenceHash": "sha256:b036441116020ee3026bf8d236ceae59d5a22592cadbbacef8c844f7d9d300c3"
+        },
+        {
+          "stage": "release_artifact",
+          "evidenceId": "g5.release_artifact",
+          "artifactKind": "document",
+          "locator": "docs/release/SCOPE_DRIFT.md",
+          "evidenceHash": "sha256:20e82c39b1e14f8e7cc53469a7bf33f17477c3cf4925b613b6c749663f821201"
         }
       ]
     },
@@ -398,7 +419,7 @@
           "evidenceId": "g13.primitive",
           "artifactKind": "module",
           "locator": "packages/product-runtime/src/index.ts",
-          "evidenceHash": "sha256:673015343c9f9f79862cfc78fc74d21990bfc99259681855b674c69b245bdf76"
+          "evidenceHash": "sha256:2b07b6ef191e63adcd8bfbb35427824fc560d9e5194d81dad206719192a76a12"
         }
       ]
     },
@@ -469,7 +490,8 @@
     },
     {
       "artifactId": "scope_drift_report",
-      "status": "missing"
+      "status": "present",
+      "artifactHash": "sha256:b036441116020ee3026bf8d236ceae59d5a22592cadbbacef8c844f7d9d300c3"
     },
     {
       "artifactId": "acceptance_coverage_report",

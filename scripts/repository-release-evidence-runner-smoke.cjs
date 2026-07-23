@@ -96,7 +96,7 @@ async function main() {
       );
       assert.deepEqual(
         result.report.gapAudit.openBlockerIds,
-        ["G5", "G8", "G13"]
+        ["G8", "G13"]
       );
       assert.equal(result.report.releaseReady, false);
     }

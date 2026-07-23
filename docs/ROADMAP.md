@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.2b observed scope integration and release report |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.3 observed token/cost ledger and benchmark aggregation |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -1019,6 +1019,41 @@ model performansı, ürün tasarrufu veya release benchmark kanıtı sayılamaz.
 G5 bu aşamada tamamen kapanmaz. AF.2b observed run evidence'ını canonical
 runtime/PR delivery akışına bağlayacak, `reports/release/SCOPE_DRIFT.json`
 artifactını üretecek ve draft PR body içinde soft drift özetini zorunlu kılacaktır.
+
+## AF.2b — Observed scope integration and release report
+
+<!-- PHASE_AF_2B_OBSERVED_SCOPE_STATUS -->
+
+**Durum: Tamamlandı.**
+
+AF.2a soft-scope contractı gerçek disposable Git repository diff gözlemine
+bağlanır. Observed report integrated apply receipt, X.4 apply receipt ve AE.1
+delivery contract hashlerini tek binding hash altında taşır.
+
+Garantiler:
+
+- `evidenceClass=observed_run` ve `releaseClaimEligible=true`.
+- Actual file ve LOC değerleri gerçek `git diff --numstat` gözleminden gelir.
+- Hard violation ve soft drift kararları ayrı kalır.
+- Report receipt-binding hashleri değiştiğinde farklılaşır.
+- Draft PR body'ye tek canonical `Soft Scope Drift` bölümü eklenir.
+- Summary report hashine bağlı marker taşır ve duplicate section reddedilir.
+- Core integration filesystem, shell, network veya Git write çalıştırmaz.
+- `reports/release/SCOPE_DRIFT.json` gerçek disposable repository observation taşır.
+- Artifact model kalitesi, token tasarrufu veya production latency iddiası yapmaz.
+
+G5 beş aşamalı evidence zinciri:
+
+```text
+primitive
+→ contract tests
+→ canonical integration
+→ live/real evidence
+→ release artifact
+```
+
+AF.2b sonunda G5 kapanır. Release audit G8 ve G13 blockerları ile diğer eksik
+release artifactları nedeniyle blocked kalmaya devam eder.
 
 ## AF.3 — Context benchmark aileleri
 

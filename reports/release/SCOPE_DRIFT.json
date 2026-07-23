@@ -1,0 +1,113 @@
+{
+  "reportVersion": "1",
+  "evidenceClass": "observed_run",
+  "releaseClaimEligible": true,
+  "sourceClass": "disposable_repository_observation",
+  "runId": "af2b-release-disposable-observed-v1",
+  "binding": {
+    "integratedReceiptHash": "sha256:cb138da02ad17982a21b1970ce547b265801d599e6167ec356803e1193005cdd",
+    "applyReceiptHash": "sha256:46d26d3e0b2bbc5f015a1a942bd9717e0dc9225e0d45bd97f847c1cafe5f0aa3",
+    "deliveryContractHash": "sha256:be4cd63e26d54df857d1a598bebf5d825fb07e01f3da06b87849fe7c22a7ebbd",
+    "bindingHash": "sha256:c08672becae48eacff85f0fbdf72e2bf7d05b63430d10b1088e924a57380aad2"
+  },
+  "benchmarkReport": {
+    "reportVersion": "1",
+    "benchmarkId": "observed-soft-scope:af2b-release-disposable-observed-v1",
+    "evidenceClass": "observed_run",
+    "releaseClaimEligible": true,
+    "sourceInputHash": "sha256:a6e56af5771642a4b114732af99909128eb8e323fdfd290410dd7798b10d19e4",
+    "caseResults": [
+      {
+        "caseId": "af2b-release-disposable-observed-v1",
+        "strategy": "adaptive_bounded_context",
+        "decision": "scope_clean",
+        "metrics": {
+          "expectedFileCount": 2,
+          "actualFileCount": 2,
+          "missingExpectedFiles": [],
+          "unexpectedButAllowedFiles": [],
+          "forbiddenTouchedFiles": [],
+          "outsideAllowedFiles": [],
+          "hardViolationCount": 0,
+          "unnecessaryLoc": 0,
+          "uncertainLoc": 0,
+          "unrequestedRefactorCount": 0,
+          "newDependencyCount": 0,
+          "unrequestedDependencyCount": 0,
+          "unjustifiedDependencyCount": 0,
+          "newAbstractionCount": 0,
+          "unrequestedAbstractionCount": 0,
+          "justifiedAbstractionCount": 0,
+          "abstractionJustificationRate": null,
+          "humanUnnecessaryLabelCount": 0,
+          "humanReviewedFileCount": 2,
+          "humanUnnecessaryRate": 0,
+          "softSignalCount": 0
+        },
+        "reasonCodes": [],
+        "caseInputHash": "sha256:b263eb41b57694774634f95f14ba536d649f501f68d176c7b000e85b34174335",
+        "caseResultHash": "sha256:2d7d82b7bc9f5cd1cc2f2546a851e42370a0cc3fee74a197fe7bbb0e111b380e"
+      }
+    ],
+    "strategyAggregates": [
+      {
+        "strategy": "adaptive_bounded_context",
+        "caseCount": 1,
+        "cleanCaseCount": 1,
+        "reviewCaseCount": 0,
+        "blockedCaseCount": 0,
+        "hardViolationCount": 0,
+        "unexpectedButAllowedFileCount": 0,
+        "missingExpectedFileCount": 0,
+        "unnecessaryLoc": 0,
+        "uncertainLoc": 0,
+        "unrequestedRefactorCount": 0,
+        "newDependencyCount": 0,
+        "unrequestedDependencyCount": 0,
+        "unjustifiedDependencyCount": 0,
+        "newAbstractionCount": 0,
+        "unrequestedAbstractionCount": 0,
+        "justifiedAbstractionCount": 0,
+        "abstractionJustificationRate": null,
+        "humanUnnecessaryLabelCount": 0
+      }
+    ],
+    "overall": {
+      "caseCount": 1,
+      "cleanCaseCount": 1,
+      "reviewCaseCount": 0,
+      "blockedCaseCount": 0,
+      "hardViolationCount": 0,
+      "unexpectedButAllowedFileCount": 0,
+      "missingExpectedFileCount": 0,
+      "unnecessaryLoc": 0,
+      "uncertainLoc": 0,
+      "unrequestedRefactorCount": 0,
+      "newDependencyCount": 0,
+      "unrequestedDependencyCount": 0,
+      "unjustifiedDependencyCount": 0,
+      "newAbstractionCount": 0,
+      "unrequestedAbstractionCount": 0,
+      "justifiedAbstractionCount": 0,
+      "abstractionJustificationRate": null,
+      "humanUnnecessaryLabelCount": 0
+    },
+    "reportHash": "sha256:1caae7b89c3db910a4c8f106cb249b6c72908b81670c52bd11d8b756ca11a080"
+  },
+  "prSummary": {
+    "summaryVersion": "1",
+    "decision": "scope_clean",
+    "hardViolationCount": 0,
+    "unexpectedButAllowedFileCount": 0,
+    "missingExpectedFileCount": 0,
+    "unnecessaryLoc": 0,
+    "uncertainLoc": 0,
+    "unrequestedRefactorCount": 0,
+    "unrequestedDependencyCount": 0,
+    "unrequestedAbstractionCount": 0,
+    "humanUnnecessaryLabelCount": 0,
+    "summaryHash": "sha256:22db0c2178ddb29f0b1dfc6ddf09e69f9c0ca145d49c8b850cf8742f9eb0bd98",
+    "markdown": "## Soft Scope Drift\n\n- Decision: `scope_clean`\n- Hard violations: 0\n- Unexpected but allowed files: 0\n- Missing expected files: 0\n- Unnecessary LOC: 0\n- Uncertain LOC: 0\n- Unrequested refactors: 0\n- Unrequested dependencies: 0\n- Unrequested abstractions: 0\n- Human unnecessary labels: 0\n\n<!-- bounded-soft-scope:sha256:22db0c2178ddb29f0b1dfc6ddf09e69f9c0ca145d49c8b850cf8742f9eb0bd98 -->"
+  },
+  "reportHash": "sha256:9dca7fdd7d770e3c3cb326a6254f7fb8274280c218e30b350a80d5d5a4b06592"
+}
