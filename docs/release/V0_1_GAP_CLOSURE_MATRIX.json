@@ -2,12 +2,12 @@
   "matrixVersion": "1",
   "releaseVersion": "0.1.0",
   "requiredReleaseCommand": "verify:release",
-  "observedReleaseCommand": null,
+  "observedReleaseCommand": "verify:release",
   "canonicalCoordinator": {
     "exportName": "runIntegratedDisposableApply",
     "modulePath": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
     "publicApiVerified": true,
-    "evidenceHash": "sha256:bcd5bb1430c91676dbfd325b0eef4b23f85dc18f18d8c10a79e3a4c0cf35f0e4"
+    "evidenceHash": "sha256:e81fed2eceb9131c06c5d9c7122e3fd8d4d76ac48635c94e9f544f3b340d194d"
   },
   "gaps": [
     {
@@ -20,36 +20,36 @@
           "stage": "primitive",
           "evidenceId": "g1.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g1/primitive",
-          "evidenceHash": "sha256:1d9d99a029c799289869fa01ae0b0de7f0e0b851f7868f59e701c7813551bc2e"
+          "locator": "packages/product-runtime/src/coder-context-execution-gate.ts",
+          "evidenceHash": "sha256:ec65f764aa297f75ada7386f9ec8e07bfd080033b522123f3d96d137207ccad8"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g1.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g1/contract_tests",
-          "evidenceHash": "sha256:2a5c4056543e4ec6c1cdc636697b79cfc9b0a5e17e63bbdb623ed30fc46efce3"
+          "locator": "scripts/coder-context-execution-gate-smoke.cjs",
+          "evidenceHash": "sha256:ea3fbb4a20b7f60d4c3f6f1da83e34b69cc38ddeca4a32368b2a68ece0d96b05"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g1.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g1/canonical_integration",
-          "evidenceHash": "sha256:dcfbb8adfb0a2e2f692284a45a9b2d2e55f09cbc23c9b9dbedc011bccbbd4376"
+          "locator": "packages/product-runtime/src/context-to-apply-binding.ts",
+          "evidenceHash": "sha256:844d16f6c276f74b56fbf0bfdaa99a0b1bba3a4694c6d4584be60585c3c7f451"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g1.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g1/live_or_real_evidence",
-          "evidenceHash": "sha256:5c3dc4f8b827e98ee38be9c23d4035dc115d2ef601efa157d118e87135130810"
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g1.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g1/release_artifact",
-          "evidenceHash": "sha256:93b47fa39206a54c8e50b553e3b8a57a02e1352558b188e943f3e15a8864a404"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -63,36 +63,36 @@
           "stage": "primitive",
           "evidenceId": "g2.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g2/primitive",
-          "evidenceHash": "sha256:ea7f94ef7e6ab4ba3f3385f789ae115777e88c0c3138f795b8724e93ade8389c"
+          "locator": "packages/product-runtime/src/context-sufficiency-contract.ts",
+          "evidenceHash": "sha256:4439ed17667d73f815c0d37447be6e23d58d293a27678f407d42a19f9ceb4c99"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g2.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g2/contract_tests",
-          "evidenceHash": "sha256:c03dd6c9d6fc0bceb1e2413b1428bb53e16cefa2ac21953d93ab11fe8df7dc0c"
+          "locator": "scripts/context-sufficiency-contract-smoke.cjs",
+          "evidenceHash": "sha256:dd2df078fb0b8334ff217992e00cd5e5e6a145a7b99fb0cf6fb269ab6dff6eaa"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g2.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g2/canonical_integration",
-          "evidenceHash": "sha256:ba5c6f2220ca1694969bf76732b4f90349d41a98b2f9d8745d75f0102a094cfb"
+          "locator": "packages/product-runtime/src/context-sufficiency-authorization.ts",
+          "evidenceHash": "sha256:6e15dbee4d38f3d3f501a428faa0063084e908f8d71eac51ed6ba54fcf7c4bed"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g2.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g2/live_or_real_evidence",
-          "evidenceHash": "sha256:5ff4629e5428c91b9ec35deb29491b1943dadeb023afbc513983d85ac1c03bd5"
+          "locator": "scripts/context-sufficiency-authorization-smoke.cjs",
+          "evidenceHash": "sha256:7a4207702a33e186813d9f10ba0c7e770bb791a108d80c30a3f314c01ed20643"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g2.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g2/release_artifact",
-          "evidenceHash": "sha256:de289a6d78b917d59b76c99aca331e210035c8bdf8365325e5136c1d319d8b55"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -106,36 +106,36 @@
           "stage": "primitive",
           "evidenceId": "g3.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g3/primitive",
-          "evidenceHash": "sha256:1a8fb53483dfe2e9ee7af4d57cbd838fee28ac9d06a4d4cb2e49e4d73301ec87"
+          "locator": "packages/product-runtime/src/context-expansion-resolver.ts",
+          "evidenceHash": "sha256:0f7d1228948d9254ff9ea20067ce4443b6d25d74b28e2c9243918430d6fd4407"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g3.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g3/contract_tests",
-          "evidenceHash": "sha256:707320eb8d35275c1a845f1ff792891d255447c50b379e58aed542562a389ca1"
+          "locator": "scripts/context-request-mutation-smoke.cjs",
+          "evidenceHash": "sha256:c36646d8edafc77f3b49872f3272ae63af986e59f12b2c514a01d94d986a86a2"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g3.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g3/canonical_integration",
-          "evidenceHash": "sha256:ebe9aa25b2504a83caae9c6166616ea1ebb832e9bc45bf73e186d87f841241f6"
+          "locator": "packages/product-runtime/src/adaptive-context-orchestrator.ts",
+          "evidenceHash": "sha256:ee7f6c6580efbaaf32eb3d19196b1b76c3a6350f2b52181ccd01758285157702"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g3.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g3/live_or_real_evidence",
-          "evidenceHash": "sha256:d7824af1cdf05f5512106d8124e95e0da3aa591267731d59e0c0909e1b018c9c"
+          "locator": "scripts/adaptive-context-orchestrator-smoke.cjs",
+          "evidenceHash": "sha256:e2ef2fd85b5416bd3dcf3db0dc9345cad21324ceed51ce6ba633401c83925822"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g3.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g3/release_artifact",
-          "evidenceHash": "sha256:5fb91fef57cd3fcd6fb9259a1184dfabe501e1947069866152c4add06cdcb338"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -162,8 +162,8 @@
           "stage": "primitive",
           "evidenceId": "g5.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g5/primitive",
-          "evidenceHash": "sha256:e45193bb65e62c65eec60e9e59c59d6df1f9cd473c0750290a97a9675774b1b7"
+          "locator": "packages/product-runtime/src/deterministic-governance-policy.ts",
+          "evidenceHash": "sha256:8db75c11ffc964103ffff180bc76a2dce94eab6b6339bce43864f36880b70716"
         }
       ]
     },
@@ -177,36 +177,36 @@
           "stage": "primitive",
           "evidenceId": "g6.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g6/primitive",
-          "evidenceHash": "sha256:b3403af845986c5c58fcea2353fb111ff1b396003fdf92c7d2d2e4cfefcfe795"
+          "locator": "packages/product-runtime/src/deterministic-governance-policy.ts",
+          "evidenceHash": "sha256:8db75c11ffc964103ffff180bc76a2dce94eab6b6339bce43864f36880b70716"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g6.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g6/contract_tests",
-          "evidenceHash": "sha256:4031d99217cd3a1b2d18a85151fdc70ab055405453d7339f6ae881e039246a06"
+          "locator": "scripts/deterministic-governance-policy-smoke.cjs",
+          "evidenceHash": "sha256:d0f5773bf6151b12f48d7f59a06dc7316ae7264e408444d6b51f8c3e1836b621"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g6.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g6/canonical_integration",
-          "evidenceHash": "sha256:3f0236df8b91a73724c8a3414e2cec006185c9004da15cd8137d190bac41aa70"
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g6.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g6/live_or_real_evidence",
-          "evidenceHash": "sha256:ba6d6a1501104c61b0d2305bb5f10cce312aafd28d56f24d75b8d04a101a9dd6"
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g6.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g6/release_artifact",
-          "evidenceHash": "sha256:1d1b8794a839ea44f00573fd7f4dc00fa5ca855c044bf9f4759b3a08e2c91ab4"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -220,36 +220,36 @@
           "stage": "primitive",
           "evidenceId": "g7.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g7/primitive",
-          "evidenceHash": "sha256:b73c2c53d633915b837cea88982549cdd4711a55e616925541f484b0621d38e8"
+          "locator": "packages/product-runtime/src/acceptance-criteria-contract.ts",
+          "evidenceHash": "sha256:3b54bb477d86b29e151ea5b2d6675018462e62f122f66c1f92d05a241d2c8e55"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g7.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g7/contract_tests",
-          "evidenceHash": "sha256:afbf2fdf75a3e5d5f3bfd61a0aba9583078ffe0a8157a7b57b64e89221769127"
+          "locator": "scripts/acceptance-criteria-contract-smoke.cjs",
+          "evidenceHash": "sha256:f5dceccad1fa3ebf0b1a6efc0a74eafcf2122bb7d1c0b9a550ca05739981c27c"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g7.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g7/canonical_integration",
-          "evidenceHash": "sha256:1fab9e560c1439980a51781b74a1d3cb1072e9ab83404124e0437e6e19c3ec8a"
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g7.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g7/live_or_real_evidence",
-          "evidenceHash": "sha256:b6a02be7fcbd39dc33a765d09a5790090dc8be5e33a6801de3b470a59a2e473a"
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g7.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g7/release_artifact",
-          "evidenceHash": "sha256:9f37d0fa4ca47f2c311782cb689b9aa1849893cfd858f280b9476049dca3bd5f"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -263,8 +263,8 @@
           "stage": "primitive",
           "evidenceId": "g8.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g8/primitive",
-          "evidenceHash": "sha256:701035391400f957da4fd1e2fbd6f975605edbf4edd416d870ce6eabea51e267"
+          "locator": "packages/product-runtime/src/agent-event-ledger.ts",
+          "evidenceHash": "sha256:71b692b64e6da6e1c1809980e1e6830bc953a0b0969f1b75f0dedd1a11453230"
         }
       ]
     },
@@ -278,36 +278,36 @@
           "stage": "primitive",
           "evidenceId": "g9.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g9/primitive",
-          "evidenceHash": "sha256:b3bb19dd77fffa96814f38a3c9b1ebbef9adc5d532613fecafbb7eec3be9e911"
+          "locator": "packages/product-runtime/src/coder-context-execution-gate.ts",
+          "evidenceHash": "sha256:ec65f764aa297f75ada7386f9ec8e07bfd080033b522123f3d96d137207ccad8"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g9.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g9/contract_tests",
-          "evidenceHash": "sha256:09fe7a711dbec47c1d4db464ea0a2d414d0c7d7d06f84c347bc9ba4d4c051d0a"
+          "locator": "scripts/coder-context-execution-gate-smoke.cjs",
+          "evidenceHash": "sha256:ea3fbb4a20b7f60d4c3f6f1da83e34b69cc38ddeca4a32368b2a68ece0d96b05"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g9.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g9/canonical_integration",
-          "evidenceHash": "sha256:03258c5af9d303af5ecbb02e33686e42d34b99ae7d03a46c106d6e8616a6fef6"
+          "locator": "packages/product-runtime/src/adaptive-context-orchestrator.ts",
+          "evidenceHash": "sha256:ee7f6c6580efbaaf32eb3d19196b1b76c3a6350f2b52181ccd01758285157702"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g9.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g9/live_or_real_evidence",
-          "evidenceHash": "sha256:6a5195fdb9a03e840f9aa07913164f266080e9984603ed756f7163fc35d6f453"
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g9.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g9/release_artifact",
-          "evidenceHash": "sha256:d1c7f9fa1140fe787bf72794b7907e7279890e1f36c6938ee6e8efc91c128e83"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -321,36 +321,36 @@
           "stage": "primitive",
           "evidenceId": "g10.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g10/primitive",
-          "evidenceHash": "sha256:0850d635ad6173d42f53820d8df418ff85342ad676e8fa80642448d881b5f704"
+          "locator": "packages/product-runtime/src/draft-pr-delivery-contract.ts",
+          "evidenceHash": "sha256:fc7a6274ff7a02676a5e822b37fbfbef0f300def47cc2638c089ec1da363f1f3"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g10.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g10/contract_tests",
-          "evidenceHash": "sha256:d4f802f98b10447147b8e52e43a105cf7180e6f55f2e9fbfb58b84a7acaafcbd"
+          "locator": "scripts/draft-pr-delivery-contract-smoke.cjs",
+          "evidenceHash": "sha256:eba05bb41c47c32416fe208b17ae2c09e79ddd60c48f41161836fb8773d2f313"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g10.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g10/canonical_integration",
-          "evidenceHash": "sha256:4edc7b78e1140c7971c304e94792a107a98858c7c51a566bc6202401aca892df"
+          "locator": "packages/product-runtime/src/controlled-github-draft-pr.ts",
+          "evidenceHash": "sha256:edc35e4e3720a447569d671922ffc1ec61d93ac80690a31cf9a10d6784f261d8"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g10.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g10/live_or_real_evidence",
-          "evidenceHash": "sha256:2a070800ec22935c5e421846f8aea556ace33886349087d9ba44813eb36d0e95"
+          "locator": "scripts/controlled-github-draft-pr-smoke.cjs",
+          "evidenceHash": "sha256:d11dd8d8c195150d0eb635c655ca7581976acd256c39d59e72c30e8c63a07839"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g10.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g10/release_artifact",
-          "evidenceHash": "sha256:9159ce239690d9178250ebc9a8de94da6dabc6c13da81fbd68cef2f539b2efb9"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     },
@@ -390,8 +390,8 @@
           "stage": "primitive",
           "evidenceId": "g13.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g13/primitive",
-          "evidenceHash": "sha256:b4d6540efe04485f7d4736ba07f7df7d0e381120eec7534446171ddd3a3623ef"
+          "locator": "packages/product-runtime/src/index.ts",
+          "evidenceHash": "sha256:d8c6d9454a8809d1fe237eb1e8f6a57198b7d82ce6622cd5be439e3427b10767"
         }
       ]
     },
@@ -405,36 +405,36 @@
           "stage": "primitive",
           "evidenceId": "g14.primitive",
           "artifactKind": "module",
-          "locator": "release-evidence/g14/primitive",
-          "evidenceHash": "sha256:4370dac4ab123c725478f65e84079d35f85815d8107ab8facd45c8f801f1d4ac"
+          "locator": "packages/product-runtime/src/integrated-disposable-apply-coordinator.ts",
+          "evidenceHash": "sha256:81388d4f0ac2aa8506ff068f800ea2b6985b2d2ef086da86424456c94e594704"
         },
         {
           "stage": "contract_tests",
           "evidenceId": "g14.contract_tests",
           "artifactKind": "test",
-          "locator": "release-evidence/g14/contract_tests",
-          "evidenceHash": "sha256:e6a113a28d4814599913d55e6305f2c9930e8c750057ae69a7863c22ea317754"
+          "locator": "scripts/integrated-disposable-apply-coordinator-smoke.cjs",
+          "evidenceHash": "sha256:89933135a3e57bcf040572c8807495ce1382cdcd41cfd6b0535b0a76bc983fcd"
         },
         {
           "stage": "canonical_integration",
           "evidenceId": "g14.canonical_integration",
           "artifactKind": "integration",
-          "locator": "release-evidence/g14/canonical_integration",
-          "evidenceHash": "sha256:aee81478f299c2bc06bf5408b2861a3ee5e3fc3b34b1579870ed6c59ce5f4d14"
+          "locator": "packages/product-runtime/src/context-to-apply-binding.ts",
+          "evidenceHash": "sha256:844d16f6c276f74b56fbf0bfdaa99a0b1bba3a4694c6d4584be60585c3c7f451"
         },
         {
           "stage": "live_or_real_evidence",
           "evidenceId": "g14.live_or_real_evidence",
           "artifactKind": "report",
-          "locator": "release-evidence/g14/live_or_real_evidence",
-          "evidenceHash": "sha256:7b76ca93173464ebbae43932d782931e89e4ff6f986e022e76e34017f0ed81b2"
+          "locator": "scripts/integrated-disposable-apply-failure-matrix.cjs",
+          "evidenceHash": "sha256:239130eddbae963990f19997cafccbda6f6c661bf639169ddf7d71c12e404e6f"
         },
         {
           "stage": "release_artifact",
           "evidenceId": "g14.release_artifact",
           "artifactKind": "document",
-          "locator": "release-evidence/g14/release_artifact",
-          "evidenceHash": "sha256:5170e66953ba5ddba1001d70cbc2e059ed42316bcff9206b02b4290240fb4443"
+          "locator": "docs/RELEASE_BLOCKING_GAPS.md",
+          "evidenceHash": "sha256:fa2989bf64558be1409b7769f6875db06ae8c63ae56a8b7e958096afc69332ed"
         }
       ]
     }

@@ -112,7 +112,7 @@ async function main() {
   );
 
   await check(
-    "current matrix explicitly records missing release command",
+    "current matrix records repository-bound release command",
     () => {
       const result =
         buildV01ReleaseGapClosureAudit(
@@ -120,11 +120,11 @@ async function main() {
         );
       assert.equal(
         result.audit.releaseCommandMatched,
-        false
+        true
       );
       assert.equal(
         result.summary.releaseCommandMatched,
-        false
+        true
       );
     }
   );

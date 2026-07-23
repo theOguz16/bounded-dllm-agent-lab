@@ -223,7 +223,10 @@
     "test:controlled-local-delivery": "node scripts/controlled-local-delivery-smoke.cjs",
     "test:controlled-remote-branch-push": "node scripts/controlled-remote-branch-push-smoke.cjs",
     "test:controlled-github-draft-pr": "node scripts/controlled-github-draft-pr-smoke.cjs",
-    "test:release-gap-closure-audit": "node scripts/release-gap-closure-audit-smoke.cjs"
+    "test:release-gap-closure-audit": "node scripts/release-gap-closure-audit-smoke.cjs",
+    "report:release-evidence": "npm run build && node scripts/repository-release-evidence-runner.cjs --report",
+    "verify:release": "npm run typecheck && npm run build && node scripts/repository-release-evidence-runner.cjs --verify",
+    "test:repository-release-evidence-runner": "node scripts/repository-release-evidence-runner-smoke.cjs"
   },
   "workspaces": [
     "apps/*",

@@ -2998,3 +2998,4 @@ export * from "./controlled-local-delivery.js";
 export * from "./controlled-remote-branch-push.js";
 export * from "./controlled-github-draft-pr.js";
 export * from "./release-gap-closure-audit.js";
+export * from "./repository-release-evidence-runner.js";

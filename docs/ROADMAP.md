@@ -249,7 +249,7 @@ Bir gap şu şartlar olmadan kapalı sayılmaz:
 | **AC** | Disposable Git repo üzerinde entegre apply ve acceptance validation | Tamamlandı |
 | **AD** | Gerçek crash ve restart recovery | Tamamlandı |
 | **AE** | Güvenli branch, commit, evidence ve draft PR | Tamamlandı |
-| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.1b repository-bound verify:release runner |
+| **AF** | Birleşik benchmark, gap closure audit ve v0.1 release | Aktif — AF.2 soft scope drift benchmark |
 
 CSG yeni bir sonsuz faz serisi değildir. AB–AF içinde tamamlanacak, planner/coder çağrılarından önce çalışan release-blocking bir runtime gate'tir.
 
@@ -938,6 +938,38 @@ read-only repository inspection ile doğrulanacaktır.
 AF.1b audit matrixini gerçek package scripts, runtime exports, test/report
 artifacts ve repository hashes ile bağlayacak; yalnız tüm blockerlar kapandığında
 `npm run verify:release` başarı döndürecektir.
+
+## AF.1b — Repository-bound release evidence runner
+
+<!-- PHASE_AF_1B_REPOSITORY_EVIDENCE_STATUS -->
+
+**Durum: Tamamlandı.**
+
+AF.1a matrixindeki evidence locatorları repository içindeki gerçek regular-file
+bytes veya exact npm script değerleriyle yeniden doğrulanır.
+
+Garantiler:
+
+- Evidence dosyaları repository root dışına çıkamaz.
+- Symlink segmentleri ve symlink evidence entryleri takip edilmez.
+- Per-file ve total byte limitleri vardır.
+- Kapalı gap evidence hashleri mevcut repository bytes ile exact eşleşir.
+- `verify:release` scripti exact repository-bound komutla eşleşir.
+- Canonical coordinator hem source exportu hem public index exportu üzerinden doğrulanır.
+- On iki release artifactının declared present/missing durumu gerçek filesystem ile eşleşir.
+- Report deterministic ve tamper-evident hash taşır.
+- Blocker veya eksik artifact olduğunda `verify:release` non-zero çıkar.
+- Runner repository write, shell, network veya Git mutation yapmaz.
+
+Mevcut repository-bound sonuç release-blocked olarak kalır:
+
+- G5 soft scope drift benchmarkı açık.
+- G8 observed token/cost ledger açık.
+- G13 legacy/canonical runtime ayrımı açık.
+- On iki release artifactı henüz missing olarak kayıtlıdır.
+
+`report:release-evidence` blockerları exit 0 ile raporlar. `verify:release`
+yalnız release-ready durumda exit 0 üretir.
 
 ## AF.2 — Ana karşılaştırma
 
