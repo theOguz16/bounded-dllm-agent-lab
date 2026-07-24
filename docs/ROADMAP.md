@@ -1614,6 +1614,46 @@ Evidence:
 - `reports/ag/AG3A_PREVENTIVE_MINIMALITY_CONTRACT.json`
 - `npm run verify:ag3a`
 
+### AG.3b — Single-call planner-minimality coder integration
+
+<!-- PHASE_AG_3B_PLANNER_MINIMALITY_INTEGRATION_STATUS -->
+
+**Durum: Tamamlandı.**
+
+AG.3a preventive minimality contractı canonical planner-to-coder akışına bağlandı:
+
+```text
+tek combined planner provider çağrısı
+→ bounded proposal validation
+→ implementation graph audit
+→ trusted minimality plan binding
+→ preventive minimality gate
+→ revision / human review / policy bypass / coder
+→ unified execution binding
+```
+
+Garantiler:
+
+- Provider tam olarak `proposal` ve `minimalityPlan` taslaklarını tek çağrıda döndürür.
+- Model task, proposal, intelligence veya policy hashlerini üretmez; runtime bağlar.
+- Graph audit tamamlanmadan minimality gate çalışmaz.
+- Replan ve human-review kararlarında coder çağrısı sıfırdır.
+- Pre-minimality intelligence snapshotı coder akışında required hash olarak kilitlenir.
+- Minimality receipt ve post-patch baseline hashleri coder contextine taşınır.
+- Final binding proposal, implementation contract/audit, intelligence, minimality
+  policy/plan/receipt/baseline ve task-seed execution hashlerini zincirler.
+- Entegrasyon katmanı repository write, shell veya network kullanmaz.
+
+Deterministic evidence:
+
+- `docs/results/AG3B_PLANNER_MINIMALITY_INTEGRATION.md`
+- `reports/ag/AG3B_PLANNER_MINIMALITY_INTEGRATION.json`
+- `npm run verify:ag3b`
+
+Bu aşama canonical coder entegrasyonunu kanıtlar. AG.2b OpenAI-compatible adapterının combined
+response desteği ve Qwen live doğrulaması henüz tamamlanmamıştır; live model kalite, token,
+latency veya altyapı maliyeti iddiası üretilmez.
+
 ### Conditional Minimality Policy
 
 Ponytail yaklaşımı karar otoritesi değil, koşullu policy pack olur.

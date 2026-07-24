@@ -1,0 +1,43 @@
+{
+  "evidenceClass": "deterministic_fixture",
+  "phase": "AG.3b",
+  "decision": "ag3b_planner_minimality_integration_evidence_ready",
+  "checkCount": 20,
+  "checks": [
+    "canonical runtime exports the planner-minimality integration surface",
+    "missing authority blocks before the single provider call",
+    "tampered minimality policy blocks before provider execution",
+    "invalid change scope blocks before provider execution",
+    "provider output uses an exact combined proposal and minimality envelope",
+    "one combined planner call reaches exactly one coder call",
+    "minimality receipt and baseline are bound into coder context",
+    "planner minimality execution binding is complete and tamper evident",
+    "missing dependency justification requests planner revision before coder",
+    "already installed dependencies are replanned before coder",
+    "complete unrequested dependency plans route to human review",
+    "unrequested refactors are revised before coder",
+    "insufficient abstraction reuse evidence requests revision",
+    "high-risk disabled policy bypasses enforcement but preserves evidence",
+    "high-risk human-review policy stops before coder",
+    "forbidden planned files stop before coder",
+    "graph audit failure blocks the minimality gate and coder",
+    "provider failure stops before audit minimality and coder",
+    "required intelligence snapshot mismatch blocks task-seed coder execution",
+    "integration declares no repository write shell or network side effect"
+  ],
+  "integration": {
+    "singleCombinedPlannerProviderCall": true,
+    "preventiveMinimalityBeforeCoder": true,
+    "intelligenceSnapshotLockedAcrossGate": true,
+    "minimalityEvidenceBoundIntoCoderContext": true,
+    "coderIntegrationCompleted": true,
+    "openAICombinedAdapterLiveValidationCompleted": false
+  },
+  "claims": {
+    "observedLiveModelQuality": false,
+    "observedTokenSavings": false,
+    "observedLatency": false,
+    "observedInfrastructureCost": false
+  },
+  "reportHash": "sha256:6ccf6ab2002c270fac397d9d0b8ed45b6132f05067b12036400898ffc2c36e50"
+}

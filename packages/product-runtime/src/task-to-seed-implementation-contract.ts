@@ -132,6 +132,7 @@ export type RunTaskToSeedBoundCoderFlowInput<T> = {
     maxDependencyDepth?: number;
     maxEdges?: number;
   };
+  requiredIntelligenceHash?: string;
   contextRequestProvider: (
     state: AdaptiveContextRequestState
   ) => Promise<unknown>;
@@ -687,6 +688,53 @@ export async function runTaskToSeedBoundCoderFlow<T>(
   }
 
   const audit = auditResult.audit;
+  if (input.requiredIntelligenceHash !== undefined) {
+    if (!HASH.test(input.requiredIntelligenceHash)) {
+      return deepFreeze({
+        decision: "task_seed_coder_invalid",
+        route: "human_review_required",
+        issues: [issue(
+          "implementation_required_intelligence_hash_invalid",
+          "requiredIntelligenceHash must be a sha256 hash.",
+          "error",
+          { field: "requiredIntelligenceHash" }
+        )],
+        audit,
+        repoResult: null,
+        executionBinding: null,
+        summary: {
+          auditReady: true,
+          repoFlowCallCount: 0,
+          coderProviderCallCount: 0,
+          contextRequestProviderCallCount: 0,
+          executionBindingBuilt: false
+        }
+      });
+    }
+    if (audit.intelligenceHash !== input.requiredIntelligenceHash) {
+      return deepFreeze({
+        decision: "task_seed_coder_stopped",
+        route: "replan_required",
+        issues: [issue(
+          "implementation_required_intelligence_mismatch",
+          "Repository intelligence changed after the pre-coder policy gate.",
+          "review",
+          { field: "requiredIntelligenceHash" }
+        )],
+        audit,
+        repoResult: null,
+        executionBinding: null,
+        summary: {
+          auditReady: true,
+          repoFlowCallCount: 0,
+          coderProviderCallCount: 0,
+          contextRequestProviderCallCount: 0,
+          executionBindingBuilt: false
+        }
+      });
+    }
+  }
+
   const repoResult = await runRepoIntelligenceBoundCoderFlow({
     repositoryPath: input.repositoryPath,
     seedFiles: input.contract.seedFiles,

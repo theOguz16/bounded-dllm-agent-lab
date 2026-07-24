@@ -1,6 +1,6 @@
 {
   "name": "bounded-dllm-agent-lab",
-  "version": "0.2.0-dev.4",
+  "version": "0.2.0-dev.5",
   "private": false,
   "type": "module",
   "description": "Open-source research lab for bounded-context dLLM agents, synthetic context enrichment, and shared semantic workspaces.",
@@ -254,6 +254,9 @@
     "verify:ag2b": "npm run typecheck && npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/ag1b-repo-intelligence-context-binding-smoke.cjs --verify && node scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs --verify && node scripts/ag2a-bounded-planner-proposal-contract-smoke.cjs --verify && node scripts/ag2b-openai-compatible-planner-provider-smoke.cjs --verify",
     "validate:ag2b-live": "npm run build && node scripts/ag2b-openai-compatible-planner-provider-live.cjs",
     "generate:ag2b-live-evidence": "npm run build && node scripts/ag2b-openai-compatible-planner-provider-live.cjs",
+    "test:planner-minimality-integration": "npm run build && node scripts/ag3b-planner-minimality-integration-smoke.cjs",
+    "generate:ag3b-evidence": "npm run build && node scripts/ag3b-planner-minimality-integration-smoke.cjs --report",
+    "verify:ag3b": "npm run verify:ag3a && node scripts/ag3b-planner-minimality-integration-smoke.cjs --verify",
     "test:preventive-minimality-contract": "npm run build && node scripts/ag3a-preventive-minimality-contract-smoke.cjs",
     "generate:ag3a-evidence": "npm run build && node scripts/ag3a-preventive-minimality-contract-smoke.cjs --report",
     "verify:ag3a": "npm run verify:ag2b && node scripts/ag3a-preventive-minimality-contract-smoke.cjs --verify"

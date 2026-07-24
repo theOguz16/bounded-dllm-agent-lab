@@ -1,6 +1,6 @@
 {
   "name": "@bounded-dllm-agent-lab/product-runtime",
-  "version": "0.2.0-dev.4",
+  "version": "0.2.0-dev.5",
   "description": "Canonical bounded-context execution and reliability runtime.",
   "type": "module",
   "main": "src/canonical-runtime.ts",
