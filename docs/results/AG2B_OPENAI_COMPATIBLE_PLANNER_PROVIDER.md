@@ -2,16 +2,17 @@
 
 ## Current status
 
-The provider adapter and deterministic contract suite are ready.
+The provider adapter, deterministic contract suite and RunPod/Qwen live
+proposal validation are complete.
 
 ```text
 adapter implementation                 complete
 deterministic contract tests           complete — 16 checks
 canonical runtime export               complete
-RunPod / Qwen live proposal validation pending
+RunPod / Qwen live proposal validation complete — 2/2 cases
 ```
 
-AG.2b is not complete until the live validation report passes.
+AG.2b is complete.
 
 ## Provider boundary
 
@@ -131,3 +132,40 @@ reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER_LIVE.json
 
 A passing live run must contain two accepted cases and
 `decision=ag2b_live_planner_validation_passed`.
+
+## Observed RunPod/Qwen evidence
+
+Environment:
+
+```text
+GPU: NVIDIA GeForce RTX 3090
+provider: llama.cpp OpenAI-compatible server
+model: qwen2.5-coder-7b
+repository commit: 05c461d0b6eae7ded182e60a7494ccdd5615aeab
+```
+
+Observed result:
+
+```text
+decision=ag2b_live_planner_validation_passed
+evidenceClass=observed_run
+caseCount=2
+passedCaseCount=2
+failedCaseCount=0
+totalAttempts=2
+totalInputTokens=1422
+totalOutputTokens=857
+totalTokens=2279
+pricingSource=not_configured
+comparisonCostUsd=null
+infrastructureCostObserved=false
+reportHash=sha256:9fd6b85fde3a6c5410e5bd186df26145820bac7e0818c308805659a5d959d4dc
+```
+
+Both cases selected the required minimal implementation seed, required symbol
+and regression test. Both provider evidence chains and the report hash were
+independently verified.
+
+This is observed live-model proposal quality and provider-reported token usage.
+It is not an observed RunPod infrastructure-cost or total-cost-of-ownership
+claim.

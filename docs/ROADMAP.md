@@ -1494,7 +1494,7 @@ token, latency veya maliyet iddiası değildir.
 
 <!-- PHASE_AG_2B_PLANNER_PROVIDER_STATUS -->
 
-**Durum: Adapter ve deterministic contract tamamlandı; RunPod live doğrulaması bekleniyor.**
+**Durum: Tamamlandı.**
 
 AG.2a planner-provider yüzeyi OpenAI-compatible chat-completions adapterına
 bağlandı:
@@ -1532,8 +1532,15 @@ Deterministic evidence:
 - `readyForRunPodLiveValidation=true`
 
 Deterministic fixture live-model kalite, live token veya altyapı maliyeti iddiası
-değildir. AG.2b yalnız iki Qwen live planner vakası
-`ag2b_live_planner_validation_passed` ürettiğinde tamamlanacaktır.
+değildir.
+
+RunPod RTX 3090 üzerinde `qwen2.5-coder-7b` ile iki gerçek planner vakası
+tek attempt ile geçti. Provider-reported usage 1.422 input, 857 output ve toplam
+2.279 tokendır. Live report `evidenceClass=observed_run`,
+`ag2b_live_planner_validation_passed` ve
+`sha256:9fd6b85fde3a6c5410e5bd186df26145820bac7e0818c308805659a5d959d4dc`
+hashini taşır. Pricing yapılandırılmadığı için maliyet üretilmez ve
+`infrastructureCostObserved=false` kalır.
 
 Live komut:
 
