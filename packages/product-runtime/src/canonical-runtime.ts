@@ -14,6 +14,7 @@ export * from "./repo-intelligence-context-binding.js";
 export * from "./task-to-seed-implementation-contract.js";
 export * from "./bounded-planner-proposal-contract.js";
 export * from "./openai-compatible-planner-provider.js";
+export * from "./preventive-minimality-contract.js";
 export * from "./context-expansion-resolver.js";
 export * from "./coder-context-execution-gate.js";
 export * from "./adaptive-context-orchestrator.js";

@@ -1571,6 +1571,49 @@ Alınacak fikirler:
 
 Planner önerir; bounded runtime sınırlar; verifier doğrular; executor uygular.
 
+### AG.3a — Preventive minimality policy and repository-aware contract
+
+<!-- PHASE_AG_3A_PREVENTIVE_MINIMALITY_STATUS -->
+
+**Durum: Tamamlandı.**
+
+AF.2 post-patch soft-scope ölçümünü tekrar eden ikinci bir sistem yerine, aynı
+minimality kavramlarının coder öncesi önleyici contractı eklendi:
+
+```text
+AG.2 planner proposal hash
+→ AG.1 intelligence snapshot hash
+→ minimality declaration
+→ bounded package-manifest inventory
+→ ready / justification / replan / human review / policy disabled
+→ post-patch soft-scope baseline
+```
+
+Contract:
+
+- task, objective, planner proposal, intelligence ve policy hashlerini bağlar;
+- root ve authorized file ancestorlarındaki bounded `package.json` manifestlerinden
+  hashli installed-dependency inventory üretir;
+- kurulu dependencyyi yeni dependency diye öneren planı replana yollar;
+- standard library, native platform ve installed alternative değerlendirmesini
+  yapılandırılmış gerekçe olarak zorunlu kılabilir;
+- gereksiz yeni file, unrequested refactor, dependency ve abstractionı policyye göre
+  revision veya human reviewa yönlendirir;
+- abstraction için inline alternatif açıklaması ve reuse-site evidenceı ister;
+- high/critical riskte otomatik minimalityyi kapatabilir veya human reviewa yollar;
+- mevcut AF.2 observed soft-scope zincirinde kullanılacak tamper-evident baseline üretir;
+- filesystem write, shell veya network kullanmaz.
+
+AG.3a aynı planner çağrısının AG.3b'de genişletilmesine göre tasarlanmıştır; ikinci
+provider çağrısı gerektirmez. Evidence `deterministic_fixture`dır, 27 check taşır ve
+henüz live planner/coder kalite ya da token tasarrufu iddiası üretmez.
+
+Evidence:
+
+- `docs/results/AG3A_PREVENTIVE_MINIMALITY_CONTRACT.md`
+- `reports/ag/AG3A_PREVENTIVE_MINIMALITY_CONTRACT.json`
+- `npm run verify:ag3a`
+
 ### Conditional Minimality Policy
 
 Ponytail yaklaşımı karar otoritesi değil, koşullu policy pack olur.

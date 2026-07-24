@@ -1,0 +1,134 @@
+{
+  "evidenceVersion": "1",
+  "phase": "AG.3a",
+  "evidenceClass": "deterministic_fixture",
+  "decision": "ag3a_preventive_minimality_evidence_ready",
+  "checkCount": 27,
+  "checks": [
+    {
+      "name": "canonical runtime exports the preventive minimality surface",
+      "passed": true
+    },
+    {
+      "name": "policy hashing is deterministic and tamper evident",
+      "passed": true
+    },
+    {
+      "name": "plan hashing is deterministic and tamper evident",
+      "passed": true
+    },
+    {
+      "name": "a surgical existing-code plan continues to coder",
+      "passed": true
+    },
+    {
+      "name": "dependency inventory binds root and workspace manifests",
+      "passed": true
+    },
+    {
+      "name": "an already installed dependency requires replanning",
+      "passed": true
+    },
+    {
+      "name": "missing dependency justification requests planner revision",
+      "passed": true
+    },
+    {
+      "name": "installed alternatives must be considered before a new dependency",
+      "passed": true
+    },
+    {
+      "name": "a complete unrequested dependency plan routes to human review",
+      "passed": true
+    },
+    {
+      "name": "policy can allow a justified unrequested dependency",
+      "passed": true
+    },
+    {
+      "name": "an unrequested refactor can require replanning",
+      "passed": true
+    },
+    {
+      "name": "an explicitly requested justified refactor can continue",
+      "passed": true
+    },
+    {
+      "name": "a new unrequested file requires justification",
+      "passed": true
+    },
+    {
+      "name": "an abstraction without enough reuse evidence requests revision",
+      "passed": true
+    },
+    {
+      "name": "a justified abstraction with reuse evidence can continue",
+      "passed": true
+    },
+    {
+      "name": "an abstraction target must be a planned file",
+      "passed": true
+    },
+    {
+      "name": "high-risk tasks can bypass automatic minimality policy",
+      "passed": true
+    },
+    {
+      "name": "high-risk tasks can route to human review",
+      "passed": true
+    },
+    {
+      "name": "out-of-scope and forbidden planned files require replanning",
+      "passed": true
+    },
+    {
+      "name": "identity and repository snapshot drift fail closed",
+      "passed": true
+    },
+    {
+      "name": "policy binding mismatch fails before repository evaluation",
+      "passed": true
+    },
+    {
+      "name": "manifest symlinks fail closed",
+      "passed": true
+    },
+    {
+      "name": "malformed dependency manifests fail closed",
+      "passed": true
+    },
+    {
+      "name": "policy budgets route oversized plans to replanning",
+      "passed": true
+    },
+    {
+      "name": "baseline and receipt hashes are tamper evident",
+      "passed": true
+    },
+    {
+      "name": "evaluation is read only and declares no shell or network use",
+      "passed": true
+    },
+    {
+      "name": "unknown plan fields fail exact schema validation",
+      "passed": true
+    }
+  ],
+  "guarantees": {
+    "samePlannerCallExtensionPlanned": true,
+    "secondProviderCallRequired": false,
+    "repositoryDependencyInventoryBound": true,
+    "preCoderDecisionProduced": true,
+    "postPatchSoftScopeBaselineProduced": true,
+    "repositoryWritePerformed": false,
+    "shellExecuted": false,
+    "networkAccessed": false
+  },
+  "claimBoundary": {
+    "liveModelQualityObserved": false,
+    "liveTokenUsageObserved": false,
+    "infrastructureCostObserved": false,
+    "coderIntegrationCompleted": false
+  },
+  "reportHash": "sha256:e11934b08070bc1bfa7d88611252b4647052b6abb6ea6503c16048e632931314"
+}
