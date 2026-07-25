@@ -1650,15 +1650,15 @@ Deterministic evidence:
 - `reports/ag/AG3B_PLANNER_MINIMALITY_INTEGRATION.json`
 - `npm run verify:ag3b`
 
-Bu aşama canonical coder entegrasyonunu kanıtlar. AG.2b OpenAI-compatible adapterının combined
-response desteği ve Qwen live doğrulaması henüz tamamlanmamıştır; live model kalite, token,
+Bu aşama canonical coder entegrasyonunu kanıtlar. AG.3b aşamasında OpenAI-compatible combined adapterın
+response desteği ve Qwen live doğrulaması henüz tamamlanmamıştı; bunlar AG.3c kapsamında tamamlandı. AG.3b tek başına live model kalite, token,
 latency veya altyapı maliyeti iddiası üretilmez.
 
 ### AG.3c — OpenAI-compatible combined planner-minimality provider
 
 <!-- PHASE_AG_3C_COMBINED_PROVIDER_STATUS -->
 
-**Durum: Deterministic adapter hazır; RunPod live validation bekleniyor.**
+**Durum: RunPod/Qwen live validation tamamlandı.**
 
 AG.3b'nin tek provider çağrısı yüzeyi OpenAI-compatible chat-completions
 adapterına bağlandı:
@@ -1679,14 +1679,16 @@ planned file, dependency ve abstraction beyanlarını döndürür. Adapter exact
 schema, bounded retry, timeout/network/HTTP/byte limitleri, provider usage ve
 hash-linked attempt/run evidence sağlar.
 
-Deterministic evidence live Qwen, coder patch kalitesi, token tasarrufu veya
-altyapı maliyeti iddiası değildir. `readyForRunPodLiveValidation=true` yalnız
-live scriptin çalıştırılmaya hazır olduğunu ifade eder.
+Deterministic suite 19/19 geçti. RunPod üzerinde Qwen2.5-Coder-7B ile observed live validation
+2/2 vaka, 2 toplam deneme ve provider tarafından raporlanan 3,696 toplam token ile geçti.
+Pricing yapılandırılmadı; infrastructure cost ve coder patch quality gözlemlenmedi.
+Bu sonuç token tasarrufu iddiası değildir.
 
 Evidence:
 
 - `docs/results/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.md`
 - `reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json`
+- `reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER_LIVE.json`
 - `npm run verify:ag3c`
 - `npm run validate:ag3c-live`
 

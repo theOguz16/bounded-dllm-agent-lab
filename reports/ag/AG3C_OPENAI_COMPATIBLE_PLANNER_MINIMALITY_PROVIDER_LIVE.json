@@ -1,0 +1,158 @@
+{
+  "evidenceVersion": "1",
+  "phase": "AG.3c-live",
+  "evidenceClass": "observed_run",
+  "decision": "ag3c_live_combined_planner_minimality_validation_passed",
+  "provider": {
+    "model": "qwen2.5-coder-7b",
+    "endpointIdentityHash": "sha256:6bbfb341c5826157febb714cd5e2c868397700f9d28e5127eb05f28c4654c7e6",
+    "responseFormat": "json_object",
+    "maxAttempts": 2
+  },
+  "caseCount": 2,
+  "passedCaseCount": 2,
+  "failedCaseCount": 0,
+  "totalAttempts": 2,
+  "totalInputTokens": 2599,
+  "totalOutputTokens": 1097,
+  "totalTokens": 3696,
+  "pricingSource": "not_configured",
+  "comparisonCostUsd": null,
+  "infrastructureCostObserved": false,
+  "combinedPlannerMinimalityQualityObserved": true,
+  "coderPatchQualityObserved": false,
+  "liveTokenUsageObserved": true,
+  "cases": [
+    {
+      "caseId": "planner_minimality_integration_primary",
+      "decision": "passed",
+      "proposalHash": "sha256:03fe605dc6678cd8c6bf726e6e3d4e8c02a9c0984086c3161acf01658b735b10",
+      "minimalityPlanHash": "sha256:3c580ac19a7e03a18d1dd1a52662992452f29250cf3aabb7c073c7e7ef3d5f51",
+      "minimalityReceiptHash": "sha256:0735492b41f6a27f83f0b47f3e0382e5297e67c44b2d3b1377640d63b9b63081",
+      "minimalityBaselineHash": "sha256:5ae595cc01b9699f56f6b378e577894bb2cc3b834cfeb30b8eaaeb885f9b3962",
+      "seedFiles": [
+        "packages/product-runtime/src/planner-minimality-integration.ts"
+      ],
+      "requiredSymbols": [
+        "runPlannerMinimalityBoundCoderFlow"
+      ],
+      "requiredTestFiles": [
+        "scripts/ag3b-planner-minimality-integration-smoke.cjs"
+      ],
+      "plannedFiles": [
+        {
+          "path": "packages/product-runtime/src/planner-minimality-integration.ts",
+          "changeKind": "bugfix",
+          "requested": true,
+          "justification": "The task requires modifying the planner-minimality integration validation."
+        }
+      ],
+      "evidence": {
+        "runVersion": "1",
+        "evidenceClass": "observed_run",
+        "endpointIdentityHash": "sha256:6bbfb341c5826157febb714cd5e2c868397700f9d28e5127eb05f28c4654c7e6",
+        "model": "qwen2.5-coder-7b",
+        "decision": "planner_minimality_provider_succeeded",
+        "failureCode": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "decision": "succeeded",
+            "failureCode": null,
+            "retryable": false,
+            "httpStatus": 200,
+            "latencyMs": 3992,
+            "responseBytes": 2190,
+            "responseHash": "sha256:73080ec853009e514952beb909c82c76265a995dc226261c6bd1681100ad0d7e",
+            "finishReason": "stop",
+            "inputTokens": 1280,
+            "outputTokens": 527,
+            "totalTokens": 1807,
+            "proposalHash": "sha256:03fe605dc6678cd8c6bf726e6e3d4e8c02a9c0984086c3161acf01658b735b10",
+            "minimalityDraftHash": "sha256:2bb0dcf579002bfd4267a5d60172618926124d0dce549bd56a3eae94d35879e0",
+            "outputHash": "sha256:4c21fac1843a97749976439ddd2eb1c0b648a555978af4c85657b0f61844e1a7",
+            "attemptHash": "sha256:2a36851c82168e1d98e612cfbd1a948143482864d3d0b3e97f4d3a0c66d9c7ce"
+          }
+        ],
+        "attemptCount": 1,
+        "usageAvailableAttemptCount": 1,
+        "knownInputTokens": 1280,
+        "knownOutputTokens": 527,
+        "knownTotalTokens": 1807,
+        "pricingSource": "not_configured",
+        "knownCostUsd": null,
+        "proposalHash": "sha256:03fe605dc6678cd8c6bf726e6e3d4e8c02a9c0984086c3161acf01658b735b10",
+        "minimalityDraftHash": "sha256:2bb0dcf579002bfd4267a5d60172618926124d0dce549bd56a3eae94d35879e0",
+        "outputHash": "sha256:4c21fac1843a97749976439ddd2eb1c0b648a555978af4c85657b0f61844e1a7",
+        "runHash": "sha256:882c1ae92b0a3effa573196d9359e9b5e7f1954ce89c3af069e8c1932459227a"
+      },
+      "failureCode": null
+    },
+    {
+      "caseId": "combined_adapter_primary",
+      "decision": "passed",
+      "proposalHash": "sha256:e177d872403fa06a34c8ea224d0e04976c5c1cbee69e1ba71673ceb1e1c5dbbb",
+      "minimalityPlanHash": "sha256:4196df67a6e7350d282d0c0f3a329fed49d9d15f7fb99d528d46ee94d2ba062f",
+      "minimalityReceiptHash": "sha256:d6b92edd0ea2607380c70a5f92053bbfe7cf2023bd7c748fa98483c0d28ec93b",
+      "minimalityBaselineHash": "sha256:b5fafe0d5ed6163723ea9d5fa17c857f96a8102d53cc5b2601f9d7ee024a6330",
+      "seedFiles": [
+        "packages/product-runtime/src/openai-compatible-planner-minimality-provider.ts"
+      ],
+      "requiredSymbols": [
+        "createOpenAICompatiblePlannerMinimalityProvider"
+      ],
+      "requiredTestFiles": [
+        "scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs"
+      ],
+      "plannedFiles": [
+        {
+          "path": "packages/product-runtime/src/openai-compatible-planner-minimality-provider.ts",
+          "changeKind": "bugfix",
+          "requested": true,
+          "justification": "The task requires modifying the implementation of the OpenAI-compatible combined planner-minimality provider adapter."
+        }
+      ],
+      "evidence": {
+        "runVersion": "1",
+        "evidenceClass": "observed_run",
+        "endpointIdentityHash": "sha256:6bbfb341c5826157febb714cd5e2c868397700f9d28e5127eb05f28c4654c7e6",
+        "model": "qwen2.5-coder-7b",
+        "decision": "planner_minimality_provider_succeeded",
+        "failureCode": null,
+        "attempts": [
+          {
+            "attempt": 1,
+            "decision": "succeeded",
+            "failureCode": null,
+            "retryable": false,
+            "httpStatus": 200,
+            "latencyMs": 4209,
+            "responseBytes": 2369,
+            "responseHash": "sha256:59f2c05a952a095f851f5ce0d5db36e9b4c7692921b7e33d8a302d687c13c4eb",
+            "finishReason": "stop",
+            "inputTokens": 1319,
+            "outputTokens": 570,
+            "totalTokens": 1889,
+            "proposalHash": "sha256:e177d872403fa06a34c8ea224d0e04976c5c1cbee69e1ba71673ceb1e1c5dbbb",
+            "minimalityDraftHash": "sha256:85674d57a4b4d35f69f7073d6576c3f7310fc2063adfae148263f987a7815570",
+            "outputHash": "sha256:8fb264fea8527b0640fd8e16bc3e97d3fa86c33fe2ea597c44f0d755787da6a4",
+            "attemptHash": "sha256:855bc2d20f0333f941c43f24cc4ae43c05a610a08058c9948921aea1e74c8ca8"
+          }
+        ],
+        "attemptCount": 1,
+        "usageAvailableAttemptCount": 1,
+        "knownInputTokens": 1319,
+        "knownOutputTokens": 570,
+        "knownTotalTokens": 1889,
+        "pricingSource": "not_configured",
+        "knownCostUsd": null,
+        "proposalHash": "sha256:e177d872403fa06a34c8ea224d0e04976c5c1cbee69e1ba71673ceb1e1c5dbbb",
+        "minimalityDraftHash": "sha256:85674d57a4b4d35f69f7073d6576c3f7310fc2063adfae148263f987a7815570",
+        "outputHash": "sha256:8fb264fea8527b0640fd8e16bc3e97d3fa86c33fe2ea597c44f0d755787da6a4",
+        "runHash": "sha256:469948d1d7889a9ecbb636880df30ef5b7ee64b090abd0a91edbe7963119e41f"
+      },
+      "failureCode": null
+    }
+  ],
+  "reportHash": "sha256:b7f8817bfffe26dc97447478c8088e84911f8a750df88b7b766b830968222940"
+}

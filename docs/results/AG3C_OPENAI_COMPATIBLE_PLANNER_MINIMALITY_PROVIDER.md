@@ -48,5 +48,17 @@ npm run validate:ag3c-live
 - `scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs`
 - `scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs`
 
-The live script writes a separate `observed_run` artifact. Until that artifact is
-executed on RunPod and committed, AG.3c must not claim observed Qwen quality.
+## Observed RunPod validation
+
+The canonical Qwen2.5-Coder-7B RunPod validation completed successfully:
+
+- Decision: `ag3c_live_combined_planner_minimality_validation_passed`
+- Evidence class: `observed_run`
+- Cases passed: `2/2`
+- Total attempts: `2`
+- Provider-reported total tokens: `3,696`
+- Pricing source: `not_configured`
+- Report hash: `sha256:b7f8817bfffe26dc97447478c8088e84911f8a750df88b7b766b830968222940`
+- Live artifact: `reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER_LIVE.json`
+
+This observed run validates the combined adapter and bounded fixture selections. It does not claim general model quality, coder patch quality, token savings, latency, or infrastructure cost.
