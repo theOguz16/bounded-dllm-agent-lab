@@ -1,0 +1,38 @@
+{
+  "evidenceClass": "deterministic_fixture",
+  "phase": "AG.3c",
+  "decision": "ag3c_openai_compatible_planner_minimality_adapter_evidence_ready",
+  "checkCount": 19,
+  "checks": [
+    "canonical runtime exports the combined OpenAI-compatible adapter",
+    "adapter configuration rejects unsafe endpoints and invalid bounds",
+    "exact provider response produces canonical proposal and minimality drafts",
+    "one provider request carries the exact combined schema and minimality policy",
+    "observed run evidence is hash linked and tamper evident",
+    "strict fenced JSON is accepted without trusting model hashes",
+    "model-supplied hashes and unknown fields trigger one corrective retry",
+    "malformed JSON triggers one corrective retry",
+    "HTTP 429 is retried once and then succeeds",
+    "non-retryable HTTP failures stop after one attempt",
+    "timeout failures participate in bounded retry",
+    "oversized task context stops before the network call",
+    "oversized provider responses fail closed",
+    "missing usage stays explicit and does not fabricate cost",
+    "usage and operator-configured rates aggregate deterministically",
+    "identity drift exhausts bounded retries without producing output",
+    "combined adapter reaches exactly one planner and one coder call",
+    "installed dependency declarations are replanned before coder",
+    "provider execution does not mutate repository fixture bytes"
+  ],
+  "readyForRunPodLiveValidation": true,
+  "claims": {
+    "combinedProviderAdapterImplemented": true,
+    "singleModelCallContractVerified": true,
+    "coderIntegrationVerifiedWithFixtureProvider": true,
+    "observedLiveModelQuality": false,
+    "observedCoderPatchQuality": false,
+    "observedTokenSavings": false,
+    "observedInfrastructureCost": false
+  },
+  "reportHash": "sha256:909f1c817ff823eaa378b450673c0e4c676c43c1ec1c164f52d0ce0cdaed3027"
+}

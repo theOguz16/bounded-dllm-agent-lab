@@ -1654,6 +1654,42 @@ Bu aşama canonical coder entegrasyonunu kanıtlar. AG.2b OpenAI-compatible adap
 response desteği ve Qwen live doğrulaması henüz tamamlanmamıştır; live model kalite, token,
 latency veya altyapı maliyeti iddiası üretilmez.
 
+### AG.3c — OpenAI-compatible combined planner-minimality provider
+
+<!-- PHASE_AG_3C_COMBINED_PROVIDER_STATUS -->
+
+**Durum: Deterministic adapter hazır; RunPod live validation bekleniyor.**
+
+AG.3b'nin tek provider çağrısı yüzeyi OpenAI-compatible chat-completions
+adapterına bağlandı:
+
+```text
+task + proposal limits + minimality policy
+→ one provider request
+→ exact { proposal, minimalityPlan } draft
+→ trusted local hashing
+→ AG.2a proposal validation
+→ AG.1c graph audit
+→ AG.3a preventive minimality gate
+→ coder / replan / human review
+```
+
+Modelden hiçbir cryptographic hash beklenmez. Model yalnız plain rationale,
+planned file, dependency ve abstraction beyanlarını döndürür. Adapter exact
+schema, bounded retry, timeout/network/HTTP/byte limitleri, provider usage ve
+hash-linked attempt/run evidence sağlar.
+
+Deterministic evidence live Qwen, coder patch kalitesi, token tasarrufu veya
+altyapı maliyeti iddiası değildir. `readyForRunPodLiveValidation=true` yalnız
+live scriptin çalıştırılmaya hazır olduğunu ifade eder.
+
+Evidence:
+
+- `docs/results/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.md`
+- `reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json`
+- `npm run verify:ag3c`
+- `npm run validate:ag3c-live`
+
 ### Conditional Minimality Policy
 
 Ponytail yaklaşımı karar otoritesi değil, koşullu policy pack olur.
