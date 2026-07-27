@@ -1,0 +1,24 @@
+name: Gate 5 External Repository Contract
+
+on:
+  pull_request:
+    paths:
+      - "packages/product-runtime/src/external-repository-task-contract.ts"
+      - "packages/product-runtime/src/canonical-runtime.ts"
+      - "scripts/gate5-external-repository-contract-smoke.cjs"
+      - ".github/workflows/gate5-external-repository-contract.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/gate5-external-repository-contract-smoke.cjs
