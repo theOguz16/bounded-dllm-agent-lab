@@ -1,0 +1,27 @@
+{
+  "classificationVersion": "1",
+  "phase": "AG.3c-live",
+  "sourceReportPath": "reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER_LIVE.json",
+  "sourceReportHash": "sha256:b7f8817bfffe26dc97447478c8088e84911f8a750df88b7b766b830968222940",
+  "evaluationMode": "guided_contract_conformance",
+  "expectedOutcomeVisibleToProvider": true,
+  "claims": {
+    "contractConformanceObserved": true,
+    "plannerSelectionIndependenceObserved": false,
+    "plannerSelectionQualityObserved": false,
+    "coderPatchQualityObserved": false,
+    "tokenUsageObserved": true,
+    "tokenSavingsObserved": false,
+    "latencyClaimAllowed": false,
+    "infrastructureCostObserved": false
+  },
+  "allowedClaim": "Qwen2.5-Coder-7B completed 2/2 guided live contract-conformance cases through the AG.3c adapter, validation, graph-audit, minimality, and evidence pipeline.",
+  "forbiddenClaims": [
+    "The planner independently selected the correct minimum repository scope.",
+    "AG.3c demonstrated coder patch quality.",
+    "AG.3c demonstrated token savings.",
+    "AG.3c demonstrated general planner or model quality."
+  ],
+  "nextEvidenceRequired": "Run an unguided hidden-oracle planner/minimality benchmark where expected seed files, symbols, tests, and planned files are not visible to the provider.",
+  "classificationHash": "sha256:960ff11dbecc1644d95760c115884a9a0b772b5659479103a8e6f681145470f0"
+}
