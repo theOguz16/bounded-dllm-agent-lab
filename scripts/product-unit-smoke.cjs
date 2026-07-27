@@ -18,7 +18,8 @@ async function main() {
     code: "verifier_rejected",
     message: "Verifier rejected the mutation."
   });
-  assert.equal(failure.ok, false);
+  assert.equal(failure.failureVersion, "runtime-failure/v1");
+  assert.equal(failure.retryable, false);
   assert(Object.isFrozen(failure));
   assert.equal(runtime.canonicalizeRepositoryRelativePath("src/index.ts"), "src/index.ts");
   assert.throws(() => runtime.canonicalizeRepositoryRelativePath("../secret.ts"));
@@ -26,7 +27,7 @@ async function main() {
   console.log(JSON.stringify({
     ok: true,
     decision: "product_unit_ready",
-    checkCount: 9
+    checkCount: 10
   }, null, 2));
 }
 
