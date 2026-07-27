@@ -24,11 +24,9 @@ export type BoundedTaskApplyExecutorResult = Readonly<{
   decision: "apply_completed" | "apply_blocked" | "apply_invalid" | "apply_recovery_required";
   route: "contract_approved" | "replan_required" | "human_review_required" | "recovery_required";
   receiptHash: string | null;
-  details?: Readonly<Record<string, string>>;
 }>;
 
-export type RunBoundedTaskInput = Omit<RunPlannerMinimalityBoundCoderFlowInput<WorkspaceMutation>, "coderProvider"> & {
-  coderProvider: RunPlannerMinimalityBoundCoderFlowInput<WorkspaceMutation>["coderProvider"];
+export type RunBoundedTaskInput = RunPlannerMinimalityBoundCoderFlowInput<WorkspaceMutation> & {
   applyExecutor?: (input: Readonly<{
     taskId: string;
     objectiveHash: string;
@@ -59,14 +57,16 @@ export type BoundedTaskReceipt = Readonly<{
   receiptHash: string;
 }>;
 
+export type BoundedTaskRoute =
+  | "verified_draft_ready"
+  | "contract_approved"
+  | "replan_required"
+  | "human_review_required"
+  | "recovery_required";
+
 export type RunBoundedTaskResult = Readonly<{
   decision: "bounded_task_completed" | "bounded_task_stopped" | "bounded_task_invalid";
-  route:
-    | "verified_draft_ready"
-    | "contract_approved"
-    | "replan_required"
-    | "human_review_required"
-    | "recovery_required";
+  route: BoundedTaskRoute;
   failure: RuntimeFailure | null;
   receipt: BoundedTaskReceipt | null;
   plannerResult: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation> | null;
@@ -92,21 +92,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function stageReceipt(
-  stage: RuntimeStage,
-  decision: string,
-  route: string,
-  evidence: unknown
-): BoundedTaskStageReceipt {
-  return deepFreeze({
-    stage,
-    decision,
-    route,
-    evidenceHash: hashCanonicalJson(evidence)
-  });
+function stageReceipt(stage: RuntimeStage, decision: string, route: string, evidence: unknown): BoundedTaskStageReceipt {
+  return deepFreeze({ stage, decision, route, evidenceHash: hashCanonicalJson(evidence) });
 }
 
-function failureFor(
+function runtimeFailure(
   stage: RuntimeStage,
   route: RuntimeFailure["route"],
   code: string,
@@ -116,13 +106,12 @@ function failureFor(
   return createRuntimeFailure({ stage, route, code, message, details });
 }
 
+function stoppedRoute(result: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation>): BoundedTaskRoute {
+  return result.route === "replan_required" ? "replan_required" : "human_review_required";
+}
+
 function plannerFailure(result: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation>): RuntimeFailure {
   const issue = result.issues[0];
-  const route = result.route === "replan_required"
-    ? "replan_required"
-    : result.decision === "planner_minimality_task_invalid"
-      ? "invalid_input"
-      : "human_review_required";
   const stage: RuntimeStage = result.summary.plannerProviderCallCount === 0
     ? "planning"
     : result.summary.minimalityGateCallCount === 0
@@ -130,36 +119,24 @@ function plannerFailure(result: PlannerMinimalityBoundCoderFlowResult<WorkspaceM
       : result.summary.taskSeedFlowCallCount === 0
         ? "minimality"
         : "coding";
-  return failureFor(
+  return runtimeFailure(
     stage,
-    route,
+    result.route === "replan_required"
+      ? "replan_required"
+      : result.decision === "planner_minimality_task_invalid"
+        ? "invalid_input"
+        : "human_review_required",
     issue?.code ?? "planner_minimality_flow_stopped",
     issue?.message ?? "Planner-minimality flow stopped before a verified coder mutation was produced.",
     { decision: result.decision, route: result.route }
   );
 }
 
-function finalReceipt(input: {
-  taskId: string;
-  objectiveHash: string;
-  outcome: BoundedTaskReceipt["outcome"];
-  plannerExecutionBindingHash: string;
-  coderMutationHash: string;
-  verifierFindingHash: string;
-  applyReceiptHash: string | null;
-  stages: readonly BoundedTaskStageReceipt[];
-}): BoundedTaskReceipt {
+function buildReceipt(input: Omit<BoundedTaskReceipt, "receiptVersion" | "runtimeContractVersion" | "receiptHash">): BoundedTaskReceipt {
   const core = {
     receiptVersion: BOUNDED_TASK_RECEIPT_VERSION,
     runtimeContractVersion: RUNTIME_CONTRACT_VERSION,
-    taskId: input.taskId,
-    objectiveHash: input.objectiveHash,
-    outcome: input.outcome,
-    plannerExecutionBindingHash: input.plannerExecutionBindingHash,
-    coderMutationHash: input.coderMutationHash,
-    verifierFindingHash: input.verifierFindingHash,
-    applyReceiptHash: input.applyReceiptHash,
-    stages: input.stages
+    ...input
   };
   return deepFreeze({ ...core, receiptHash: hashCanonicalJson(core) });
 }
@@ -190,34 +167,21 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   };
   const stages: BoundedTaskStageReceipt[] = [];
 
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    return deepFreeze({
-      decision: "bounded_task_invalid",
-      route: "human_review_required",
-      failure: failureFor("planning", "invalid_input", "bounded_task_input_invalid", "runBoundedTask input must be an object."),
-      receipt: null,
-      plannerResult: null,
-      verifierResult: null,
-      applyResult: null,
-      summary
-    });
-  }
-
   try {
+    if (input === null || typeof input !== "object" || Array.isArray(input)) throw new TypeError("runBoundedTask input must be an object.");
     if (!IDENTIFIER.test(input.taskId)) throw new TypeError("taskId is invalid.");
     if (!HASH.test(input.objectiveHash)) throw new TypeError("objectiveHash must be a sha256 hash.");
-    for (const path of input.allowedChangeFiles) canonicalizeRepositoryRelativePath(path);
-    for (const path of input.forbiddenFiles ?? []) canonicalizeRepositoryRelativePath(path);
+    if (!Array.isArray(input.allowedChangeFiles)) throw new TypeError("allowedChangeFiles must be an array.");
+    for (const value of input.allowedChangeFiles) canonicalizeRepositoryRelativePath(value);
+    for (const value of input.forbiddenFiles ?? []) canonicalizeRepositoryRelativePath(value);
     if (typeof input.plannerMinimalityProvider !== "function") throw new TypeError("plannerMinimalityProvider is required.");
     if (typeof input.coderProvider !== "function") throw new TypeError("coderProvider is required.");
-    if (input.applyExecutor !== undefined && typeof input.applyExecutor !== "function") {
-      throw new TypeError("applyExecutor must be a function when provided.");
-    }
+    if (input.applyExecutor !== undefined && typeof input.applyExecutor !== "function") throw new TypeError("applyExecutor must be a function.");
   } catch (error) {
     return deepFreeze({
       decision: "bounded_task_invalid",
       route: "human_review_required",
-      failure: failureFor(
+      failure: runtimeFailure(
         "planning",
         "invalid_input",
         "bounded_task_input_invalid",
@@ -245,19 +209,18 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     }));
   }
 
+  const coderResult = plannerResult.taskSeedResult?.repoResult?.adaptiveResult?.coderResult;
   if (
     plannerResult.decision !== "planner_minimality_task_completed" ||
     plannerResult.route !== "coder_executed" ||
     plannerResult.executionBinding === null ||
-    plannerResult.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput === null ||
-    plannerResult.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput === undefined
+    coderResult?.providerOutput === null ||
+    coderResult?.providerOutput === undefined
   ) {
     summary.stageReceiptCount = stages.length;
     return deepFreeze({
-      decision: plannerResult.decision === "planner_minimality_task_invalid"
-        ? "bounded_task_invalid"
-        : "bounded_task_stopped",
-      route: plannerResult.route,
+      decision: plannerResult.decision === "planner_minimality_task_invalid" ? "bounded_task_invalid" : "bounded_task_stopped",
+      route: stoppedRoute(plannerResult),
       failure: plannerFailure(plannerResult),
       receipt: null,
       plannerResult,
@@ -267,8 +230,8 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     });
   }
 
-  const mutation = plannerResult.taskSeedResult.repoResult.adaptiveResult.coderResult.providerOutput;
-  stages.push(stageReceipt("coding", "coder_execution_completed", "coder_executed", mutation));
+  const mutation = coderResult.providerOutput;
+  stages.push(stageReceipt("coding", coderResult.decision, coderResult.route, mutation));
 
   summary.verifierCalled = true;
   const verifierResult = verifyPatchDraftMutation(mutation, {
@@ -285,7 +248,7 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     return deepFreeze({
       decision: verifierResult.decision === "reject" ? "bounded_task_invalid" : "bounded_task_stopped",
       route: verifierResult.decision === "reject" ? "human_review_required" : "replan_required",
-      failure: failureFor(
+      failure: runtimeFailure(
         "verification",
         verifierResult.decision === "reject" ? "policy_blocked" : "replan_required",
         verifierResult.issues[0]?.code ?? "deterministic_verifier_not_approved",
@@ -305,7 +268,7 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   const verifierFindingHash = hashCanonicalJson(verifierResult.finding);
 
   if (input.applyExecutor === undefined) {
-    const receipt = finalReceipt({
+    const receipt = buildReceipt({
       taskId: input.taskId,
       objectiveHash: input.objectiveHash,
       outcome: "verified_draft_ready",
@@ -331,24 +294,23 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   summary.applyCalled = true;
   let applyResult: BoundedTaskApplyExecutorResult;
   try {
-    applyResult = deepFreeze(await input.applyExecutor({
+    applyResult = await input.applyExecutor({
       taskId: input.taskId,
       objectiveHash: input.objectiveHash,
       mutation,
       plannerExecutionBindingHash,
       verifierFindingHash
-    }));
+    });
   } catch (error) {
     summary.stageReceiptCount = stages.length;
     return deepFreeze({
       decision: "bounded_task_stopped",
       route: "recovery_required",
-      failure: failureFor(
+      failure: runtimeFailure(
         "apply",
         "recovery_required",
         "bounded_task_apply_executor_failed",
-        error instanceof Error ? error.message : "Apply executor failed.",
-        {},
+        error instanceof Error ? error.message : "Apply executor failed."
       ),
       receipt: null,
       plannerResult,
@@ -359,13 +321,22 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   }
 
   stages.push(stageReceipt("apply", applyResult.decision, applyResult.route, applyResult));
-  if (applyResult.decision !== "apply_completed" || applyResult.route !== "contract_approved" || applyResult.receiptHash === null || !HASH.test(applyResult.receiptHash)) {
+  if (
+    applyResult.decision !== "apply_completed" ||
+    applyResult.route !== "contract_approved" ||
+    applyResult.receiptHash === null ||
+    !HASH.test(applyResult.receiptHash)
+  ) {
     summary.stageReceiptCount = stages.length;
     const recovery = applyResult.decision === "apply_recovery_required" || applyResult.route === "recovery_required";
     return deepFreeze({
       decision: applyResult.decision === "apply_invalid" ? "bounded_task_invalid" : "bounded_task_stopped",
-      route: recovery ? "recovery_required" : applyResult.route === "replan_required" ? "replan_required" : "human_review_required",
-      failure: failureFor(
+      route: recovery
+        ? "recovery_required"
+        : applyResult.route === "replan_required"
+          ? "replan_required"
+          : "human_review_required",
+      failure: runtimeFailure(
         "apply",
         recovery ? "recovery_required" : applyResult.decision === "apply_invalid" ? "invalid_input" : "policy_blocked",
         "bounded_task_apply_not_completed",
@@ -383,7 +354,7 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   stages.push(stageReceipt("validation", "validation_completed", "contract_approved", {
     applyReceiptHash: applyResult.receiptHash
   }));
-  const receipt = finalReceipt({
+  const receipt = buildReceipt({
     taskId: input.taskId,
     objectiveHash: input.objectiveHash,
     outcome: "applied_and_validated",
