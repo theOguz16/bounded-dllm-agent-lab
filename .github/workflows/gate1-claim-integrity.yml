@@ -1,0 +1,48 @@
+name: Gate 1 Claim Integrity
+
+on:
+  pull_request:
+    paths:
+      - "docs/CURRENT_STATE.md"
+      - "docs/EVIDENCE_CLAIMS.md"
+      - "docs/results/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.md"
+      - "docs/results/AG3C_LIVE_EVIDENCE_CLASSIFICATION.md"
+      - "reports/ag/AG3C_LIVE_EVIDENCE_CLASSIFICATION.json"
+      - "scripts/verify-claim-integrity.cjs"
+      - "scripts/claim-integrity-smoke.cjs"
+      - ".github/workflows/gate1-claim-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify claim integrity
+        run: node scripts/verify-claim-integrity.cjs
+
+      - name: Run claim integrity smoke
+        run: node scripts/claim-integrity-smoke.cjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify AG.3c
+        run: npm run verify:ag3c
