@@ -24,6 +24,7 @@ It is not currently a finished autonomous software engineering platform or a hos
 | Runtime contract registry, failure taxonomy, and canonical path contract | Implemented | Deterministic fixture and CI validation |
 | Single public `runBoundedTask()` coordinator | Implemented prototype | Successful verified-draft, verifier-blocked, and apply-approved E2E fixtures |
 | Verifier v2 path/rule engine | Implemented prototype | Canonical path, allowlist, stable-rule, FP/FN, symlink, traversal, and coordinator-integration fixtures |
+| Product maintenance contract | Implemented | Node 22, lockfile, `npm ci`, split product suites, clean-clone CI, README, and threat model |
 | Distributed multi-host runtime | Not implemented | Explicit post-MVP work |
 | Hosted service and dashboard product | Not implemented | Non-goal for current closure |
 
@@ -128,7 +129,18 @@ The verifier provides deterministic contract, scope, path, and policy checks. It
 
 ### Gate 4 — Product and maintenance
 
-Requires one Node LTS baseline, `npm ci`, separated unit/integration/acceptance commands, clean-clone validation, a product-first README opening, and current threat-model/non-goal documentation.
+Status: **complete for the current prototype boundary**.
+
+- Node.js 22 maintenance baseline: complete.
+- Lockfile-backed `npm ci` install contract: complete.
+- Separate product unit, integration, and acceptance commands: complete.
+- Local clean-clone validation from a fresh Git checkout: complete.
+- Dedicated Gate 4 CI workflow: complete.
+- Product-first README opening and quick-start path: complete.
+- Current threat model and explicit non-goals: complete.
+- Historical research and benchmark commands retained without defining the canonical product surface: complete.
+
+The maintenance contract proves repeatable installation and deterministic prototype validation. It does not establish hosted-service operations, an enterprise SLA, or broad platform compatibility.
 
 ### Gate 5 — Comparative product evidence
 
@@ -151,4 +163,4 @@ The project must not currently claim that it:
 
 ## Next Work
 
-Implement Gate 4 product and maintenance closure: select one Node LTS baseline, make `npm ci` the clean-install contract, separate unit/integration/acceptance commands, prove clean-clone validation, and refresh the README, threat model, and non-goals around the canonical runtime.
+Implement Gate 5 comparative product evidence: first create an unguided hidden-oracle planner-selection harness with strict provider-visible/evaluator-only separation, then run controlled A/B/C/D/E ablations and external repository tasks under one evidence schema.
