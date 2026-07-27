@@ -1,0 +1,44 @@
+name: Gate 4 Product Maintenance
+
+on:
+  pull_request:
+    paths:
+      - ".nvmrc"
+      - "README.md"
+      - "docs/THREAT_MODEL.md"
+      - "scripts/product-*.cjs"
+      - "scripts/product-clean-clone.sh"
+      - ".github/workflows/gate4-product-maintenance.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".nvmrc"
+      - "README.md"
+      - "docs/THREAT_MODEL.md"
+      - "scripts/product-*.cjs"
+      - "scripts/product-clean-clone.sh"
+      - ".github/workflows/gate4-product-maintenance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  product-maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/product-maintenance-contract-smoke.cjs
+      - run: node scripts/product-unit-smoke.cjs
+      - run: node scripts/product-integration-smoke.cjs
+      - run: node scripts/product-acceptance-smoke.cjs
+      - run: bash scripts/product-clean-clone.sh
