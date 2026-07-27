@@ -87,6 +87,27 @@ async function main() {
         matchedSymbols: file === "src/service.ts" ? ["compute"] : []
       }));
 
+    const plannerProposalCore = {
+      proposalVersion: "1",
+      taskId: "task.gate2.fixture",
+      objectiveHash,
+      acceptanceContractHash: acceptanceCriteriaContract.contractHash,
+      authorityHash,
+      policyHash,
+      seedFiles: ["src/service.ts"],
+      seedRationales: [{
+        path: "src/service.ts",
+        reasonHash: hashCanonicalJson({ reason: "Existing implementation boundary." })
+      }],
+      requiredSymbols: ["compute"],
+      requiredTestFiles: ["tests/service.test.ts"],
+      maxExpansionAttempts: 1
+    };
+    const plannerProposal = {
+      ...plannerProposalCore,
+      proposalHash: hashCanonicalJson(plannerProposalCore)
+    };
+
     const input = {
       repositoryPath: root,
       taskId: "task.gate2.fixture",
@@ -109,19 +130,7 @@ async function main() {
       policyPresent: true,
       hardTotalBudgetTokens: 4000,
       plannerMinimalityProvider: async () => ({
-        proposal: {
-          proposalVersion: "1",
-          taskId: "task.gate2.fixture",
-          objectiveHash,
-          acceptanceContractHash: acceptanceCriteriaContract.contractHash,
-          authorityHash,
-          policyHash,
-          seedFiles: ["src/service.ts"],
-          seedRationales: [{ path: "src/service.ts", reason: "Existing implementation boundary." }],
-          requiredSymbols: ["compute"],
-          requiredTestFiles: ["tests/service.test.ts"],
-          maxExpansionAttempts: 1
-        },
+        proposal: plannerProposal,
         minimalityPlan: {
           planVersion: "1",
           riskClass: "low",
