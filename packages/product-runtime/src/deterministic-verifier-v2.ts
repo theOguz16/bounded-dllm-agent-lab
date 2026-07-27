@@ -33,6 +33,8 @@ export const VERIFIER_V2_RULES = Object.freeze({
 
 export type VerifierV2RuleId = (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_V2_RULES]["id"];
 
+type VerifierV2Rule = (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_V2_RULES];
+
 export type VerifierV2Issue = Readonly<{
   ruleId: VerifierV2RuleId;
   severity: VerifierSeverity;
@@ -64,11 +66,17 @@ export type DeterministicVerifierV2Result = Readonly<{
 const UNSAFE_PATCH_NEEDLES = ["process.env", "SECRET", "TOKEN", "PASSWORD", ".env", "rm -rf", "curl ", "wget "] as const;
 
 function issue(
-  rule: (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_V2_RULES],
+  rule: VerifierV2Rule,
   message: string,
   extra: { field?: string; file?: string } = {}
 ): VerifierV2Issue {
-  return Object.freeze({ ...rule, message, ...extra });
+  return Object.freeze({
+    ruleId: rule.id,
+    severity: rule.severity,
+    disposition: rule.disposition,
+    message,
+    ...extra
+  });
 }
 
 function uniqueSorted(values: readonly string[]): string[] {
@@ -182,9 +190,10 @@ export async function verifyPatchDraftMutationV2(
     if (typeof claim.description !== "string" || claim.description.trim().length === 0) {
       issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft description is required.", { field: `mutation.claims.${index}.description`, file: file ?? undefined }));
     }
-    if (typeof claim.proposedPatch !== "string" || claim.proposedPatch.length === 0) {
+    const proposedPatch = claim.proposedPatch;
+    if (typeof proposedPatch !== "string" || proposedPatch.length === 0) {
       issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft proposedPatch is required.", { field: `mutation.claims.${index}.proposedPatch`, file: file ?? undefined }));
-    } else if (UNSAFE_PATCH_NEEDLES.some((needle) => claim.proposedPatch.includes(needle))) {
+    } else if (UNSAFE_PATCH_NEEDLES.some((needle) => proposedPatch.includes(needle))) {
       issues.push(issue(VERIFIER_V2_RULES.unsafePatch, "proposedPatch contains an unsafe content marker.", { field: `mutation.claims.${index}.proposedPatch`, file: file ?? undefined }));
     }
   }
