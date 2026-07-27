@@ -5,9 +5,9 @@ import {
   type RunPlannerMinimalityBoundCoderFlowInput
 } from "./planner-minimality-integration.js";
 import {
-  verifyPatchDraftMutation,
-  type DeterministicVerifierResult
-} from "./deterministic-verifier-gate.js";
+  verifyPatchDraftMutationV2,
+  type DeterministicVerifierV2Result
+} from "./deterministic-verifier-v2.js";
 import {
   canonicalizeRepositoryRelativePath,
   createRuntimeFailure,
@@ -70,7 +70,7 @@ export type RunBoundedTaskResult = Readonly<{
   failure: RuntimeFailure | null;
   receipt: BoundedTaskReceipt | null;
   plannerResult: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation> | null;
-  verifierResult: DeterministicVerifierResult | null;
+  verifierResult: DeterministicVerifierV2Result | null;
   applyResult: BoundedTaskApplyExecutorResult | null;
   summary: Readonly<{
     plannerCalled: boolean;
@@ -104,6 +104,10 @@ function runtimeFailure(
   details: Readonly<Record<string, string>> = {}
 ): RuntimeFailure {
   return createRuntimeFailure({ stage, route, code, message, details });
+}
+
+function verifierFailureCode(result: DeterministicVerifierV2Result): string {
+  return result.issues[0]?.ruleId.toLowerCase() ?? "deterministic_verifier_v2_not_approved";
 }
 
 function stoppedRoute(result: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation>): BoundedTaskRoute {
@@ -234,11 +238,15 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
   stages.push(stageReceipt("coding", coderResult.decision, coderResult.route, mutation));
 
   summary.verifierCalled = true;
-  const verifierResult = verifyPatchDraftMutation(mutation, {
-    allowedFiles: [...input.allowedChangeFiles],
-    forbiddenFiles: [...(input.forbiddenFiles ?? [])]
+  const verifierResult = await verifyPatchDraftMutationV2({
+    repositoryPath: input.repositoryPath,
+    mutation,
+    allowedFiles: input.allowedChangeFiles,
+    forbiddenFiles: input.forbiddenFiles ?? [],
+    requireExistingTouchedFiles: true
   });
   stages.push(stageReceipt("verification", verifierResult.decision, verifierResult.decision, {
+    version: verifierResult.version,
     issues: verifierResult.issues,
     finding: verifierResult.finding
   }));
@@ -251,9 +259,13 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
       failure: runtimeFailure(
         "verification",
         verifierResult.decision === "reject" ? "policy_blocked" : "replan_required",
-        verifierResult.issues[0]?.code ?? "deterministic_verifier_not_approved",
-        verifierResult.issues[0]?.message ?? "Deterministic verifier did not approve the coder mutation.",
-        { decision: verifierResult.decision }
+        verifierFailureCode(verifierResult),
+        verifierResult.issues[0]?.message ?? "Deterministic verifier v2 did not approve the coder mutation.",
+        {
+          decision: verifierResult.decision,
+          verifierVersion: verifierResult.version,
+          ...(verifierResult.issues[0] === undefined ? {} : { ruleId: verifierResult.issues[0].ruleId })
+        }
       ),
       receipt: null,
       plannerResult,
