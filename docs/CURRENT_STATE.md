@@ -23,7 +23,7 @@ It is not currently a finished autonomous software engineering platform or a hos
 | Disposable apply, validation, rollback, recovery, registry, and delivery primitives | Implemented prototype | Local/self-hosted evidence chain |
 | Runtime contract registry, failure taxonomy, and canonical path contract | Implemented | Deterministic fixture and CI validation |
 | Single public `runBoundedTask()` coordinator | Implemented prototype | Successful verified-draft, verifier-blocked, and apply-approved E2E fixtures |
-| Verifier v2 path/rule engine | Not implemented | Gate 3 blocker |
+| Verifier v2 path/rule engine | Implemented prototype | Canonical path, allowlist, stable-rule, FP/FN, symlink, traversal, and coordinator-integration fixtures |
 | Distributed multi-host runtime | Not implemented | Explicit post-MVP work |
 | Hosted service and dashboard product | Not implemented | Non-goal for current closure |
 
@@ -110,7 +110,21 @@ The coordinator currently exposes a provider-independent apply executor boundary
 
 ### Gate 3 — Verifier reliability
 
-Requires canonical path normalization across verifier inputs, stable rule IDs and severity, explicit allowlist behavior, FP/FN fixtures, symlink/path-traversal tests, and fail-closed behavior.
+Status: **complete for the current prototype boundary**.
+
+- Async `deterministic-verifier/v2` contract: complete.
+- Canonical path normalization for verifier inputs: complete.
+- Stable rule IDs, severity, and dispositions: complete.
+- Explicit allowlist behavior, including empty-allowlist fail closed: complete.
+- Forbidden-file and unsafe-content rejection: complete.
+- False-positive approval fixture: complete.
+- False-negative rejection and review fixtures: complete.
+- Path alias and traversal rejection: complete.
+- Symlink path rejection: complete.
+- Missing existing-file review route: complete.
+- `runBoundedTask()` integration with stable verifier failure codes: complete.
+
+The verifier provides deterministic contract, scope, path, and policy checks. It does not prove semantic correctness or complete vulnerability detection.
 
 ### Gate 4 — Product and maintenance
 
@@ -137,4 +151,4 @@ The project must not currently claim that it:
 
 ## Next Work
 
-Implement Gate 3 verifier reliability: canonicalize all verifier file inputs, introduce stable rule metadata and allowlist semantics, add false-positive/false-negative fixtures, and cover symlink and path-traversal behavior fail closed.
+Implement Gate 4 product and maintenance closure: select one Node LTS baseline, make `npm ci` the clean-install contract, separate unit/integration/acceptance commands, prove clean-clone validation, and refresh the README, threat model, and non-goals around the canonical runtime.

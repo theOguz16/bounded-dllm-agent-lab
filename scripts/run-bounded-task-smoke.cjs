@@ -176,20 +176,24 @@ async function main() {
       assert.equal(typeof verifyBoundedTaskReceipt, "function");
     });
 
-    await check("verified draft flow completes with hash-linked receipt", async () => {
+    await check("verified draft flow completes through verifier v2 with hash-linked receipt", async () => {
       const result = await runBoundedTask(await fixture("approved"));
       assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
       assert.equal(result.route, "verified_draft_ready");
       assert.equal(result.summary.verifierCalled, true);
+      assert.equal(result.verifierResult.version, "deterministic-verifier/v2");
       assert.equal(result.summary.applyCalled, false);
       assert.equal(verifyBoundedTaskReceipt(result.receipt), true);
     });
 
-    await check("deterministic verifier blocks forbidden coder mutation", async () => {
+    await check("verifier v2 stable rule blocks forbidden coder mutation", async () => {
       const result = await runBoundedTask(await fixture("blocked"));
       assert.equal(result.decision, "bounded_task_invalid", JSON.stringify(result));
       assert.equal(result.route, "human_review_required");
       assert.equal(result.failure.stage, "verification");
+      assert.equal(result.failure.code, "dv2_allowlist_violation");
+      assert.equal(result.failure.details.ruleId, "DV2_ALLOWLIST_VIOLATION");
+      assert.equal(result.verifierResult.version, "deterministic-verifier/v2");
       assert.equal(result.receipt, null);
     });
 
@@ -199,6 +203,7 @@ async function main() {
       assert.equal(result.route, "contract_approved");
       assert.equal(result.receipt.outcome, "applied_and_validated");
       assert.equal(result.summary.applyCalled, true);
+      assert.equal(result.verifierResult.version, "deterministic-verifier/v2");
       assert.equal(verifyBoundedTaskReceipt(result.receipt), true);
     });
 

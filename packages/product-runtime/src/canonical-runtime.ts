@@ -27,6 +27,7 @@ export * from "./acceptance-criteria-contract.js";
 export * from "./context-to-apply-binding.js";
 export * from "./integrated-disposable-apply-coordinator.js";
 export * from "./deterministic-verifier-gate.js";
+export * from "./deterministic-verifier-v2.js";
 export * from "./repair-draft-verifier-gate.js";
 export * from "./patch-application-dry-run-gate.js";
 export * from "./temporary-workspace-apply-gate.js";
