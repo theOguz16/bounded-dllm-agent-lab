@@ -1,0 +1,27 @@
+name: Run Bounded Task
+
+on:
+  pull_request:
+    paths:
+      - "packages/product-runtime/src/run-bounded-task.ts"
+      - "packages/product-runtime/src/canonical-runtime.ts"
+      - "scripts/run-bounded-task-smoke.cjs"
+      - ".github/workflows/run-bounded-task.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/run-bounded-task-smoke.cjs
