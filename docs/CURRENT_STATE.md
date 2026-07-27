@@ -21,7 +21,8 @@ It is not currently a finished autonomous software engineering platform or a hos
 | Combined planner/minimality provider | Implemented | Guided live contract validation |
 | Coder mutation and deterministic verifier chain | Implemented prototype | Contract and boundary checks; not semantic correctness proof |
 | Disposable apply, validation, rollback, recovery, registry, and delivery primitives | Implemented prototype | Local/self-hosted evidence chain |
-| Single public `runBoundedTask()` coordinator | Not implemented | Gate 2 blocker |
+| Runtime contract registry, failure taxonomy, and canonical path contract | Implemented | Deterministic fixture and CI validation |
+| Single public `runBoundedTask()` coordinator | Implemented prototype | Successful verified-draft, verifier-blocked, and apply-approved E2E fixtures |
 | Verifier v2 path/rule engine | Not implemented | Gate 3 blocker |
 | Distributed multi-host runtime | Not implemented | Explicit post-MVP work |
 | Hosted service and dashboard product | Not implemented | Non-goal for current closure |
@@ -94,11 +95,22 @@ Status: **complete**.
 
 ### Gate 2 — Runtime integrity
 
-Requires a public `runBoundedTask()` coordinator, explicit schema versions and failure states, successful and blocked E2E flows, and a fully linked artifact/receipt chain.
+Status: **complete for the current prototype boundary**.
+
+- Versioned runtime contract registry: complete.
+- Explicit runtime stages and failure taxonomy: complete.
+- Canonical repository-relative path contract: complete.
+- Public `runBoundedTask()` coordinator: complete.
+- Successful verified-draft E2E fixture: complete.
+- Verifier-blocked E2E fixture: complete.
+- Apply-approved E2E fixture through a typed apply boundary: complete.
+- Hash-linked stage and final receipts: complete.
+
+The coordinator currently exposes a provider-independent apply executor boundary. The existing integrated disposable apply implementation remains the canonical concrete apply chain behind that boundary.
 
 ### Gate 3 — Verifier reliability
 
-Requires canonical path normalization, rule IDs/severity/allowlists, FP/FN fixtures, symlink/path-traversal tests, and fail-closed behavior.
+Requires canonical path normalization across verifier inputs, stable rule IDs and severity, explicit allowlist behavior, FP/FN fixtures, symlink/path-traversal tests, and fail-closed behavior.
 
 ### Gate 4 — Product and maintenance
 
@@ -125,4 +137,4 @@ The project must not currently claim that it:
 
 ## Next Work
 
-Establish shared runtime/verifier contracts, then implement the public `runBoundedTask()` coordinator for Gate 2.
+Implement Gate 3 verifier reliability: canonicalize all verifier file inputs, introduce stable rule metadata and allowlist semantics, add false-positive/false-negative fixtures, and cover symlink and path-traversal behavior fail closed.
