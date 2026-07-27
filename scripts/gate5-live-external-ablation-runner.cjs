@@ -30,12 +30,18 @@ const ORACLE = Object.freeze({
   plannedFiles: Object.freeze(['index.js', 'test.js'])
 });
 
+const METRIC_DEFINITIONS = Object.freeze({
+  fileScopeSuccess: 'required test files and planned files match the oracle exactly, with zero scope drift',
+  symbolIdentificationSuccess: 'required symbols match the oracle exactly',
+  strictOracleSuccess: 'seed files, required symbols, required test files, and planned files all match the oracle exactly'
+});
+
 function hash(value) {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
 }
 
 function canonical(values) {
-  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+  return [...new Set(Array.isArray(values) ? values : [])].sort((a, b) => a.localeCompare(b));
 }
 
 function exact(actual, expected) {
@@ -144,9 +150,14 @@ function buildContext(mode, files) {
 function fixtureOutput(mode) {
   const tokenBase = { A_long_context: 2200, B_retrieval_context: 1350, C_synthetic_context: 980, D_bounded_workspace: 760, E_bounded_workspace_boundary: 640 }[mode];
   return {
-    seedFiles: ['index.js'], requiredSymbols: ['pLimit', 'map'], requiredTestFiles: ['test.js'], plannedFiles: ['index.js', 'test.js'],
+    seedFiles: ['index.js'],
+    requiredSymbols: ['pLimit', 'map'],
+    requiredTestFiles: ['test.js'],
+    plannedFiles: ['index.js', 'test.js'],
     usage: { promptTokens: tokenBase, completionTokens: 120, totalTokens: tokenBase + 120 },
-    latencyMs: 100 + MODES.indexOf(mode) * 10, scopeDriftFiles: 0, success: true
+    latencyMs: 100 + MODES.indexOf(mode) * 10,
+    scopeDriftFiles: 0,
+    success: true
   };
 }
 
@@ -178,10 +189,14 @@ async function invokeLive(providerPayload) {
   const parsed = JSON.parse(content.replace(/^```json\s*/i, '').replace(/```\s*$/, ''));
   const usage = envelope.usage ?? {};
   return {
-    seedFiles: parsed.seedFiles ?? [], requiredSymbols: parsed.requiredSymbols ?? [], requiredTestFiles: parsed.requiredTestFiles ?? [], plannedFiles: parsed.plannedFiles ?? [],
+    seedFiles: parsed.seedFiles ?? [],
+    requiredSymbols: parsed.requiredSymbols ?? [],
+    requiredTestFiles: parsed.requiredTestFiles ?? [],
+    plannedFiles: parsed.plannedFiles ?? [],
     usage: { promptTokens: usage.prompt_tokens ?? 0, completionTokens: usage.completion_tokens ?? 0, totalTokens: usage.total_tokens ?? 0 },
     latencyMs: Date.now() - started,
-    scopeDriftFiles: Math.max(0, (parsed.plannedFiles ?? []).filter((file) => !ORACLE.plannedFiles.includes(file)).length), success: true
+    scopeDriftFiles: Math.max(0, (parsed.plannedFiles ?? []).filter((file) => !ORACLE.plannedFiles.includes(file)).length),
+    success: true
   };
 }
 
@@ -201,19 +216,48 @@ async function main() {
       assert.equal(serialized.includes('requiredOutcome'), false);
       assert.equal(serialized.includes(oracleHash), false);
       const output = live ? await invokeLive(providerPayload) : fixtureOutput(mode);
+
+      const selectedSeedFiles = canonical(output.seedFiles);
+      const selectedSymbols = canonical(output.requiredSymbols);
+      const selectedTestFiles = canonical(output.requiredTestFiles);
+      const selectedPlannedFiles = canonical(output.plannedFiles);
+      const seedFilesExact = exact(selectedSeedFiles, ORACLE.seedFiles);
+      const requiredSymbolsExact = exact(selectedSymbols, ORACLE.requiredSymbols);
+      const requiredTestFilesExact = exact(selectedTestFiles, ORACLE.requiredTestFiles);
+      const plannedFilesExact = exact(selectedPlannedFiles, ORACLE.plannedFiles);
+      const fileScopeSuccess = requiredTestFilesExact && plannedFilesExact && output.scopeDriftFiles === 0;
+      const symbolIdentificationSuccess = requiredSymbolsExact;
+      const strictOracleSuccess = seedFilesExact && requiredSymbolsExact && requiredTestFilesExact && plannedFilesExact;
+
       const metrics = {
-        seedFilesExact: exact(output.seedFiles, ORACLE.seedFiles),
-        requiredSymbolsExact: exact(output.requiredSymbols, ORACLE.requiredSymbols),
-        requiredTestFilesExact: exact(output.requiredTestFiles, ORACLE.requiredTestFiles),
-        plannedFilesExact: exact(output.plannedFiles, ORACLE.plannedFiles),
-        selectionSuccess: false,
+        selectedSeedFiles,
+        selectedSymbols,
+        selectedTestFiles,
+        selectedPlannedFiles,
+        seedFilesExact,
+        requiredSymbolsExact,
+        requiredTestFilesExact,
+        plannedFilesExact,
+        fileScopeSuccess,
+        symbolIdentificationSuccess,
+        strictOracleSuccess,
+        selectionSuccess: strictOracleSuccess,
         tokenCount: output.usage.totalTokens,
         latencyMs: output.latencyMs,
         scopeDriftFiles: output.scopeDriftFiles,
         providerContextBytes: Buffer.byteLength(serialized)
       };
-      metrics.selectionSuccess = metrics.seedFilesExact && metrics.requiredSymbolsExact && metrics.requiredTestFilesExact && metrics.plannedFilesExact;
-      results.push(Object.freeze({ mode, taskId: TARGET.taskId, repositoryId: `${TARGET.repository}@${TARGET.commitSha}`, model, provider, contextStrategy: providerPayload.contextStrategy, providerVisibleOracleLeakage: false, ...metrics }));
+
+      results.push(Object.freeze({
+        mode,
+        taskId: TARGET.taskId,
+        repositoryId: `${TARGET.repository}@${TARGET.commitSha}`,
+        model,
+        provider,
+        contextStrategy: providerPayload.contextStrategy,
+        providerVisibleOracleLeakage: false,
+        ...metrics
+      }));
     }
 
     assert.deepEqual(results.map((result) => result.mode), MODES);
@@ -225,15 +269,22 @@ async function main() {
     assert.equal(new Set(results.map((result) => result.provider)).size, 1);
     assert.equal(results.some((result) => result.providerVisibleOracleLeakage), false);
 
+    if (!live) {
+      assert.equal(results.every((result) => result.fileScopeSuccess), true);
+      assert.equal(results.every((result) => result.symbolIdentificationSuccess), true);
+      assert.equal(results.every((result) => result.strictOracleSuccess), true);
+    }
+
     const report = Object.freeze({
-      version: 'gate5-live-external-ablation/v2',
+      version: 'gate5-live-external-ablation/v3',
       executionClass: live ? 'live_external_ablation' : 'fixture_external_ablation',
       evidenceClass: live ? 'comparative_benchmark_candidate' : 'deterministic_fixture',
       comparable: true,
+      metricDefinitions: METRIC_DEFINITIONS,
       target: TARGET,
       oracleHash,
       results: Object.freeze(results),
-      reportHash: hash({ target: TARGET, oracleHash, results })
+      reportHash: hash({ target: TARGET, oracleHash, metricDefinitions: METRIC_DEFINITIONS, results })
     });
 
     const outputPathArg = process.argv.find((arg) => arg.startsWith('--output='));
@@ -251,7 +302,10 @@ async function main() {
       comparable: report.comparable,
       distinctContextStrategies: new Set(report.results.map((result) => result.contextStrategy)).size,
       providerVisibleOracleLeakage: false,
-      allSelectionsPassed: report.results.every((result) => result.selectionSuccess),
+      allFileScopesPassed: report.results.every((result) => result.fileScopeSuccess),
+      allSymbolIdentificationsPassed: report.results.every((result) => result.symbolIdentificationSuccess),
+      allStrictOraclePassed: report.results.every((result) => result.strictOracleSuccess),
+      allSelectionsPassed: report.results.every((result) => result.strictOracleSuccess),
       reportHash: report.reportHash
     }, null, 2));
   } finally {
