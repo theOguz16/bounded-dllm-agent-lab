@@ -5,15 +5,23 @@ const {spawnSync} = require('node:child_process');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const {pathToFileURL} = require('node:url');
 
 async function main() {
   const sourcePath = path.resolve(__dirname, 'gate5-external-patch-e2e.cjs');
+  const runtimeModuleUrl = pathToFileURL(
+    path.resolve(__dirname, '../dist/packages/product-runtime/src/canonical-runtime.js')
+  ).href;
   let source = await fs.readFile(sourcePath, 'utf8');
 
   const replacements = [
     [
       "requiredSymbols: Object.freeze(['toVal', 'clsx'])",
       "requiredSymbols: Object.freeze(['clsx', 'toVal'])"
+    ],
+    [
+      "const runtime = await import('../dist/packages/product-runtime/src/canonical-runtime.js');",
+      `const runtime = await import(${JSON.stringify(runtimeModuleUrl)});`
     ],
     [
 `function buildInitialEvidence(mode, files) {
