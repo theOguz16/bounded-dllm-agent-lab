@@ -1,0 +1,25 @@
+name: Gate 5 Hidden Oracle
+
+on:
+  pull_request:
+    paths:
+      - "scripts/gate5-hidden-oracle-harness-smoke.cjs"
+      - ".github/workflows/gate5-hidden-oracle.yml"
+      - "packages/product-runtime/**"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+jobs:
+  hidden-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/gate5-hidden-oracle-harness-smoke.cjs
