@@ -1,0 +1,27 @@
+name: Deterministic Verifier V2
+
+on:
+  pull_request:
+    paths:
+      - "packages/product-runtime/src/deterministic-verifier-v2.ts"
+      - "packages/product-runtime/src/canonical-runtime.ts"
+      - "scripts/deterministic-verifier-v2-smoke.cjs"
+      - ".github/workflows/deterministic-verifier-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/deterministic-verifier-v2-smoke.cjs
