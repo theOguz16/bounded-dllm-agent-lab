@@ -83,11 +83,14 @@ Reason: the provider-visible `taskContext.requiredOutcome` contained expected se
 
 ### Gate 1 — Claim integrity
 
+Status: **complete**.
+
 - Guided evidence separately classified: complete.
 - Answer leakage explicitly recorded: complete.
 - Guided results excluded from independent quality metrics: complete.
-- Historical/current claim consistency verification: in progress.
+- Historical/current claim consistency verification: complete.
 - This file established as the single current-state source: complete.
+- Automated claim-integrity regression and CI workflow: complete.
 
 ### Gate 2 — Runtime integrity
 
@@ -122,4 +125,4 @@ The project must not currently claim that it:
 
 ## Next Work
 
-Close Gate 1 claim consistency, then establish shared runtime/verifier contracts before implementing the public `runBoundedTask()` coordinator.
+Establish shared runtime/verifier contracts, then implement the public `runBoundedTask()` coordinator for Gate 2.
