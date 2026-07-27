@@ -1,0 +1,38 @@
+name: Runtime Contract Foundation
+
+on:
+  pull_request:
+    paths:
+      - "packages/product-runtime/src/runtime-contract-foundation.ts"
+      - "packages/product-runtime/src/canonical-runtime.ts"
+      - "scripts/runtime-contract-foundation-smoke.cjs"
+      - ".github/workflows/runtime-contract-foundation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify runtime contract foundation
+        run: node scripts/runtime-contract-foundation-smoke.cjs
