@@ -25,10 +25,12 @@ assert.equal(guided.claims.plannerSelectionQualityObserved, false);
 assert.equal(guided.claims.coderPatchQualityObserved, false);
 assert.equal(guided.claims.tokenUsageObserved, true);
 assert.equal(guided.claims.tokenSavingsObserved, false);
-assert.equal(guided.classificationHash, hashCanonicalJson({
-  ...guided,
-  classificationHash: undefined
-}), "classification hash must be reproducible");
+const { classificationHash, ...guidedMaterial } = guided;
+assert.equal(
+  classificationHash,
+  hashCanonicalJson(guidedMaterial),
+  "classification hash must be reproducible"
+);
 
 const unguided = classifyAg3cLiveEvidence({
   ...source,
