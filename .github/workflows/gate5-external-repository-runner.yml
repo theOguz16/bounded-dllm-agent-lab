@@ -1,0 +1,28 @@
+name: Gate 5 External Repository Runner
+
+on:
+  pull_request:
+    paths:
+      - "scripts/gate5-external-repository-runner.cjs"
+      - "packages/product-runtime/src/external-repository-task-contract.ts"
+      - "packages/product-runtime/src/canonical-runtime.ts"
+      - ".github/workflows/gate5-external-repository-runner.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  external-repository-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/gate5-external-repository-runner.cjs
