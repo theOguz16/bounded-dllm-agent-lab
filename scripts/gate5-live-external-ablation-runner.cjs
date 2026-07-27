@@ -161,13 +161,17 @@ async function invokeLive(providerPayload) {
     body: JSON.stringify({
       model,
       temperature: 0,
+      max_tokens: Number.parseInt(process.env.GATE5_MAX_COMPLETION_TOKENS ?? '256', 10),
       messages: [
         { role: 'system', content: 'Analyze only the supplied repository context. Return strict JSON with seedFiles, requiredSymbols, requiredTestFiles, and plannedFiles only. Use exact case-sensitive file and symbol names visible in the context. Do not add explanations.' },
         { role: 'user', content: JSON.stringify(providerPayload) }
       ]
     })
   });
-  if (!response.ok) throw new Error(`provider_http_${response.status}`);
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`provider_http_${response.status}:${errorBody.slice(0, 2000)}`);
+  }
   const envelope = await response.json();
   const content = envelope?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') throw new Error('provider_content_missing');
