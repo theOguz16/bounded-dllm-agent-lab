@@ -10,6 +10,7 @@ export const CANONICAL_PRODUCT_RUNTIME_ENTRYPOINT =
 export * from "./runtime-contract-foundation.js";
 export * from "./run-bounded-task.js";
 export * from "./comparative-evidence-contract.js";
+export * from "./external-repository-task-contract.js";
 export * from "./model-mutation-validator.js";
 export * from "./context-sufficiency-contract.js";
 export * from "./canonical-repo-intelligence.js";
