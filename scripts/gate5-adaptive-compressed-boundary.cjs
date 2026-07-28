@@ -6,7 +6,11 @@ const {createHash} = require('node:crypto');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const ts = require('typescript');
+const {
+  canonical,
+  createLanguageResolver,
+  resolveEvidenceBoundary
+} = require('./lib/gate5-language-resolver.cjs');
 
 const MODES = Object.freeze([
   'C_synthetic_context',
@@ -14,6 +18,8 @@ const MODES = Object.freeze([
   'F_adaptive_compressed_boundary'
 ]);
 const DEFAULT_REPETITIONS = 3;
+const TASK_CLASS = 'small_bugfix_with_regression_test_selection/v1';
+const EXPANSION_POLICY = Object.freeze({oneHopOnly: true, maxRounds: 1, maxFiles: 1});
 
 const TASKS = Object.freeze([
   Object.freeze({
@@ -22,8 +28,10 @@ const TASKS = Object.freeze([
     taskId: 'external.p-limit.detached-map-selection',
     task: 'Identify the minimal implementation and test files relevant to detached limit.map behavior without modifying the repository.',
     candidateFiles: ['index.js', 'test.js', 'package.json', 'index.d.ts', 'readme.md'],
-    boundaryFiles: ['index.js', 'test.js'],
-    keywords: ['detached', 'limit.map', 'map works', 'value(iterable', 'plimit'],
+    implementationFiles: ['index.js'],
+    testFiles: ['test.js'],
+    forbiddenInspectionFiles: ['package.json', 'index.d.ts', 'readme.md'],
+    keywords: ['detached', 'limit.map', 'map works', 'value(iterable', 'pLimit'],
     summaries: {
       'index.js': 'Primary JavaScript implementation exporting a concurrency limiter with properties and helper exports.',
       'test.js': 'AVA test suite covering concurrency, queue behavior, mapping, and detached API behavior.',
@@ -37,9 +45,7 @@ const TASKS = Object.freeze([
       requiredTestFiles: ['test.js'],
       requiredTestAnchors: ['map works with concurrency: 1', 'can be used detached'],
       plannedFiles: ['index.js', 'test.js']
-    },
-    criticalImplementationSymbols: ['pLimit', 'map'],
-    criticalTestAnchors: ['map works with concurrency: 1', 'can be used detached']
+    }
   }),
   Object.freeze({
     repository: 'lukeed/clsx',
@@ -47,8 +53,10 @@ const TASKS = Object.freeze([
     taskId: 'external.clsx.nested-array-selection',
     task: 'Identify the minimal implementation and test files relevant to recursively flattening nested class-value arrays without modifying the repository.',
     candidateFiles: ['src/index.js', 'test/index.js', 'clsx.d.ts', 'package.json', 'readme.md'],
-    boundaryFiles: ['src/index.js', 'test/index.js'],
-    keywords: ['arrays (nested)', 'toval', 'array.isarray', 'classarray', 'clsx'],
+    implementationFiles: ['src/index.js'],
+    testFiles: ['test/index.js'],
+    forbiddenInspectionFiles: ['clsx.d.ts', 'package.json', 'readme.md'],
+    keywords: ['arrays (nested)', 'toVal', 'Array.isArray', 'ClassArray', 'clsx'],
     summaries: {
       'src/index.js': 'Runtime implementation that recursively converts strings, numbers, objects, and nested arrays into a class string.',
       'test/index.js': 'uvu tests for exports, strings, numbers, objects, arrays, and nested arrays.',
@@ -62,9 +70,7 @@ const TASKS = Object.freeze([
       requiredTestFiles: ['test/index.js'],
       requiredTestAnchors: ['arrays (nested)'],
       plannedFiles: ['src/index.js', 'test/index.js']
-    },
-    criticalImplementationSymbols: ['toVal', 'clsx'],
-    criticalTestAnchors: ['arrays (nested)']
+    }
   }),
   Object.freeze({
     repository: 'sindresorhus/yocto-queue',
@@ -72,8 +78,10 @@ const TASKS = Object.freeze([
     taskId: 'external.yocto-queue.clear-reset-selection',
     task: 'Identify the minimal implementation and test files relevant to clearing a queue and resetting its size and head/tail state without modifying the repository.',
     candidateFiles: ['index.js', 'test.js', 'index.d.ts', 'package.json', 'readme.md'],
-    boundaryFiles: ['index.js', 'test.js'],
-    keywords: ['clear()', '#head', '#tail', '#size', "test('.clear()"],
+    implementationFiles: ['index.js'],
+    testFiles: ['test.js'],
+    forbiddenInspectionFiles: ['index.d.ts', 'package.json', 'readme.md'],
+    keywords: ['clear()', '#head', '#tail', '#size', '.clear()'],
     summaries: {
       'index.js': 'Queue implementation with head, tail, size, enqueue, dequeue, clear, iteration, and drain behavior.',
       'test.js': 'AVA tests for enqueue, dequeue, peek, clear, size, iteration, and drain.',
@@ -87,19 +95,12 @@ const TASKS = Object.freeze([
       requiredTestFiles: ['test.js'],
       requiredTestAnchors: ['.clear()'],
       plannedFiles: ['index.js', 'test.js']
-    },
-    criticalImplementationSymbols: ['Queue', 'clear'],
-    criticalTestAnchors: ['.clear()']
+    }
   })
 ]);
 
 function hash(value) {
   return `sha256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
-}
-
-function canonical(values) {
-  return [...new Set(Array.isArray(values) ? values.filter(value => typeof value === 'string') : [])]
-    .sort((left, right) => left.localeCompare(right));
 }
 
 function exact(actual, expected) {
@@ -127,57 +128,8 @@ async function loadSnapshot(task) {
   run('git', ['checkout', '--detach', task.commitSha], {cwd: checkout});
   assert.equal(run('git', ['rev-parse', 'HEAD'], {cwd: checkout, capture: true}), task.commitSha);
   const files = {};
-  for (const file of task.candidateFiles) {
-    files[file] = await fs.readFile(path.join(checkout, file), 'utf8');
-  }
+  for (const file of task.candidateFiles) files[file] = await fs.readFile(path.join(checkout, file), 'utf8');
   return {root, files};
-}
-
-function scriptKindFor(file) {
-  if (file.endsWith('.ts')) return ts.ScriptKind.TS;
-  if (file.endsWith('.tsx')) return ts.ScriptKind.TSX;
-  if (file.endsWith('.jsx')) return ts.ScriptKind.JSX;
-  if (file.endsWith('.json')) return ts.ScriptKind.JSON;
-  return ts.ScriptKind.JS;
-}
-
-function buildAstSymbolIndex(task, files) {
-  const symbols = new Set();
-  for (const file of task.boundaryFiles) {
-    const sourceFile = ts.createSourceFile(file, files[file], ts.ScriptTarget.Latest, true, scriptKindFor(file));
-    const visit = node => {
-      if (ts.isIdentifier(node)) symbols.add(node.text);
-      if (ts.isPrivateIdentifier(node)) symbols.add(`#${node.text.replace(/^#/, '')}`);
-      if ((ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && node.text.length <= 120) {
-        symbols.add(node.text);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
-  }
-  return symbols;
-}
-
-function linesAroundMatches(content, terms, radius = 4, maxLines = 80) {
-  const lines = content.split('\n');
-  const selected = new Set();
-  const normalizedTerms = canonical(terms).filter(Boolean).map(term => term.toLowerCase());
-  lines.forEach((line, index) => {
-    const lower = line.toLowerCase();
-    if (normalizedTerms.some(term => lower.includes(term))) {
-      for (let cursor = Math.max(0, index - radius); cursor <= Math.min(lines.length - 1, index + radius); cursor += 1) {
-        selected.add(cursor);
-      }
-    }
-  });
-  if (selected.size === 0) {
-    for (let index = 0; index < Math.min(lines.length, 24); index += 1) selected.add(index);
-  }
-  return [...selected]
-    .sort((left, right) => left - right)
-    .slice(0, maxLines)
-    .map(index => `${index + 1}: ${lines[index]}`)
-    .join('\n');
 }
 
 function selectionContract() {
@@ -199,99 +151,79 @@ function candidateContract() {
   };
 }
 
-function cSelectionPayload(task) {
+function summaryPayload(task, stage, contract) {
   return {
-    stage: 'synthetic_selection',
-    contextStrategy: 'deterministic_repository_summary',
+    stage,
     repository: task.repository,
     commitSha: task.commitSha,
     taskId: task.taskId,
     task: task.task,
     candidateFiles: task.candidateFiles,
     summaries: task.candidateFiles.map(file => ({file, summary: task.summaries[file]})),
-    outputContract: selectionContract()
+    outputContract: contract
   };
 }
 
-function candidateCompressionPayload(task) {
-  return {
-    stage: 'candidate_compression',
-    repository: task.repository,
-    commitSha: task.commitSha,
-    taskId: task.taskId,
-    task: task.task,
-    candidateFiles: task.candidateFiles,
-    summaries: task.candidateFiles.map(file => ({file, summary: task.summaries[file]})),
-    outputContract: candidateContract()
-  };
+function taskAuthority(task) {
+  const allowedChangeFiles = canonical(task.oracle.plannedFiles);
+  return Object.freeze({
+    authoritySource: 'immutable_task_contract/v1',
+    allowedChangeFiles,
+    allowedChangeFilesHash: hash({taskId: task.taskId, allowedChangeFiles}),
+    baseEvidenceFiles: canonical(task.implementationFiles),
+    inspectionUniverse: canonical([...task.implementationFiles, ...task.testFiles]),
+    forbiddenInspectionFiles: canonical(task.forbiddenInspectionFiles)
+  });
 }
 
 function ePayload(task, files) {
+  const authority = taskAuthority(task);
+  const resolver = createLanguageResolver({
+    repositoryFiles: files,
+    candidateFiles: task.candidateFiles,
+    baseEvidenceFiles: authority.inspectionUniverse
+  });
   return {
-    stage: 'bounded_selection',
+    stage: 'bounded_workspace_boundary',
     contextStrategy: 'bounded_workspace_with_boundary',
     repository: task.repository,
     commitSha: task.commitSha,
     taskId: task.taskId,
     task: task.task,
-    allowedInspectionFiles: task.boundaryFiles,
-    forbiddenInspectionFiles: task.candidateFiles.filter(file => !task.boundaryFiles.includes(file)),
-    workspaceExcerpts: task.boundaryFiles.map(file => ({
-      file,
-      content: linesAroundMatches(files[file], task.keywords, 6, 110)
-    })),
+    authority,
+    resolverKind: resolver.kind,
+    workspaceExcerpts: resolver.buildExcerpts(authority.inspectionUniverse, task.keywords, {
+      radius: 6,
+      maxLinesPerFile: 110
+    }),
     outputContract: selectionContract()
   };
 }
 
-function resolveCandidateBoundary(task, files, candidate, astSymbols) {
-  const proposedFiles = canonical(candidate.candidateFiles).filter(file => task.candidateFiles.includes(file));
-  const proposedTests = canonical(candidate.candidateTestFiles).filter(file => task.candidateFiles.includes(file));
-  const proposedSymbols = canonical(candidate.candidateSymbols);
-  const proposedAnchors = canonical(candidate.candidateTestAnchors);
-  const allowedFiles = canonical(task.boundaryFiles);
-  const rejectedFiles = proposedFiles.filter(file => !allowedFiles.includes(file));
-  const rejectedTestFiles = proposedTests.filter(file => !allowedFiles.includes(file));
-  const resolvedSymbols = proposedSymbols.filter(symbol => astSymbols.has(symbol));
-  const unresolvedSymbols = proposedSymbols.filter(symbol => !astSymbols.has(symbol));
-  const testFiles = allowedFiles.filter(file => /(?:^|\/)(?:test|tests|spec)(?:\/|\.|$)/i.test(file));
-  const resolvedTestAnchors = proposedAnchors.filter(anchor => testFiles.some(file => files[file].includes(anchor)));
-  const unresolvedTestAnchors = proposedAnchors.filter(anchor => !resolvedTestAnchors.includes(anchor));
-  const terms = canonical([...resolvedSymbols, ...resolvedTestAnchors, ...task.keywords]);
-  return {
-    allowedFiles,
-    rejectedFiles,
-    rejectedTestFiles,
-    resolvedSymbols,
-    unresolvedSymbols,
-    resolvedTestAnchors,
-    unresolvedTestAnchors,
-    excerpts: allowedFiles.map(file => ({
-      file,
-      content: linesAroundMatches(files[file], terms, 3, 55)
-    }))
-  };
-}
-
-function fPayload(task, resolved) {
+function fPayload(task, boundary) {
   return {
     stage: 'adaptive_compressed_boundary',
-    contextStrategy: 'synthetic_candidates_then_exact_bounded_excerpts',
+    contextStrategy: 'synthetic_candidates_then_verified_e_lite',
     repository: task.repository,
     commitSha: task.commitSha,
     taskId: task.taskId,
     task: task.task,
-    deterministicBoundary: {
-      allowedInspectionFiles: resolved.allowedFiles,
-      forbiddenInspectionFiles: task.candidateFiles.filter(file => !resolved.allowedFiles.includes(file)),
-      rejectedCandidateFiles: resolved.rejectedFiles,
-      rejectedCandidateTestFiles: resolved.rejectedTestFiles,
-      resolvedCandidateSymbols: resolved.resolvedSymbols,
-      unresolvedCandidateSymbols: resolved.unresolvedSymbols,
-      resolvedCandidateTestAnchors: resolved.resolvedTestAnchors,
-      unresolvedCandidateTestAnchors: resolved.unresolvedTestAnchors
+    taskClass: TASK_CLASS,
+    failClosed: boundary.failClosed,
+    resolverKind: boundary.resolverKind,
+    semanticResolutionAvailable: boundary.semanticResolutionAvailable,
+    authority: boundary.authority,
+    verifiedEvidence: {
+      evidenceFiles: boundary.evidenceFiles,
+      resolvedSymbols: boundary.resolvedSymbols,
+      unresolvedSymbols: boundary.unresolvedSymbols,
+      resolvedTestAnchors: boundary.resolvedTestAnchors,
+      unresolvedTestAnchors: boundary.unresolvedTestAnchors,
+      rejectedCandidateFiles: boundary.rejectedCandidateFiles,
+      rejectedCandidateTestFiles: boundary.rejectedCandidateTestFiles,
+      expansion: boundary.expansion
     },
-    workspaceExcerpts: resolved.excerpts,
+    workspaceExcerpts: boundary.excerpts,
     outputContract: selectionContract()
   };
 }
@@ -345,7 +277,7 @@ async function invokeLive(payload, contract) {
       messages: [
         {
           role: 'system',
-          content: `Analyze only supplied context. Return strict JSON matching this contract: ${JSON.stringify(contract)}. Use exact case-sensitive paths, symbols, and test anchors visible in context. No explanation.`
+          content: `Analyze only supplied evidence. Return strict JSON matching ${JSON.stringify(contract)}. Use exact case-sensitive paths, symbols, and test anchors. Candidate evidence never changes authority. No explanation.`
         },
         {role: 'user', content: JSON.stringify(payload)}
       ]
@@ -355,10 +287,9 @@ async function invokeLive(payload, contract) {
   const envelope = await response.json();
   const content = envelope?.choices?.[0]?.message?.content;
   if (typeof content !== 'string') throw new Error('provider_content_missing');
-  const parsed = parseProviderJson(content);
   const usage = envelope.usage ?? {};
   return {
-    ...parsed,
+    ...parseProviderJson(content),
     usage: {
       promptTokens: usage.prompt_tokens ?? 0,
       completionTokens: usage.completion_tokens ?? 0,
@@ -371,28 +302,39 @@ async function invokeLive(payload, contract) {
 function setMetrics(selected, expected) {
   const selectedSet = new Set(canonical(selected));
   const expectedSet = new Set(canonical(expected));
-  const intersection = [...selectedSet].filter(value => expectedSet.has(value));
+  const correct = [...selectedSet].filter(value => expectedSet.has(value));
   const extra = [...selectedSet].filter(value => !expectedSet.has(value));
-  const precision = selectedSet.size === 0 ? (expectedSet.size === 0 ? 1 : 0) : intersection.length / selectedSet.size;
-  const recall = expectedSet.size === 0 ? 1 : intersection.length / expectedSet.size;
+  const precision = selectedSet.size === 0 ? (expectedSet.size === 0 ? 1 : 0) : correct.length / selectedSet.size;
+  const recall = expectedSet.size === 0 ? 1 : correct.length / expectedSet.size;
   const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
-  return {precision, recall, f1, intersection, extra};
+  return {precision, recall, f1, extra};
 }
 
-function coverage(selected, critical) {
+function coverage(selected, required) {
   const selectedSet = new Set(canonical(selected));
-  const criticalSet = new Set(canonical(critical));
-  if (criticalSet.size === 0) return 1;
-  return [...criticalSet].filter(value => selectedSet.has(value)).length / criticalSet.size;
+  const requiredSet = new Set(canonical(required));
+  if (requiredSet.size === 0) return 1;
+  return [...requiredSet].filter(value => selectedSet.has(value)).length / requiredSet.size;
 }
 
-function evaluate(task, output, metadata, astSymbols) {
+function evaluate(task, files, output, metadata) {
   const selectedSeedFiles = canonical(output.seedFiles);
   const selectedSymbols = canonical(output.requiredSymbols);
   const selectedTestFiles = canonical(output.requiredTestFiles);
   const selectedTestAnchors = canonical(output.requiredTestAnchors);
   const selectedPlannedFiles = canonical(output.plannedFiles);
   const scopeDriftFiles = selectedPlannedFiles.filter(file => !task.oracle.plannedFiles.includes(file));
+  const resolver = createLanguageResolver({
+    repositoryFiles: files,
+    candidateFiles: task.candidateFiles,
+    baseEvidenceFiles: task.oracle.plannedFiles
+  });
+  const resolvedSelected = resolver.resolveSymbols(selectedSymbols, task.oracle.plannedFiles).resolvedSymbols;
+  const symbolMetrics = setMetrics(selectedSymbols, task.oracle.requiredSymbols);
+  const implementationCoverage = coverage(selectedSymbols, task.oracle.requiredSymbols);
+  const testAnchorCoverage = coverage(selectedTestAnchors, task.oracle.requiredTestAnchors);
+  const criticalEntrypointCovered = task.oracle.seedFiles.every(file => selectedSeedFiles.includes(file));
+  const criticalCoverageComplete = criticalEntrypointCovered && implementationCoverage === 1 && testAnchorCoverage === 1;
 
   const seedFilesExact = exact(selectedSeedFiles, task.oracle.seedFiles);
   const requiredSymbolsExact = exact(selectedSymbols, task.oracle.requiredSymbols);
@@ -401,19 +343,6 @@ function evaluate(task, output, metadata, astSymbols) {
   const plannedFilesExact = exact(selectedPlannedFiles, task.oracle.plannedFiles);
   const fileScopeSuccess = requiredTestFilesExact && plannedFilesExact && scopeDriftFiles.length === 0;
   const strictOracleSuccess = seedFilesExact && requiredSymbolsExact && requiredTestFilesExact && requiredTestAnchorsExact && plannedFilesExact;
-
-  const symbolMetrics = setMetrics(selectedSymbols, task.oracle.requiredSymbols);
-  const resolvedSelectedSymbols = selectedSymbols.filter(symbol => astSymbols.has(symbol));
-  const unresolvedSelectedSymbols = selectedSymbols.filter(symbol => !astSymbols.has(symbol));
-  const resolvableSymbolRate = selectedSymbols.length === 0 ? 0 : resolvedSelectedSymbols.length / selectedSymbols.length;
-  const criticalImplementationCoverage = coverage(selectedSymbols, task.criticalImplementationSymbols);
-  const criticalTestAnchorCoverage = coverage(selectedTestAnchors, task.criticalTestAnchors);
-  const criticalEntrypointCovered = task.oracle.seedFiles.every(file => selectedSeedFiles.includes(file));
-  const criticalSymbolCoverage = (
-    criticalImplementationCoverage * task.criticalImplementationSymbols.length +
-    criticalTestAnchorCoverage * task.criticalTestAnchors.length
-  ) / (task.criticalImplementationSymbols.length + task.criticalTestAnchors.length);
-  const criticalCoverageComplete = criticalEntrypointCovered && criticalImplementationCoverage === 1 && criticalTestAnchorCoverage === 1;
 
   return {
     taskId: task.taskId,
@@ -434,13 +363,14 @@ function evaluate(task, output, metadata, astSymbols) {
     symbolPrecision: symbolMetrics.precision,
     symbolRecall: symbolMetrics.recall,
     symbolF1: symbolMetrics.f1,
-    resolvedSelectedSymbols,
-    unresolvedSelectedSymbols,
-    resolvableSymbolRate,
+    resolvableSymbolRate: selectedSymbols.length === 0 ? 0 : resolvedSelected.length / selectedSymbols.length,
     criticalEntrypointCovered,
-    criticalImplementationCoverage,
-    criticalTestAnchorCoverage,
-    criticalSymbolCoverage,
+    criticalImplementationCoverage: implementationCoverage,
+    criticalTestAnchorCoverage: testAnchorCoverage,
+    criticalSymbolCoverage: (
+      implementationCoverage * task.oracle.requiredSymbols.length +
+      testAnchorCoverage * task.oracle.requiredTestAnchors.length
+    ) / (task.oracle.requiredSymbols.length + task.oracle.requiredTestAnchors.length),
     criticalCoverageComplete,
     extraSymbols: symbolMetrics.extra,
     extraSymbolCount: symbolMetrics.extra.length,
@@ -459,66 +389,89 @@ async function main() {
 
   for (const task of TASKS) {
     const snapshot = await loadSnapshot(task);
-    const astSymbols = buildAstSymbolIndex(task, snapshot.files);
+    const authority = taskAuthority(task);
     try {
       for (let repetition = 1; repetition <= repetitions; repetition += 1) {
-        const cContext = cSelectionPayload(task);
-        const cOutput = live
-          ? await invokeLive(cContext, cContext.outputContract)
-          : fixtureSelection(task, 340 + repetition);
-        results.push(evaluate(task, cOutput, {
+        const cContext = summaryPayload(task, 'synthetic_selection', selectionContract());
+        const cOutput = live ? await invokeLive(cContext, cContext.outputContract) : fixtureSelection(task, 340 + repetition);
+        results.push(evaluate(task, snapshot.files, cOutput, {
           repetition,
           mode: 'C_synthetic_context',
-          contextStrategy: cContext.contextStrategy,
+          contextStrategy: 'deterministic_repository_summary',
           stageTokenBreakdown: {candidateCompression: 0, boundedSelection: cOutput.usage.totalTokens},
           providerContextBytes: Buffer.byteLength(JSON.stringify(cContext)),
+          resolverKind: null,
+          allowedChangeFilesHash: authority.allowedChangeFilesHash,
+          authorityUnchangedByCandidateEvidence: true,
+          expansionRoundCount: 0,
+          expansionFiles: [],
           deterministicRejectedCandidateFiles: 0,
           deterministicUnresolvedCandidateSymbols: 0,
           deterministicUnresolvedCandidateTestAnchors: 0
-        }, astSymbols));
+        }));
 
         const eContext = ePayload(task, snapshot.files);
-        const eOutput = live
-          ? await invokeLive(eContext, eContext.outputContract)
-          : fixtureSelection(task, 1320 + repetition);
-        results.push(evaluate(task, eOutput, {
+        const eOutput = live ? await invokeLive(eContext, eContext.outputContract) : fixtureSelection(task, 1320 + repetition);
+        results.push(evaluate(task, snapshot.files, eOutput, {
           repetition,
           mode: 'E_bounded_workspace_boundary',
           contextStrategy: eContext.contextStrategy,
           stageTokenBreakdown: {candidateCompression: 0, boundedSelection: eOutput.usage.totalTokens},
           providerContextBytes: Buffer.byteLength(JSON.stringify(eContext)),
+          resolverKind: eContext.resolverKind,
+          allowedChangeFilesHash: authority.allowedChangeFilesHash,
+          authorityUnchangedByCandidateEvidence: true,
+          expansionRoundCount: 0,
+          expansionFiles: [],
           deterministicRejectedCandidateFiles: 0,
           deterministicUnresolvedCandidateSymbols: 0,
           deterministicUnresolvedCandidateTestAnchors: 0
-        }, astSymbols));
+        }));
 
-        const candidateContext = candidateCompressionPayload(task);
-        const candidateOutput = live
-          ? await invokeLive(candidateContext, candidateContext.outputContract)
-          : fixtureCandidates(task, 340 + repetition);
-        const resolved = resolveCandidateBoundary(task, snapshot.files, candidateOutput, astSymbols);
-        const adaptiveContext = fPayload(task, resolved);
-        const adaptiveOutput = live
-          ? await invokeLive(adaptiveContext, adaptiveContext.outputContract)
-          : fixtureSelection(task, 720 + repetition);
-        const adaptiveSelectionTokens = adaptiveOutput.usage.totalTokens;
-        adaptiveOutput.usage.totalTokens += candidateOutput.usage.totalTokens;
-        adaptiveOutput.usage.promptTokens += candidateOutput.usage.promptTokens;
-        adaptiveOutput.usage.completionTokens += candidateOutput.usage.completionTokens;
-        adaptiveOutput.latencyMs += candidateOutput.latencyMs;
-        results.push(evaluate(task, adaptiveOutput, {
+        const candidateContext = summaryPayload(task, 'candidate_compression', candidateContract());
+        const candidateOutput = live ? await invokeLive(candidateContext, candidateContext.outputContract) : fixtureCandidates(task, 340 + repetition);
+        const boundary = resolveEvidenceBoundary({
+          repositoryFiles: snapshot.files,
+          candidateFiles: task.candidateFiles,
+          authority,
+          candidateEvidence: candidateOutput,
+          keywords: task.keywords,
+          taskClass: TASK_CLASS,
+          expansionPolicy: EXPANSION_POLICY
+        });
+        assert.equal(boundary.authority.allowedChangeFilesHash, authority.allowedChangeFilesHash);
+        assert.equal(boundary.authority.unchangedByCandidateEvidence, true);
+        assert.equal(boundary.expansion.roundCount <= 1, true);
+        assert.equal(boundary.expansion.budgetRespected, true);
+
+        const fContext = fPayload(task, boundary);
+        const fSelection = live ? await invokeLive(fContext, fContext.outputContract) : fixtureSelection(task, 720 + repetition);
+        const fBoundedTokens = fSelection.usage.totalTokens;
+        fSelection.usage.totalTokens += candidateOutput.usage.totalTokens;
+        fSelection.usage.promptTokens += candidateOutput.usage.promptTokens;
+        fSelection.usage.completionTokens += candidateOutput.usage.completionTokens;
+        fSelection.latencyMs += candidateOutput.latencyMs;
+        results.push(evaluate(task, snapshot.files, fSelection, {
           repetition,
           mode: 'F_adaptive_compressed_boundary',
-          contextStrategy: adaptiveContext.contextStrategy,
+          contextStrategy: fContext.contextStrategy,
           stageTokenBreakdown: {
             candidateCompression: candidateOutput.usage.totalTokens,
-            boundedSelection: adaptiveSelectionTokens
+            boundedSelection: fBoundedTokens
           },
-          providerContextBytes: Buffer.byteLength(JSON.stringify(candidateContext)) + Buffer.byteLength(JSON.stringify(adaptiveContext)),
-          deterministicRejectedCandidateFiles: resolved.rejectedFiles.length + resolved.rejectedTestFiles.length,
-          deterministicUnresolvedCandidateSymbols: resolved.unresolvedSymbols.length,
-          deterministicUnresolvedCandidateTestAnchors: resolved.unresolvedTestAnchors.length
-        }, astSymbols));
+          providerContextBytes: Buffer.byteLength(JSON.stringify(candidateContext)) + Buffer.byteLength(JSON.stringify(fContext)),
+          resolverKind: boundary.resolverKind,
+          semanticResolutionAvailable: boundary.semanticResolutionAvailable,
+          genericFallbackUsed: boundary.genericFallbackUsed,
+          allowedChangeFilesHash: boundary.authority.allowedChangeFilesHash,
+          authorityUnchangedByCandidateEvidence: boundary.authority.unchangedByCandidateEvidence,
+          expansionRoundCount: boundary.expansion.roundCount,
+          expansionFiles: boundary.expansion.files,
+          expansionReasons: boundary.expansion.reasons,
+          deterministicRejectedCandidateFiles: boundary.rejectedCandidateFiles.length + boundary.rejectedCandidateTestFiles.length,
+          deterministicUnresolvedCandidateSymbols: boundary.unresolvedSymbols.length,
+          deterministicUnresolvedCandidateTestAnchors: boundary.unresolvedTestAnchors.length
+        }));
       }
     } finally {
       await fs.rm(snapshot.root, {recursive: true, force: true});
@@ -530,40 +483,51 @@ async function main() {
     const rows = results.filter(result => result.mode === mode);
     const strictSuccesses = rows.filter(result => result.strictOracleSuccess).length;
     const fileScopeSuccesses = rows.filter(result => result.fileScopeSuccess).length;
-    const totalTokens = rows.reduce((sum, result) => sum + result.tokenCount, 0);
+    const totalTokens = rows.reduce((sum, row) => sum + row.tokenCount, 0);
     return {
       mode,
       sampleCount: rows.length,
       fileScopeSuccessRate: fileScopeSuccesses / rows.length,
       strictOracleSuccessRate: strictSuccesses / rows.length,
-      exactSymbolSuccessRate: rows.filter(result => result.requiredSymbolsExact).length / rows.length,
-      averageSymbolPrecision: rows.reduce((sum, result) => sum + result.symbolPrecision, 0) / rows.length,
-      averageSymbolRecall: rows.reduce((sum, result) => sum + result.symbolRecall, 0) / rows.length,
-      averageSymbolF1: rows.reduce((sum, result) => sum + result.symbolF1, 0) / rows.length,
-      averageResolvableSymbolRate: rows.reduce((sum, result) => sum + result.resolvableSymbolRate, 0) / rows.length,
-      averageCriticalImplementationCoverage: rows.reduce((sum, result) => sum + result.criticalImplementationCoverage, 0) / rows.length,
-      averageCriticalTestAnchorCoverage: rows.reduce((sum, result) => sum + result.criticalTestAnchorCoverage, 0) / rows.length,
-      averageCriticalSymbolCoverage: rows.reduce((sum, result) => sum + result.criticalSymbolCoverage, 0) / rows.length,
-      criticalCoverageCompleteRate: rows.filter(result => result.criticalCoverageComplete).length / rows.length,
-      totalExtraSymbolCount: rows.reduce((sum, result) => sum + result.extraSymbolCount, 0),
-      averageExtraSymbolCount: rows.reduce((sum, result) => sum + result.extraSymbolCount, 0) / rows.length,
+      exactSymbolSuccessRate: rows.filter(row => row.requiredSymbolsExact).length / rows.length,
+      averageSymbolPrecision: rows.reduce((sum, row) => sum + row.symbolPrecision, 0) / rows.length,
+      averageSymbolRecall: rows.reduce((sum, row) => sum + row.symbolRecall, 0) / rows.length,
+      averageSymbolF1: rows.reduce((sum, row) => sum + row.symbolF1, 0) / rows.length,
+      averageResolvableSymbolRate: rows.reduce((sum, row) => sum + row.resolvableSymbolRate, 0) / rows.length,
+      averageCriticalImplementationCoverage: rows.reduce((sum, row) => sum + row.criticalImplementationCoverage, 0) / rows.length,
+      averageCriticalTestAnchorCoverage: rows.reduce((sum, row) => sum + row.criticalTestAnchorCoverage, 0) / rows.length,
+      averageCriticalSymbolCoverage: rows.reduce((sum, row) => sum + row.criticalSymbolCoverage, 0) / rows.length,
+      criticalCoverageCompleteRate: rows.filter(row => row.criticalCoverageComplete).length / rows.length,
+      totalExtraSymbolCount: rows.reduce((sum, row) => sum + row.extraSymbolCount, 0),
+      averageExtraSymbolCount: rows.reduce((sum, row) => sum + row.extraSymbolCount, 0) / rows.length,
       averageTokens: totalTokens / rows.length,
       tokensPerStrictSuccess: strictSuccesses === 0 ? null : totalTokens / strictSuccesses,
       tokensPerFileScopeSuccess: fileScopeSuccesses === 0 ? null : totalTokens / fileScopeSuccesses,
-      averageLatencyMs: rows.reduce((sum, result) => sum + result.latencyMs, 0) / rows.length,
-      averageContextBytes: rows.reduce((sum, result) => sum + result.providerContextBytes, 0) / rows.length,
-      totalScopeDriftFiles: rows.reduce((sum, result) => sum + result.scopeDriftFiles.length, 0),
-      totalDeterministicRejectedCandidateFiles: rows.reduce((sum, result) => sum + result.deterministicRejectedCandidateFiles, 0),
-      totalDeterministicUnresolvedCandidateSymbols: rows.reduce((sum, result) => sum + result.deterministicUnresolvedCandidateSymbols, 0),
-      totalDeterministicUnresolvedCandidateTestAnchors: rows.reduce((sum, result) => sum + result.deterministicUnresolvedCandidateTestAnchors, 0)
+      averageLatencyMs: rows.reduce((sum, row) => sum + row.latencyMs, 0) / rows.length,
+      averageContextBytes: rows.reduce((sum, row) => sum + row.providerContextBytes, 0) / rows.length,
+      totalScopeDriftFiles: rows.reduce((sum, row) => sum + row.scopeDriftFiles.length, 0),
+      totalExpansionRounds: rows.reduce((sum, row) => sum + row.expansionRoundCount, 0),
+      totalDeterministicRejectedCandidateFiles: rows.reduce((sum, row) => sum + row.deterministicRejectedCandidateFiles, 0),
+      totalDeterministicUnresolvedCandidateSymbols: rows.reduce((sum, row) => sum + row.deterministicUnresolvedCandidateSymbols, 0),
+      totalDeterministicUnresolvedCandidateTestAnchors: rows.reduce((sum, row) => sum + row.deterministicUnresolvedCandidateTestAnchors, 0)
     };
   });
 
-  const publicTasks = TASKS.map(({oracle, keywords, summaries, boundaryFiles, criticalImplementationSymbols, criticalTestAnchors, ...task}) => task);
+  const publicTasks = TASKS.map(({oracle, summaries, keywords, implementationFiles, testFiles, forbiddenInspectionFiles, ...task}) => task);
   const reportCore = {
-    version: 'gate5-adaptive-compressed-boundary/v2',
+    version: 'gate5-adaptive-compressed-boundary/v3',
     executionClass: live ? 'live_adaptive_compressed_boundary' : 'fixture_adaptive_compressed_boundary',
     comparable: true,
+    supportBoundary: {
+      languages: ['javascript', 'typescript'],
+      repositoryCountPerRun: 1,
+      taskClasses: [TASK_CLASS],
+      dependencyExpansion: 'relative_import_export_one_hop',
+      maxExpansionRounds: 1,
+      maxExpansionFiles: EXPANSION_POLICY.maxFiles,
+      unsupportedLanguageBehavior: 'fail_closed_generic_exact_text_fallback',
+      allowedChangeFilesAuthority: 'immutable_task_contract/v1'
+    },
     repetitions,
     taskCount: TASKS.length,
     modeCount: MODES.length,
@@ -587,6 +551,7 @@ async function main() {
     modeCount: report.modeCount,
     repetitions: report.repetitions,
     sampleCount: report.sampleCount,
+    supportBoundary: report.supportBoundary,
     reportHash: report.reportHash
   }, null, 2));
 }
