@@ -2744,12 +2744,103 @@ function findModuleBoundaryFindings(input: ReviewInput): Finding[] {
   return findings;
 }
 
-function findSensitiveBoundaryFindings(input: ReviewInput): Finding[] {
-  const raw = input.diff.raw.toLowerCase();
+function addedHunkLines(raw: string): Array<{ file: string; content: string }> {
+  const additions: Array<{ file: string; content: string }> = [];
+  let file = "";
+  let inHunk = false;
 
-  return (input.policy.sensitive_patterns ?? [])
-    .filter((pattern) => raw.includes(pattern.toLowerCase()))
-    .map((pattern) => createFinding("sensitive_boundary", "error", `Sensitive pattern appears in patch: ${pattern}`, [], "reject"));
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const parts = line.trim().split(/\s+/);
+      file = parts[3]?.startsWith("b/") ? parts[3].slice(2) : "";
+      inHunk = false;
+      continue;
+    }
+    if (line.startsWith("+++ b/")) {
+      file = line.slice("+++ b/".length).trim();
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true;
+      continue;
+    }
+    if (inHunk && line.startsWith("+")) {
+      additions.push({ file, content: line.slice(1) });
+    }
+  }
+  return additions;
+}
+
+function sensitiveIdentifier(pattern: string): string | null {
+  const identifier = pattern.trim().replace(/\s*[:=]\s*$/, "");
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(identifier) ? identifier : null;
+}
+
+function assignedValue(line: string, identifier: string): string | null {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const assignment = new RegExp(
+    `^\\s*(?:(?:export\\s+)?(?:const|let|var)\\s+)?` +
+    `(?:[A-Za-z_$][A-Za-z0-9_$]*\\.)?["']?${escaped}["']?\\s*[:=]\\s*(.+?)\\s*$`,
+    "i"
+  );
+  return assignment.exec(line)?.[1] ?? null;
+}
+
+function literalCredentialValue(expression: string): string | null {
+  const value = expression.trim();
+  const quote = value[0];
+  let literal: string;
+  if (quote === "\"" || quote === "'" || quote === "`") {
+    let escaped = false;
+    let closing = -1;
+    for (let index = 1; index < value.length; index += 1) {
+      if (!escaped && value[index] === quote) {
+        closing = index;
+        break;
+      }
+      escaped = !escaped && value[index] === "\\";
+      if (value[index] !== "\\") escaped = false;
+    }
+    if (closing < 0 || !/^(?:[,;]|\/\/.*)?$/.test(value.slice(closing + 1).trim())) {
+      return null;
+    }
+    literal = value.slice(1, closing).trim();
+  } else {
+    literal = value.split(/[\s,;]/, 1)[0]?.trim() ?? "";
+    if (/^[A-Za-z_$][A-Za-z0-9_$]*(?:(?:\.|\[|\().*)?$/.test(literal)) {
+      return null;
+    }
+  }
+  if (
+    literal.length === 0 ||
+    /^<[^>]+>$/.test(literal) ||
+    /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$/.test(literal) ||
+    /^process\.env(?:\.|\[)/i.test(literal) ||
+    /^(?:placeholder|redacted|change-?me|dummy|example(?:-value)?|none|null|undefined)$/i
+      .test(literal)
+  ) return null;
+  return literal;
+}
+
+function findSensitiveBoundaryFindings(input: ReviewInput): Finding[] {
+  const additions = addedHunkLines(input.diff.raw);
+
+  return (input.policy.sensitive_patterns ?? []).flatMap((pattern) => {
+    const identifier = sensitiveIdentifier(pattern);
+    if (!identifier) return [];
+    const files = additions.flatMap(({ file, content }) => {
+      const value = assignedValue(content, identifier);
+      return value !== null && literalCredentialValue(value) !== null ? [file] : [];
+    });
+    if (files.length === 0) return [];
+    return [createFinding(
+      "sensitive_boundary",
+      "error",
+      `Sensitive literal assignment appears in patch: ${pattern}`,
+      [...new Set(files)].filter(Boolean).sort(),
+      "reject"
+    )];
+  });
 }
 
 function findPairedFileFindings(input: ReviewInput): Finding[] {
