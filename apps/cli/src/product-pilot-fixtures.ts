@@ -78,7 +78,7 @@ export const productPilotCases: ProductPilotCase[] = [
     family: "reject",
     task: task("pilot-reject-sensitive-secret", "Authority: billing-team approved the billing config update."),
     policy: enterprisePolicy,
-    diff: diff("packages/billing/config.ts", "export const key = ''", "export const key = 'API_KEY=abc123'"),
+    diff: diff("packages/billing/config.ts", "export const API_KEY = ''", "export const API_KEY = 'abc123'"),
     expectedDecision: "reject",
     expectedFindingCategories: ["sensitive_boundary"]
   },

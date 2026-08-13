@@ -10,6 +10,10 @@ allowed_paths:
   - docs/**
   - examples/**
   - .github/**
+  - scripts/controlled-coding-pilot.cjs
+  - scripts/controlled-coding-pilot-smoke.cjs
+  - scripts/controlled-coding-pilot-help-check.cjs
+  - pilots/controlled-real-coding-v1/**
 forbidden_paths:
   - reports/**
   - benchmarks/repos/**
