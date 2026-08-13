@@ -264,7 +264,9 @@
     "generate:ag3c-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs --report",
     "verify:ag3c": "npm run verify:ag3b && node scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs --verify",
     "validate:ag3c-live": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
-    "generate:ag3c-live-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs"
+    "generate:ag3c-live-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
+    "smoke:controlled-coding-pilot": "npm run build && node scripts/controlled-coding-pilot-smoke.cjs",
+    "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs"
   },
   "workspaces": [
     "apps/*",
@@ -273,5 +275,8 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "openai": "^7.4.0"
   }
 }

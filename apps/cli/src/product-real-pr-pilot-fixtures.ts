@@ -401,7 +401,7 @@ export const nanoidRealPrPilotCases: RealPrPilotCase[] = [
     source: source("ai/nanoid", "sample-pr-011", "main", "publish-token"),
     task: task("nanoid-pr-011-publish-token-reject", "Authority: release maintenance update is approved."),
     policy: nanoidPilotPolicy,
-    diff: diff("package.json", "  \"publishConfig\": {}", "  \"publishConfig\": { \"token\": \"NPM_TOKEN=abc\" }"),
+    diff: diff("package.json", "  \"NPM_TOKEN\": \"\"", "  \"NPM_TOKEN\": \"abc123\""),
     reviewerNotes: ["Token-like publish configuration is a sensitive boundary risk."],
     expectedDecision: "reject",
     expectedFindingCategories: ["sensitive_boundary"]
@@ -470,7 +470,7 @@ export const nanoidNegativeExternalCases: RealPrPilotCase[] = [
     source: source("ai/nanoid", "negative-pr-005", "main", "publish-token"),
     task: task("nanoid-negative-005-sensitive-token", "Authority: release maintenance update is approved."),
     policy: nanoidPilotPolicy,
-    diff: diff("package.json", "  \"publishConfig\": {}", "  \"publishConfig\": { \"token\": \"NPM_TOKEN=abc\" }"),
+    diff: diff("package.json", "  \"NPM_TOKEN\": \"\"", "  \"NPM_TOKEN\": \"abc123\""),
     reviewerNotes: ["Negative control: token-like publish config must be rejected as sensitive boundary risk."],
     expectedDecision: "reject",
     expectedFindingCategories: ["sensitive_boundary"]
