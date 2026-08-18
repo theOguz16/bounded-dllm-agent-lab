@@ -1,4 +1,7 @@
-import OpenAI from "openai";
+import OpenAI, {
+  APIConnectionError,
+  APIConnectionTimeoutError
+} from "openai";
 
 import type {
   ExecutorCredentialProvider,
@@ -39,13 +42,20 @@ export class RunpodModelClientError extends Error {
       | "RUNPOD_RESPONSE_SCHEMA_INVALID"
       | "RUNPOD_RESPONSE_TOO_LARGE"
       | "RUNPOD_USAGE_INVALID"
+      | "RUNPOD_AUTH_FAILED"
       | "RUNPOD_AUTHENTICATION_FAILED"
       | "RUNPOD_PERMISSION_DENIED"
       | "RUNPOD_RATE_LIMITED"
+      | "RUNPOD_ENDPOINT_NOT_FOUND"
       | "RUNPOD_ENDPOINT_UNAVAILABLE"
       | "RUNPOD_COLD_START_TIMEOUT"
       | "RUNPOD_REQUEST_TIMEOUT"
       | "RUNPOD_MODEL_NOT_FOUND"
+      | "RUNPOD_UPSTREAM_SERVER_ERROR"
+      | "RUNPOD_PROXY_BAD_GATEWAY"
+      | "RUNPOD_PROXY_UNAVAILABLE"
+      | "RUNPOD_PROXY_TIMEOUT"
+      | "RUNPOD_NETWORK_ERROR"
       | "RUNPOD_REQUEST_REJECTED"
       | "RUNPOD_RESPONSE_INVALID"
       | "RUNPOD_INTERNAL_ERROR"
@@ -144,9 +154,60 @@ function validateConfiguration(configuration: RunpodModelClientConfiguration): s
   return canonicalRunpodBaseUrl(configuration.endpoint);
 }
 
-function mapTransportFailure(error: unknown): RunpodModelClientError {
+type TransportFailure = {
+  status?: number;
+  code?: string | null;
+  name?: string;
+  error?: unknown;
+  cause?: unknown;
+};
+
+const MAX_ERROR_SEMANTIC_LENGTH = 2_048;
+
+function boundedSemantic(value: unknown): string | undefined {
+  return typeof value === "string" && value.length <= MAX_ERROR_SEMANTIC_LENGTH
+    ? value.toLowerCase().replace(/[_-]+/g, " ")
+    : undefined;
+}
+
+function isModelNotFoundResponse(error: TransportFailure, modelId: string): boolean {
+  if (error.error === null || typeof error.error !== "object" || Array.isArray(error.error)) {
+    return false;
+  }
+  const body = error.error as Record<string, unknown>;
+  const code = boundedSemantic(body.code);
+  const type = boundedSemantic(body.type);
+  const param = boundedSemantic(body.param);
+  const message = boundedSemantic(body.message);
+  const semantics = [code, type, param, message].filter(
+    (value): value is string => value !== undefined
+  ).join(" ");
+  if (!semantics) return false;
+  if (/\b(?:proxy|gateway|route|routing|endpoint|nginx|cloudflare)\b/.test(semantics)) {
+    return false;
+  }
+
+  const modelReference = /\bmodel(?: id)?\b/.test(semantics) ||
+    semantics.includes(modelId.toLowerCase());
+  const missingMeaning = /\b(?:not found|unknown|missing|unavailable|not available|does not exist|doesn't exist|no such)\b/
+    .test(semantics);
+  return modelReference && missingMeaning;
+}
+
+function isTimeoutFailure(error: TransportFailure): boolean {
+  const cause = error.cause as TransportFailure | null;
+  return error instanceof APIConnectionTimeoutError ||
+    error.name === "TimeoutError" ||
+    error.name === "APIConnectionTimeoutError" ||
+    error.code === "ETIMEDOUT" ||
+    cause?.name === "TimeoutError" ||
+    cause?.name === "APIConnectionTimeoutError" ||
+    cause?.code === "ETIMEDOUT";
+}
+
+function mapTransportFailure(error: unknown, modelId: string): RunpodModelClientError {
   if (error instanceof RunpodModelClientError) return error;
-  const value = error as { status?: number; code?: string; name?: string } | null;
+  const value = error as TransportFailure | null;
   if (
     value?.name === "AbortError" ||
     value?.name === "APIUserAbortError" ||
@@ -154,24 +215,41 @@ function mapTransportFailure(error: unknown): RunpodModelClientError {
   ) {
     return new RunpodModelClientError("RUNPOD_ABORTED");
   }
-  if (value?.status === 401) return new RunpodModelClientError("RUNPOD_AUTHENTICATION_FAILED");
-  if (value?.status === 403) return new RunpodModelClientError("RUNPOD_PERMISSION_DENIED");
-  if (value?.status === 429) return new RunpodModelClientError("RUNPOD_RATE_LIMITED");
-  if (value?.status === 404) return new RunpodModelClientError("RUNPOD_MODEL_NOT_FOUND");
-  if (value?.status === 408) return new RunpodModelClientError("RUNPOD_REQUEST_TIMEOUT");
-  if (value?.status === 504) return new RunpodModelClientError("RUNPOD_COLD_START_TIMEOUT");
-  if (value?.status !== undefined && value.status >= 500) {
-    return new RunpodModelClientError("RUNPOD_ENDPOINT_UNAVAILABLE");
+  if (value?.status === 401 || value?.status === 403) {
+    return new RunpodModelClientError("RUNPOD_AUTH_FAILED");
   }
-  if (
-    value?.name === "TimeoutError" ||
-    value?.name === "APIConnectionTimeoutError" ||
-    value?.code === "ETIMEDOUT"
-  ) {
+  if (value?.status === 429) return new RunpodModelClientError("RUNPOD_RATE_LIMITED");
+  if (value?.status === 408) return new RunpodModelClientError("RUNPOD_REQUEST_TIMEOUT");
+  if (value?.status === 404) {
+    return new RunpodModelClientError(
+      isModelNotFoundResponse(value, modelId)
+        ? "RUNPOD_MODEL_NOT_FOUND"
+        : "RUNPOD_ENDPOINT_NOT_FOUND"
+    );
+  }
+  if (value?.status === 500) {
+    return new RunpodModelClientError("RUNPOD_UPSTREAM_SERVER_ERROR");
+  }
+  if (value?.status === 502) {
+    return new RunpodModelClientError("RUNPOD_PROXY_BAD_GATEWAY");
+  }
+  if (value?.status === 503) {
+    return new RunpodModelClientError("RUNPOD_PROXY_UNAVAILABLE");
+  }
+  if (value?.status === 504) {
+    return new RunpodModelClientError("RUNPOD_PROXY_TIMEOUT");
+  }
+  if (value?.status !== undefined && value.status >= 500) {
+    return new RunpodModelClientError("RUNPOD_UPSTREAM_SERVER_ERROR");
+  }
+  if (value && isTimeoutFailure(value)) {
     return new RunpodModelClientError("RUNPOD_REQUEST_TIMEOUT");
   }
   if (value?.status !== undefined && value.status >= 400) {
     return new RunpodModelClientError("RUNPOD_REQUEST_REJECTED");
+  }
+  if (error instanceof APIConnectionError || value?.name === "APIConnectionError") {
+    return new RunpodModelClientError("RUNPOD_NETWORK_ERROR");
   }
   return new RunpodModelClientError("RUNPOD_INTERNAL_ERROR");
 }
@@ -324,7 +402,7 @@ export class RunpodOpenAICompatibleModelClient implements ProductionModelClient 
       ) {
         throw new RunpodModelClientError("RUNPOD_JSON_SCHEMA_UNSUPPORTED");
       }
-      throw mapTransportFailure(error);
+      throw mapTransportFailure(error, this.configuration.modelId);
     }
   }
 }
