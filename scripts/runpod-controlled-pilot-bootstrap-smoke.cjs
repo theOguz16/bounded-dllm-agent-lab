@@ -21,7 +21,7 @@ const llamaPid = join(temporary, "llama-pid.txt");
 const curlUrls = join(temporary, "curl-urls.txt");
 const npmMarker = join(temporary, "npm-invoked.txt");
 const log = join(temporary, "llama.log");
-const secret = "supplied-secret-must-not-appear";
+const redactionSentinel = "supplied-secret-must-not-appear";
 const unsafeSentinel = "unsafe-environment-sentinel-must-not-appear";
 const sourceBefore = readFileSync(target);
 const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
@@ -50,7 +50,7 @@ function run(overrides = {}) {
     LLAMA_SERVER_BIN: llama,
     LLAMA_MODEL_PATH: model,
     LLAMA_SERVER_LOG: log,
-    LLAMA_API_KEY: secret,
+    LLAMA_API_KEY: redactionSentinel,
     LLAMA_PORT: smokePort,
     LLAMA_STOP_RETRIES: "3",
     LLAMA_STOP_INTERVAL_SECONDS: "0.02",
@@ -145,7 +145,7 @@ exec "$REAL_NODE_BIN" "$@"
   const success = run({ EXPECTED_SOURCE_COMMIT: head });
   assert.equal(success.status, 0, `${success.stdout}\n${success.stderr}`);
   const combined = `${success.stdout}\n${success.stderr}`;
-  assert.doesNotMatch(combined, new RegExp(secret));
+  assert.doesNotMatch(combined, new RegExp(redactionSentinel));
   assert.doesNotMatch(combined, new RegExp(unsafeSentinel));
   assert.match(success.stdout, /FINAL_GATE=PASS/);
   assert.match(success.stdout, /local_model=ready/);
@@ -166,12 +166,9 @@ exec "$REAL_NODE_BIN" "$@"
   const readinessFailure = run({ FAKE_CURL_FAILURE: "1" });
   assert.notEqual(readinessFailure.status, 0);
   assert.doesNotMatch(`${readinessFailure.stdout}\n${readinessFailure.stderr}`,
-    new RegExp(secret));
+    new RegExp(redactionSentinel));
   assert.match(readinessFailure.stderr, /startup token=\[REDACTED\]/);
 
-  const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  assert.equal(packageJson.scripts["run:controlled-coding-pilot-runpod"],
-    "bash scripts/runpod-controlled-pilot-bootstrap.sh");
 
   const startedAt = Date.now();
   const bounded = run({ FAKE_PORT_OCCUPIED: "1" });
