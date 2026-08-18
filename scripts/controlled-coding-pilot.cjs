@@ -1,0 +1,974 @@
+#!/usr/bin/env node
+"use strict";
+
+const { createHash } = require("node:crypto");
+const { execFile } = require("node:child_process");
+const {
+  mkdir, mkdtemp, readFile, rm, symlink, writeFile
+} = require("node:fs/promises");
+const { tmpdir } = require("node:os");
+const { dirname, join, resolve } = require("node:path");
+const { promisify } = require("node:util");
+
+const exec = promisify(execFile);
+const REPORT_VERSION = "bounded.controlled-coding-pilot-report/v1";
+const DEFINITION_VERSION = "bounded.controlled-coding-pilot/v1";
+const TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
+const DEFINITION = "pilots/controlled-real-coding-v1/runpod-live-help/task.json";
+const INSERTION_OUTPUT_VERSION = "bounded.controlled-help-copy-output/v1";
+const INSERTION_ANCHOR = "const reportName = \"model-worker-runpod-live-smoke-v1\";";
+const PILOT_MAX_INSERTION_LINES = 60;
+const PILOT_MAX_INSERTION_BYTES = 20_000;
+const PILOT_MAX_DESCRIPTION_BYTES = 120;
+const PILOT_MODEL_CONTEXT_TOKEN_LIMIT = 16_384;
+const PILOT_EXECUTION_RUNTIME_MS = 120_000;
+const PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT = 6_144;
+const PILOT_PROVIDER_TIMEOUT_MS = 45_000;
+const PILOT_PROVIDER_MAX_OUTPUT_TOKENS = 1_024;
+if (
+  PILOT_PROVIDER_TIMEOUT_MS > PILOT_EXECUTION_RUNTIME_MS ||
+  PILOT_PROVIDER_MAX_OUTPUT_TOKENS > PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT
+) {
+  throw new Error("Controlled pilot provider budget configuration is invalid.");
+}
+const FAILURE_CODES = new Set([
+  "PILOT_DEFINITION_INVALID", "PILOT_CONFIRMATION_REQUIRED",
+  "PILOT_PROVIDER_CONFIGURATION_MISSING", "PILOT_PROVIDER_CALL_FAILED",
+  "PILOT_MODEL_RESPONSE_INVALID", "PILOT_AUTHORITY_VIOLATION",
+  "PILOT_PATCH_LIMIT_EXCEEDED", "PILOT_VERIFICATION_FAILED",
+  "PILOT_ARTIFACT_INVALID", "PILOT_SOURCE_WORKTREE_MUTATED",
+  "PILOT_CLEANUP_FAILED", "PILOT_CANCELLED"
+]);
+const VERIFIER_STAGES = new Set([
+  "typecheck", "help_acceptance", "normal_missing_env", "runpod_proxy_smoke"
+]);
+
+function argument(name) {
+  const index = process.argv.indexOf(name);
+  return index < 0 ? undefined : process.argv[index + 1];
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hash(value) {
+  return `sha256:${createHash("sha256").update(
+    typeof value === "string" ? value : canonical(value)
+  ).digest("hex")}`;
+}
+
+async function git(root, args) {
+  return (await exec("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
+    maxBuffer: 10_000_000
+  })).stdout.trim();
+}
+
+async function sourceSnapshot(root) {
+  return {
+    commit: await git(root, ["rev-parse", "HEAD"]),
+    statusHash: hash(await git(root, ["status", "--porcelain=v1", "--untracked-files=all"])),
+    targetHash: hash(await readFile(join(root, TARGET), "utf8"))
+  };
+}
+
+function validateDefinition(value) {
+  const keys = [
+    "schemaVersion", "pilotId", "taskTitle", "taskPrompt",
+    "sourceRevisionPolicy", "allowedMutationPaths", "allowedReadRoots",
+    "forbiddenPaths", "maxChangedFiles", "maxPatchLines",
+    "providerCallBudget", "retryBudget", "acceptanceCommands",
+    "requiredAssertions"
+  ];
+  if (
+    !value || typeof value !== "object" || Array.isArray(value) ||
+    canonical(Object.keys(value).sort()) !== canonical(keys.sort()) ||
+    value.schemaVersion !== DEFINITION_VERSION ||
+    value.sourceRevisionPolicy !== "current-head" ||
+    !Array.isArray(value.allowedMutationPaths) ||
+    !value.allowedMutationPaths.includes(TARGET) ||
+    value.maxChangedFiles !== 2 ||
+    value.maxPatchLines !== 120 ||
+    value.providerCallBudget !== 1 ||
+    value.retryBudget !== 1 ||
+    !Array.isArray(value.allowedReadRoots) ||
+    !Array.isArray(value.forbiddenPaths) ||
+    !Array.isArray(value.acceptanceCommands) ||
+    !Array.isArray(value.requiredAssertions)
+  ) throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
+    pilotCode: "PILOT_DEFINITION_INVALID"
+  });
+  return structuredClone(value);
+}
+
+function liveProviderConfiguration(environment) {
+  const endpoint = environment.LLM_UPSTREAM_URL ??
+    environment.MODEL_WORKER_UPSTREAM_URL;
+  const credential = environment.LLM_UPSTREAM_API_KEY ??
+    environment.MODEL_WORKER_UPSTREAM_API_KEY;
+  const modelId = environment.LLM_MODEL_ID;
+  if (!endpoint || !credential || !modelId) return null;
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return null;
+  }
+  if (!url.pathname.endsWith("/v1/chat/completions") &&
+      !url.pathname.endsWith("/chat/completions")) return null;
+  url.pathname = url.pathname.replace(/\/chat\/completions$/, "");
+  return { baseUrl: url.toString().replace(/\/+$/, ""), credential, modelId };
+}
+
+function pilotProviderClientConfiguration(schemaVersion, providerConfig) {
+  return {
+    schemaVersion,
+    modelId: providerConfig.modelId,
+    endpoint: {
+      type: "custom_openai_compatible",
+      baseUrl: providerConfig.baseUrl
+    },
+    structuredOutputMode: "json_schema",
+    requestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
+    temperature: 0,
+    maxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS
+  };
+}
+
+function controlledInsertionOutputSchema() {
+  const description = { type: "string" };
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "descriptions"],
+    properties: {
+      schemaVersion: { type: "string", const: INSERTION_OUTPUT_VERSION },
+      descriptions: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "help", "llmUpstreamUrl", "dllmUpstreamUrl", "llmModelId",
+          "dllmModelId", "runpodLiveRequired"
+        ],
+        properties: {
+          help: description,
+          llmUpstreamUrl: description,
+          dllmUpstreamUrl: description,
+          llmModelId: description,
+          dllmModelId: description,
+          runpodLiveRequired: description
+        }
+      }
+    }
+  };
+}
+
+function resolveControlledInsertionAuthority(request) {
+  const bounded = JSON.parse(request.instruction);
+  const source = bounded.workspaceFiles?.find((file) => file.path === TARGET);
+  const allowed = bounded.authorityRules?.allowedChangePaths?.some(
+    (scope) => pathMatchesScope(TARGET, scope)
+  );
+  const forbidden = bounded.authorityRules?.forbiddenPaths?.some(
+    (scope) => pathMatchesScope(TARGET, scope)
+  );
+  if (!source || source.authority !== "change_allowed" || !allowed || forbidden ||
+      hash(source.content) !== source.contentHash) {
+    throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+      pilotCode: "PILOT_AUTHORITY_VIOLATION"
+    });
+  }
+  const firstAnchor = source.content.indexOf(INSERTION_ANCHOR);
+  if (firstAnchor < 0 || source.content.indexOf(INSERTION_ANCHOR,
+    firstAnchor + INSERTION_ANCHOR.length) >= 0) {
+    throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+      pilotCode: "PILOT_AUTHORITY_VIOLATION"
+    });
+  }
+  const sourceLines = source.content.split(/\r?\n/);
+  const anchorLine = source.content.slice(0, firstAnchor).split(/\r?\n/).length - 1;
+  const excerptStartLine = Math.max(0, anchorLine - 8);
+  const excerptEndLine = Math.min(sourceLines.length, anchorLine + 5);
+  return {
+    bounded,
+    source,
+    anchorOffset: firstAnchor,
+    excerpt: sourceLines.slice(excerptStartLine, excerptEndLine).join("\n"),
+    excerptStartLine: excerptStartLine + 1,
+    excerptEndLine
+  };
+}
+
+function controlledInsertionInstruction(request) {
+  resolveControlledInsertionAuthority(request);
+  return canonical({
+    role: "Return only bounded help-copy descriptions matching the strict schema.",
+    requirements: [
+      "Do not return TypeScript or control flow.",
+      "Do not return flags, paths, anchors, mutations, hashes, operations, or source text.",
+      "Provide one short human-readable single-line description for each required field.",
+      "Each description must be non-empty, contain no control characters or markdown fences, and be at most 120 UTF-8 bytes."
+    ],
+    fields: {
+      help: "Description for the help flags.",
+      llmUpstreamUrl: "Description for LLM_UPSTREAM_URL.",
+      dllmUpstreamUrl: "Description for DLLM_UPSTREAM_URL.",
+      llmModelId: "Description for LLM_MODEL_ID.",
+      dllmModelId: "Description for DLLM_MODEL_ID.",
+      runpodLiveRequired: "Description for RUNPOD_LIVE_REQUIRED."
+    }
+  });
+}
+
+function validateInsertionOutput(value) {
+  const keys = ["schemaVersion", "descriptions"];
+  const descriptionKeys = [
+    "help", "llmUpstreamUrl", "dllmUpstreamUrl", "llmModelId",
+    "dllmModelId", "runpodLiveRequired"
+  ];
+  if (
+    !value || typeof value !== "object" || Array.isArray(value) ||
+    canonical(Object.keys(value).sort()) !== canonical(keys.sort()) ||
+    value.schemaVersion !== INSERTION_OUTPUT_VERSION ||
+    !value.descriptions || typeof value.descriptions !== "object" ||
+    Array.isArray(value.descriptions) ||
+    canonical(Object.keys(value.descriptions).sort()) !== canonical(descriptionKeys.sort())
+  ) {
+    throw Object.assign(new Error("CONTROLLED_HELP_COPY_OUTPUT_INVALID"), {
+      code: "RUNPOD_RESPONSE_SCHEMA_INVALID"
+    });
+  }
+  const descriptions = {};
+  for (const key of descriptionKeys) {
+    const description = value.descriptions[key];
+    if (
+      typeof description !== "string" || description.trim().length === 0 ||
+      /[\x00-\x1f\x7f]/.test(description) ||
+      Buffer.byteLength(description) > PILOT_MAX_DESCRIPTION_BYTES ||
+      description.includes("```")
+    ) {
+      throw Object.assign(new Error("CONTROLLED_HELP_COPY_OUTPUT_INVALID"), {
+        code: "RUNPOD_RESPONSE_SCHEMA_INVALID"
+      });
+    }
+    descriptions[key] = description.trim();
+  }
+  return descriptions;
+}
+
+function validateRenderedInsertion(content) {
+  if (
+    Buffer.byteLength(content) > PILOT_MAX_INSERTION_BYTES ||
+    content.split(/\r?\n/).length > PILOT_MAX_INSERTION_LINES
+  ) {
+    throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
+      pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
+    });
+  }
+  return content;
+}
+
+function renderControlledHelpInsertion(providerOutput) {
+  const descriptions = validateInsertionOutput(providerOutput);
+  const helpLines = [
+    "Usage: model-worker-runpod-live-smoke [options]",
+    "",
+    "Options:",
+    `  --help, -h               ${descriptions.help}`,
+    "",
+    "Environment variables:",
+    `  LLM_UPSTREAM_URL         ${descriptions.llmUpstreamUrl}`,
+    `  DLLM_UPSTREAM_URL        ${descriptions.dllmUpstreamUrl}`,
+    `  LLM_MODEL_ID             ${descriptions.llmModelId}`,
+    `  DLLM_MODEL_ID            ${descriptions.dllmModelId}`,
+    `  RUNPOD_LIVE_REQUIRED     ${descriptions.runpodLiveRequired}`,
+    "",
+    "Default proxy: 127.0.0.1:8790"
+  ];
+  return validateRenderedInsertion([
+    "if (process.argv.includes(\"--help\") || process.argv.includes(\"-h\")) {",
+    "  console.log([",
+    ...helpLines.map((line) => `    ${JSON.stringify(line)},`),
+    "  ].join(\"\\n\"));",
+    "  process.exit(0);",
+    "}",
+    ""
+  ].join("\n"));
+}
+
+function materializeControlledInsertion(request, providerOutput) {
+  const { bounded, source, anchorOffset } = resolveControlledInsertionAuthority(request);
+  const content = renderControlledHelpInsertion(providerOutput);
+  const newContent = source.content.slice(0, anchorOffset) + content +
+    source.content.slice(anchorOffset);
+  return {
+    output: {
+      schemaVersion: "bounded.executor-model-output/v1",
+      mutations: [{
+        path: TARGET,
+        operation: "replace",
+        expectedContentHash: source.contentHash,
+        newContent,
+        relatedPlanStepIds: [bounded.existingPlan.steps[0].stepId],
+        relatedSymbolIds: source.relatedSymbols
+      }],
+      summary: "Added bounded early help handling.",
+      assumptions: [],
+      unresolvedQuestions: []
+    },
+    insertionContent: content,
+    sourceContent: source.content,
+    anchorOffset
+  };
+}
+
+function reportBase(input) {
+  return {
+    schemaVersion: REPORT_VERSION,
+    pilotId: input.definition?.pilotId ?? "controlled-real-coding-v1.runpod-live-help",
+    status: input.status ?? "failed",
+    sourceCommit: input.sourceCommit ?? "",
+    pilotDefinitionHash: input.definitionHash ?? "",
+    providerKind: "existing-runpod-openai-compatible-model-worker",
+    modelId: input.modelId ?? null,
+    providerCallCount: input.providerCallCount ?? 0,
+    retryCount: input.retryCount ?? 0,
+    workspaceReceiptHash: input.workspaceReceiptHash ?? null,
+    changedFiles: input.changedFiles ?? [],
+    patchLineCount: input.patchLineCount ?? 0,
+    authorityPassed: input.authorityPassed ?? false,
+    verifierPassed: input.verifierPassed ?? false,
+    artifactProduced: input.artifactProduced ?? false,
+    artifactValid: input.artifactValid ?? false,
+    sourceWorktreeMutated: input.sourceWorktreeMutated ?? false,
+    githubMutationObserved: false,
+    budgetExceeded: input.budgetExceeded ?? false,
+    cleanupCompleted: input.cleanupCompleted ?? false,
+    failureCode: input.failureCode ?? null,
+    providerDiagnostic: input.providerDiagnostic ?? null,
+    verifierDiagnostic: input.verifierDiagnostic ?? null,
+    lifecycle: input.lifecycle ?? []
+  };
+}
+
+function markdown(report) {
+  return [
+    "# Controlled Real Coding Pilot", "",
+    `- Status: \`${report.status}\``,
+    `- Source commit: \`${report.sourceCommit}\``,
+    `- Definition hash: \`${report.pilotDefinitionHash}\``,
+    `- Provider calls: \`${report.providerCallCount}\``,
+    `- Changed files: \`${report.changedFiles.join(", ") || "none"}\``,
+    `- Patch lines: \`${report.patchLineCount}\``,
+    `- Authority: \`${report.authorityPassed ? "passed" : "not passed"}\``,
+    `- Verifier: \`${report.verifierPassed ? "passed" : "not passed"}\``,
+    `- Artifact: \`${report.artifactValid ? "valid" : "not produced or invalid"}\``,
+    `- Source worktree mutated: \`${report.sourceWorktreeMutated}\``,
+    `- GitHub mutation observed: \`${report.githubMutationObserved}\``,
+    `- Cleanup completed: \`${report.cleanupCompleted}\``,
+    `- Failure code: \`${report.failureCode ?? "none"}\``, "",
+    "## Lifecycle", "",
+    ...report.lifecycle.map((event) => `- \`${event}\``),
+    ""
+  ].join("\n");
+}
+
+async function writeReport(output, report) {
+  await mkdir(output, { recursive: true });
+  const clean = JSON.parse(JSON.stringify(report));
+  const serialized = `${JSON.stringify(clean, null, 2)}\n`;
+  await writeFile(join(output, "pilot-report.json"), serialized);
+  await writeFile(join(output, "pilot-report.md"), markdown(clean));
+  return { ...clean, reportHash: hash(clean) };
+}
+
+async function createCheckout(sourceRoot, temporaryRoot, commit) {
+  const checkout = join(temporaryRoot, "checkout");
+  await exec("git", [
+    "clone", "--quiet", "--no-local", "--no-hardlinks", sourceRoot, checkout
+  ]);
+  await exec("git", ["checkout", "--quiet", "--detach", commit], { cwd: checkout });
+  return checkout;
+}
+
+async function unifiedPatch(path, before, after, temporaryRoot) {
+  const oldFile = join(temporaryRoot, "before");
+  const newFile = join(temporaryRoot, "after");
+  await writeFile(oldFile, before);
+  await writeFile(newFile, after);
+  try {
+    await exec("diff", [
+      "-u", "--label", `a/${path}`, "--label", `b/${path}`, oldFile, newFile
+    ]);
+    return "";
+  } catch (error) {
+    if (error.code !== 1) throw error;
+    return error.stdout;
+  }
+}
+
+function patchLines(patch) {
+  return patch.split(/\r?\n/).filter((line) =>
+    (line.startsWith("+") && !line.startsWith("+++")) ||
+    (line.startsWith("-") && !line.startsWith("---"))
+  ).length;
+}
+
+function enforceSemanticPatchLimit(lineCount, maxPatchLines) {
+  if (lineCount > maxPatchLines) {
+    throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
+      pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
+    });
+  }
+}
+
+function pathMatchesScope(filePath, scope) {
+  return filePath === scope || filePath.startsWith(`${scope.replace(/\/+$/, "")}/`);
+}
+
+function deriveExecutorMutationLineBudget(input) {
+  const totalAuthorizedSourceLines = input.sourceFiles
+    .filter((file) =>
+      input.allowedMutationPaths.some((scope) => pathMatchesScope(file.path, scope)) &&
+      !input.forbiddenPaths.some((scope) => pathMatchesScope(file.path, scope))
+    )
+    .reduce((total, file) => total + file.content.split(/\r?\n/).length, 0);
+  return 2 * totalAuthorizedSourceLines + input.maxPatchLines;
+}
+
+function classifyVerifierFailure(stage, error) {
+  if (FAILURE_CODES.has(error?.pilotCode)) return error;
+  if (!VERIFIER_STAGES.has(stage)) {
+    throw new Error("Controlled pilot verifier stage is invalid.");
+  }
+  const verifierExitCode = Number.isSafeInteger(error?.code) ? error.code : null;
+  const verifierCode = ["ETIMEDOUT", "ABORT_ERR"].includes(error?.code)
+    ? "COMMAND_TIMEOUT"
+    : "COMMAND_FAILED";
+  return Object.assign(new Error("PILOT_VERIFICATION_FAILED"), {
+    pilotCode: "PILOT_VERIFICATION_FAILED",
+    verifierDiagnostic: { verifierStage: stage, verifierExitCode, verifierCode }
+  });
+}
+
+function mapFailure(error) {
+  if (FAILURE_CODES.has(error?.pilotCode)) return error.pilotCode;
+  const code = error?.code ?? error?.message ?? "";
+  if (String(code).includes("ABORT")) return "PILOT_CANCELLED";
+  if (String(code).includes("AUTHORITY") || String(code).includes("FORBIDDEN") ||
+      String(code).includes("UNAUTHORIZED")) return "PILOT_AUTHORITY_VIOLATION";
+  if (String(code).includes("BUDGET")) return "PILOT_PATCH_LIMIT_EXCEEDED";
+  if (String(code).includes("OUTPUT") || String(code).includes("RESPONSE") ||
+      String(code).includes("JSON")) return "PILOT_MODEL_RESPONSE_INVALID";
+  if (String(code).includes("VERIFICATION") || String(code).includes("ARTIFACT_UNAVAILABLE")) {
+    return "PILOT_VERIFICATION_FAILED";
+  }
+  if (String(code).includes("ARTIFACT")) return "PILOT_ARTIFACT_INVALID";
+  return "PILOT_PROVIDER_CALL_FAILED";
+}
+
+async function runControlledCodingPilot(options = {}) {
+  const sourceRoot = resolve(options.sourceRoot ?? process.cwd());
+  const output = resolve(options.output ?? join(sourceRoot, "reports/controlled-coding-pilot"));
+  const definitionPath = resolve(sourceRoot, options.definitionPath ?? DEFINITION);
+  const lifecycle = ["pilot.started"];
+  let definition;
+  let definitionHash = "";
+  let sourceBefore;
+  let checkout;
+  let temporaryRoot;
+  let providerCallCount = 0;
+  let retryCount = 0;
+  let providerPilotFailure = null;
+  let providerDiagnostic = null;
+  let verifierDiagnostic = null;
+  let activeModelId = options.modelId ?? null;
+  let cleanupCompleted = false;
+  let workingReport;
+  try {
+    definition = validateDefinition(JSON.parse(await readFile(definitionPath, "utf8")));
+    definitionHash = hash(definition);
+    lifecycle.push("pilot.definition.validated");
+    sourceBefore = await sourceSnapshot(sourceRoot);
+    const execute = options.executeProvider === true;
+    const confirm = options.confirmLive === true;
+    if (!execute && !confirm) {
+      return writeReport(output, reportBase({
+        definition, definitionHash, sourceCommit: sourceBefore.commit,
+        status: "dry_run", authorityPassed: true, cleanupCompleted: true, lifecycle
+      }));
+    }
+    if (!execute || !confirm) {
+      throw Object.assign(new Error("PILOT_CONFIRMATION_REQUIRED"), {
+        pilotCode: "PILOT_CONFIRMATION_REQUIRED"
+      });
+    }
+    if (options.abortSignal?.aborted) {
+      throw Object.assign(new Error("PILOT_CANCELLED"), { pilotCode: "PILOT_CANCELLED" });
+    }
+    const providerConfig = options.modelClient
+      ? {
+          modelId: options.modelId ?? "fake-qwen2.5-coder-7b",
+          credential: "fixture-value",
+          baseUrl: "https://fixture.invalid/v1"
+        }
+      : liveProviderConfiguration(options.environment ?? process.env);
+    if (!providerConfig) {
+      throw Object.assign(new Error("PILOT_PROVIDER_CONFIGURATION_MISSING"), {
+        pilotCode: "PILOT_PROVIDER_CONFIGURATION_MISSING"
+      });
+    }
+    activeModelId = providerConfig.modelId;
+    temporaryRoot = await mkdtemp(join(tmpdir(), "controlled-coding-pilot-"));
+    checkout = await createCheckout(sourceRoot, temporaryRoot, sourceBefore.commit);
+    lifecycle.push("pilot.worktree.created");
+    const mutationBudgetSourceFiles = await Promise.all(
+      definition.allowedMutationPaths
+        .filter((filePath) => !definition.forbiddenPaths.some(
+          (scope) => pathMatchesScope(filePath, scope)
+        ))
+        .map(async (filePath) => ({
+          path: filePath,
+          content: await readFile(join(checkout, ...filePath.split("/")), "utf8")
+        }))
+    );
+    const executorMutationLineBudget = deriveExecutorMutationLineBudget({
+      sourceFiles: mutationBudgetSourceFiles,
+      allowedMutationPaths: definition.allowedMutationPaths,
+      forbiddenPaths: definition.forbiddenPaths,
+      maxPatchLines: definition.maxPatchLines
+    });
+
+    const coding = await import(
+      "../dist/packages/integrations/src/coding-executor.js"
+    );
+    const runpod = await import(
+      "../dist/packages/integrations/src/runpod-openai-compatible-model-client.js"
+    );
+    const credentials = {
+      async getCredential() {
+        return providerConfig.credential;
+      }
+    };
+    const concreteClient = options.modelClient ??
+      new runpod.RunpodOpenAICompatibleModelClient(
+        pilotProviderClientConfiguration(
+          runpod.RUNPOD_MODEL_CLIENT_VERSION,
+          providerConfig
+        ),
+        credentials
+      );
+    const countedClient = {
+      async execute(request, executionOptions) {
+        const insertionInstruction = controlledInsertionInstruction(request);
+        providerCallCount += 1;
+        lifecycle.push("pilot.provider.started");
+        if (providerCallCount > definition.providerCallBudget) {
+          throw Object.assign(new Error("PILOT_PROVIDER_CALL_FAILED"), {
+            pilotCode: "PILOT_PROVIDER_CALL_FAILED"
+          });
+        }
+        try {
+          if (
+            PILOT_PROVIDER_TIMEOUT_MS > request.remainingRuntimeMs ||
+            PILOT_PROVIDER_MAX_OUTPUT_TOKENS > request.outputTokenLimit
+          ) {
+            providerDiagnostic = {
+              remainingRuntimeMs: request.remainingRuntimeMs,
+              outputTokenLimit: request.outputTokenLimit ?? 0,
+              configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
+              configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
+              executorMutationLineBudget,
+              providerErrorCode: "RUNPOD_REQUEST_REJECTED"
+            };
+          }
+          const providerResult = await concreteClient.execute({
+            ...request,
+            instruction: insertionInstruction,
+            instructionHash: hash(insertionInstruction),
+            outputSchema: controlledInsertionOutputSchema()
+          }, executionOptions);
+          const materialized = materializeControlledInsertion(request, providerResult.output);
+          const result = { ...providerResult, output: materialized.output };
+          if (
+            result?.output &&
+            typeof result.output === "object" &&
+            Array.isArray(result.output.mutations)
+          ) {
+            const bounded = JSON.parse(request.instruction);
+            let proposedPatchLines = 0;
+            for (const mutation of result.output.mutations) {
+              const source = bounded.workspaceFiles.find(
+                (file) => file.path === mutation.path
+              );
+              if (source && typeof mutation.newContent === "string") {
+                proposedPatchLines += patchLines(await unifiedPatch(
+                  mutation.path,
+                  source.content,
+                  mutation.newContent,
+                  temporaryRoot
+                ));
+              }
+            }
+            if (result.output.mutations.length > definition.maxChangedFiles) {
+              providerDiagnostic = {
+                proposedPatchLines,
+                maxPatchLines: definition.maxPatchLines,
+                executorMutationLineBudget
+              };
+              providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
+              throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
+                pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
+              });
+            }
+            try {
+              enforceSemanticPatchLimit(proposedPatchLines, definition.maxPatchLines);
+            } catch (error) {
+              providerDiagnostic = {
+                proposedPatchLines,
+                maxPatchLines: definition.maxPatchLines,
+                executorMutationLineBudget
+              };
+              providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
+              throw error;
+            }
+            providerDiagnostic = {
+              proposedPatchLines,
+              maxPatchLines: definition.maxPatchLines,
+              executorMutationLineBudget
+            };
+          }
+          lifecycle.push("pilot.provider.completed");
+          return result;
+        } catch (error) {
+          if (FAILURE_CODES.has(error?.pilotCode)) {
+            providerPilotFailure = error.pilotCode;
+          }
+          const errorCode = typeof error?.code === "string" &&
+            /^RUNPOD_[A-Z0-9_]+$/.test(error.code)
+            ? error.code
+            : null;
+          if (errorCode) {
+            providerDiagnostic = {
+              remainingRuntimeMs: request.remainingRuntimeMs,
+              outputTokenLimit: request.outputTokenLimit ?? 0,
+              configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
+              configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
+              executorMutationLineBudget,
+              providerErrorCode: errorCode
+            };
+          }
+          lifecycle.push("pilot.provider.failed");
+          throw error;
+        }
+      }
+    };
+    const codingExecutor = new coding.ProductionCodingExecutorAdapter({
+      adapterId: "controlled-coding-pilot",
+      modelId: providerConfig.modelId,
+      transportRetries: 0
+    }, countedClient, credentials);
+    const targetContent = mutationBudgetSourceFiles.find(
+      (file) => file.path === TARGET
+    )?.content;
+    if (typeof targetContent !== "string") {
+      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+        pilotCode: "PILOT_AUTHORITY_VIOLATION"
+      });
+    }
+    const plan = {
+      planId: "controlled-help-plan",
+      steps: [{
+        stepId: "step-1",
+        description: definition.taskPrompt,
+        targetPaths: [TARGET],
+        requiredSymbolIds: ["symbol:main"]
+      }]
+    };
+    const authority = {
+      readablePaths: [...new Set(definition.allowedReadRoots)].sort(),
+      allowedChangePaths: [TARGET],
+      forbiddenPaths: [...new Set(definition.forbiddenPaths)].sort()
+    };
+    const workspaceFiles = [{
+      path: TARGET,
+      content: targetContent,
+      contentHash: hash(targetContent),
+      language: "TypeScript",
+      authority: "change_allowed",
+      relatedSymbols: ["symbol:main"]
+    }];
+    const request = {
+      schemaVersion: coding.CODING_EXECUTOR_REQUEST_VERSION,
+      executionId: "controlled-coding-pilot-execution",
+      repository: {
+        repositoryId: "bounded-dllm-agent-lab.controlled-pilot",
+        commitSha: sourceBefore.commit
+      },
+      task: { taskId: definition.pilotId, summary: definition.taskPrompt },
+      plan: { ...plan, planHash: hash(plan) },
+      workspace: {
+        manifestHash: hash({ files: workspaceFiles }),
+        files: workspaceFiles,
+        selectedSymbols: ["symbol:main"],
+        selectedTests: [],
+        evidenceReceiptIds: [],
+        expansionRound: 0
+      },
+      authority: { ...authority, authorityHash: hash(authority) },
+      budget: {
+        maxToolCalls: 1,
+        maxInputBytes: 500_000,
+        maxOutputBytes: 100_000,
+        maxChangedFiles: 1,
+        maxChangedLines: executorMutationLineBudget,
+        remainingRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
+        inputTokenLimit: PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
+        outputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT
+      },
+      ...(options.abortSignal ? { abortSignal: options.abortSignal } : {})
+    };
+    lifecycle.push("pilot.workspace.built");
+    const execution = await codingExecutor.execute(request);
+    if (execution.status !== "completed" || !execution.mutationSet) {
+      const code = execution.diagnostics[0]?.code ?? "EXECUTOR_PROVIDER_RESPONSE_INVALID";
+      if (!providerPilotFailure) {
+        providerDiagnostic = {
+          ...(providerDiagnostic ?? {}),
+          executorMutationLineBudget,
+          executorDiagnosticCode: code
+        };
+      }
+      throw Object.assign(new Error(code), { code });
+    }
+    const mutations = execution.mutationSet.mutations;
+    if (
+      mutations.length !== 1 ||
+      mutations[0].path !== TARGET ||
+      mutations[0].operation !== "replace" ||
+      mutations[0].expectedContentHash !== hash(targetContent) ||
+      typeof mutations[0].newContent !== "string" ||
+      canonical(mutations[0].relatedPlanStepIds) !== canonical(["step-1"]) ||
+      canonical(mutations[0].relatedSymbolIds) !== canonical(["symbol:main"])
+    ) {
+      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+        pilotCode: "PILOT_AUTHORITY_VIOLATION"
+      });
+    }
+    const changedFiles = [TARGET];
+    const generatedPatch = await unifiedPatch(
+      TARGET, targetContent, mutations[0].newContent, temporaryRoot
+    );
+    const lineCount = patchLines(generatedPatch);
+    enforceSemanticPatchLimit(lineCount, definition.maxPatchLines);
+    await writeFile(join(checkout, ...TARGET.split("/")), mutations[0].newContent);
+    lifecycle.push("pilot.verifier.started");
+    let verifierStage = "typecheck";
+    try {
+      await symlink(join(sourceRoot, "node_modules"), join(checkout, "node_modules"), "dir");
+      const tsc = join(sourceRoot, "node_modules/.bin/tsc");
+      await exec(tsc, ["-p", join(checkout, "tsconfig.json")], {
+        cwd: checkout,
+        env: { ...process.env, NODE_OPTIONS: "" },
+        maxBuffer: 10_000_000
+      });
+      verifierStage = "help_acceptance";
+      const { checkHelpAcceptance } = require("./controlled-coding-pilot-help-check.cjs");
+      await checkHelpAcceptance(checkout);
+      verifierStage = "normal_missing_env";
+      const normal = await exec(process.execPath, [
+        join(checkout, "dist/apps/cli/src/model-worker-runpod-live-smoke.js")
+      ], {
+        cwd: checkout,
+        env: {
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          NODE_OPTIONS: ""
+        }
+      });
+      if (!normal.stdout.includes("\"status\": \"skipped\"")) {
+        throw new Error("Controlled pilot normal missing-environment behavior changed.");
+      }
+      verifierStage = "runpod_proxy_smoke";
+      await exec(process.execPath, [
+        join(checkout, "dist/apps/cli/src/model-worker-runpod-proxy-smoke.js")
+      ], { cwd: checkout, env: { ...process.env, NODE_OPTIONS: "" } });
+    } catch (error) {
+      const classified = classifyVerifierFailure(verifierStage, error);
+      verifierDiagnostic = classified.verifierDiagnostic ?? null;
+      throw classified;
+    }
+    lifecycle.push("pilot.verifier.completed");
+
+    const workspaceReceipt = {
+      schemaVersion: "bounded.controlled-pilot-workspace-receipt/v1",
+      repositoryId: request.repository.repositoryId,
+      sourceCommit: sourceBefore.commit,
+      workspaceManifestHash: request.workspace.manifestHash,
+      planHash: request.plan.planHash,
+      authorityHash: request.authority.authorityHash,
+      targetPath: TARGET,
+      targetContentHash: hash(targetContent)
+    };
+    const artifactIdentity = {
+      schemaVersion: "bounded.controlled-pilot-change-artifact/v1",
+      sourceCommit: sourceBefore.commit,
+      mutationSetHash: execution.mutationSet.mutationSetHash,
+      changedFiles,
+      patchHash: hash(generatedPatch),
+      verifierStages: [...VERIFIER_STAGES]
+    };
+    const artifact = {
+      ...artifactIdentity,
+      artifactId: hash(artifactIdentity),
+      githubMutationObserved: false
+    };
+    lifecycle.push("pilot.artifact.created");
+    await mkdir(output, { recursive: true });
+    await writeFile(join(output, "workspace-receipt.json"),
+      `${JSON.stringify(workspaceReceipt, null, 2)}\n`);
+    await writeFile(join(output, "runtime-events.jsonl"),
+      `${lifecycle.map((type) => JSON.stringify({ type })).join("\n")}\n`);
+    await writeFile(
+      join(output, "verifier-report.json"),
+      `${JSON.stringify({
+        passed: true,
+        stages: [...VERIFIER_STAGES]
+      }, null, 2)}\n`
+    );
+    await writeFile(
+      join(output, "governed-change-artifact.json"),
+      `${JSON.stringify(artifact, null, 2)}\n`
+    );
+    await writeFile(join(output, "generated.patch"), generatedPatch);
+    workingReport = reportBase({
+      definition,
+      definitionHash,
+      sourceCommit: sourceBefore.commit,
+      status: "completed",
+      modelId: providerConfig.modelId,
+      providerCallCount,
+      retryCount,
+      workspaceReceiptHash: hash(
+        await readFile(join(output, "workspace-receipt.json"), "utf8")
+      ),
+      changedFiles,
+      patchLineCount: lineCount,
+      authorityPassed: true,
+      verifierPassed: true,
+      artifactProduced: true,
+      artifactValid: true,
+      budgetExceeded: false,
+      providerDiagnostic,
+      verifierDiagnostic,
+      lifecycle
+    });
+  } catch (error) {
+    if (process.env.CONTROLLED_PILOT_DEBUG === "1") {
+      process.stderr.write(`${JSON.stringify(
+        verifierDiagnostic ?? providerDiagnostic ??
+          { failureCode: providerPilotFailure ?? mapFailure(error) }
+      )}\n`);
+    }
+    const failureCode = providerPilotFailure ?? mapFailure(error);
+    if (failureCode === "PILOT_VERIFICATION_FAILED" ||
+        failureCode === "PILOT_ARTIFACT_INVALID") {
+      lifecycle.push("pilot.artifact.rejected");
+    }
+    workingReport = reportBase({
+      definition,
+      definitionHash,
+      sourceCommit: sourceBefore?.commit,
+      status: failureCode === "PILOT_CANCELLED" ? "cancelled" : "failed",
+      modelId: activeModelId,
+      providerCallCount,
+      retryCount,
+      failureCode,
+      providerDiagnostic,
+      verifierDiagnostic,
+      lifecycle
+    });
+  } finally {
+    lifecycle.push("pilot.cleanup.started");
+    try {
+      if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
+      cleanupCompleted = true;
+      lifecycle.push("pilot.cleanup.completed");
+    } catch {
+      cleanupCompleted = false;
+      if (workingReport) workingReport.failureCode = "PILOT_CLEANUP_FAILED";
+    }
+    lifecycle.push("pilot.finished");
+    if (sourceBefore) {
+      const after = await sourceSnapshot(sourceRoot);
+      const mutated = canonical(after) !== canonical(sourceBefore);
+      if (workingReport) {
+        workingReport.sourceWorktreeMutated = mutated;
+        if (mutated) {
+          workingReport.status = "failed";
+          workingReport.failureCode = "PILOT_SOURCE_WORKTREE_MUTATED";
+        }
+      }
+    }
+    if (workingReport) {
+      workingReport.cleanupCompleted = cleanupCompleted;
+      workingReport.lifecycle = lifecycle;
+    }
+  }
+  return writeReport(output, workingReport);
+}
+
+module.exports = {
+  DEFINITION,
+  PILOT_EXECUTION_RUNTIME_MS,
+  PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT,
+  PILOT_MAX_INSERTION_LINES,
+  PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
+  PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
+  PILOT_PROVIDER_TIMEOUT_MS,
+  REPORT_VERSION,
+  TARGET,
+  hash,
+  patchLines,
+  controlledInsertionInstruction,
+  controlledInsertionOutputSchema,
+  enforceSemanticPatchLimit,
+  classifyVerifierFailure,
+  deriveExecutorMutationLineBudget,
+  materializeControlledInsertion,
+  pilotProviderClientConfiguration,
+  renderControlledHelpInsertion,
+  resolveControlledInsertionAuthority,
+  runControlledCodingPilot,
+  validateRenderedInsertion,
+  validateDefinition
+};
+
+if (require.main === module) {
+  runControlledCodingPilot({
+    sourceRoot: process.cwd(),
+    output: argument("--output"),
+    executeProvider: process.argv.includes("--execute-provider"),
+    confirmLive: process.argv.includes("--confirm-live")
+  }).then((report) => {
+    process.stdout.write(`${JSON.stringify(report)}\n`);
+    if (report.status === "failed" || report.status === "cancelled") {
+      process.exitCode = 1;
+    }
+  }).catch(() => {
+    process.stdout.write(`${JSON.stringify(reportBase({
+      status: "failed",
+      failureCode: "PILOT_PROVIDER_CALL_FAILED",
+      cleanupCompleted: false
+    }))}\n`);
+    process.exitCode = 1;
+  });
+}
