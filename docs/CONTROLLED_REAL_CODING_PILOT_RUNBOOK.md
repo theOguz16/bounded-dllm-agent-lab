@@ -61,6 +61,19 @@ The upstream URL must include `/v1/chat/completions` because the existing vLLM w
 
 ## Live execution
 
+For a Runpod Pod, the preferred invocation is:
+
+```bash
+EXPECTED_SOURCE_COMMIT=<sha> bash scripts/runpod-controlled-pilot-bootstrap.sh
+```
+
+Expose port `8000` as an HTTP port in Runpod before running the command. The known-good
+llama.cpp baseline is `b9754`. The bootstrap does not print secrets and stops only the
+llama-server process it starts; set `KEEP_LLAMA_SERVER=1` to leave that process running
+intentionally.
+
+For an already configured compatible provider, the lower-level invocation remains:
+
 ```bash
 npm run run:controlled-coding-pilot-live -- \
   --execute-provider \
