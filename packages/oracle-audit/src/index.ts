@@ -127,6 +127,10 @@ export function auditRefineRequestForOracleLeakage(
         continue;
       }
 
+      if (!isSemanticTextPath(path)) {
+        continue;
+      }
+
       findings.push({
         caseId: fixture.case.id,
         severity: "error",
@@ -165,6 +169,17 @@ function isAllowedEvidencePath(path: string[]): boolean {
     dottedPath === "workspace.patchIntent" ||
     dottedPath.startsWith("workspace.patchIntent.")
   );
+}
+
+function isSemanticTextPath(path: string[]): boolean {
+  const key = path[path.length - 1] ?? "";
+
+  /**
+   * Workspace createdAt leaves are schema-defined temporal metadata rather than
+   * application text. Every other string path remains fail-closed by default,
+   * including trace summaries and future semantic fields not known here yet.
+   */
+  return path[0] !== "workspace" || key !== "createdAt";
 }
 
 function walkJson(

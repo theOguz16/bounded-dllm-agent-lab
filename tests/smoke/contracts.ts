@@ -5,7 +5,13 @@ import { nanoidCodePatchCases, validateCodePatchCases } from "../../packages/cod
 import { createComparisonArtifact, createRunManifest, validateRunManifest } from "../../packages/experiment-core/src/index.js";
 import { aggregateScores, createBenchmarkArtifact } from "../../packages/eval-core/src/index.js";
 import { demoFixtures, hardFixtures, remaskFixtures, validateFixtures } from "../../packages/fixtures/src/index.js";
-import { auditFixturesForOracleLeakage } from "../../packages/oracle-audit/src/index.js";
+import { createWorkspaceFromPacket } from "../../packages/context-core/src/workspace-adapter.js";
+import { createMaskedWorkspaceView } from "../../packages/masking-policy/src/index.js";
+import {
+  auditFixtureWorkerRequest,
+  auditFixturesForOracleLeakage,
+  auditRefineRequestForOracleLeakage
+} from "../../packages/oracle-audit/src/index.js";
 import {
   addAgentClaim,
   analyzeRepositoryFiles,
@@ -153,6 +159,101 @@ const oracleAudit = auditFixturesForOracleLeakage([...demoFixtures, ...hardFixtu
 // sızarsa modelin doğru cevap vermesi başarı değil, deney tasarımı hatası olur.
 assert.equal(oracleAudit.ok, true, JSON.stringify(oracleAudit.findings, null, 2));
 assert.equal(oracleAudit.fixtureCount, 80);
+
+const timestampCollisionFixture = [...demoFixtures, ...hardFixtures, ...remaskFixtures]
+  .find((fixture) => fixture.case.forbiddenTerms.includes("10.0"));
+assert.ok(timestampCollisionFixture, "timestamp collision fixture must exist");
+
+const timestampWorkspace = createMaskedWorkspaceView(
+  createWorkspaceFromPacket(timestampCollisionFixture.packet, {
+    id: "oracle-timestamp-regression",
+    createdAt: "2026-08-18T13:37:10.039Z"
+  }),
+  "verifier"
+).workspace;
+const timestampRequest = {
+  requestId: "oracle-timestamp-regression",
+  workspace: {
+    ...timestampWorkspace,
+    trace: timestampWorkspace.trace.map((event, index) => ({
+      ...event,
+      createdAt: [
+        "2026-08-18T13:37:10.039Z",
+        "2026-08-18T13:38:10.004Z"
+      ][index] ?? "2026-08-18T13:39:10.001Z"
+    }))
+  }
+};
+const timestampFindings = auditRefineRequestForOracleLeakage(
+  timestampCollisionFixture,
+  timestampRequest
+);
+assert.equal(
+  timestampFindings.some((finding) => /^workspace\.trace\.\d+\.createdAt$/.test(finding.path)),
+  false,
+  JSON.stringify(timestampFindings, null, 2)
+);
+
+const leakedTraceRequest = {
+  ...timestampRequest,
+  workspace: {
+    ...timestampRequest.workspace,
+    trace: timestampRequest.workspace.trace.map((event, index) => index === 0 ? {
+      ...event,
+      summary: timestampCollisionFixture.case.expectedResult
+    } : event)
+  }
+};
+const leakedTraceFindings = auditRefineRequestForOracleLeakage(
+  timestampCollisionFixture,
+  leakedTraceRequest
+);
+assert.equal(
+  leakedTraceFindings.some((finding) => finding.path === "workspace.trace.0.summary"),
+  true,
+  "evaluator-only answer text in a semantic trace summary must still fail"
+);
+
+const allowedEvidenceRequest = {
+  ...timestampRequest,
+  workspace: {
+    ...timestampRequest.workspace,
+    task: {
+      ...timestampRequest.workspace.task,
+      description: timestampCollisionFixture.case.expectedResult
+    }
+  }
+};
+const allowedEvidenceFindings = auditRefineRequestForOracleLeakage(
+  timestampCollisionFixture,
+  allowedEvidenceRequest
+);
+assert.equal(
+  allowedEvidenceFindings.some((finding) => finding.path === "workspace.task.description"),
+  false,
+  "existing evidence-bearing paths must remain allowed"
+);
+
+const forbiddenKeyRequest = {
+  ...timestampRequest,
+  workspace: {
+    ...timestampRequest.workspace,
+    answer: timestampCollisionFixture.case.expectedResult
+  }
+};
+const forbiddenKeyFindings = auditRefineRequestForOracleLeakage(
+  timestampCollisionFixture,
+  forbiddenKeyRequest
+);
+assert.equal(
+  forbiddenKeyFindings.some((finding) =>
+    finding.path === "workspace.answer" &&
+    finding.reason === "Evaluator-only oracle key was present in the worker request."
+  ),
+  true,
+  "forbidden oracle-key detection must remain unchanged"
+);
+assert.deepEqual(auditFixtureWorkerRequest(timestampCollisionFixture), []);
 
 const ablationModeIds = listAblationModes().map((mode) => mode.id);
 
