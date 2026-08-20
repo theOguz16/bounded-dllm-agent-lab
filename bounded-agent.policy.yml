@@ -15,6 +15,8 @@ allowed_paths:
   - scripts/controlled-coding-pilot-help-check.cjs
   - scripts/controlled-coding-pilot-evidence.cjs
   - scripts/controlled-coding-pilot-evidence-smoke.cjs
+  - scripts/controlled-coding-pilot-evidence-verify.cjs
+  - scripts/controlled-coding-pilot-evidence-verify-smoke.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
   - scripts/runpod-openai-compatible-model-client-error-smoke.cjs
