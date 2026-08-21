@@ -72,7 +72,7 @@ finalRunbookMergeCommit: ecc5201
 acceptanceRecordInitialMergeCommit: 94b36b81eb83f80ae690502221d365d2c19d7a9f
 ```
 
-`acceptanceRecordMergeCommit` is intentionally pending until the pull request that adds this document is merged. No merge commit is inferred at creation time.
+`acceptanceRecordInitialMergeCommit` records the immutable merge commit that originally introduced this acceptance record.
 
 ## Acceptance criteria
 
