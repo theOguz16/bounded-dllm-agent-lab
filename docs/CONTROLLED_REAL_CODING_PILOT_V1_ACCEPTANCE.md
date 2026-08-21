@@ -69,7 +69,7 @@ archiveSha256: 2bad2499d515941fbc6218d45d4052febdd2c6c3321645e31ebd4d00a2dda588
 ```text
 runtimeProvenanceMergeCommit: 360fd6392efc623b8fb016cc146aa420d21a05a9
 finalRunbookMergeCommit: ecc5201
-acceptanceRecordMergeCommit: PENDING_AT_CREATION
+acceptanceRecordInitialMergeCommit: 94b36b81eb83f80ae690502221d365d2c19d7a9f
 ```
 
 `acceptanceRecordMergeCommit` is intentionally pending until the pull request that adds this document is merged. No merge commit is inferred at creation time.
