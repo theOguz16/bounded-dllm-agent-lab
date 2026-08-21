@@ -68,9 +68,12 @@ EXPECTED_SOURCE_COMMIT=<sha> bash scripts/runpod-controlled-pilot-bootstrap.sh
 ```
 
 Expose port `8000` as an HTTP port in Runpod before running the command. The known-good
-llama.cpp baseline is `b9754`. The bootstrap does not print secrets and stops only the
-llama-server process it starts; set `KEEP_LLAMA_SERVER=1` to leave that process running
-intentionally.
+llama.cpp baseline is build `9754` with commit prefix `52b3df002`. Before live execution,
+the bootstrap verifies both values from `llama-server --version`. Override them with
+`LLAMA_EXPECTED_BUILD` and `LLAMA_EXPECTED_COMMIT_PREFIX`; an empty commit prefix disables
+only the prefix check, while build validation remains mandatory. The bootstrap does not
+print secrets and stops only the llama-server process it starts; set `KEEP_LLAMA_SERVER=1`
+to leave that process running intentionally.
 
 For an already configured compatible provider, the lower-level invocation remains:
 

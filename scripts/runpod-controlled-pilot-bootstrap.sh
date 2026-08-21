@@ -110,6 +110,8 @@ LLAMA_HOST="${LLAMA_HOST:-0.0.0.0}"
 LLAMA_CTX_SIZE="${LLAMA_CTX_SIZE:-16384}"
 LLAMA_MODEL_ALIAS="${LLAMA_MODEL_ALIAS:-qwen2.5-coder-7b}"
 LLAMA_SERVER_LOG="${LLAMA_SERVER_LOG:-/workspace/llama-server-controlled-pilot.log}"
+LLAMA_EXPECTED_BUILD="${LLAMA_EXPECTED_BUILD:-9754}"
+LLAMA_EXPECTED_COMMIT_PREFIX="${LLAMA_EXPECTED_COMMIT_PREFIX-52b3df002}"
 LLAMA_STOP_RETRIES="${LLAMA_STOP_RETRIES:-40}"
 LLAMA_STOP_INTERVAL_SECONDS="${LLAMA_STOP_INTERVAL_SECONDS:-0.25}"
 LLAMA_CLEANUP_RETRIES="${LLAMA_CLEANUP_RETRIES:-40}"
@@ -124,6 +126,53 @@ READINESS_INTERVAL_SECONDS="${READINESS_INTERVAL_SECONDS:-1}"
   fail "invalid_llama_port"
 [[ "$LLAMA_CTX_SIZE" =~ ^[0-9]+$ ]] && ((LLAMA_CTX_SIZE >= 1)) || fail "invalid_llama_ctx_size"
 [[ -n "$LLAMA_HOST" && -n "$LLAMA_MODEL_ALIAS" ]] || fail "invalid_llama_configuration"
+[[ "$LLAMA_EXPECTED_BUILD" =~ ^[0-9]+$ ]] || fail "invalid_llama_expected_build"
+[[ -z "$LLAMA_EXPECTED_COMMIT_PREFIX" || \
+  "$LLAMA_EXPECTED_COMMIT_PREFIX" =~ ^[0-9A-Fa-f]{1,40}$ ]] || \
+  fail "invalid_llama_expected_commit_prefix"
+
+if ! LLAMA_PROVENANCE_FIELDS="$(node - "$LLAMA_SERVER_BIN" "$LLAMA_EXPECTED_BUILD" \
+  "$LLAMA_EXPECTED_COMMIT_PREFIX" <<'NODE'
+const { spawnSync } = require("node:child_process");
+const [binary, expectedBuild, expectedCommitPrefix] = process.argv.slice(2);
+const result = spawnSync(binary, ["--version"], {
+  encoding: "utf8",
+  timeout: 5_000,
+  maxBuffer: 16_384
+});
+const stdout = typeof result.stdout === "string" ? result.stdout : "";
+const stderr = typeof result.stderr === "string" ? result.stderr : "";
+const output = `${stdout}\n${stderr}`;
+const matches = output.length <= 16_384
+  ? [...output.matchAll(/^version:\s*([0-9]+)\s+\(([0-9A-Fa-f]{1,40})\)\s*$/gm)]
+  : [];
+const actualBuild = matches.length === 1 ? matches[0][1] : undefined;
+const actualCommit = matches.length === 1 ? matches[0][2] : undefined;
+const invocationPassed = !result.error && result.status === 0 && output.length <= 16_384;
+const buildPassed = invocationPassed && actualBuild === expectedBuild;
+const commitPassed = invocationPassed && actualCommit !== undefined &&
+  (!expectedCommitPrefix || actualCommit.toLowerCase().startsWith(expectedCommitPrefix.toLowerCase()));
+if (!buildPassed || !commitPassed) {
+  process.stderr.write([
+    "error=llama_provenance_verification_failed",
+    `expectedBuild=${expectedBuild}`,
+    `actualBuild=${actualBuild ?? "unavailable"}`,
+    `expectedCommitPrefix=${expectedCommitPrefix || "disabled"}`,
+    `actualCommit=${actualCommit ?? "unavailable"}`
+  ].join("\n") + "\n");
+  process.exit(1);
+}
+process.stdout.write(`${actualBuild}\n${actualCommit}\n`);
+NODE
+)"; then
+  exit 1
+fi
+LLAMA_ACTUAL_BUILD="${LLAMA_PROVENANCE_FIELDS%%$'\n'*}"
+LLAMA_ACTUAL_COMMIT="${LLAMA_PROVENANCE_FIELDS#*$'\n'}"
+printf '%s\n' \
+  "llama_build=$LLAMA_ACTUAL_BUILD" \
+  "llama_commit=$LLAMA_ACTUAL_COMMIT" \
+  'llama_provenance=verified'
 
 if [[ -z "${LLAMA_API_KEY:-}" ]]; then
   LLAMA_API_KEY="$(openssl rand -hex 32)" || fail "api_key_generation_failed"
@@ -257,9 +306,10 @@ verify_source_target_unchanged
 
 REPORT_PATH="$CONTROLLED_PILOT_OUTPUT_DIR/pilot-report.json"
 [[ -f "$REPORT_PATH" ]] || fail "pilot_report_missing"
-if ! node - "$REPORT_PATH" "$SOURCE_COMMIT" "${EXPECTED_SOURCE_COMMIT:-}" <<'NODE'
+if ! node - "$REPORT_PATH" "$SOURCE_COMMIT" "${EXPECTED_SOURCE_COMMIT:-}" \
+  "$LLAMA_ACTUAL_BUILD" "$LLAMA_ACTUAL_COMMIT" <<'NODE'
 const fs = require("node:fs");
-const [reportPath, head, expected] = process.argv.slice(2);
+const [reportPath, head, expected, llamaBuild, llamaCommit] = process.argv.slice(2);
 let report;
 try {
   report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
@@ -301,6 +351,8 @@ process.stdout.write([
   "FINAL_GATE=PASS",
   `sourceCommit=${report.sourceCommit}`,
   `modelId=${report.modelId}`,
+  `llamaBuild=${llamaBuild}`,
+  `llamaCommit=${llamaCommit}`,
   "providerCallCount=1",
   "retryCount=0",
   `patchLineCount=${report.patchLineCount}`

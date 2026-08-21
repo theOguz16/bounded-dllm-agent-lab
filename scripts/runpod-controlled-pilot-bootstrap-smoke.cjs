@@ -70,6 +70,10 @@ function run(overrides = {}) {
     UNSAFE_ENV_SENTINEL: unsafeSentinel,
     ...overrides
   };
+  if (!Object.hasOwn(overrides, "LLAMA_EXPECTED_BUILD")) delete env.LLAMA_EXPECTED_BUILD;
+  if (!Object.hasOwn(overrides, "LLAMA_EXPECTED_COMMIT_PREFIX")) {
+    delete env.LLAMA_EXPECTED_COMMIT_PREFIX;
+  }
   return spawnSync("bash", [script], { cwd: root, env, encoding: "utf8", timeout: 10_000 });
 }
 
@@ -77,6 +81,13 @@ try {
   mkdirSync(fakeBin);
   writeFileSync(model, "fake-model\n");
   executable(llama, `#!/usr/bin/env bash
+if [[ "\${1:-}" == "--version" ]]; then
+  if [[ "\${FAKE_LLAMA_VERSION_INCLUDE_SECRET:-0}" == "1" ]]; then
+    printf 'credential-like-noise=%s\\n' "$LLAMA_API_KEY" >&2
+  fi
+  printf '%b\\n' "\${FAKE_LLAMA_VERSION_OUTPUT:-version: 9754 (52b3df002)\\nbuilt with fake compiler for smoke}" >&2
+  exit "\${FAKE_LLAMA_VERSION_EXIT:-0}"
+fi
 printf '%s\\n' "$@" > "$FAKE_LLAMA_ARGS_FILE"
 printf '%s\\n' "$$" > "$FAKE_LLAMA_PID_FILE"
 printf 'startup token=%s\\n' "$LLAMA_API_KEY"
@@ -141,8 +152,67 @@ exec "$REAL_NODE_BIN" "$@"
   assert.match(mismatch.stderr, /expected_source_commit_mismatch/);
   assert.equal(existsSync(npmMarker), false, "provider command must not run on commit mismatch");
 
+  for (const path of [llamaArgs, llamaPid, curlUrls, npmMarker]) rmSync(path, { force: true });
+  const wrongBuild = run({
+    FAKE_LLAMA_VERSION_OUTPUT: "untrusted noise\\nversion: 9755 (52b3df002)",
+    FAKE_LLAMA_VERSION_INCLUDE_SECRET: "1"
+  });
+  assert.notEqual(wrongBuild.status, 0);
+  assert.match(wrongBuild.stderr, /error=llama_provenance_verification_failed/);
+  assert.match(wrongBuild.stderr, /expectedBuild=9754/);
+  assert.match(wrongBuild.stderr, /actualBuild=9755/);
+  assert.doesNotMatch(`${wrongBuild.stdout}\n${wrongBuild.stderr}`, new RegExp(redactionSentinel));
+  for (const path of [llamaArgs, llamaPid, curlUrls, npmMarker]) {
+    assert.equal(existsSync(path), false, `provenance mismatch reached ${path}`);
+  }
+
+  const wrongCommit = run({ FAKE_LLAMA_VERSION_OUTPUT: "version: 9754 (deadbeef)" });
+  assert.notEqual(wrongCommit.status, 0);
+  assert.match(wrongCommit.stderr, /expectedCommitPrefix=52b3df002/);
+  assert.match(wrongCommit.stderr, /actualCommit=deadbeef/);
+  assert.equal(existsSync(llamaArgs), false, "commit mismatch started llama-server");
+  assert.equal(existsSync(npmMarker), false, "commit mismatch reached provider execution");
+
+  const malformed = run({ FAKE_LLAMA_VERSION_OUTPUT: "version: banana (not-a-commit)" });
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /actualBuild=unavailable/);
+  assert.match(malformed.stderr, /actualCommit=unavailable/);
+
+  const missingVersion = run({ FAKE_LLAMA_VERSION_OUTPUT: "built with fake compiler only" });
+  assert.notEqual(missingVersion.status, 0);
+  assert.match(missingVersion.stderr, /llama_provenance_verification_failed/);
+
+  const overrideBuild = run({
+    LLAMA_EXPECTED_BUILD: "9755",
+    LLAMA_EXPECTED_COMMIT_PREFIX: "52b3",
+    FAKE_LLAMA_VERSION_OUTPUT: "version: 9755 (52b3df002)"
+  });
+  assert.equal(overrideBuild.status, 0, `${overrideBuild.stdout}\n${overrideBuild.stderr}`);
+  assert.match(overrideBuild.stdout, /llama_build=9755/);
+  assert.match(overrideBuild.stdout, /llama_commit=52b3df002/);
+
+  const disabledCommitCheck = run({
+    LLAMA_EXPECTED_COMMIT_PREFIX: "",
+    FAKE_LLAMA_VERSION_OUTPUT: "version: 9754 (deadbeef)"
+  });
+  assert.equal(disabledCommitCheck.status, 0,
+    `${disabledCommitCheck.stdout}\n${disabledCommitCheck.stderr}`);
+  assert.match(disabledCommitCheck.stdout, /llama_build=9754/);
+  assert.match(disabledCommitCheck.stdout, /llama_commit=deadbeef/);
+
+  const disabledCommitWrongBuild = run({
+    LLAMA_EXPECTED_COMMIT_PREFIX: "",
+    FAKE_LLAMA_VERSION_OUTPUT: "version: 9755 (deadbeef)"
+  });
+  assert.notEqual(disabledCommitWrongBuild.status, 0);
+  assert.match(disabledCommitWrongBuild.stderr, /expectedBuild=9754/);
+  assert.match(disabledCommitWrongBuild.stderr, /actualBuild=9755/);
+
   rmSync(curlUrls, { force: true });
-  const success = run({ EXPECTED_SOURCE_COMMIT: head });
+  const success = run({
+    EXPECTED_SOURCE_COMMIT: head,
+    FAKE_LLAMA_VERSION_INCLUDE_SECRET: "1"
+  });
   assert.equal(success.status, 0, `${success.stdout}\n${success.stderr}`);
   const combined = `${success.stdout}\n${success.stderr}`;
   assert.doesNotMatch(combined, new RegExp(redactionSentinel));
@@ -150,6 +220,11 @@ exec "$REAL_NODE_BIN" "$@"
   assert.match(success.stdout, /FINAL_GATE=PASS/);
   assert.match(success.stdout, /local_model=ready/);
   assert.match(success.stdout, /runpod_proxy=ready/);
+  assert.match(success.stdout, /llama_build=9754/);
+  assert.match(success.stdout, /llama_commit=52b3df002/);
+  assert.match(success.stdout, /llama_provenance=verified/);
+  assert.match(success.stdout, /llamaBuild=9754/);
+  assert.match(success.stdout, /llamaCommit=52b3df002/);
   assert.deepEqual(readFileSync(target), sourceBefore, "source target changed");
   const args = readFileSync(llamaArgs, "utf8");
   assert.match(args, /--ctx-size\n16384\n/);
@@ -176,6 +251,10 @@ exec "$REAL_NODE_BIN" "$@"
   assert.notEqual(bounded.status, 0);
   assert.match(bounded.stderr, /llama_port_remained_occupied/);
   assert.ok(elapsed < 3_000, `occupied-port cleanup took ${elapsed}ms`);
+
+  const bootstrapSource = readFileSync(script, "utf8");
+  assert.match(bootstrapSource, /LLAMA_EXPECTED_BUILD:-9754/);
+  assert.match(bootstrapSource, /LLAMA_EXPECTED_COMMIT_PREFIX-52b3df002/);
 
   process.stdout.write("runpod controlled pilot bootstrap smoke: PASS\n");
 } finally {
