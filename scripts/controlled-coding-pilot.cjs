@@ -15,6 +15,12 @@ const REPORT_VERSION = "bounded.controlled-coding-pilot-report/v1";
 const DEFINITION_VERSION = "bounded.controlled-coding-pilot/v1";
 const TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
 const DEFINITION = "pilots/controlled-real-coding-v1/runpod-live-help/task.json";
+const V2_DEFINITION_VERSION = "bounded.controlled-coding-pilot/v2";
+const V2_DEFINITION = "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json";
+const V2_TARGETS = [
+  "packages/worker-contract/src/index.ts",
+  "tests/smoke/contracts.ts"
+];
 const INSERTION_OUTPUT_VERSION = "bounded.controlled-help-copy-output/v1";
 const INSERTION_ANCHOR = "const reportName = \"model-worker-runpod-live-smoke-v1\";";
 const PILOT_MAX_INSERTION_LINES = 60;
@@ -25,6 +31,13 @@ const PILOT_EXECUTION_RUNTIME_MS = 120_000;
 const PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT = 6_144;
 const PILOT_PROVIDER_TIMEOUT_MS = 45_000;
 const PILOT_PROVIDER_MAX_OUTPUT_TOKENS = 1_024;
+const PROVIDER_SENSITIVE_LINE = [
+  /bearer\s+[A-Za-z0-9._~+/-]+=*/i,
+  /authorization\s*:\s*[^\n]+/i,
+  /\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*[^\s,;]+/i,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
+  /https?:\/\/[^/\s:@]+:[^/\s@]+@/i
+];
 if (
   PILOT_PROVIDER_TIMEOUT_MS > PILOT_EXECUTION_RUNTIME_MS ||
   PILOT_PROVIDER_MAX_OUTPUT_TOKENS > PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT
@@ -39,9 +52,46 @@ const FAILURE_CODES = new Set([
   "PILOT_ARTIFACT_INVALID", "PILOT_SOURCE_WORKTREE_MUTATED",
   "PILOT_CLEANUP_FAILED", "PILOT_CANCELLED"
 ]);
-const VERIFIER_STAGES = new Set([
+const V1_VERIFIER_STAGES = [
   "typecheck", "help_acceptance", "normal_missing_env", "runpod_proxy_smoke"
+];
+const V2_VERIFIER_STAGES = [
+  "typecheck", "build", "test_smoke", "request_id_acceptance"
+];
+const VERIFIER_STAGES = new Set([
+  ...V1_VERIFIER_STAGES,
+  ...V2_VERIFIER_STAGES
 ]);
+const PILOT_PROFILES = {
+  "controlled-real-coding-v1.runpod-live-help": {
+    schemaVersion: DEFINITION_VERSION,
+    allowedMutationPaths: [TARGET],
+    requiredMutationPaths: [TARGET],
+    maxChangedFiles: 2,
+    maxPatchLines: 120,
+    providerCallBudget: 1,
+    retryBudget: 1,
+    providerMode: "controlled_help_copy",
+    executorMaxChangedFiles: 1,
+    verifierStages: V1_VERIFIER_STAGES
+  },
+  "controlled-real-coding-v2.worker-request-id-correlation": {
+    schemaVersion: V2_DEFINITION_VERSION,
+    allowedMutationPaths: V2_TARGETS,
+    requiredMutationPaths: V2_TARGETS,
+    maxChangedFiles: 2,
+    maxPatchLines: 60,
+    providerCallBudget: 1,
+    retryBudget: 0,
+    providerMode: "executor_mutations",
+    executorMaxChangedFiles: 2,
+    verifierStages: V2_VERIFIER_STAGES,
+    requiredForbiddenPaths: [
+      "package.json", "package-lock.json", "dist", ".github", "docs",
+      "pilots", "scripts", "apps", "bounded-agent.policy.yml"
+    ]
+  }
+};
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -88,25 +138,70 @@ function validateDefinition(value) {
     "providerCallBudget", "retryBudget", "acceptanceCommands",
     "requiredAssertions"
   ];
+  const profile = value && typeof value === "object"
+    ? PILOT_PROFILES[value.pilotId]
+    : undefined;
   if (
     !value || typeof value !== "object" || Array.isArray(value) ||
     canonical(Object.keys(value).sort()) !== canonical(keys.sort()) ||
-    value.schemaVersion !== DEFINITION_VERSION ||
+    !profile ||
+    value.schemaVersion !== profile.schemaVersion ||
     value.sourceRevisionPolicy !== "current-head" ||
     !Array.isArray(value.allowedMutationPaths) ||
-    !value.allowedMutationPaths.includes(TARGET) ||
-    value.maxChangedFiles !== 2 ||
-    value.maxPatchLines !== 120 ||
-    value.providerCallBudget !== 1 ||
-    value.retryBudget !== 1 ||
+    canonical(value.allowedMutationPaths) !== canonical(profile.allowedMutationPaths) ||
+    value.maxChangedFiles !== profile.maxChangedFiles ||
+    value.maxPatchLines !== profile.maxPatchLines ||
+    value.providerCallBudget !== profile.providerCallBudget ||
+    value.retryBudget !== profile.retryBudget ||
     !Array.isArray(value.allowedReadRoots) ||
     !Array.isArray(value.forbiddenPaths) ||
+    (profile.requiredForbiddenPaths ?? []).some(
+      (path) => !value.forbiddenPaths.includes(path)
+    ) ||
     !Array.isArray(value.acceptanceCommands) ||
     !Array.isArray(value.requiredAssertions)
   ) throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
     pilotCode: "PILOT_DEFINITION_INVALID"
   });
   return structuredClone(value);
+}
+
+function profileForDefinition(definition) {
+  const profile = PILOT_PROFILES[definition.pilotId];
+  if (!profile) {
+    throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
+      pilotCode: "PILOT_DEFINITION_INVALID"
+    });
+  }
+  return profile;
+}
+
+function createProviderSource(content, profile) {
+  if (profile.providerMode !== "executor_mutations") {
+    return { content, maskedLines: [] };
+  }
+  const maskedLines = [];
+  const lines = content.split("\n");
+  const providerContent = lines.map((line, index) => {
+    if (!PROVIDER_SENSITIVE_LINE.some((pattern) => pattern.test(line))) return line;
+    const token = `/* PILOT_REDACTED_LINE_${index} */`;
+    maskedLines.push({ token, line });
+    return token;
+  }).join("\n");
+  return { content: providerContent, maskedLines };
+}
+
+function restoreProviderSource(content, maskedLines) {
+  let restored = content;
+  for (const masked of maskedLines) {
+    if (restored.split(masked.token).length !== 2) {
+      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+        pilotCode: "PILOT_AUTHORITY_VIOLATION"
+      });
+    }
+    restored = restored.replace(masked.token, masked.line);
+  }
+  return restored;
 }
 
 function liveProviderConfiguration(environment) {
@@ -481,6 +576,7 @@ async function runControlledCodingPilot(options = {}) {
   const definitionPath = resolve(sourceRoot, options.definitionPath ?? DEFINITION);
   const lifecycle = ["pilot.started"];
   let definition;
+  let profile;
   let definitionHash = "";
   let sourceBefore;
   let checkout;
@@ -495,6 +591,7 @@ async function runControlledCodingPilot(options = {}) {
   let workingReport;
   try {
     definition = validateDefinition(JSON.parse(await readFile(definitionPath, "utf8")));
+    profile = profileForDefinition(definition);
     definitionHash = hash(definition);
     lifecycle.push("pilot.definition.validated");
     sourceBefore = await sourceSnapshot(sourceRoot);
@@ -568,7 +665,9 @@ async function runControlledCodingPilot(options = {}) {
       );
     const countedClient = {
       async execute(request, executionOptions) {
-        const insertionInstruction = controlledInsertionInstruction(request);
+        const insertionInstruction = profile.providerMode === "controlled_help_copy"
+          ? controlledInsertionInstruction(request)
+          : null;
         providerCallCount += 1;
         lifecycle.push("pilot.provider.started");
         if (providerCallCount > definition.providerCallBudget) {
@@ -590,14 +689,27 @@ async function runControlledCodingPilot(options = {}) {
               providerErrorCode: "RUNPOD_REQUEST_REJECTED"
             };
           }
-          const providerResult = await concreteClient.execute({
-            ...request,
-            instruction: insertionInstruction,
-            instructionHash: hash(insertionInstruction),
-            outputSchema: controlledInsertionOutputSchema()
-          }, executionOptions);
-          const materialized = materializeControlledInsertion(request, providerResult.output);
-          const result = { ...providerResult, output: materialized.output };
+          const providerRequest = profile.providerMode === "controlled_help_copy"
+            ? {
+                ...request,
+                instruction: insertionInstruction,
+                instructionHash: hash(insertionInstruction),
+                outputSchema: controlledInsertionOutputSchema()
+              }
+            : request;
+          const providerResult = await concreteClient.execute(
+            providerRequest,
+            executionOptions
+          );
+          const result = profile.providerMode === "controlled_help_copy"
+            ? {
+                ...providerResult,
+                output: materializeControlledInsertion(
+                  request,
+                  providerResult.output
+                ).output
+              }
+            : providerResult;
           if (
             result?.output &&
             typeof result.output === "object" &&
@@ -676,36 +788,51 @@ async function runControlledCodingPilot(options = {}) {
       modelId: providerConfig.modelId,
       transportRetries: 0
     }, countedClient, credentials);
-    const targetContent = mutationBudgetSourceFiles.find(
-      (file) => file.path === TARGET
-    )?.content;
-    if (typeof targetContent !== "string") {
+    const sourceByPath = new Map(mutationBudgetSourceFiles.map(
+      (file) => [file.path, file.content]
+    ));
+    if (profile.requiredMutationPaths.some(
+      (filePath) => typeof sourceByPath.get(filePath) !== "string"
+    )) {
       throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
         pilotCode: "PILOT_AUTHORITY_VIOLATION"
       });
     }
+    const symbolForPath = (filePath) => profile.providerMode === "controlled_help_copy"
+      ? "symbol:main"
+      : `symbol:${filePath.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+    const selectedSymbols = profile.requiredMutationPaths.map(symbolForPath);
+    const providerSources = new Map(profile.allowedMutationPaths.map((filePath) => [
+      filePath,
+      createProviderSource(sourceByPath.get(filePath), profile)
+    ]));
     const plan = {
-      planId: "controlled-help-plan",
+      planId: profile.providerMode === "controlled_help_copy"
+        ? "controlled-help-plan"
+        : "controlled-request-id-correlation-plan",
       steps: [{
         stepId: "step-1",
         description: definition.taskPrompt,
-        targetPaths: [TARGET],
-        requiredSymbolIds: ["symbol:main"]
+        targetPaths: profile.requiredMutationPaths,
+        requiredSymbolIds: selectedSymbols
       }]
     };
     const authority = {
       readablePaths: [...new Set(definition.allowedReadRoots)].sort(),
-      allowedChangePaths: [TARGET],
+      allowedChangePaths: [...profile.allowedMutationPaths],
       forbiddenPaths: [...new Set(definition.forbiddenPaths)].sort()
     };
-    const workspaceFiles = [{
-      path: TARGET,
-      content: targetContent,
-      contentHash: hash(targetContent),
-      language: "TypeScript",
-      authority: "change_allowed",
-      relatedSymbols: ["symbol:main"]
-    }];
+    const workspaceFiles = profile.allowedMutationPaths.map((filePath) => {
+      const content = providerSources.get(filePath).content;
+      return {
+        path: filePath,
+        content,
+        contentHash: hash(content),
+        language: "TypeScript",
+        authority: "change_allowed",
+        relatedSymbols: [symbolForPath(filePath)]
+      };
+    });
     const request = {
       schemaVersion: coding.CODING_EXECUTOR_REQUEST_VERSION,
       executionId: "controlled-coding-pilot-execution",
@@ -718,8 +845,10 @@ async function runControlledCodingPilot(options = {}) {
       workspace: {
         manifestHash: hash({ files: workspaceFiles }),
         files: workspaceFiles,
-        selectedSymbols: ["symbol:main"],
-        selectedTests: [],
+        selectedSymbols,
+        selectedTests: profile.providerMode === "executor_mutations"
+          ? ["tests/smoke/contracts.ts"]
+          : [],
         evidenceReceiptIds: [],
         expansionRound: 0
       },
@@ -728,7 +857,7 @@ async function runControlledCodingPilot(options = {}) {
         maxToolCalls: 1,
         maxInputBytes: 500_000,
         maxOutputBytes: 100_000,
-        maxChangedFiles: 1,
+        maxChangedFiles: profile.executorMaxChangedFiles,
         maxChangedLines: executorMutationLineBudget,
         remainingRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
         inputTokenLimit: PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
@@ -750,57 +879,107 @@ async function runControlledCodingPilot(options = {}) {
       throw Object.assign(new Error(code), { code });
     }
     const mutations = execution.mutationSet.mutations;
+    const expectedPaths = [...profile.requiredMutationPaths].sort();
     if (
-      mutations.length !== 1 ||
-      mutations[0].path !== TARGET ||
-      mutations[0].operation !== "replace" ||
-      mutations[0].expectedContentHash !== hash(targetContent) ||
-      typeof mutations[0].newContent !== "string" ||
-      canonical(mutations[0].relatedPlanStepIds) !== canonical(["step-1"]) ||
-      canonical(mutations[0].relatedSymbolIds) !== canonical(["symbol:main"])
+      canonical(mutations.map((mutation) => mutation.path).sort()) !==
+        canonical(expectedPaths) ||
+      mutations.some((mutation) => {
+        const sourceContent = providerSources.get(mutation.path)?.content;
+        return mutation.operation !== "replace" ||
+          mutation.expectedContentHash !== hash(sourceContent) ||
+          typeof mutation.newContent !== "string" ||
+          canonical(mutation.relatedPlanStepIds) !== canonical(["step-1"]) ||
+          canonical(mutation.relatedSymbolIds) !==
+            canonical([symbolForPath(mutation.path)]);
+      })
     ) {
       throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
         pilotCode: "PILOT_AUTHORITY_VIOLATION"
       });
     }
-    const changedFiles = [TARGET];
-    const generatedPatch = await unifiedPatch(
-      TARGET, targetContent, mutations[0].newContent, temporaryRoot
-    );
+    const changedFiles = mutations.map((mutation) => mutation.path).sort();
+    const materializedMutations = mutations.map((mutation) => ({
+      ...mutation,
+      newContent: restoreProviderSource(
+        mutation.newContent,
+        providerSources.get(mutation.path)?.maskedLines ?? []
+      )
+    }));
+    const generatedPatches = [];
+    for (const mutation of materializedMutations) {
+      generatedPatches.push(await unifiedPatch(
+        mutation.path,
+        sourceByPath.get(mutation.path),
+        mutation.newContent,
+        temporaryRoot
+      ));
+    }
+    const generatedPatch = generatedPatches.join("");
     const lineCount = patchLines(generatedPatch);
     enforceSemanticPatchLimit(lineCount, definition.maxPatchLines);
-    await writeFile(join(checkout, ...TARGET.split("/")), mutations[0].newContent);
+    for (const mutation of materializedMutations) {
+      await writeFile(
+        join(checkout, ...mutation.path.split("/")),
+        mutation.newContent
+      );
+    }
     lifecycle.push("pilot.verifier.started");
     let verifierStage = "typecheck";
     try {
       await symlink(join(sourceRoot, "node_modules"), join(checkout, "node_modules"), "dir");
-      const tsc = join(sourceRoot, "node_modules/.bin/tsc");
-      await exec(tsc, ["-p", join(checkout, "tsconfig.json")], {
-        cwd: checkout,
-        env: { ...process.env, NODE_OPTIONS: "" },
-        maxBuffer: 10_000_000
-      });
-      verifierStage = "help_acceptance";
-      const { checkHelpAcceptance } = require("./controlled-coding-pilot-help-check.cjs");
-      await checkHelpAcceptance(checkout);
-      verifierStage = "normal_missing_env";
-      const normal = await exec(process.execPath, [
-        join(checkout, "dist/apps/cli/src/model-worker-runpod-live-smoke.js")
-      ], {
-        cwd: checkout,
-        env: {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          NODE_OPTIONS: ""
+      if (profile.providerMode === "controlled_help_copy") {
+        const tsc = join(sourceRoot, "node_modules/.bin/tsc");
+        await exec(tsc, ["-p", join(checkout, "tsconfig.json")], {
+          cwd: checkout,
+          env: { ...process.env, NODE_OPTIONS: "" },
+          maxBuffer: 10_000_000
+        });
+        verifierStage = "help_acceptance";
+        const { checkHelpAcceptance } = require("./controlled-coding-pilot-help-check.cjs");
+        await checkHelpAcceptance(checkout);
+        verifierStage = "normal_missing_env";
+        const normal = await exec(process.execPath, [
+          join(checkout, "dist/apps/cli/src/model-worker-runpod-live-smoke.js")
+        ], {
+          cwd: checkout,
+          env: {
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+            NODE_OPTIONS: ""
+          }
+        });
+        if (!normal.stdout.includes("\"status\": \"skipped\"")) {
+          throw new Error("Controlled pilot normal missing-environment behavior changed.");
         }
-      });
-      if (!normal.stdout.includes("\"status\": \"skipped\"")) {
-        throw new Error("Controlled pilot normal missing-environment behavior changed.");
+        verifierStage = "runpod_proxy_smoke";
+        await exec(process.execPath, [
+          join(checkout, "dist/apps/cli/src/model-worker-runpod-proxy-smoke.js")
+        ], { cwd: checkout, env: { ...process.env, NODE_OPTIONS: "" } });
+      } else {
+        const npmEnvironment = { ...process.env, NODE_OPTIONS: "" };
+        await exec("npm", ["run", "typecheck"], {
+          cwd: checkout,
+          env: npmEnvironment,
+          maxBuffer: 10_000_000
+        });
+        verifierStage = "build";
+        await exec("npm", ["run", "build"], {
+          cwd: checkout,
+          env: npmEnvironment,
+          maxBuffer: 10_000_000
+        });
+        verifierStage = "test_smoke";
+        await exec("npm", ["run", "test:smoke"], {
+          cwd: checkout,
+          env: npmEnvironment,
+          maxBuffer: 10_000_000
+        });
+        verifierStage = "request_id_acceptance";
+        const { checkRequestIdAcceptance } = require(
+          "./controlled-coding-pilot-request-id-check.cjs"
+        );
+        await checkRequestIdAcceptance(checkout);
       }
-      verifierStage = "runpod_proxy_smoke";
-      await exec(process.execPath, [
-        join(checkout, "dist/apps/cli/src/model-worker-runpod-proxy-smoke.js")
-      ], { cwd: checkout, env: { ...process.env, NODE_OPTIONS: "" } });
     } catch (error) {
       const classified = classifyVerifierFailure(verifierStage, error);
       verifierDiagnostic = classified.verifierDiagnostic ?? null;
@@ -815,8 +994,21 @@ async function runControlledCodingPilot(options = {}) {
       workspaceManifestHash: request.workspace.manifestHash,
       planHash: request.plan.planHash,
       authorityHash: request.authority.authorityHash,
-      targetPath: TARGET,
-      targetContentHash: hash(targetContent)
+      ...(profile.requiredMutationPaths.length === 1
+        ? {
+            targetPath: profile.requiredMutationPaths[0],
+            targetContentHash: hash(sourceByPath.get(
+              profile.requiredMutationPaths[0]
+            ))
+          }
+        : {
+            targetPaths: profile.requiredMutationPaths,
+            targetContentHashes: Object.fromEntries(
+              profile.requiredMutationPaths.map(
+                (filePath) => [filePath, hash(sourceByPath.get(filePath))]
+              )
+            )
+          })
     };
     const artifactIdentity = {
       schemaVersion: "bounded.controlled-pilot-change-artifact/v1",
@@ -824,7 +1016,7 @@ async function runControlledCodingPilot(options = {}) {
       mutationSetHash: execution.mutationSet.mutationSetHash,
       changedFiles,
       patchHash: hash(generatedPatch),
-      verifierStages: [...VERIFIER_STAGES]
+      verifierStages: [...profile.verifierStages]
     };
     const artifact = {
       ...artifactIdentity,
@@ -841,7 +1033,7 @@ async function runControlledCodingPilot(options = {}) {
       join(output, "verifier-report.json"),
       `${JSON.stringify({
         passed: true,
-        stages: [...VERIFIER_STAGES]
+        stages: [...profile.verifierStages]
       }, null, 2)}\n`
     );
     await writeFile(
@@ -936,6 +1128,8 @@ module.exports = {
   PILOT_PROVIDER_TIMEOUT_MS,
   REPORT_VERSION,
   TARGET,
+  V2_DEFINITION,
+  V2_TARGETS,
   hash,
   patchLines,
   controlledInsertionInstruction,
@@ -956,6 +1150,7 @@ if (require.main === module) {
   runControlledCodingPilot({
     sourceRoot: process.cwd(),
     output: argument("--output"),
+    definitionPath: argument("--definition"),
     executeProvider: process.argv.includes("--execute-provider"),
     confirmLive: process.argv.includes("--confirm-live")
   }).then((report) => {
