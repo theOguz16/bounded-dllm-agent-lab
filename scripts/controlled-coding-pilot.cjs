@@ -184,9 +184,9 @@ function createProviderSource(content, profile) {
   const lines = content.split("\n");
   const providerContent = lines.map((line, index) => {
     if (!PROVIDER_SENSITIVE_LINE.some((pattern) => pattern.test(line))) return line;
-    const token = `/* PILOT_REDACTED_LINE_${index} */`;
-    maskedLines.push({ token, line });
-    return token;
+    const redactionMarker = `/* PILOT_REDACTED_LINE_${index} */`;
+    maskedLines.push({ redactionMarker, line });
+    return redactionMarker;
   }).join("\n");
   return { content: providerContent, maskedLines };
 }
@@ -194,12 +194,12 @@ function createProviderSource(content, profile) {
 function restoreProviderSource(content, maskedLines) {
   let restored = content;
   for (const masked of maskedLines) {
-    if (restored.split(masked.token).length !== 2) {
+    if (restored.split(masked.redactionMarker).length !== 2) {
       throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
         pilotCode: "PILOT_AUTHORITY_VIOLATION"
       });
     }
-    restored = restored.replace(masked.token, masked.line);
+    restored = restored.replace(masked.redactionMarker, masked.line);
   }
   return restored;
 }

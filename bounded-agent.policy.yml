@@ -12,6 +12,8 @@ allowed_paths:
   - .github/**
   - scripts/controlled-coding-pilot.cjs
   - scripts/controlled-coding-pilot-smoke.cjs
+  - scripts/controlled-coding-pilot-request-id-check.cjs
+  - scripts/controlled-coding-pilot-v2-smoke.cjs
   - scripts/controlled-coding-pilot-help-check.cjs
   - scripts/controlled-coding-pilot-evidence.cjs
   - scripts/controlled-coding-pilot-evidence-smoke.cjs
@@ -24,6 +26,7 @@ allowed_paths:
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
   - scripts/runpod-openai-compatible-model-client-error-smoke.cjs
   - pilots/controlled-real-coding-v1/**
+  - pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json
 forbidden_paths:
   - reports/**
   - benchmarks/repos/**
