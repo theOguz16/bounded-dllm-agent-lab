@@ -8,10 +8,16 @@ const {
   realpathSync
 } = require("node:fs");
 const { isAbsolute, join, posix, relative, resolve, sep } = require("node:path");
+const { hash: pilotHash, validateDefinition } = require("./controlled-coding-pilot.cjs");
 
-const SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v1";
+const V1_SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v1";
+const V2_SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v2";
 const REPORT_SCHEMA_VERSION = "bounded.controlled-coding-pilot-report/v1";
-const SOURCE_TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
+const V1_SOURCE_TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
+const PILOT_DEFINITIONS = {
+  "controlled-real-coding-v2.worker-request-id-correlation":
+    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+};
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 const BLOB_HASH = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -181,7 +187,8 @@ function parseJson(bytes, code, relativePath) {
 }
 
 function validateManifest(manifest) {
-  if (manifest.schemaVersion !== SCHEMA_VERSION) {
+  if (manifest.schemaVersion !== V1_SCHEMA_VERSION &&
+      manifest.schemaVersion !== V2_SCHEMA_VERSION) {
     fail("EVIDENCE_VERIFY_SCHEMA_UNSUPPORTED");
   }
   if (!HASH.test(manifest.evidenceHash ?? "")) fail("EVIDENCE_VERIFY_HASH_INVALID");
@@ -194,11 +201,31 @@ function validateManifest(manifest) {
       !Number.isSafeInteger(manifest.patchLineCount) || manifest.patchLineCount < 0) {
     fail("EVIDENCE_VERIFY_MANIFEST_METADATA_INVALID");
   }
-  if (manifest.sourceTargetPath !== SOURCE_TARGET) {
-    fail("EVIDENCE_VERIFY_SOURCE_TARGET_PATH_INVALID");
-  }
-  if (!BLOB_HASH.test(manifest.sourceTargetBlobHash ?? "")) {
-    fail("EVIDENCE_VERIFY_SOURCE_TARGET_HASH_INVALID");
+  if (manifest.schemaVersion === V1_SCHEMA_VERSION) {
+    if (manifest.sourceTargetPath !== V1_SOURCE_TARGET) {
+      fail("EVIDENCE_VERIFY_SOURCE_TARGET_PATH_INVALID");
+    }
+    if (!BLOB_HASH.test(manifest.sourceTargetBlobHash ?? "")) {
+      fail("EVIDENCE_VERIFY_SOURCE_TARGET_HASH_INVALID");
+    }
+  } else {
+    if (!Array.isArray(manifest.sourceTargets) || manifest.sourceTargets.length === 0) {
+      fail("EVIDENCE_VERIFY_SOURCE_TARGET_LIST_INVALID");
+    }
+    const paths = new Set();
+    for (const target of manifest.sourceTargets) {
+      plainObject(target, "EVIDENCE_VERIFY_SOURCE_TARGET_ENTRY_INVALID");
+      if (typeof target.path !== "string" || target.path.length === 0 ||
+          target.path.length > 4096 || CONTROL.test(target.path) || target.path.includes("\\") ||
+          isAbsolute(target.path) || posix.normalize(target.path) !== target.path ||
+          target.path === "." || target.path.split("/").includes("..") || paths.has(target.path)) {
+        fail("EVIDENCE_VERIFY_SOURCE_TARGET_PATH_INVALID");
+      }
+      if (!BLOB_HASH.test(target.blobHash ?? "")) {
+        fail("EVIDENCE_VERIFY_SOURCE_TARGET_HASH_INVALID");
+      }
+      paths.add(target.path);
+    }
   }
   if (!Array.isArray(manifest.files)) fail("EVIDENCE_VERIFY_FILE_LIST_INVALID");
 
@@ -275,7 +302,7 @@ function crossCheck(manifest, report, reportHash, expectedSourceCommit) {
   }
 }
 
-function verifyLocalSourceBlob(sourceCommit, expectedBlobHash) {
+function localRepositoryRoot(sourceCommit) {
   let repositoryRoot;
   try {
     repositoryRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -287,18 +314,61 @@ function verifyLocalSourceBlob(sourceCommit, expectedBlobHash) {
       env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }, stdio: ["ignore", "ignore", "ignore"]
     });
   } catch {
-    return "unavailable";
+    return undefined;
   }
-  let actual;
+  return repositoryRoot;
+}
+
+function sourceBlobAtCommit(repositoryRoot, sourceCommit, targetPath) {
   try {
-    actual = execFileSync("git", ["rev-parse", `${sourceCommit}:${SOURCE_TARGET}`], {
+    return execFileSync("git", ["rev-parse", `${sourceCommit}:${targetPath}`], {
       cwd: repositoryRoot, encoding: "utf8", timeout: 2_000, maxBuffer: 64_000,
       env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }, stdio: ["ignore", "pipe", "ignore"]
     }).trim();
   } catch {
     fail("EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
   }
-  if (actual !== expectedBlobHash) fail("EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
+}
+
+function verifyV1LocalSourceBlob(sourceCommit, expectedBlobHash) {
+  const repositoryRoot = localRepositoryRoot(sourceCommit);
+  if (!repositoryRoot) return "unavailable";
+  if (sourceBlobAtCommit(repositoryRoot, sourceCommit, V1_SOURCE_TARGET) !== expectedBlobHash) {
+    fail("EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
+  }
+  return "verified";
+}
+
+function verifyV2SourceTargets(manifest) {
+  const definitionPath = PILOT_DEFINITIONS[manifest.pilotId];
+  if (!definitionPath) fail("EVIDENCE_VERIFY_PILOT_DEFINITION_UNSUPPORTED");
+  const repositoryRoot = localRepositoryRoot(manifest.sourceCommit);
+  if (!repositoryRoot) fail("EVIDENCE_VERIFY_SOURCE_COMMIT_UNAVAILABLE");
+  let definition;
+  try {
+    const bytes = execFileSync("git", ["show", `${manifest.sourceCommit}:${definitionPath}`], {
+      cwd: repositoryRoot, encoding: "utf8", timeout: 2_000, maxBuffer: 128_000,
+      env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" }, stdio: ["ignore", "pipe", "ignore"]
+    });
+    definition = validateDefinition(JSON.parse(bytes));
+  } catch {
+    fail("EVIDENCE_VERIFY_PILOT_DEFINITION_INVALID");
+  }
+  if (definition.pilotId !== manifest.pilotId ||
+      pilotHash(definition) !== manifest.pilotDefinitionHash) {
+    fail("EVIDENCE_VERIFY_PILOT_DEFINITION_MISMATCH");
+  }
+  if (definition.allowedMutationPaths.length !== manifest.sourceTargets.length ||
+      definition.allowedMutationPaths.some(
+        (path, index) => path !== manifest.sourceTargets[index].path
+      )) {
+    fail("EVIDENCE_VERIFY_SOURCE_TARGET_PATH_INVALID");
+  }
+  for (const target of manifest.sourceTargets) {
+    if (sourceBlobAtCommit(repositoryRoot, manifest.sourceCommit, target.path) !== target.blobHash) {
+      fail("EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
+    }
+  }
   return "verified";
 }
 
@@ -380,9 +450,9 @@ function main() {
       finalManifest.sha256 !== manifestSnapshot.sha256) {
     fail("EVIDENCE_VERIFY_MANIFEST_CHANGED");
   }
-  const sourceBlobVerification = verifyLocalSourceBlob(
-    manifest.sourceCommit, manifest.sourceTargetBlobHash
-  );
+  const sourceBlobVerification = manifest.schemaVersion === V1_SCHEMA_VERSION
+    ? verifyV1LocalSourceBlob(manifest.sourceCommit, manifest.sourceTargetBlobHash)
+    : verifyV2SourceTargets(manifest);
 
   process.stdout.write([
     "EVIDENCE_VERIFY=PASS",
@@ -390,7 +460,9 @@ function main() {
     `reportHash=${manifest.reportHash}`,
     `evidenceHash=${manifest.evidenceHash}`,
     `fileCount=${manifest.files.length}`,
-    `sourceTargetBlobHash=${manifest.sourceTargetBlobHash}`,
+    ...(manifest.schemaVersion === V1_SCHEMA_VERSION
+      ? [`sourceTargetBlobHash=${manifest.sourceTargetBlobHash}`]
+      : [`sourceTargetsHash=${hashCanonicalJson(manifest.sourceTargets)}`]),
     `sourceBlobVerification=${sourceBlobVerification}`
   ].join("\n") + "\n");
 }

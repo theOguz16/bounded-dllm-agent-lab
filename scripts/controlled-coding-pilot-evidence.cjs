@@ -8,10 +8,21 @@ const {
   openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync
 } = require("node:fs");
 const { basename, dirname, isAbsolute, join, relative, resolve, sep } = require("node:path");
+const { hash: pilotHash, validateDefinition } = require("./controlled-coding-pilot.cjs");
 
-const SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v1";
+const V1_SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v1";
+const V2_SCHEMA_VERSION = "bounded.controlled-coding-pilot-evidence/v2";
 const REPORT_SCHEMA_VERSION = "bounded.controlled-coding-pilot-report/v1";
-const SOURCE_TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
+const PILOT_DEFINITIONS = {
+  "controlled-real-coding-v1.runpod-live-help": {
+    path: "pilots/controlled-real-coding-v1/runpod-live-help/task.json",
+    evidenceSchemaVersion: V1_SCHEMA_VERSION
+  },
+  "controlled-real-coding-v2.worker-request-id-correlation": {
+    path: "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+    evidenceSchemaVersion: V2_SCHEMA_VERSION
+  }
+};
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
@@ -239,8 +250,41 @@ function canonicalReportHash(report) {
   return reportHash;
 }
 
-function sourceTargetBlobHash(root) {
-  const target = join(root, SOURCE_TARGET);
+function committedBlobHash(root, sourceCommit, path) {
+  const hash = git(root, ["rev-parse", `${sourceCommit}:${path}`]);
+  if (!/^[0-9a-f]{40,64}$/.test(hash)) fail("EVIDENCE_SOURCE_TARGET_HASH_INVALID");
+  return hash;
+}
+
+function requireWorkingTreeBlob(root, path, committedHash, mismatchCode) {
+  if (sourceTargetBlobHash(root, path) !== committedHash) fail(mismatchCode);
+}
+
+function validatedPilot(root, report) {
+  const trusted = PILOT_DEFINITIONS[report.pilotId];
+  if (!trusted) fail("EVIDENCE_PILOT_DEFINITION_UNSUPPORTED");
+  let definition;
+  try {
+    const definitionBytes = trusted.evidenceSchemaVersion === V2_SCHEMA_VERSION
+      ? git(root, ["show", `${report.sourceCommit}:${trusted.path}`])
+      : readFileSync(join(root, trusted.path), "utf8");
+    definition = validateDefinition(JSON.parse(definitionBytes));
+  } catch {
+    fail("EVIDENCE_PILOT_DEFINITION_INVALID");
+  }
+  if (trusted.evidenceSchemaVersion === V2_SCHEMA_VERSION) {
+    const definitionBlobHash = committedBlobHash(root, report.sourceCommit, trusted.path);
+    requireWorkingTreeBlob(root, trusted.path, definitionBlobHash,
+      "EVIDENCE_PILOT_DEFINITION_CHANGED");
+  }
+  if (definition.pilotId !== report.pilotId || pilotHash(definition) !== report.pilotDefinitionHash) {
+    fail("EVIDENCE_PILOT_DEFINITION_MISMATCH");
+  }
+  return { ...trusted, definition };
+}
+
+function sourceTargetBlobHash(root, sourceTarget) {
+  const target = join(root, sourceTarget);
   let stats;
   try {
     stats = lstatSync(target);
@@ -248,7 +292,7 @@ function sourceTargetBlobHash(root) {
     fail("EVIDENCE_SOURCE_TARGET_MISSING");
   }
   if (!stats.isFile() || stats.isSymbolicLink()) fail("EVIDENCE_SOURCE_TARGET_INVALID");
-  const hash = git(root, ["hash-object", "--", SOURCE_TARGET]);
+  const hash = git(root, ["hash-object", "--", sourceTarget]);
   if (!/^[0-9a-f]{40,64}$/.test(hash)) fail("EVIDENCE_SOURCE_TARGET_HASH_INVALID");
   return hash;
 }
@@ -268,9 +312,29 @@ function validateOutputLocation(repositoryRoot, reportRoot, requestedOutDir) {
   return output;
 }
 
-function verifyInputs(root, head, targetHash, files, records) {
+function sourceTargetRecords(root, sourceCommit, pilot) {
+  return pilot.definition.allowedMutationPaths.map((path) => {
+    if (pilot.evidenceSchemaVersion === V1_SCHEMA_VERSION) {
+      return { path, blobHash: sourceTargetBlobHash(root, path) };
+    }
+    const blobHash = committedBlobHash(root, sourceCommit, path);
+    requireWorkingTreeBlob(root, path, blobHash, "EVIDENCE_SOURCE_TARGET_COMMIT_MISMATCH");
+    return { path, blobHash };
+  });
+}
+
+function verifyInputs(root, head, pilot, sourceTargets, files, records) {
   if (git(root, ["rev-parse", "HEAD"]) !== head) fail("EVIDENCE_SOURCE_HEAD_CHANGED");
-  if (sourceTargetBlobHash(root) !== targetHash) fail("EVIDENCE_SOURCE_TARGET_CHANGED");
+  if (pilot.evidenceSchemaVersion === V2_SCHEMA_VERSION) {
+    const definitionBlobHash = committedBlobHash(root, head, pilot.path);
+    requireWorkingTreeBlob(root, pilot.path, definitionBlobHash,
+      "EVIDENCE_PILOT_DEFINITION_CHANGED");
+  }
+  for (const target of sourceTargets) {
+    if (sourceTargetBlobHash(root, target.path) !== target.blobHash) {
+      fail("EVIDENCE_SOURCE_TARGET_CHANGED");
+    }
+  }
   for (let index = 0; index < files.length; index += 1) {
     const current = readStableFile(files[index]);
     if (current.byteSize !== records[index].byteSize ||
@@ -305,7 +369,6 @@ function main() {
   const repositoryRoot = realpathSync(git(process.cwd(), ["rev-parse", "--show-toplevel"]));
   const head = git(repositoryRoot, ["rev-parse", "HEAD"]);
   if (head !== args.expectedSourceCommit) fail("EVIDENCE_EXPECTED_COMMIT_MISMATCH");
-  const targetHashBefore = sourceTargetBlobHash(repositoryRoot);
 
   const requestedReport = resolve(repositoryRoot, args.reportDir);
   let reportStats;
@@ -327,6 +390,8 @@ function main() {
   const snapshots = files.map(readStableFile);
   const report = parseReport(snapshots[reportIndex].bytes);
   validateReport(report, head, args.expectedSourceCommit);
+  const pilot = validatedPilot(repositoryRoot, report);
+  const sourceTargets = sourceTargetRecords(repositoryRoot, head, pilot);
   const reportHash = canonicalReportHash(report);
 
   const stagingRoot = mkdtempSync(join(dirname(output), `.${basename(output)}.tmp-`));
@@ -345,7 +410,7 @@ function main() {
       };
     });
     const manifestCore = {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: pilot.evidenceSchemaVersion,
       pilotId: report.pilotId,
       sourceCommit: report.sourceCommit,
       pilotDefinitionHash: report.pilotDefinitionHash,
@@ -355,15 +420,17 @@ function main() {
       providerCallCount: report.providerCallCount,
       retryCount: report.retryCount,
       patchLineCount: report.patchLineCount,
-      sourceTargetPath: SOURCE_TARGET,
-      sourceTargetBlobHash: targetHashBefore,
+      ...(pilot.evidenceSchemaVersion === V1_SCHEMA_VERSION ? {
+        sourceTargetPath: sourceTargets[0].path,
+        sourceTargetBlobHash: sourceTargets[0].blobHash
+      } : { sourceTargets }),
       files: records
     };
     const evidenceHash = hashCanonicalJson(manifestCore);
     const manifest = { ...manifestCore, evidenceHash };
     writeFileSync(join(stagedBundle, "evidence-manifest.json"), `${canonicalJson(manifest)}\n`);
 
-    const verify = () => verifyInputs(repositoryRoot, head, targetHashBefore, files, records);
+    const verify = () => verifyInputs(repositoryRoot, head, pilot, sourceTargets, files, records);
     verify();
     commitOutput(output, stagingRoot, stagedBundle, verify);
     committed = true;
@@ -374,7 +441,9 @@ function main() {
       `reportHash=${reportHash}`,
       `evidenceHash=${evidenceHash}`,
       `fileCount=${records.length}`,
-      `sourceTargetBlobHash=${targetHashBefore}`
+      ...(pilot.evidenceSchemaVersion === V1_SCHEMA_VERSION
+        ? [`sourceTargetBlobHash=${sourceTargets[0].blobHash}`]
+        : [`sourceTargetCount=${sourceTargets.length}`])
     ].join("\n") + "\n");
   } finally {
     if (!committed) rmSync(stagingRoot, { recursive: true, force: true });
