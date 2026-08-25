@@ -10,6 +10,7 @@ const {
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join, relative } = require("node:path");
+const { hash: pilotHash } = require("./controlled-coding-pilot.cjs");
 
 const root = process.cwd();
 const generator = join(root, "scripts/controlled-coding-pilot-acceptance.cjs");
@@ -44,18 +45,22 @@ function canonicalHash(value) {
   return sha256(Buffer.from(canonicalJson(value), "utf8"));
 }
 
-function validReport(sourceCommit = head) {
+function validReport(sourceCommit = head, pilotVersion = 1) {
+  const definitionPath = pilotVersion === 1
+    ? "pilots/controlled-real-coding-v1/runpod-live-help/task.json"
+    : "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json";
+  const definition = JSON.parse(readFileSync(join(root, definitionPath), "utf8"));
   return {
     schemaVersion: "bounded.controlled-coding-pilot-report/v1",
-    pilotId: "controlled-real-coding-v1.runpod-live-help",
+    pilotId: definition.pilotId,
     status: "completed",
     sourceCommit,
-    pilotDefinitionHash: `sha256:${"1".repeat(64)}`,
+    pilotDefinitionHash: pilotHash(definition),
     providerKind: "existing-runpod-openai-compatible-model-worker",
     modelId: "qwen2.5-coder-7b",
     providerCallCount: 1,
     retryCount: 0,
-    patchLineCount: 18,
+    patchLineCount: pilotVersion === 1 ? 18 : 42,
     authorityPassed: true,
     verifierPassed: true,
     artifactProduced: true,
@@ -73,11 +78,11 @@ function writeCanonical(path, value) {
   writeFileSync(path, `${canonicalJson(value)}\n`);
 }
 
-function createBundledTemplate() {
-  const reportRoot = join(temporary, "source-report");
-  const bundle = join(temporary, "template-bundle");
+function createBundledTemplate(pilotVersion = 1) {
+  const reportRoot = join(temporary, `source-report-v${pilotVersion}`);
+  const bundle = join(temporary, `template-bundle-v${pilotVersion}`);
   mkdirSync(join(reportRoot, "nested"), { recursive: true });
-  writeCanonical(join(reportRoot, "pilot-report.json"), validReport());
+  writeCanonical(join(reportRoot, "pilot-report.json"), validReport(head, pilotVersion));
   writeFileSync(join(reportRoot, "generated.patch"), "diff --git a/target b/target\n");
   writeFileSync(join(reportRoot, "nested", "receipt.json"), "{\"ok\":true}\n");
   const result = spawnSync(process.execPath, [
@@ -229,6 +234,19 @@ try {
   assert.deepEqual(readFileSync(validOutput), firstBytes, "repeated record bytes changed");
   assert.equal(JSON.parse(readFileSync(validOutput)).acceptanceHash, firstRecord.acceptanceHash);
   assert.deepEqual(evidenceSnapshot(valid), bundleBefore, "repeat changed bundle evidence");
+
+  const v2Template = createBundledTemplate(2);
+  const validV2 = cloneBundle("valid-v2", v2Template);
+  const validV2Output = join(validV2, "acceptance-record.json");
+  const acceptedV2 = run(validV2, validV2Output);
+  assert.equal(acceptedV2.status, 0, `${acceptedV2.stdout}\n${acceptedV2.stderr}`);
+  const v2Record = JSON.parse(readFileSync(validV2Output, "utf8"));
+  assert.equal(v2Record.schemaVersion, "bounded.controlled-coding-pilot-evidence/v2");
+  assert.deepEqual(v2Record.sourceTargets.map((entry) => entry.path), [
+    "packages/worker-contract/src/index.ts", "tests/smoke/contracts.ts"
+  ]);
+  assert.equal(Object.hasOwn(v2Record, "sourceTargetPath"), false);
+  assert.equal(v2Record.acceptanceHash, canonicalHash(acceptanceCore(v2Record)));
 
   const verifierFailure = cloneBundle("verifier-failure", template);
   const verifierFailureOutput = join(verifierFailure, "acceptance-record.json");

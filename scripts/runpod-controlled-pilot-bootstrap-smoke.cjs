@@ -4,14 +4,18 @@
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
+  chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 
 const root = process.cwd();
 const script = join(root, "scripts/runpod-controlled-pilot-bootstrap.sh");
 const target = join(root, "apps/cli/src/model-worker-runpod-live-smoke.ts");
+const v2Targets = [
+  join(root, "packages/worker-contract/src/index.ts"),
+  join(root, "tests/smoke/contracts.ts")
+];
 const temporary = mkdtempSync(join(tmpdir(), "runpod-bootstrap-smoke-"));
 const fakeBin = join(temporary, "bin");
 const model = join(temporary, "model.gguf");
@@ -24,6 +28,7 @@ const log = join(temporary, "llama.log");
 const redactionSentinel = "supplied-secret-must-not-appear";
 const unsafeSentinel = "unsafe-environment-sentinel-must-not-appear";
 const sourceBefore = readFileSync(target);
+const v2SourcesBefore = v2Targets.map((path) => readFileSync(path));
 const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim();
 
 function freePort() {
@@ -43,7 +48,7 @@ function executable(path, content) {
   chmodSync(path, 0o755);
 }
 
-function run(overrides = {}) {
+function run(overrides = {}, cwd = root) {
   const env = {
     ...process.env,
     PATH: `${fakeBin}:${process.env.PATH}`,
@@ -74,7 +79,33 @@ function run(overrides = {}) {
   if (!Object.hasOwn(overrides, "LLAMA_EXPECTED_COMMIT_PREFIX")) {
     delete env.LLAMA_EXPECTED_COMMIT_PREFIX;
   }
-  return spawnSync("bash", [script], { cwd: root, env, encoding: "utf8", timeout: 10_000 });
+  return spawnSync("bash", [script], { cwd, env, encoding: "utf8", timeout: 10_000 });
+}
+
+function v2FixtureRepository(name) {
+  const repository = join(temporary, name);
+  const paths = [
+    "scripts/controlled-coding-pilot.cjs",
+    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+    "packages/worker-contract/src/index.ts",
+    "tests/smoke/contracts.ts"
+  ];
+  for (const path of paths) {
+    mkdirSync(dirname(join(repository, path)), { recursive: true });
+    cpSync(join(root, path), join(repository, path));
+  }
+  let result = spawnSync("git", ["init", "--quiet"], { cwd: repository, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  result = spawnSync("git", ["add", "."], { cwd: repository, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  result = spawnSync("git", ["-c", "user.name=Offline Fixture",
+    "-c", "user.email=offline-fixture@example.invalid", "commit", "--quiet", "-m", "fixture"],
+  { cwd: repository, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const commit = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: repository, encoding: "utf8"
+  }).stdout.trim();
+  return { repository, commit };
 }
 
 try {
@@ -121,10 +152,14 @@ fs.writeFileSync(process.env.FAKE_NPM_MARKER, process.argv.slice(2).join(" "));
 const index = process.argv.indexOf("--output");
 if (index < 0) process.exit(2);
 const output = process.argv[index + 1];
+const definitionIndex = process.argv.indexOf("--definition");
+if (definitionIndex < 0) process.exit(2);
+const definition = JSON.parse(fs.readFileSync(process.argv[definitionIndex + 1], "utf8"));
 fs.mkdirSync(output, { recursive: true });
 const commit = cp.execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 fs.writeFileSync(path.join(output, "pilot-report.json"), JSON.stringify({
-  status: "completed", sourceCommit: commit, providerCallCount: 1, retryCount: 0,
+  pilotId: definition.pilotId, status: "completed", sourceCommit: commit,
+  providerCallCount: 1, retryCount: 0,
   authorityPassed: true, verifierPassed: true, artifactProduced: true,
   artifactValid: true, sourceWorktreeMutated: false, githubMutationObserved: false,
   budgetExceeded: false, cleanupCompleted: true, failureCode: null,
@@ -234,9 +269,62 @@ exec "$REAL_NODE_BIN" "$@"
   assert.match(urls, new RegExp(`http://127\\.0\\.0\\.1:${smokePort}/v1/models`));
   assert.match(urls, /https:\/\/override\.invalid\/v1\/models/);
   assert.match(readFileSync(npmMarker, "utf8"), /run:controlled-coding-pilot-live/);
+  assert.match(readFileSync(npmMarker, "utf8"),
+    /--definition pilots\/controlled-real-coding-v1\/runpod-live-help\/task\.json/);
   const cleanedPid = Number(readFileSync(llamaPid, "utf8").trim());
   assert.throws(() => process.kill(cleanedPid, 0), /ESRCH/,
     "server started by the bootstrap was not cleaned up");
+
+  const v2Success = run({
+    EXPECTED_SOURCE_COMMIT: head,
+    CONTROLLED_PILOT_DEFINITION:
+      "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+  });
+  assert.equal(v2Success.status, 0, `${v2Success.stdout}\n${v2Success.stderr}`);
+  assert.match(v2Success.stdout,
+    /pilotDefinition=pilots\/controlled-real-coding-v2\/worker-request-id-correlation\/task\.json/);
+  assert.match(readFileSync(npmMarker, "utf8"),
+    /--definition pilots\/controlled-real-coding-v2\/worker-request-id-correlation\/task\.json/);
+  v2Targets.forEach((path, index) => {
+    assert.deepEqual(readFileSync(path), v2SourcesBefore[index], `${path} changed`);
+  });
+
+  const dirtyTargetFixture = v2FixtureRepository("dirty-v2-target-repository");
+  const dirtyTargetPath = join(dirtyTargetFixture.repository,
+    "packages/worker-contract/src/index.ts");
+  writeFileSync(dirtyTargetPath, `${readFileSync(dirtyTargetPath, "utf8")}\n// dirty fixture\n`);
+  rmSync(npmMarker, { force: true });
+  rmSync(llamaArgs, { force: true });
+  const dirtyTarget = run({
+    EXPECTED_SOURCE_COMMIT: dirtyTargetFixture.commit,
+    CONTROLLED_PILOT_DEFINITION:
+      "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+  }, dirtyTargetFixture.repository);
+  assert.notEqual(dirtyTarget.status, 0);
+  assert.match(dirtyTarget.stderr, /source_target_source_mismatch/);
+  assert.equal(existsSync(npmMarker), false, "dirty target reached provider execution");
+  assert.equal(existsSync(llamaArgs), false, "dirty target started llama-server");
+
+  const dirtyDefinitionFixture = v2FixtureRepository("dirty-v2-definition-repository");
+  const dirtyDefinitionPath = join(dirtyDefinitionFixture.repository,
+    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json");
+  writeFileSync(dirtyDefinitionPath, `${readFileSync(dirtyDefinitionPath, "utf8")}\n`);
+  rmSync(npmMarker, { force: true });
+  const dirtyDefinition = run({
+    EXPECTED_SOURCE_COMMIT: dirtyDefinitionFixture.commit,
+    CONTROLLED_PILOT_DEFINITION:
+      "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+  }, dirtyDefinitionFixture.repository);
+  assert.notEqual(dirtyDefinition.status, 0);
+  assert.match(dirtyDefinition.stderr, /pilot_definition_source_mismatch/);
+  assert.equal(existsSync(npmMarker), false, "dirty definition reached provider execution");
+  assert.equal(existsSync(llamaArgs), false, "dirty definition started llama-server");
+
+  rmSync(npmMarker, { force: true });
+  const substitutedDefinition = run({ CONTROLLED_PILOT_DEFINITION: "tests/smoke/contracts.ts" });
+  assert.notEqual(substitutedDefinition.status, 0);
+  assert.match(substitutedDefinition.stderr, /unsupported_pilot_definition/);
+  assert.equal(existsSync(npmMarker), false, "substituted definition reached provider execution");
 
   const readinessFailure = run({ FAKE_CURL_FAILURE: "1" });
   assert.notEqual(readinessFailure.status, 0);

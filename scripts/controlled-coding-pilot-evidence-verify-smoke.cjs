@@ -10,6 +10,7 @@ const {
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join, relative } = require("node:path");
+const { hash: pilotHash } = require("./controlled-coding-pilot.cjs");
 
 const root = process.cwd();
 const verifier = join(root, "scripts/controlled-coding-pilot-evidence-verify.cjs");
@@ -19,6 +20,15 @@ const secretSentinel = "verify-secret-sentinel-must-not-appear";
 const head = git(["rev-parse", "HEAD"]);
 const sourceTarget = "apps/cli/src/model-worker-runpod-live-smoke.ts";
 const sourceTargetBlobHash = git(["rev-parse", `${head}:${sourceTarget}`]);
+const v2SourceTargets = [
+  "packages/worker-contract/src/index.ts", "tests/smoke/contracts.ts"
+].map((path) => ({ path, blobHash: git(["rev-parse", `${head}:${path}`]) }));
+const definitionPaths = {
+  "controlled-real-coding-v1.runpod-live-help":
+    "pilots/controlled-real-coding-v1/runpod-live-help/task.json",
+  "controlled-real-coding-v2.worker-request-id-correlation":
+    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+};
 
 function git(args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
@@ -46,12 +56,14 @@ function canonicalHash(value) {
 }
 
 function validReport(sourceCommit = head, overrides = {}) {
+  const pilotId = overrides.pilotId ?? "controlled-real-coding-v1.runpod-live-help";
+  const definition = JSON.parse(readFileSync(join(root, definitionPaths[pilotId]), "utf8"));
   return {
     schemaVersion: "bounded.controlled-coding-pilot-report/v1",
-    pilotId: "controlled-real-coding-v1.runpod-live-help",
+    pilotId,
     status: "completed",
     sourceCommit,
-    pilotDefinitionHash: `sha256:${"1".repeat(64)}`,
+    pilotDefinitionHash: pilotHash(definition),
     providerKind: "existing-runpod-openai-compatible-model-worker",
     modelId: "qwen2.5-coder-7b",
     providerCallCount: 1,
@@ -88,18 +100,25 @@ function writeManifest(bundle, manifest) {
   });
 }
 
-function makeBundle(name, { sourceCommit = head, blobHash = sourceTargetBlobHash } = {}) {
+function makeBundle(name, {
+  sourceCommit = head, blobHash = sourceTargetBlobHash, pilotVersion = 1
+} = {}) {
   const bundle = join(temporary, name);
   const reportRoot = join(bundle, "report");
   mkdirSync(join(reportRoot, "nested"), { recursive: true });
-  const report = validReport(sourceCommit);
+  const report = validReport(sourceCommit, pilotVersion === 2 ? {
+    pilotId: "controlled-real-coding-v2.worker-request-id-correlation",
+    patchLineCount: 42
+  } : {});
   writeJson(join(reportRoot, "pilot-report.json"), report);
   writeFileSync(join(reportRoot, "generated.patch"), "diff --git a/target b/target\n");
   writeFileSync(join(reportRoot, "nested", "receipt.json"), "{\"ok\":true}\n");
   const files = ["generated.patch", "nested/receipt.json", "pilot-report.json"]
     .map((path) => fileRecord(reportRoot, path));
   const manifest = {
-    schemaVersion: "bounded.controlled-coding-pilot-evidence/v1",
+    schemaVersion: pilotVersion === 1
+      ? "bounded.controlled-coding-pilot-evidence/v1"
+      : "bounded.controlled-coding-pilot-evidence/v2",
     pilotId: report.pilotId,
     sourceCommit: report.sourceCommit,
     pilotDefinitionHash: report.pilotDefinitionHash,
@@ -109,8 +128,9 @@ function makeBundle(name, { sourceCommit = head, blobHash = sourceTargetBlobHash
     providerCallCount: report.providerCallCount,
     retryCount: report.retryCount,
     patchLineCount: report.patchLineCount,
-    sourceTargetPath: sourceTarget,
-    sourceTargetBlobHash: blobHash,
+    ...(pilotVersion === 1
+      ? { sourceTargetPath: sourceTarget, sourceTargetBlobHash: blobHash }
+      : { sourceTargets: v2SourceTargets.map((target) => ({ ...target })) }),
     files
   };
   writeManifest(bundle, manifest);
@@ -212,6 +232,21 @@ try {
   assert.equal(second.status, 0, second.stderr);
   assert.equal(second.stdout, first.stdout, "repeated verification was not deterministic");
   assert.deepEqual(snapshotTree(valid), before, "verifier mutated the bundle");
+
+  const legacyV1 = cloneBundle("legacy-v1-pilot-id", valid);
+  replaceReport(legacyV1, (report) => { report.pilotId = "historical-v1-fixture"; });
+  mutateManifest(legacyV1, (manifest) => { manifest.pilotId = "historical-v1-fixture"; });
+  const legacyV1Result = run(legacyV1);
+  assert.equal(legacyV1Result.status, 0, legacyV1Result.stderr);
+  assert.match(legacyV1Result.stdout, /sourceTargetBlobHash=/);
+
+  const validV2 = makeBundle("valid-v2", { pilotVersion: 2 });
+  const validV2Result = run(validV2);
+  assert.equal(validV2Result.status, 0, `${validV2Result.stdout}\n${validV2Result.stderr}`);
+  assert.match(validV2Result.stdout, /sourceTargetsHash=sha256:[0-9a-f]{64}\n/);
+  assert.match(validV2Result.stdout, /sourceBlobVerification=verified\n$/);
+  expectFailure("v2 expected source mismatch", validV2,
+    "EVIDENCE_VERIFY_SOURCE_COMMIT_MISMATCH", "0".repeat(40));
 
   const bundlerOutput = join(temporary, "bundler-produced");
   const bundled = spawnSync(process.execPath, [
@@ -341,6 +376,32 @@ try {
   const wrongLocalBlob = makeBundle("wrong-local-blob", { blobHash: "0".repeat(40) });
   expectFailure("local blob mismatch", wrongLocalBlob,
     "EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
+
+  for (let index = 0; index < v2SourceTargets.length; index += 1) {
+    const mismatch = cloneBundle(`v2-target-${index}-mismatch`, validV2);
+    mutateManifest(mismatch, (manifest) => {
+      manifest.sourceTargets[index].blobHash = "0".repeat(40);
+    });
+    expectFailure(`v2 target ${index} mismatch`, mismatch,
+      "EVIDENCE_VERIFY_SOURCE_BLOB_MISMATCH");
+  }
+
+  const substitutedV2Path = cloneBundle("v2-substituted-path", validV2);
+  mutateManifest(substitutedV2Path, (manifest) => {
+    manifest.sourceTargets[0].path = "apps/cli/src/model-worker-runpod-live-smoke.ts";
+  });
+  expectFailure("v2 substituted path", substitutedV2Path,
+    "EVIDENCE_VERIFY_SOURCE_TARGET_PATH_INVALID");
+
+  const wrongV2DefinitionHash = cloneBundle("v2-definition-hash", validV2);
+  replaceReport(wrongV2DefinitionHash, (report) => {
+    report.pilotDefinitionHash = `sha256:${"0".repeat(64)}`;
+  });
+  mutateManifest(wrongV2DefinitionHash, (manifest) => {
+    manifest.pilotDefinitionHash = `sha256:${"0".repeat(64)}`;
+  });
+  expectFailure("v2 definition hash mismatch", wrongV2DefinitionHash,
+    "EVIDENCE_VERIFY_PILOT_DEFINITION_MISMATCH");
 
   const policy = readFileSync(join(root, "bounded-agent.policy.yml"), "utf8");
   assert.equal((policy.match(/^  - scripts\/controlled-coding-pilot-evidence-verify\.cjs$/gm) ?? [])

@@ -13,6 +13,8 @@ const VERIFIER = join(__dirname, "controlled-coding-pilot-evidence-verify.cjs");
 const MANIFEST_NAME = "evidence-manifest.json";
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
+const V1_EVIDENCE_SCHEMA = "bounded.controlled-coding-pilot-evidence/v1";
+const V2_EVIDENCE_SCHEMA = "bounded.controlled-coding-pilot-evidence/v2";
 const LLAMA_COMMIT = /^[0-9A-Fa-f]{7,40}$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
@@ -254,9 +256,13 @@ function runVerifier(bundleRoot, expectedSourceCommit) {
   if (lines.length !== 7 || lines[0] !== "EVIDENCE_VERIFY=PASS") {
     fail("ACCEPTANCE_VERIFIER_OUTPUT_INVALID");
   }
+  const provenanceKey = lines[5]?.startsWith("sourceTargetBlobHash=")
+    ? "sourceTargetBlobHash"
+    : lines[5]?.startsWith("sourceTargetsHash=") ? "sourceTargetsHash" : undefined;
+  if (!provenanceKey) fail("ACCEPTANCE_VERIFIER_OUTPUT_INVALID");
   const expectedKeys = [
     "sourceCommit", "reportHash", "evidenceHash", "fileCount",
-    "sourceTargetBlobHash", "sourceBlobVerification"
+    provenanceKey, "sourceBlobVerification"
   ];
   const values = {};
   for (let index = 0; index < expectedKeys.length; index += 1) {
@@ -266,11 +272,13 @@ function runVerifier(bundleRoot, expectedSourceCommit) {
   }
   if (values.sourceCommit !== expectedSourceCommit || !HASH.test(values.reportHash) ||
       !HASH.test(values.evidenceHash) || !/^[0-9]+$/.test(values.fileCount) ||
-      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(values.sourceTargetBlobHash) ||
+      (provenanceKey === "sourceTargetBlobHash"
+        ? !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(values[provenanceKey])
+        : !HASH.test(values[provenanceKey])) ||
       !/^(?:verified|unavailable)$/.test(values.sourceBlobVerification)) {
     fail("ACCEPTANCE_VERIFIER_OUTPUT_INVALID");
   }
-  return values;
+  return { ...values, provenanceKey };
 }
 
 function readManifest(bundleRoot) {
@@ -290,14 +298,25 @@ function readManifest(bundleRoot) {
 function buildRecord(manifest, verifierResult, args) {
   if (manifest.sourceCommit !== verifierResult.sourceCommit ||
       manifest.reportHash !== verifierResult.reportHash ||
-      manifest.evidenceHash !== verifierResult.evidenceHash ||
-      manifest.sourceTargetBlobHash !== verifierResult.sourceTargetBlobHash) {
+      manifest.evidenceHash !== verifierResult.evidenceHash) {
+    fail("ACCEPTANCE_VERIFIED_MANIFEST_MISMATCH");
+  }
+  let provenanceFields;
+  if (manifest.schemaVersion === V1_EVIDENCE_SCHEMA &&
+      verifierResult.provenanceKey === "sourceTargetBlobHash" &&
+      manifest.sourceTargetBlobHash === verifierResult.sourceTargetBlobHash) {
+    provenanceFields = ["sourceTargetPath", "sourceTargetBlobHash"];
+  } else if (manifest.schemaVersion === V2_EVIDENCE_SCHEMA &&
+      verifierResult.provenanceKey === "sourceTargetsHash" &&
+      hashCanonicalJson(manifest.sourceTargets) === verifierResult.sourceTargetsHash) {
+    provenanceFields = ["sourceTargets"];
+  } else {
     fail("ACCEPTANCE_VERIFIED_MANIFEST_MISMATCH");
   }
   const evidenceFields = [
     "schemaVersion", "pilotId", "sourceCommit", "pilotDefinitionHash", "reportHash",
     "evidenceHash", "providerKind", "modelId", "providerCallCount", "retryCount",
-    "patchLineCount", "sourceTargetPath", "sourceTargetBlobHash"
+    "patchLineCount", ...provenanceFields
   ];
   const core = {};
   for (const field of evidenceFields) {

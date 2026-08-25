@@ -10,6 +10,7 @@ const {
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { basename, dirname, join, relative } = require("node:path");
+const { hash: pilotHash } = require("./controlled-coding-pilot.cjs");
 
 const root = process.cwd();
 const bundler = join(root, "scripts/controlled-coding-pilot-evidence.cjs");
@@ -30,6 +31,8 @@ const protectedProductionFiles = [
   "scripts/runpod-controlled-pilot-bootstrap-smoke.cjs",
   "scripts/controlled-coding-pilot.cjs"
 ];
+const v1DefinitionPath = "pilots/controlled-real-coding-v1/runpod-live-help/task.json";
+const v1Definition = JSON.parse(readFileSync(join(root, v1DefinitionPath), "utf8"));
 
 function sha256(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -94,10 +97,10 @@ function outputFields(stdout) {
 function validReport(sourceCommit, overrides = {}) {
   return {
     schemaVersion: "bounded.controlled-coding-pilot-report/v1",
-    pilotId: "controlled-pilot-acceptance-chain",
+    pilotId: v1Definition.pilotId,
     status: "completed",
     sourceCommit,
-    pilotDefinitionHash: `sha256:${"1".repeat(64)}`,
+    pilotDefinitionHash: pilotHash(v1Definition),
     providerKind: "offline-chain-fixture",
     modelId: "fixture-model-1",
     providerCallCount: 1,
@@ -236,11 +239,14 @@ function buildFullChain(name, sourceCommit, cwd = root) {
 function createUnavailableBundle() {
   const repository = join(temporary, "historical-repository");
   mkdirSync(join(repository, "apps/cli/src"), { recursive: true });
+  mkdirSync(join(repository, dirname(v1DefinitionPath)), { recursive: true });
   const initialized = git(repository, ["init", "--quiet"]);
   assert.equal(initialized.status, 0, initialized.stderr);
   writeFileSync(join(repository, "apps/cli/src/model-worker-runpod-live-smoke.ts"),
     "export const historicalFixture = true;\n");
-  assert.equal(git(repository, ["add", "apps/cli/src/model-worker-runpod-live-smoke.ts"]).status, 0);
+  writeFileSync(join(repository, v1DefinitionPath), `${JSON.stringify(v1Definition, null, 2)}\n`);
+  assert.equal(git(repository, ["add", "apps/cli/src/model-worker-runpod-live-smoke.ts",
+    v1DefinitionPath]).status, 0);
   const committed = git(repository, [
     "-c", "user.name=Offline Fixture",
     "-c", "user.email=offline-fixture@example.invalid",

@@ -88,20 +88,78 @@ trap 'exit 143' TERM
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "not_inside_git_repository"
 cd "$REPO_ROOT"
 [[ -f scripts/controlled-coding-pilot.cjs ]] || fail "missing_required_file:scripts/controlled-coding-pilot.cjs"
-[[ -f pilots/controlled-real-coding-v1/runpod-live-help/task.json ]] || \
-  fail "missing_required_file:pilots/controlled-real-coding-v1/runpod-live-help/task.json"
-
-SOURCE_COMMIT="$(git rev-parse HEAD)"
-printf 'sourceCommit=%s\n' "$SOURCE_COMMIT"
+PILOT_DEFINITION="${CONTROLLED_PILOT_DEFINITION:-pilots/controlled-real-coding-v1/runpod-live-help/task.json}"
+case "$PILOT_DEFINITION" in
+  pilots/controlled-real-coding-v1/runpod-live-help/task.json)
+    EXPECTED_PILOT_ID="controlled-real-coding-v1.runpod-live-help"
+    ;;
+  pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json)
+    EXPECTED_PILOT_ID="controlled-real-coding-v2.worker-request-id-correlation"
+    ;;
+  *) fail "unsupported_pilot_definition" ;;
+esac
+[[ -f "$PILOT_DEFINITION" ]] || fail "missing_required_file:$PILOT_DEFINITION"
 
 if [[ -f /workspace/load-env.sh ]]; then
   # shellcheck source=/dev/null
   source /workspace/load-env.sh
 fi
 
+SOURCE_COMMIT="$(git rev-parse HEAD)"
+printf 'sourceCommit=%s\n' "$SOURCE_COMMIT"
 if [[ -n "${EXPECTED_SOURCE_COMMIT:-}" && "$SOURCE_COMMIT" != "$EXPECTED_SOURCE_COMMIT" ]]; then
   fail "expected_source_commit_mismatch"
 fi
+
+PILOT_DEFINITION_COMMITTED_HASH="$(git rev-parse "$SOURCE_COMMIT:$PILOT_DEFINITION" 2>/dev/null)" || \
+  fail "pilot_definition_missing_at_source_commit"
+PILOT_DEFINITION_WORKTREE_HASH="$(git hash-object -- "$PILOT_DEFINITION")" || \
+  fail "pilot_definition_hash_failed"
+[[ "$PILOT_DEFINITION_WORKTREE_HASH" == "$PILOT_DEFINITION_COMMITTED_HASH" ]] || \
+  fail "pilot_definition_source_mismatch"
+
+if ! PILOT_TARGETS_OUTPUT="$(node - "$PILOT_DEFINITION" "$EXPECTED_PILOT_ID" <<'NODE'
+const fs = require("node:fs");
+const { validateDefinition } = require("./scripts/controlled-coding-pilot.cjs");
+const [definitionPath, expectedPilotId] = process.argv.slice(2);
+try {
+  const definition = validateDefinition(JSON.parse(fs.readFileSync(definitionPath, "utf8")));
+  if (definition.pilotId !== expectedPilotId) throw new Error("pilot mismatch");
+  process.stdout.write(definition.allowedMutationPaths.join("\n") + "\n");
+} catch {
+  process.stderr.write("error=pilot_definition_invalid\n");
+  process.exit(1);
+}
+NODE
+)"; then
+  exit 1
+fi
+SOURCE_TARGETS=()
+while IFS= read -r target; do
+  [[ -z "$target" ]] || SOURCE_TARGETS+=("$target")
+done <<< "$PILOT_TARGETS_OUTPUT"
+((${#SOURCE_TARGETS[@]} > 0)) || fail "pilot_definition_has_no_source_targets"
+printf 'pilotDefinition=%s\n' "$PILOT_DEFINITION"
+
+SOURCE_TARGET_HASHES=()
+for source_target in "${SOURCE_TARGETS[@]}"; do
+  [[ -f "$source_target" ]] || fail "missing_source_target:$source_target"
+  committed_hash="$(git rev-parse "$SOURCE_COMMIT:$source_target" 2>/dev/null)" || \
+    fail "source_target_missing_at_source_commit:$source_target"
+  current_hash="$(git hash-object -- "$source_target")" || fail "source_target_hash_failed"
+  [[ "$current_hash" == "$committed_hash" ]] || fail "source_target_source_mismatch:$source_target"
+  SOURCE_TARGET_HASHES+=("$committed_hash")
+done
+
+verify_source_targets_unchanged() {
+  local current_hash index source_target
+  for ((index = 0; index < ${#SOURCE_TARGETS[@]}; index += 1)); do
+    source_target="${SOURCE_TARGETS[$index]}"
+    [[ -f "$source_target" ]] || fail "source_target_changed"
+    current_hash="$(git hash-object -- "$source_target")"
+    [[ "$current_hash" == "${SOURCE_TARGET_HASHES[$index]}" ]] || fail "source_target_changed"
+  done
+}
 
 LLAMA_SERVER_BIN="${LLAMA_SERVER_BIN:-/workspace/llama.cpp-b9754/build/bin/llama-server}"
 LLAMA_MODEL_PATH="${LLAMA_MODEL_PATH:-/workspace/models/qwen2.5-coder-7b/qwen2.5-coder-7b-instruct-q4_k_m.gguf}"
@@ -275,17 +333,6 @@ if ! poll_models_endpoint "${RUNPOD_BASE_URL}/models" "$PROXY_READY_RETRIES"; th
 fi
 printf '%s\n' 'runpod_proxy=ready' "model=$RUNPOD_MODEL"
 
-SOURCE_TARGET="apps/cli/src/model-worker-runpod-live-smoke.ts"
-[[ -f "$SOURCE_TARGET" ]] || fail "missing_source_target:$SOURCE_TARGET"
-SOURCE_TARGET_HASH="$(git hash-object -- "$SOURCE_TARGET")"
-
-verify_source_target_unchanged() {
-  local current_hash
-  [[ -f "$SOURCE_TARGET" ]] || fail "source_target_changed"
-  current_hash="$(git hash-object -- "$SOURCE_TARGET")"
-  [[ "$current_hash" == "$SOURCE_TARGET_HASH" ]] || fail "source_target_changed"
-}
-
 CONTROLLED_PILOT_OUTPUT_DIR="${CONTROLLED_PILOT_OUTPUT_DIR:-reports/controlled-coding-pilot}"
 OUTPUT_ABSOLUTE="$(node -e 'process.stdout.write(require("node:path").resolve(process.argv[1]))' \
   "$CONTROLLED_PILOT_OUTPUT_DIR")"
@@ -300,16 +347,17 @@ PILOT_STATUS=0
 CONTROLLED_PILOT_DEBUG=1 npm run run:controlled-coding-pilot-live -- \
   --execute-provider \
   --confirm-live \
+  --definition "$PILOT_DEFINITION" \
   --output "$CONTROLLED_PILOT_OUTPUT_DIR" || PILOT_STATUS="$?"
-verify_source_target_unchanged
+verify_source_targets_unchanged
 [[ "$PILOT_STATUS" -eq 0 ]] || fail "controlled_pilot_execution_failed"
 
 REPORT_PATH="$CONTROLLED_PILOT_OUTPUT_DIR/pilot-report.json"
 [[ -f "$REPORT_PATH" ]] || fail "pilot_report_missing"
 if ! node - "$REPORT_PATH" "$SOURCE_COMMIT" "${EXPECTED_SOURCE_COMMIT:-}" \
-  "$LLAMA_ACTUAL_BUILD" "$LLAMA_ACTUAL_COMMIT" <<'NODE'
+  "$LLAMA_ACTUAL_BUILD" "$LLAMA_ACTUAL_COMMIT" "$EXPECTED_PILOT_ID" <<'NODE'
 const fs = require("node:fs");
-const [reportPath, head, expected, llamaBuild, llamaCommit] = process.argv.slice(2);
+const [reportPath, head, expected, llamaBuild, llamaCommit, expectedPilotId] = process.argv.slice(2);
 let report;
 try {
   report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
@@ -318,6 +366,7 @@ try {
   process.exit(1);
 }
 const required = {
+  pilotId: expectedPilotId,
   status: "completed",
   sourceCommit: head,
   providerCallCount: 1,
