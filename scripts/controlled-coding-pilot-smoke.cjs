@@ -648,6 +648,10 @@ function client(mode, counter) {
   assert.equal(equivalent.status, "completed");
   assert.equal(equivalent.reportHash, valid.reportHash);
 
+  const { runPilotV2Smoke } = require("./controlled-coding-pilot-v2-smoke.cjs");
+  const pilotV2 = await runPilotV2Smoke(root, { validOnly });
+  assert.equal(pilotV2.ok, true);
+
   console.log(JSON.stringify({
     ok: true,
     checks: [
@@ -686,7 +690,8 @@ function client(mode, counter) {
       "github-immutable",
       "valid-governed-artifact",
       "deterministic-report-hash",
-      "help-side-effect-acceptance"
+      "help-side-effect-acceptance",
+      ...pilotV2.checks
     ]
   }));
 })().catch((error) => {
