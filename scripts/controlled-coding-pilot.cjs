@@ -34,6 +34,23 @@ const PILOT_EXECUTION_RUNTIME_MS = 120_000;
 const PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT = 6_144;
 const PILOT_PROVIDER_TIMEOUT_MS = 45_000;
 const PILOT_PROVIDER_MAX_OUTPUT_TOKENS = 1_024;
+
+const V1_RUNTIME_BUDGET = Object.freeze({
+  modelContextTokenLimit: PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
+  executionRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
+  executorOutputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT,
+  providerTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
+  providerMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS
+});
+
+const V2_RUNTIME_BUDGET = Object.freeze({
+  modelContextTokenLimit: 32_768,
+  executionRuntimeMs: 270_000,
+  executorOutputTokenLimit: 6_144,
+  providerTimeoutMs: 250_000,
+  providerMaxOutputTokens: 6_144
+});
+
 const PROVIDER_SENSITIVE_LINE = [
   /bearer\s+[A-Za-z0-9._~+/-]+=*/i,
   /authorization\s*:\s*[^\n]+/i,
@@ -41,11 +58,16 @@ const PROVIDER_SENSITIVE_LINE = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
   /https?:\/\/[^/\s:@]+:[^/\s@]+@/i
 ];
-if (
-  PILOT_PROVIDER_TIMEOUT_MS > PILOT_EXECUTION_RUNTIME_MS ||
-  PILOT_PROVIDER_MAX_OUTPUT_TOKENS > PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT
-) {
-  throw new Error("Controlled pilot provider budget configuration is invalid.");
+for (const runtimeBudget of [V1_RUNTIME_BUDGET, V2_RUNTIME_BUDGET]) {
+  if (
+    runtimeBudget.providerTimeoutMs > runtimeBudget.executionRuntimeMs ||
+    runtimeBudget.providerMaxOutputTokens >
+      runtimeBudget.executorOutputTokenLimit
+  ) {
+    throw new Error(
+      "Controlled pilot provider budget configuration is invalid."
+    );
+  }
 }
 const FAILURE_CODES = new Set([
   "PILOT_DEFINITION_INVALID", "PILOT_CONFIRMATION_REQUIRED",
@@ -76,6 +98,7 @@ const PILOT_PROFILES = {
     retryBudget: 1,
     providerMode: "controlled_help_copy",
     executorMaxChangedFiles: 1,
+    runtimeBudget: V1_RUNTIME_BUDGET,
     verifierStages: V1_VERIFIER_STAGES
   },
   "controlled-real-coding-v2.worker-request-id-correlation": {
@@ -88,6 +111,7 @@ const PILOT_PROFILES = {
     retryBudget: 0,
     providerMode: "bounded_text_edits",
     executorMaxChangedFiles: 2,
+    runtimeBudget: V2_RUNTIME_BUDGET,
     verifierStages: V2_VERIFIER_STAGES,
     requiredForbiddenPaths: [
       "package.json", "package-lock.json", "dist", ".github", "docs",
@@ -272,7 +296,11 @@ function liveProviderConfiguration(environment) {
   };
 }
 
-function pilotProviderClientConfiguration(schemaVersion, providerConfig) {
+function pilotProviderClientConfiguration(
+  schemaVersion,
+  providerConfig,
+  runtimeBudget = V1_RUNTIME_BUDGET
+) {
   return {
     schemaVersion,
     modelId: providerConfig.modelId,
@@ -281,9 +309,9 @@ function pilotProviderClientConfiguration(schemaVersion, providerConfig) {
       baseUrl: providerConfig.baseUrl
     },
     structuredOutputMode: "json_schema",
-    requestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
+    requestTimeoutMs: runtimeBudget.providerTimeoutMs,
     temperature: 0,
-    maxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS
+    maxOutputTokens: runtimeBudget.providerMaxOutputTokens
   };
 }
 
@@ -934,6 +962,7 @@ async function runControlledCodingPilot(options = {}) {
   try {
     definition = validateDefinition(JSON.parse(await readFile(definitionPath, "utf8")));
     profile = profileForDefinition(definition);
+    const runtimeBudget = profile.runtimeBudget;
     definitionHash = hash(definition);
     lifecycle.push("pilot.definition.validated");
     sourceBefore = await sourceSnapshot(sourceRoot);
@@ -1006,14 +1035,16 @@ async function runControlledCodingPilot(options = {}) {
         ? new localOpenAi.LocalOpenAICompatibleModelClient(
             pilotProviderClientConfiguration(
               localOpenAi.LOCAL_OPENAI_MODEL_CLIENT_VERSION,
-              providerConfig
+              providerConfig,
+              runtimeBudget
             ),
             credentials
           )
         : new runpod.RunpodOpenAICompatibleModelClient(
             pilotProviderClientConfiguration(
               runpod.RUNPOD_MODEL_CLIENT_VERSION,
-              providerConfig
+              providerConfig,
+              runtimeBudget
             ),
             credentials
           ));
@@ -1034,14 +1065,14 @@ async function runControlledCodingPilot(options = {}) {
         }
         try {
           if (
-            PILOT_PROVIDER_TIMEOUT_MS > request.remainingRuntimeMs ||
-            PILOT_PROVIDER_MAX_OUTPUT_TOKENS > request.outputTokenLimit
+            runtimeBudget.providerTimeoutMs > request.remainingRuntimeMs ||
+            runtimeBudget.providerMaxOutputTokens > request.outputTokenLimit
           ) {
             providerDiagnostic = {
               remainingRuntimeMs: request.remainingRuntimeMs,
               outputTokenLimit: request.outputTokenLimit ?? 0,
-              configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
-              configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
+              configuredRequestTimeoutMs: runtimeBudget.providerTimeoutMs,
+              configuredMaxOutputTokens: runtimeBudget.providerMaxOutputTokens,
               executorMutationLineBudget,
               providerErrorCode: "RUNPOD_REQUEST_REJECTED"
             };
@@ -1212,8 +1243,8 @@ async function runControlledCodingPilot(options = {}) {
             providerDiagnostic = {
               remainingRuntimeMs: request.remainingRuntimeMs,
               outputTokenLimit: request.outputTokenLimit ?? 0,
-              configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
-              configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
+              configuredRequestTimeoutMs: runtimeBudget.providerTimeoutMs,
+              configuredMaxOutputTokens: runtimeBudget.providerMaxOutputTokens,
               executorMutationLineBudget,
               providerErrorCode: errorCode
             };
@@ -1302,9 +1333,9 @@ async function runControlledCodingPilot(options = {}) {
         maxOutputBytes: 100_000,
         maxChangedFiles: profile.executorMaxChangedFiles,
         maxChangedLines: executorMutationLineBudget,
-        remainingRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
-        inputTokenLimit: PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
-        outputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT
+        remainingRuntimeMs: runtimeBudget.executionRuntimeMs,
+        inputTokenLimit: runtimeBudget.modelContextTokenLimit,
+        outputTokenLimit: runtimeBudget.executorOutputTokenLimit
       },
       ...(options.abortSignal ? { abortSignal: options.abortSignal } : {})
     };
@@ -1573,6 +1604,8 @@ module.exports = {
   TARGET,
   V2_DEFINITION,
   V2_TARGETS,
+  V1_RUNTIME_BUDGET,
+  V2_RUNTIME_BUDGET,
   hash,
   patchLines,
   boundedTextEditInstruction,
