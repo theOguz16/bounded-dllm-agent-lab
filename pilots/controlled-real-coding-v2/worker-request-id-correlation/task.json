@@ -2,7 +2,7 @@
   "schemaVersion": "bounded.controlled-coding-pilot/v2",
   "pilotId": "controlled-real-coding-v2.worker-request-id-correlation",
   "taskTitle": "Enforce worker request and response requestId correlation",
-  "taskPrompt": "Fix the HTTP workspace worker client so that refine, infill, and resolveConflict reject an otherwise valid worker response when its requestId does not exactly match the submitted request's requestId. Matching requestIds must remain accepted. Health behavior must remain unchanged. Add a focused regression using mocked or stubbed globalThis.fetch so no real network is required. Modify only packages/worker-contract/src/index.ts and tests/smoke/contracts.ts, keep the total patch within 60 changed lines, and do not change endpoint construction, request payloads, timeout behavior, response schemas, dependencies, or unrelated validation.",
+  "taskPrompt": "Fix the HTTP workspace worker client so that refine, infill, and resolveConflict reject an otherwise valid worker response when its requestId does not exactly match the submitted request's requestId. Matching requestIds must remain accepted. Health behavior must remain unchanged. Add a focused regression using mocked or stubbed globalThis.fetch so no real network is required. Modify only packages/worker-contract/src/index.ts and tests/smoke/contracts.ts, respect the configured patch budget, and do not change endpoint construction, request payloads, timeout behavior, response schemas, dependencies, or unrelated validation.",
   "sourceRevisionPolicy": "current-head",
   "allowedMutationPaths": [
     "packages/worker-contract/src/index.ts",
@@ -47,7 +47,7 @@
     "health behavior remains unchanged",
     "regression coverage uses mocked or stubbed globalThis.fetch without real network",
     "only the two authorized files change",
-    "patch contains at most 60 changed lines",
+    "patch stays within the configured maxPatchLines budget",
     "source worktree and GitHub remain immutable"
   ]
 }
