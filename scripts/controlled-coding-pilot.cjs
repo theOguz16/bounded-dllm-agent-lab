@@ -110,6 +110,12 @@ const PILOT_PROFILES = {
     providerCallBudget: 1,
     retryBudget: 0,
     providerMode: "bounded_text_edits",
+    providerRequirements: [
+      "For requestId correlation regression tests, every mocked response must otherwise satisfy the full response contract for that endpoint.",
+      "Test matching requestId acceptance and mismatched requestId rejection for refine, infill, and resolveConflict.",
+      "A mismatch test must not pass because unrelated response fields are missing or invalid.",
+      "Reuse a type-correct SharedSemanticWorkspace fixture visible in the supplied test excerpts instead of inventing a partial workspace object."
+    ],
     executorMaxChangedFiles: 2,
     runtimeBudget: V2_RUNTIME_BUDGET,
     verifierStages: V2_VERIFIER_STAGES,
@@ -557,7 +563,7 @@ const BOUNDED_TEXT_EDIT_CONTEXT_RANGES = Object.freeze({
   ],
   "tests/smoke/contracts.ts": [
     [1, 55],
-    [130, 210]
+    [130, 305]
   ]
 });
 
@@ -638,6 +644,7 @@ function boundedTextEditInstruction(request, profile) {
       "Do not attempt to modify omitted source.",
       "Do not return unchanged whole files.",
       "Do not include or modify PILOT_REDACTED_LINE markers.",
+      ...(profile.providerRequirements ?? []),
       "Do not use Markdown fences, commentary, tools, shell, network, or extra files."
     ]
   });
