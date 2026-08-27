@@ -1472,7 +1472,36 @@ async function runControlledCodingPilot(options = {}) {
       }
     } catch (error) {
       const classified = classifyVerifierFailure(verifierStage, error);
-      verifierDiagnostic = classified.verifierDiagnostic ?? null;
+      const verifierStdout = typeof error?.stdout === "string"
+        ? error.stdout
+        : error?.stdout
+          ? String(error.stdout)
+          : "";
+      const verifierStderr = typeof error?.stderr === "string"
+        ? error.stderr
+        : error?.stderr
+          ? String(error.stderr)
+          : "";
+
+      await mkdir(output, { recursive: true });
+      await writeFile(join(output, "rejected-candidate.patch"), generatedPatch);
+      await writeFile(
+        join(output, "verifier-error.json"),
+        `${JSON.stringify({
+          schemaVersion: "bounded.controlled-pilot-verifier-error/v1",
+          sourceCommit: sourceBefore.commit,
+          verifierStage,
+          verifierExitCode: Number.isSafeInteger(error?.code) ? error.code : null,
+          stdout: verifierStdout,
+          stderr: verifierStderr
+        }, null, 2)}\n`
+      );
+
+      verifierDiagnostic = {
+        ...(classified.verifierDiagnostic ?? {}),
+        rejectedCandidateArtifact: "rejected-candidate.patch",
+        verifierErrorArtifact: "verifier-error.json"
+      };
       throw classified;
     }
     lifecycle.push("pilot.verifier.completed");
