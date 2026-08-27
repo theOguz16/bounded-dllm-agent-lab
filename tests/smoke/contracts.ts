@@ -41,6 +41,10 @@ import {
 } from "../../packages/product-runtime/src/index.js";
 import { renderArtifactViewerHtml } from "../../apps/web/src/index.js";
 import { createHttpWorkspaceWorkerClient } from "../../packages/worker-contract/src/index.js";
+import {
+  canonicalLocalOpenAIBaseUrl,
+  LocalOpenAIModelClientError
+} from "../../packages/integrations/src/local-openai-compatible-model-client.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
 const cases = [
@@ -148,6 +152,48 @@ assert.equal(typeof workerClient.health, "function");
 assert.equal(typeof workerClient.refine, "function");
 assert.equal(typeof workerClient.infill, "function");
 assert.equal(typeof workerClient.resolveConflict, "function");
+
+const localOpenAiEndpoint = (baseUrl: string) => ({
+  type: "custom_openai_compatible" as const,
+  baseUrl
+});
+
+for (const baseUrl of [
+  "http://127.0.0.1:8000/v1",
+  "http://localhost:8000/v1",
+  "http://[::1]:8000/v1"
+]) {
+  assert.equal(
+    canonicalLocalOpenAIBaseUrl(localOpenAiEndpoint(baseUrl)),
+    baseUrl
+  );
+}
+
+for (const baseUrl of [
+  "http://127.0.0.2:8000/v1",
+  "http://192.168.1.10:8000/v1",
+  "http://10.0.0.1:8000/v1",
+  "http://example.com:8000/v1",
+  "https://127.0.0.1:8000/v1",
+  "http://localhost:8000/v1?query=1",
+  "http://localhost:8000/v1#fragment"
+]) {
+  assert.throws(
+    () => canonicalLocalOpenAIBaseUrl(localOpenAiEndpoint(baseUrl)),
+    (error) =>
+      error instanceof LocalOpenAIModelClientError &&
+      error.code === "LOCAL_BASE_URL_NOT_ALLOWED"
+  );
+}
+
+assert.throws(
+  () => canonicalLocalOpenAIBaseUrl(
+    localOpenAiEndpoint("http://user:password@localhost:8000/v1")
+  ),
+  (error) =>
+    error instanceof LocalOpenAIModelClientError &&
+    error.code === "LOCAL_CREDENTIAL_BEARING_URL"
+);
 
 assert.deepEqual(validateFixtures(demoFixtures), []);
 assert.deepEqual(validateFixtures(hardFixtures, { expectedFamilyCount: 5 }), []);
