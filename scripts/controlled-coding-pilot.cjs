@@ -22,6 +22,9 @@ const V2_TARGETS = [
   "tests/smoke/contracts.ts"
 ];
 const INSERTION_OUTPUT_VERSION = "bounded.controlled-help-copy-output/v1";
+const TEXT_EDIT_OUTPUT_VERSION = "bounded.controlled-text-edits/v1";
+const PILOT_MAX_TEXT_EDITS = 8;
+const PILOT_MAX_TEXT_EDIT_BYTES = 20_000;
 const INSERTION_ANCHOR = "const reportName = \"model-worker-runpod-live-smoke-v1\";";
 const PILOT_MAX_INSERTION_LINES = 60;
 const PILOT_MAX_INSERTION_BYTES = 20_000;
@@ -83,7 +86,7 @@ const PILOT_PROFILES = {
     maxPatchLines: 60,
     providerCallBudget: 1,
     retryBudget: 0,
-    providerMode: "executor_mutations",
+    providerMode: "bounded_text_edits",
     executorMaxChangedFiles: 2,
     verifierStages: V2_VERIFIER_STAGES,
     requiredForbiddenPaths: [
@@ -177,7 +180,7 @@ function profileForDefinition(definition) {
 }
 
 function createProviderSource(content, profile) {
-  if (profile.providerMode !== "executor_mutations") {
+  if (!["executor_mutations", "bounded_text_edits"].includes(profile.providerMode)) {
     return { content, maskedLines: [] };
   }
   const maskedLines = [];
@@ -425,6 +428,243 @@ function materializeControlledInsertion(request, providerOutput) {
   };
 }
 
+function boundedTextEditOutputSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "edits", "summary"],
+    properties: {
+      schemaVersion: {
+        type: "string",
+        const: TEXT_EDIT_OUTPUT_VERSION
+      },
+      edits: {
+        type: "array",
+        minItems: 1,
+        maxItems: PILOT_MAX_TEXT_EDITS,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: [
+            "path",
+            "expectedContentHash",
+            "oldText",
+            "newText"
+          ],
+          properties: {
+            path: { type: "string" },
+            expectedContentHash: { type: "string" },
+            oldText: { type: "string" },
+            newText: { type: "string" }
+          }
+        }
+      },
+      summary: { type: "string" }
+    }
+  };
+}
+
+function boundedTextEditInstruction(request, profile) {
+  const bounded = JSON.parse(request.instruction);
+
+  return canonical({
+    role: [
+      "You are a bounded coding executor.",
+      "Apply the existing plan using only minimal exact text replacements.",
+      "Do not return whole-file replacements."
+    ],
+    task: bounded.task,
+    existingPlan: bounded.existingPlan,
+    workspaceFiles: bounded.workspaceFiles,
+    authorityRules: bounded.authorityRules,
+    requiredMutationPaths: profile.requiredMutationPaths,
+    patchBudget: {
+      maxChangedFiles: profile.maxChangedFiles,
+      maxPatchLines: profile.maxPatchLines
+    },
+    requirements: [
+      "Return only the JSON object matching the supplied schema.",
+      "Every edit must target a required mutation path.",
+      "Every required mutation path must receive at least one real edit.",
+      `The final combined unified diff must contain at most ${profile.maxPatchLines} added plus removed lines.`,
+      "Treat the patch-line budget as a hard limit.",
+      "Prefer surgical replacements and preserve unrelated code.",
+      "Do not replace a large block when a smaller unique replacement works.",
+      "Copy expectedContentHash exactly from the matching workspace file.",
+      "oldText must match exactly one occurrence at the time the edit is applied.",
+      "Use the smallest practical unique oldText.",
+      "newText is the exact replacement for oldText.",
+      "Do not return unchanged whole files.",
+      "Do not include or modify PILOT_REDACTED_LINE markers.",
+      "Do not use Markdown fences, commentary, tools, shell, network, or extra files."
+    ]
+  });
+}
+
+function invalidBoundedTextEditOutput() {
+  throw Object.assign(
+    new Error("BOUNDED_TEXT_EDIT_OUTPUT_INVALID"),
+    { pilotCode: "PILOT_MODEL_RESPONSE_INVALID" }
+  );
+}
+
+function materializeBoundedTextEdits(request, providerOutput, profile) {
+  if (
+    !providerOutput ||
+    typeof providerOutput !== "object" ||
+    Array.isArray(providerOutput) ||
+    canonical(Object.keys(providerOutput).sort()) !==
+      canonical(["schemaVersion", "edits", "summary"].sort()) ||
+    providerOutput.schemaVersion !== TEXT_EDIT_OUTPUT_VERSION ||
+    !Array.isArray(providerOutput.edits) ||
+    providerOutput.edits.length === 0 ||
+    providerOutput.edits.length > PILOT_MAX_TEXT_EDITS ||
+    typeof providerOutput.summary !== "string" ||
+    providerOutput.summary.trim().length === 0
+  ) {
+    invalidBoundedTextEditOutput();
+  }
+
+  const bounded = JSON.parse(request.instruction);
+  const sources = new Map(
+    bounded.workspaceFiles.map((file) => [file.path, file])
+  );
+  const allowedPaths = new Set(profile.allowedMutationPaths);
+  const requiredPaths = new Set(profile.requiredMutationPaths);
+  const touchedPaths = new Set();
+  const workingContent = new Map();
+  const editCounts = new Map();
+  let totalEditBytes = 0;
+
+  for (const edit of providerOutput.edits) {
+    if (
+      !edit ||
+      typeof edit !== "object" ||
+      Array.isArray(edit) ||
+      canonical(Object.keys(edit).sort()) !== canonical([
+        "path",
+        "expectedContentHash",
+        "oldText",
+        "newText"
+      ].sort()) ||
+      typeof edit.path !== "string" ||
+      typeof edit.expectedContentHash !== "string" ||
+      typeof edit.oldText !== "string" ||
+      typeof edit.newText !== "string" ||
+      edit.oldText.length === 0 ||
+      edit.oldText === edit.newText ||
+      edit.oldText.includes("\u0000") ||
+      edit.newText.includes("\u0000") ||
+      edit.oldText.includes("PILOT_REDACTED_LINE_") ||
+      edit.newText.includes("PILOT_REDACTED_LINE_")
+    ) {
+      invalidBoundedTextEditOutput();
+    }
+
+    totalEditBytes +=
+      Buffer.byteLength(edit.oldText) +
+      Buffer.byteLength(edit.newText);
+
+    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) {
+      invalidBoundedTextEditOutput();
+    }
+
+    if (
+      !allowedPaths.has(edit.path) ||
+      !requiredPaths.has(edit.path)
+    ) {
+      throw Object.assign(
+        new Error("PILOT_AUTHORITY_VIOLATION"),
+        { pilotCode: "PILOT_AUTHORITY_VIOLATION" }
+      );
+    }
+
+    const source = sources.get(edit.path);
+
+    if (
+      !source ||
+      source.authority !== "change_allowed" ||
+      edit.expectedContentHash !== source.contentHash
+    ) {
+      throw Object.assign(
+        new Error("PILOT_AUTHORITY_VIOLATION"),
+        { pilotCode: "PILOT_AUTHORITY_VIOLATION" }
+      );
+    }
+
+    const current = workingContent.has(edit.path)
+      ? workingContent.get(edit.path)
+      : source.content;
+
+    const first = current.indexOf(edit.oldText);
+    const last = current.lastIndexOf(edit.oldText);
+
+    if (first < 0 || first !== last) {
+      invalidBoundedTextEditOutput();
+    }
+
+    const next =
+      current.slice(0, first) +
+      edit.newText +
+      current.slice(first + edit.oldText.length);
+
+    workingContent.set(edit.path, next);
+    touchedPaths.add(edit.path);
+    editCounts.set(
+      edit.path,
+      (editCounts.get(edit.path) ?? 0) + 1
+    );
+  }
+
+  if (
+    touchedPaths.size !== requiredPaths.size ||
+    [...requiredPaths].some((path) => !touchedPaths.has(path))
+  ) {
+    invalidBoundedTextEditOutput();
+  }
+
+  const mutations = [...requiredPaths]
+    .sort()
+    .map((path) => {
+      const source = sources.get(path);
+      const relatedPlanStepIds = bounded.existingPlan.steps
+        .filter((step) => step.targetPaths.includes(path))
+        .map((step) => step.stepId);
+
+      if (
+        !source ||
+        !workingContent.has(path) ||
+        relatedPlanStepIds.length === 0
+      ) {
+        invalidBoundedTextEditOutput();
+      }
+
+      return {
+        path,
+        operation: "replace",
+        expectedContentHash: source.contentHash,
+        newContent: workingContent.get(path),
+        relatedPlanStepIds,
+        relatedSymbolIds: source.relatedSymbols
+      };
+    });
+
+  return {
+    output: {
+      schemaVersion: "bounded.executor-model-output/v1",
+      mutations,
+      summary: providerOutput.summary.trim(),
+      assumptions: [],
+      unresolvedQuestions: []
+    },
+    editCounts: Object.fromEntries(
+      [...editCounts.entries()].sort(
+        ([left], [right]) => left.localeCompare(right)
+      )
+    )
+  };
+}
+
 function reportBase(input) {
   return {
     schemaVersion: REPORT_VERSION,
@@ -668,6 +908,9 @@ async function runControlledCodingPilot(options = {}) {
         const insertionInstruction = profile.providerMode === "controlled_help_copy"
           ? controlledInsertionInstruction(request)
           : null;
+        const textEditInstruction = profile.providerMode === "bounded_text_edits"
+          ? boundedTextEditInstruction(request, profile)
+          : null;
         providerCallCount += 1;
         lifecycle.push("pilot.provider.started");
         if (providerCallCount > definition.providerCallBudget) {
@@ -696,7 +939,14 @@ async function runControlledCodingPilot(options = {}) {
                 instructionHash: hash(insertionInstruction),
                 outputSchema: controlledInsertionOutputSchema()
               }
-            : request;
+            : profile.providerMode === "bounded_text_edits"
+              ? {
+                  ...request,
+                  instruction: textEditInstruction,
+                  instructionHash: hash(textEditInstruction),
+                  outputSchema: boundedTextEditOutputSchema()
+                }
+              : request;
           const providerResult = await concreteClient.execute(
             providerRequest,
             executionOptions
@@ -709,7 +959,16 @@ async function runControlledCodingPilot(options = {}) {
                   providerResult.output
                 ).output
               }
-            : providerResult;
+            : profile.providerMode === "bounded_text_edits"
+              ? {
+                  ...providerResult,
+                  output: materializeBoundedTextEdits(
+                    request,
+                    providerResult.output,
+                    profile
+                  ).output
+                }
+              : providerResult;
           if (
             result?.output &&
             typeof result.output === "object" &&
@@ -1132,6 +1391,9 @@ module.exports = {
   V2_TARGETS,
   hash,
   patchLines,
+  boundedTextEditInstruction,
+  boundedTextEditOutputSchema,
+  materializeBoundedTextEdits,
   controlledInsertionInstruction,
   controlledInsertionOutputSchema,
   enforceSemanticPatchLimit,
