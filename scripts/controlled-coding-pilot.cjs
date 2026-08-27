@@ -210,20 +210,66 @@ function restoreProviderSource(content, maskedLines) {
 function liveProviderConfiguration(environment) {
   const endpoint = environment.LLM_UPSTREAM_URL ??
     environment.MODEL_WORKER_UPSTREAM_URL;
-  const credential = environment.LLM_UPSTREAM_API_KEY ??
-    environment.MODEL_WORKER_UPSTREAM_API_KEY;
   const modelId = environment.LLM_MODEL_ID;
-  if (!endpoint || !credential || !modelId) return null;
+
+  if (!endpoint || !modelId) return null;
+
   let url;
   try {
     url = new URL(endpoint);
   } catch {
     return null;
   }
-  if (!url.pathname.endsWith("/v1/chat/completions") &&
-      !url.pathname.endsWith("/chat/completions")) return null;
+
+  if (
+    !url.pathname.endsWith("/v1/chat/completions") &&
+    !url.pathname.endsWith("/chat/completions")
+  ) {
+    return null;
+  }
+
+  const hostname = url.hostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+
+  const loopback = [
+    "127.0.0.1",
+    "localhost",
+    "::1"
+  ].includes(hostname);
+
+  let transport;
+  let credential;
+
+  if (loopback) {
+    if (url.protocol !== "http:") return null;
+
+    transport = "local_openai_compatible";
+    credential =
+      environment.LOCAL_OPENAI_API_KEY ??
+      environment.LLM_UPSTREAM_API_KEY ??
+      environment.MODEL_WORKER_UPSTREAM_API_KEY ??
+      "local-loopback";
+  } else {
+    if (url.protocol !== "https:") return null;
+
+    credential =
+      environment.LLM_UPSTREAM_API_KEY ??
+      environment.MODEL_WORKER_UPSTREAM_API_KEY;
+
+    if (!credential) return null;
+
+    transport = "runpod_openai_compatible";
+  }
+
   url.pathname = url.pathname.replace(/\/chat\/completions$/, "");
-  return { baseUrl: url.toString().replace(/\/+$/, ""), credential, modelId };
+
+  return {
+    baseUrl: url.toString().replace(/\/+$/, ""),
+    credential,
+    modelId,
+    transport
+  };
 }
 
 function pilotProviderClientConfiguration(schemaVersion, providerConfig) {
@@ -911,7 +957,8 @@ async function runControlledCodingPilot(options = {}) {
       ? {
           modelId: options.modelId ?? "fake-qwen2.5-coder-7b",
           credential: "fixture-value",
-          baseUrl: "https://fixture.invalid/v1"
+          baseUrl: "https://fixture.invalid/v1",
+          transport: "injected"
         }
       : liveProviderConfiguration(options.environment ?? process.env);
     if (!providerConfig) {
@@ -946,19 +993,30 @@ async function runControlledCodingPilot(options = {}) {
     const runpod = await import(
       "../dist/packages/integrations/src/runpod-openai-compatible-model-client.js"
     );
+    const localOpenAi = await import(
+      "../dist/packages/integrations/src/local-openai-compatible-model-client.js"
+    );
     const credentials = {
       async getCredential() {
         return providerConfig.credential;
       }
     };
     const concreteClient = options.modelClient ??
-      new runpod.RunpodOpenAICompatibleModelClient(
-        pilotProviderClientConfiguration(
-          runpod.RUNPOD_MODEL_CLIENT_VERSION,
-          providerConfig
-        ),
-        credentials
-      );
+      (providerConfig.transport === "local_openai_compatible"
+        ? new localOpenAi.LocalOpenAICompatibleModelClient(
+            pilotProviderClientConfiguration(
+              localOpenAi.LOCAL_OPENAI_MODEL_CLIENT_VERSION,
+              providerConfig
+            ),
+            credentials
+          )
+        : new runpod.RunpodOpenAICompatibleModelClient(
+            pilotProviderClientConfiguration(
+              runpod.RUNPOD_MODEL_CLIENT_VERSION,
+              providerConfig
+            ),
+            credentials
+          ));
     const countedClient = {
       async execute(request, executionOptions) {
         const insertionInstruction = profile.providerMode === "controlled_help_copy"
@@ -1526,6 +1584,7 @@ module.exports = {
   classifyVerifierFailure,
   deriveExecutorMutationLineBudget,
   materializeControlledInsertion,
+  liveProviderConfiguration,
   pilotProviderClientConfiguration,
   renderControlledHelpInsertion,
   resolveControlledInsertionAuthority,

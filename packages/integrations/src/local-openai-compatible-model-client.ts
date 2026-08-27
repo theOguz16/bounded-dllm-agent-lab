@@ -10,7 +10,7 @@ import type {
   ProductionModelResponse
 } from "./coding-executor.js";
 
-export const LOCAL_OPENAI_MODEL_CLIENT_VERSION = "bounded.runpod-model-client/v1" as const;
+export const LOCAL_OPENAI_MODEL_CLIENT_VERSION = "bounded.local-openai-model-client/v1" as const;
 
 export interface LocalOpenAIModelClientConfiguration {
   schemaVersion: typeof LOCAL_OPENAI_MODEL_CLIENT_VERSION;
