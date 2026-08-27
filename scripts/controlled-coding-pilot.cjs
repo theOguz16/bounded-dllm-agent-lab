@@ -140,6 +140,18 @@ function hash(value) {
   ).digest("hex")}`;
 }
 
+const EXECUTOR_SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+
+function executorModelIdForProvider(providerModelId) {
+  if (typeof providerModelId !== "string" || providerModelId.length === 0) {
+    throw new TypeError("Controlled pilot provider model ID is invalid.");
+  }
+
+  return EXECUTOR_SAFE_MODEL_ID.test(providerModelId)
+    ? providerModelId
+    : `model:${createHash("sha256").update(providerModelId).digest("hex")}`;
+}
+
 async function git(root, args) {
   return (await exec("git", args, {
     cwd: root,
@@ -996,6 +1008,7 @@ async function runControlledCodingPilot(options = {}) {
       });
     }
     activeModelId = providerConfig.modelId;
+    const executorModelId = executorModelIdForProvider(providerConfig.modelId);
     temporaryRoot = await mkdtemp(join(tmpdir(), "controlled-coding-pilot-"));
     checkout = await createCheckout(sourceRoot, temporaryRoot, sourceBefore.commit);
     lifecycle.push("pilot.worktree.created");
@@ -1093,7 +1106,10 @@ async function runControlledCodingPilot(options = {}) {
                 }
               : request;
           const providerResult = await concreteClient.execute(
-            providerRequest,
+            {
+              ...providerRequest,
+              modelId: providerConfig.modelId
+            },
             executionOptions
           );
 
@@ -1256,7 +1272,7 @@ async function runControlledCodingPilot(options = {}) {
     };
     const codingExecutor = new coding.ProductionCodingExecutorAdapter({
       adapterId: "controlled-coding-pilot",
-      modelId: providerConfig.modelId,
+      modelId: executorModelId,
       transportRetries: 0
     }, countedClient, credentials);
     const sourceByPath = new Map(mutationBudgetSourceFiles.map(
@@ -1614,6 +1630,7 @@ module.exports = {
   controlledInsertionInstruction,
   controlledInsertionOutputSchema,
   enforceSemanticPatchLimit,
+  executorModelIdForProvider,
   classifyVerifierFailure,
   deriveExecutorMutationLineBudget,
   materializeControlledInsertion,
