@@ -106,7 +106,7 @@ const PILOT_PROFILES = {
     allowedMutationPaths: V2_TARGETS,
     requiredMutationPaths: V2_TARGETS,
     maxChangedFiles: 2,
-    maxPatchLines: 60,
+    maxPatchLines: 120,
     providerCallBudget: 1,
     retryBudget: 0,
     providerMode: "bounded_text_edits",
@@ -114,7 +114,9 @@ const PILOT_PROFILES = {
       "For requestId correlation regression tests, every mocked response must otherwise satisfy the full response contract for that endpoint.",
       "Test matching requestId acceptance and mismatched requestId rejection for refine, infill, and resolveConflict.",
       "A mismatch test must not pass because unrelated response fields are missing or invalid.",
-      "Reuse a type-correct SharedSemanticWorkspace fixture visible in the supplied test excerpts instead of inventing a partial workspace object."
+      "Reuse a type-correct SharedSemanticWorkspace fixture visible in the supplied test excerpts instead of inventing a partial workspace object.",
+      "Do not reference a fixture before its declaration; place regression tests after any fixture they reuse.",
+      "Any global fetch mock must typecheck against the repository's TypeScript fetch type; do not rely on an unsafe direct cast that hides an incompatible mock shape."
     ],
     executorMaxChangedFiles: 2,
     runtimeBudget: V2_RUNTIME_BUDGET,

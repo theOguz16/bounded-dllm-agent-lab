@@ -30,7 +30,7 @@
     ".git"
   ],
   "maxChangedFiles": 2,
-  "maxPatchLines": 60,
+  "maxPatchLines": 120,
   "providerCallBudget": 1,
   "retryBudget": 0,
   "acceptanceCommands": [
