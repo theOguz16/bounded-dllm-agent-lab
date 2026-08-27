@@ -1007,6 +1007,16 @@ async function runControlledCodingPilot(options = {}) {
             providerRequest,
             executionOptions
           );
+
+          const boundedMaterialization =
+            profile.providerMode === "bounded_text_edits"
+              ? materializeBoundedTextEdits(
+                  request,
+                  providerResult.output,
+                  profile
+                )
+              : null;
+
           const result = profile.providerMode === "controlled_help_copy"
             ? {
                 ...providerResult,
@@ -1018,13 +1028,10 @@ async function runControlledCodingPilot(options = {}) {
             : profile.providerMode === "bounded_text_edits"
               ? {
                   ...providerResult,
-                  output: materializeBoundedTextEdits(
-                    request,
-                    providerResult.output,
-                    profile
-                  ).output
+                  output: boundedMaterialization.output
                 }
               : providerResult;
+
           if (
             result?.output &&
             typeof result.output === "object" &&
@@ -1032,47 +1039,107 @@ async function runControlledCodingPilot(options = {}) {
           ) {
             const bounded = JSON.parse(request.instruction);
             let proposedPatchLines = 0;
+            const perFilePatchLines = {};
+            const candidatePatches = [];
+
             for (const mutation of result.output.mutations) {
               const source = bounded.workspaceFiles.find(
                 (file) => file.path === mutation.path
               );
+
               if (source && typeof mutation.newContent === "string") {
-                proposedPatchLines += patchLines(await unifiedPatch(
+                const candidatePatch = await unifiedPatch(
                   mutation.path,
                   source.content,
                   mutation.newContent,
                   temporaryRoot
-                ));
+                );
+                const candidateLineCount = patchLines(candidatePatch);
+
+                candidatePatches.push(candidatePatch);
+                perFilePatchLines[mutation.path] = candidateLineCount;
+                proposedPatchLines += candidateLineCount;
               }
             }
+
+            const boundedEdits = boundedMaterialization
+              ? providerResult.output.edits.map((edit, index) => ({
+                  index,
+                  path: edit.path,
+                  oldTextLines: edit.oldText.split(/\r?\n/).length,
+                  newTextLines: edit.newText.split(/\r?\n/).length,
+                  oldTextBytes: Buffer.byteLength(edit.oldText),
+                  newTextBytes: Buffer.byteLength(edit.newText)
+                }))
+              : null;
+
+            const rejectedCandidateArtifacts = {
+              patch: "rejected-candidate.patch",
+              providerOutput: boundedMaterialization
+                ? "rejected-provider-output.json"
+                : null
+            };
+
+            const persistRejectedCandidate = async () => {
+              await mkdir(output, { recursive: true });
+
+              await writeFile(
+                join(output, rejectedCandidateArtifacts.patch),
+                candidatePatches.join("")
+              );
+
+              if (boundedMaterialization) {
+                await writeFile(
+                  join(output, rejectedCandidateArtifacts.providerOutput),
+                  `${JSON.stringify({
+                    schemaVersion: TEXT_EDIT_OUTPUT_VERSION,
+                    sourceCommit: sourceBefore.commit,
+                    proposedPatchLines,
+                    maxPatchLines: definition.maxPatchLines,
+                    perFilePatchLines,
+                    editCounts: boundedMaterialization.editCounts,
+                    providerOutput: providerResult.output
+                  }, null, 2)}\n`
+                );
+              }
+            };
+
+            const patchDiagnostic = {
+              proposedPatchLines,
+              maxPatchLines: definition.maxPatchLines,
+              executorMutationLineBudget,
+              perFilePatchLines,
+              boundedEditCounts: boundedMaterialization?.editCounts ?? null,
+              boundedEdits,
+              rejectedCandidateArtifacts
+            };
+
             if (result.output.mutations.length > definition.maxChangedFiles) {
-              providerDiagnostic = {
-                proposedPatchLines,
-                maxPatchLines: definition.maxPatchLines,
-                executorMutationLineBudget
-              };
+              providerDiagnostic = patchDiagnostic;
+              await persistRejectedCandidate();
               providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
-              throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
-                pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
-              });
+
+              throw Object.assign(
+                new Error("PILOT_PATCH_LIMIT_EXCEEDED"),
+                { pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED" }
+              );
             }
+
             try {
-              enforceSemanticPatchLimit(proposedPatchLines, definition.maxPatchLines);
-            } catch (error) {
-              providerDiagnostic = {
+              enforceSemanticPatchLimit(
                 proposedPatchLines,
-                maxPatchLines: definition.maxPatchLines,
-                executorMutationLineBudget
-              };
+                definition.maxPatchLines
+              );
+            } catch (error) {
+              providerDiagnostic = patchDiagnostic;
+              await persistRejectedCandidate();
               providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
               throw error;
             }
-            providerDiagnostic = {
-              proposedPatchLines,
-              maxPatchLines: definition.maxPatchLines,
-              executorMutationLineBudget
-            };
+
+            providerDiagnostic = patchDiagnostic;
           }
+
           lifecycle.push("pilot.provider.completed");
           return result;
         } catch (error) {
@@ -1080,7 +1147,7 @@ async function runControlledCodingPilot(options = {}) {
             providerPilotFailure = error.pilotCode;
           }
           const errorCode = typeof error?.code === "string" &&
-            /^RUNPOD_[A-Z0-9_]+$/.test(error.code)
+            /^(?:RUNPOD|LOCAL)_[A-Z0-9_]+$/.test(error.code)
             ? error.code
             : null;
           if (errorCode) {
@@ -1161,7 +1228,10 @@ async function runControlledCodingPilot(options = {}) {
         manifestHash: hash({ files: workspaceFiles }),
         files: workspaceFiles,
         selectedSymbols,
-        selectedTests: profile.providerMode === "executor_mutations"
+        selectedTests: [
+          "executor_mutations",
+          "bounded_text_edits"
+        ].includes(profile.providerMode)
           ? ["tests/smoke/contracts.ts"]
           : [],
         evidenceReceiptIds: [],
