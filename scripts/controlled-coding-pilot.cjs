@@ -83,9 +83,13 @@ const V1_VERIFIER_STAGES = [
 const V2_VERIFIER_STAGES = [
   "typecheck", "build", "test_smoke", "request_id_acceptance"
 ];
+const V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES = [
+  "typecheck", "build", "test_smoke", "local_json_schema_acceptance"
+];
 const VERIFIER_STAGES = new Set([
   ...V1_VERIFIER_STAGES,
-  ...V2_VERIFIER_STAGES
+  ...V2_VERIFIER_STAGES,
+  ...V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES
 ]);
 const PILOT_PROFILES = {
   "controlled-real-coding-v1.runpod-live-help": {
@@ -124,6 +128,48 @@ const PILOT_PROFILES = {
     requiredForbiddenPaths: [
       "package.json", "package-lock.json", "dist", ".github", "docs",
       "pilots", "scripts", "apps", "bounded-agent.policy.yml"
+    ]
+  },
+  "controlled-real-coding-v2.local-json-schema-error-classification": {
+    schemaVersion: V2_DEFINITION_VERSION,
+    allowedMutationPaths: [
+      "packages/integrations/src/local-openai-compatible-model-client.ts",
+      "tests/smoke/contracts.ts"
+    ],
+    requiredMutationPaths: [
+      "packages/integrations/src/local-openai-compatible-model-client.ts",
+      "tests/smoke/contracts.ts"
+    ],
+    maxChangedFiles: 2,
+    maxPatchLines: 120,
+    providerCallBudget: 1,
+    retryBudget: 0,
+    providerMode: "bounded_text_edits",
+    providerRequirements: [
+      "Classify LOCAL_JSON_SCHEMA_UNSUPPORTED only from bounded upstream error semantics that specifically indicate response_format/json_schema support itself is unavailable.",
+      "Do not classify a generic invalid request as LOCAL_JSON_SCHEMA_UNSUPPORTED.",
+      "Do not classify an invalid supplied JSON schema as LOCAL_JSON_SCHEMA_UNSUPPORTED.",
+      "json_object mode must continue to classify ordinary HTTP 400 responses through the normal transport failure mapping.",
+      "Regression tests must use mocked globalThis.fetch and must not perform real network access.",
+      "Preserve existing credential redaction and unrelated HTTP status classification behavior."
+    ],
+    contextRanges: {
+      "packages/integrations/src/local-openai-compatible-model-client.ts": [
+        [1, 160],
+        [180, 255],
+        [350, 405]
+      ],
+      "tests/smoke/contracts.ts": [
+        [1, 210]
+      ]
+    },
+    executorMaxChangedFiles: 2,
+    runtimeBudget: V2_RUNTIME_BUDGET,
+    verifierStages: V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES,
+    requiredForbiddenPaths: [
+      "package.json", "package-lock.json", "dist", ".github", "docs",
+      "pilots", "scripts", "apps", "bounded-agent.policy.yml",
+      "packages/integrations/src/runpod-openai-compatible-model-client.ts"
     ]
   }
 };
@@ -575,7 +621,9 @@ function focusedTextEditWorkspaceFiles(workspaceFiles, profile) {
   }
 
   return workspaceFiles.map((file) => {
-    const ranges = BOUNDED_TEXT_EDIT_CONTEXT_RANGES[file.path];
+    const ranges =
+      profile.contextRanges?.[file.path] ??
+      BOUNDED_TEXT_EDIT_CONTEXT_RANGES[file.path];
 
     if (!Array.isArray(ranges) || ranges.length === 0) {
       throw Object.assign(
@@ -1473,11 +1521,27 @@ async function runControlledCodingPilot(options = {}) {
           env: npmEnvironment,
           maxBuffer: 10_000_000
         });
-        verifierStage = "request_id_acceptance";
-        const { checkRequestIdAcceptance } = require(
-          "./controlled-coding-pilot-request-id-check.cjs"
-        );
-        await checkRequestIdAcceptance(checkout);
+        if (
+          definition.pilotId ===
+          "controlled-real-coding-v2.worker-request-id-correlation"
+        ) {
+          verifierStage = "request_id_acceptance";
+          const { checkRequestIdAcceptance } = require(
+            "./controlled-coding-pilot-request-id-check.cjs"
+          );
+          await checkRequestIdAcceptance(checkout);
+        } else if (
+          definition.pilotId ===
+          "controlled-real-coding-v2.local-json-schema-error-classification"
+        ) {
+          verifierStage = "local_json_schema_acceptance";
+          const { checkLocalJsonSchemaAcceptance } = require(
+            "./controlled-coding-pilot-local-json-schema-check.cjs"
+          );
+          await checkLocalJsonSchemaAcceptance(checkout);
+        } else {
+          throw new Error("Controlled V2 pilot acceptance check is missing.");
+        }
       }
     } catch (error) {
       const classified = classifyVerifierFailure(verifierStage, error);
