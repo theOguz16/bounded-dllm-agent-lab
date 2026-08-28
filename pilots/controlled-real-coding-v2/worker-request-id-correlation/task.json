@@ -22,8 +22,9 @@
           "end": "type FetchLike = ("
         },
         {
-          "kind": "symbol",
-          "name": "createHttpWorkspaceWorkerClient"
+          "kind": "anchor",
+          "start": "export function createHttpWorkspaceWorkerClient(",
+          "end": "async function requestJson<"
         },
         {
           "kind": "anchor",
