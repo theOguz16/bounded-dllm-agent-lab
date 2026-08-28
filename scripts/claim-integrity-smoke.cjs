@@ -17,6 +17,7 @@ const result = JSON.parse(run.stdout);
 assert.equal(result.ok, true);
 assert.equal(result.gate, "claim_integrity");
 assert.equal(result.currentStatePresent, true);
+assert.equal(result.evidenceIndexCanonical, true);
 assert.equal(result.guidedEvidenceClassified, true);
 assert.equal(result.answerLeakageDocumented, true);
 assert.equal(result.guidedQualityClaimsBlocked, true);
@@ -59,6 +60,7 @@ console.log(JSON.stringify({
   gate: result.gate,
   checks: {
     currentStatePresent: result.currentStatePresent,
+    evidenceIndexCanonical: result.evidenceIndexCanonical,
     guidedEvidenceClassified: result.guidedEvidenceClassified,
     answerLeakageDocumented: result.answerLeakageDocumented,
     guidedQualityClaimsBlocked: result.guidedQualityClaimsBlocked,
