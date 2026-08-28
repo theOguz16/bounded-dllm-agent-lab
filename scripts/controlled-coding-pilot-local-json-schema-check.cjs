@@ -61,6 +61,11 @@ async function checkLocalJsonSchemaAcceptance(repository = process.cwd()) {
 
     assert.ok(captured, `expected ${expectedCode}`);
     assert.equal(captured.code, expectedCode);
+    assert.equal(
+      /^LOCAL_|^RUNPOD_/.test(String(captured.code)),
+      false,
+      "provider-specific error codes must not cross the model-client execution boundary"
+    );
   }
 
   try {
@@ -69,28 +74,28 @@ async function checkLocalJsonSchemaAcceptance(repository = process.cwd()) {
       type: "invalid_request_error",
       param: "response_format",
       code: "unsupported_value"
-    }, "LOCAL_JSON_SCHEMA_UNSUPPORTED");
+    }, "STRUCTURED_OUTPUT_UNSUPPORTED");
 
     await expect400({
       message: "Invalid request: messages is required",
       type: "invalid_request_error",
       param: "messages",
       code: "invalid_request_error"
-    }, "LOCAL_REQUEST_REJECTED");
+    }, "REQUEST_REJECTED");
 
     await expect400({
       message: "Invalid schema for response_format bounded_coding_executor_output: expected object schema",
       type: "invalid_request_error",
       param: "response_format",
       code: "invalid_json_schema"
-    }, "LOCAL_REQUEST_REJECTED");
+    }, "REQUEST_REJECTED");
 
     await expect400({
       message: "response_format type json_schema is not supported by this server",
       type: "invalid_request_error",
       param: "response_format",
       code: "unsupported_value"
-    }, "LOCAL_REQUEST_REJECTED", "json_object");
+    }, "REQUEST_REJECTED", "json_object");
   } finally {
     globalThis.fetch = originalFetch;
   }
