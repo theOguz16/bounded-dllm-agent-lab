@@ -9,6 +9,22 @@ const {
   validateContextSelections
 } = require("./controlled-coding-pilot-context-selector.cjs");
 
+const PROVIDER_SENSITIVE_LINE = [
+  /bearer\s+[A-Za-z0-9._~+/-]+=*/i,
+  /authorization\s*:\s*[^\n]+/i,
+  /\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*[^\s,;]+/i,
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
+  /https?:\/\/[^/\s:@]+:[^/\s@]+@/i
+];
+
+function providerSafeContent(content) {
+  return content.split("\n").map((line, index) =>
+    PROVIDER_SENSITIVE_LINE.some((pattern) => pattern.test(line))
+      ? `/* PILOT_REDACTED_LINE_${index} */`
+      : line
+  ).join("\n");
+}
+
 const futurePath = "packages/future-pilot/src/third-task.ts";
 const futureContent = [
   "export const unrelated = 0;",
@@ -127,21 +143,53 @@ for (const definitionPath of canonicalDefinitions) {
     allowedReadRoots: definition.allowedReadRoots
   });
 
+  const rawFiles = [];
+  const maskedFiles = [];
   for (const entry of definition.contextSelections) {
     const content = readFileSync(join(process.cwd(), entry.path), "utf8");
+    rawFiles.push({
+      path: entry.path,
+      content,
+      contentHash: "sha256:canonical-selector-fixture",
+      authority: "change_allowed",
+      relatedSymbols: []
+    });
+    maskedFiles.push({
+      path: entry.path,
+      content: providerSafeContent(content),
+      contentHash: "sha256:canonical-masked-fixture",
+      authority: "change_allowed",
+      relatedSymbols: []
+    });
+
     for (const selector of entry.selectors) {
       assert.doesNotThrow(
-        () => resolveContextSelections([{
+        () => resolveContextSelections([rawFiles.at(-1)], [{
           path: entry.path,
-          content,
-          contentHash: "sha256:canonical-selector-fixture",
-          authority: "change_allowed",
-          relatedSymbols: []
-        }], [{ path: entry.path, selectors: [selector] }]),
-        `${definition.pilotId} ${entry.path} ${JSON.stringify(selector)}`
+          selectors: [selector]
+        }]),
+        `${definition.pilotId} raw ${entry.path} ${JSON.stringify(selector)}`
+      );
+      assert.doesNotThrow(
+        () => resolveContextSelections([maskedFiles.at(-1)], [{
+          path: entry.path,
+          selectors: [selector]
+        }]),
+        `${definition.pilotId} masked ${entry.path} ${JSON.stringify(selector)}`
       );
     }
   }
+
+  const providerSafe = resolveContextSelections(maskedFiles, definition.contextSelections, {
+    selectionFiles: rawFiles
+  });
+  assert.equal(providerSafe.length, definition.allowedMutationPaths.length);
+  assert.equal(
+    providerSafe.every((file) => file.excerpts.every((excerpt) =>
+      !PROVIDER_SENSITIVE_LINE.some((pattern) => pattern.test(excerpt.content))
+    )),
+    true
+  );
 }
 
 process.stdout.write("controlled coding pilot context selector smoke: PASS\n");
