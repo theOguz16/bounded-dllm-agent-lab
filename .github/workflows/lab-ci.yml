@@ -5,6 +5,57 @@ on:
   pull_request:
 
 jobs:
+  controlled-pilot-v2-offline:
+    name: Controlled Pilot V2 Offline Gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build controlled pilot dependencies
+        run: npm run build
+
+      - name: Controlled pilot declarative registry regression
+        run: node scripts/controlled-coding-pilot-registry-smoke.cjs
+
+      - name: Controlled pilot context selector regression
+        run: node scripts/controlled-coding-pilot-context-selector-smoke.cjs
+
+      - name: Controlled pilot smoke
+        run: node scripts/controlled-coding-pilot-smoke.cjs
+        env:
+          LLM_UPSTREAM_URL: ""
+          MODEL_WORKER_UPSTREAM_URL: ""
+          LLM_UPSTREAM_API_KEY: ""
+          MODEL_WORKER_UPSTREAM_API_KEY: ""
+          OPENAI_API_KEY: ""
+          RUNPOD_API_KEY: ""
+
+      - name: V1 and V2 definition plus bounded-edit protocol
+        run: node scripts/controlled-coding-pilot-offline-gate-smoke.cjs
+
+      - name: Controlled pilot evidence bundler regression
+        run: node scripts/controlled-coding-pilot-evidence-smoke.cjs
+
+      - name: Controlled pilot evidence verifier regression
+        run: node scripts/controlled-coding-pilot-evidence-verify-smoke.cjs
+
+      - name: Controlled pilot local JSON evidence chain
+        run: node scripts/controlled-coding-pilot-local-json-evidence-smoke.cjs
+
+      - name: Controlled pilot loopback transport smoke
+        run: node scripts/controlled-coding-pilot-loopback-transport-smoke.cjs
+
   verify:
     runs-on: ubuntu-latest
 
@@ -34,24 +85,6 @@ jobs:
 
       - name: Smoke contract tests
         run: npm run test:smoke
-
-      - name: Controlled pilot declarative registry regression
-        run: node scripts/controlled-coding-pilot-registry-smoke.cjs
-
-      - name: Controlled pilot context selector regression
-        run: node scripts/controlled-coding-pilot-context-selector-smoke.cjs
-
-      - name: Controlled pilot regression and offline acceptance
-        run: npm run smoke:controlled-coding-pilot
-
-      - name: Controlled pilot evidence bundler regression
-        run: node scripts/controlled-coding-pilot-evidence-smoke.cjs
-
-      - name: Controlled pilot evidence verifier regression
-        run: node scripts/controlled-coding-pilot-evidence-verify-smoke.cjs
-
-      - name: Controlled pilot local JSON evidence chain
-        run: node scripts/controlled-coding-pilot-local-json-evidence-smoke.cjs
 
       - name: Product policy onboarding
         run: |
