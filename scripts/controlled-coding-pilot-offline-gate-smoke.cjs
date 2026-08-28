@@ -3,7 +3,6 @@
 
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
-const { spawnSync } = require("node:child_process");
 const { join } = require("node:path");
 const {
   V2_DEFINITION,
@@ -22,33 +21,11 @@ function loadDefinition(path) {
   return validateDefinition(JSON.parse(readFileSync(join(root, path), "utf8")));
 }
 
-function runNode(script) {
-  const result = spawnSync(process.execPath, [join(root, script)], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 180_000,
-    env: {
-      ...process.env,
-      NODE_OPTIONS: "",
-      LLM_UPSTREAM_URL: "",
-      MODEL_WORKER_UPSTREAM_URL: "",
-      LLM_UPSTREAM_API_KEY: "",
-      MODEL_WORKER_UPSTREAM_API_KEY: "",
-      OPENAI_API_KEY: "",
-      RUNPOD_API_KEY: ""
-    }
-  });
-  assert.equal(
-    result.status,
-    0,
-    `${script} failed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
-  );
-}
-
 const v1 = loadDefinition(V1_DEFINITION);
 assert.equal(v1.schemaVersion, "bounded.controlled-coding-pilot/v1");
 assert.equal(v1.profile, "controlled_help_copy");
 assert.equal(v1.contextPolicy, "controlled_help_anchor_v1");
+assert.equal(v1.runtimeBudget, "v1_default");
 assert.deepEqual(resolvePilotConfiguration(v1).verificationProfile, [
   "typecheck",
   "help_acceptance",
@@ -56,14 +33,24 @@ assert.deepEqual(resolvePilotConfiguration(v1).verificationProfile, [
   "runpod_proxy_smoke"
 ]);
 
-for (const path of [V2_DEFINITION, V2_LOCAL_JSON_DEFINITION]) {
+for (const [path, expectedStage] of [
+  [V2_DEFINITION, "request_id_acceptance"],
+  [V2_LOCAL_JSON_DEFINITION, "local_json_schema_acceptance"]
+]) {
   const definition = loadDefinition(path);
+  const configuration = resolvePilotConfiguration(definition);
   assert.equal(definition.schemaVersion, "bounded.controlled-coding-pilot/v2");
   assert.equal(definition.profile, "bounded_text_edits");
   assert.equal(definition.contextPolicy, "task_context_selections_v1");
   assert.equal(definition.runtimeBudget, "v2_default");
   assert.ok(Array.isArray(definition.contextSelections));
   assert.ok(definition.contextSelections.length > 0);
+  assert.deepEqual(configuration.verificationProfile.slice(0, 3), [
+    "typecheck",
+    "build",
+    "test_smoke"
+  ]);
+  assert.equal(configuration.verificationProfile.at(-1), expectedStage);
 }
 
 const schema = boundedTextEditOutputSchema();
@@ -72,6 +59,9 @@ assert.deepEqual(schema.required, ["schemaVersion", "edits", "summary"]);
 assert.equal(schema.properties.schemaVersion.const, "bounded.controlled-text-edits/v1");
 assert.equal(schema.properties.edits.minItems, 1);
 assert.equal(schema.properties.edits.items.additionalProperties, false);
+assert.deepEqual(schema.properties.edits.items.required, [
+  "path", "expectedContentHash", "oldText", "newText"
+]);
 
 const profile = {
   allowedMutationPaths: ["packages/example/src/a.ts", "packages/example/src/b.ts"],
@@ -129,6 +119,9 @@ assert.deepEqual(materialized.editCounts, {
   "packages/example/src/a.ts": 1,
   "packages/example/src/b.ts": 1
 });
+assert.match(materialized.output.mutations[0].newContent, /a = 2/);
+assert.match(materialized.output.mutations[1].newContent, /b = 2/);
+
 assert.throws(
   () => materializeBoundedTextEdits(request, {
     schemaVersion: "bounded.controlled-text-edits/v1",
@@ -140,18 +133,26 @@ assert.throws(
     }],
     summary: "Unauthorized edit."
   }, profile),
-  (error) => error.pilotCode === "PILOT_AUTHORITY_VIOLATION" ||
-    error.pilotCode === "PILOT_MODEL_RESPONSE_INVALID"
+  (error) => error.pilotCode === "PILOT_AUTHORITY_VIOLATION"
 );
 
-for (const script of [
-  "scripts/controlled-coding-pilot-registry-smoke.cjs",
-  "scripts/controlled-coding-pilot-context-selector-smoke.cjs",
-  "scripts/controlled-coding-pilot-v2-smoke.cjs",
-  "scripts/controlled-coding-pilot-evidence-smoke.cjs",
-  "scripts/controlled-coding-pilot-evidence-verify-smoke.cjs",
-  "scripts/controlled-coding-pilot-local-json-evidence-smoke.cjs",
-  "scripts/controlled-coding-pilot-loopback-transport-smoke.cjs"
-]) runNode(script);
+assert.throws(
+  () => materializeBoundedTextEdits(request, {
+    schemaVersion: "bounded.controlled-text-edits/v1",
+    edits: [{
+      path: "packages/example/src/a.ts",
+      expectedContentHash: "sha256:a",
+      oldText: "not-present",
+      newText: "a = 2"
+    }, {
+      path: "packages/example/src/b.ts",
+      expectedContentHash: "sha256:b",
+      oldText: "b = 1",
+      newText: "b = 2"
+    }],
+    summary: "Non-materializable edit."
+  }, profile),
+  (error) => error.pilotCode === "PILOT_MODEL_RESPONSE_INVALID"
+);
 
-process.stdout.write("controlled pilot v2 offline gate smoke: PASS\n");
+process.stdout.write("controlled pilot v2 definition/parser/materializer gate: PASS\n");
