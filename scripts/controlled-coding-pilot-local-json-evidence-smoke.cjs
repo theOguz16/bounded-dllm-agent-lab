@@ -37,14 +37,14 @@ try {
   const head = git(["rev-parse", "HEAD"]);
   const definition = JSON.parse(readFileSync(join(root, definitionPath), "utf8"));
   assert.equal(definition.pilotId, pilotId);
-  assert.equal(definition.limits.providerCallBudget, 1);
-  assert.equal(definition.limits.retryBudget, 0);
-  assert.deepEqual(definition.authority.allowedMutationPaths, [
+  assert.equal(definition.providerCallBudget, 1);
+  assert.equal(definition.retryBudget, 0);
+  assert.deepEqual(definition.allowedMutationPaths, [
     "packages/integrations/src/local-openai-compatible-model-client.ts",
     "tests/smoke/contracts.ts"
   ]);
 
-  const sourceBefore = Object.fromEntries(definition.authority.allowedMutationPaths.map(
+  const sourceBefore = Object.fromEntries(definition.allowedMutationPaths.map(
     (path) => [path, readFileSync(join(root, path))]
   ));
   const reportDir = join(temporary, "report");
@@ -91,7 +91,7 @@ try {
   assert.equal(manifest.schemaVersion, "bounded.controlled-coding-pilot-evidence/v2");
   assert.equal(manifest.pilotId, pilotId);
   assert.deepEqual(manifest.sourceTargets.map((entry) => entry.path),
-    definition.authority.allowedMutationPaths);
+    definition.allowedMutationPaths);
 
   const verified = run(process.execPath, [
     verifier,
@@ -102,7 +102,7 @@ try {
   assert.match(verified.stdout, /^EVIDENCE_VERIFY=PASS\n/);
   assert.match(verified.stdout, /sourceBlobVerification=verified\n$/);
 
-  for (const path of definition.authority.allowedMutationPaths) {
+  for (const path of definition.allowedMutationPaths) {
     assert.deepEqual(readFileSync(join(root, path)), sourceBefore[path]);
   }
   assert.equal(git(["status", "--porcelain"]), "");
