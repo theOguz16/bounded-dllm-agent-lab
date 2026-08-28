@@ -582,7 +582,16 @@ function client(mode, counter) {
   assert.deepEqual(valid.providerDiagnostic, {
     proposedPatchLines: valid.patchLineCount,
     maxPatchLines: 120,
-    executorMutationLineBudget: expectedMaterializationBudget
+    executorMutationLineBudget: expectedMaterializationBudget,
+    perFilePatchLines: {
+      [TARGET]: valid.patchLineCount
+    },
+    boundedEditCounts: null,
+    boundedEdits: null,
+    rejectedCandidateArtifacts: {
+      patch: "rejected-candidate.patch",
+      providerOutput: null
+    }
   });
   assert.equal(valid.authorityPassed, true);
   assert.equal(valid.verifierPassed, true);
