@@ -11,6 +11,9 @@ allowed_paths:
   - examples/**
   - .github/**
   - scripts/controlled-coding-pilot.cjs
+  - scripts/controlled-coding-pilot-registry.cjs
+  - scripts/controlled-coding-pilot-registry-smoke.cjs
+  - scripts/controlled-coding-pilot-verification.cjs
   - scripts/controlled-coding-pilot-context-selector.cjs
   - scripts/controlled-coding-pilot-context-selector-smoke.cjs
   - scripts/controlled-coding-pilot-smoke.cjs

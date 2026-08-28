@@ -1,8 +1,18 @@
 {
   "schemaVersion": "bounded.controlled-coding-pilot/v1",
   "pilotId": "controlled-real-coding-v1.runpod-live-help",
+  "profile": "controlled_help_copy",
+  "contextPolicy": "controlled_help_anchor_v1",
+  "runtimeBudget": "v1_default",
+  "verificationProfile": [
+    "typecheck",
+    "help_acceptance",
+    "normal_missing_env",
+    "runpod_proxy_smoke"
+  ],
   "taskTitle": "Add early help handling to the Runpod live smoke command",
   "taskPrompt": "Make the smallest additive change to apps/cli/src/model-worker-runpod-live-smoke.ts to add help handling only for --help and -h. Add an early argv guard before environment validation, report creation, proxy startup, port binding, or any upstream call. Help must print concise usage to stdout, exit successfully, and mention the command name, --help, -h, LLM_UPSTREAM_URL, DLLM_UPSTREAM_URL, LLM_MODEL_ID, DLLM_MODEL_ID, RUNPOD_LIVE_REQUIRED, and default proxy 127.0.0.1:8790. Preserve every existing type declaration; specifically preserve LiveSmokeStatus and LiveSmokeReport unchanged. Do not delete, rename, reorder, or rewrite unrelated declarations or functions. Do not refactor or reformat unrelated code. Preserve all normal non-help execution behavior. Do not remove existing behavior merely to reduce output size. Do not modify any file other than the authorized target.",
+  "providerRequirements": [],
   "sourceRevisionPolicy": "current-head",
   "allowedMutationPaths": [
     "apps/cli/src/model-worker-runpod-live-smoke.ts"
@@ -27,12 +37,6 @@
   "maxPatchLines": 120,
   "providerCallBudget": 1,
   "retryBudget": 1,
-  "acceptanceCommands": [
-    "npm run build",
-    "node dist/apps/cli/src/model-worker-runpod-live-smoke.js --help",
-    "node dist/apps/cli/src/model-worker-runpod-live-smoke.js -h",
-    "npm run smoke:model-worker:runpod-proxy"
-  ],
   "requiredAssertions": [
     "help exits zero and writes usage to stdout",
     "help mentions required flags, environment variables, host, and port",
