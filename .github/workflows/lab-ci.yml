@@ -35,6 +35,9 @@ jobs:
       - name: Smoke contract tests
         run: npm run test:smoke
 
+      - name: Controlled pilot context selector regression
+        run: node scripts/controlled-coding-pilot-context-selector-smoke.cjs
+
       - name: Controlled pilot regression and offline acceptance
         run: npm run smoke:controlled-coding-pilot
 
