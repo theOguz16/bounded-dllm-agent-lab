@@ -233,19 +233,47 @@ function mergeRanges(ranges) {
   return merged;
 }
 
-function resolveContextSelections(workspaceFiles, contextSelections) {
+function indexedFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) invalidContextSelection();
+  const byPath = new Map();
+  for (const file of files) {
+    if (
+      !file || typeof file !== "object" || Array.isArray(file) ||
+      typeof file.path !== "string" || file.path.length === 0 ||
+      typeof file.content !== "string" || byPath.has(file.path)
+    ) invalidContextSelection();
+    byPath.set(file.path, file);
+  }
+  return byPath;
+}
+
+function samePathSet(left, right) {
+  return left.size === right.size && [...left.keys()].every((path) => right.has(path));
+}
+
+function resolveContextSelections(workspaceFiles, contextSelections, options = {}) {
+  const providerByPath = indexedFiles(workspaceFiles);
+  const selectionByPath = indexedFiles(options.selectionFiles ?? workspaceFiles);
+  if (!samePathSet(providerByPath, selectionByPath)) invalidContextSelection();
+
+  const paths = [...providerByPath.keys()];
   const selections = validateContextSelections(contextSelections, {
-    requiredPaths: workspaceFiles.map((file) => file.path),
-    allowedReadRoots: workspaceFiles.map((file) => file.path)
+    requiredPaths: paths,
+    allowedReadRoots: paths
   });
   const byPath = new Map(selections.map((entry) => [entry.path, entry]));
 
   return workspaceFiles.map((file) => {
     const selection = byPath.get(file.path);
-    if (!selection) invalidContextSelection();
-    const lines = file.content.split(/\r?\n/);
+    const selectionFile = selectionByPath.get(file.path);
+    if (!selection || !selectionFile) invalidContextSelection();
+
+    const selectionLines = selectionFile.content.split(/\r?\n/);
+    const providerLines = file.content.split(/\r?\n/);
+    if (selectionLines.length !== providerLines.length) invalidContextSelection();
+
     const ranges = mergeRanges(selection.selectors.map((selector) =>
-      resolveSelector(file.content, selector, lines.length)
+      resolveSelector(selectionFile.content, selector, selectionLines.length)
     ));
 
     if (ranges.length === 0) invalidContextSelection();
@@ -255,11 +283,11 @@ function resolveContextSelections(workspaceFiles, contextSelections) {
       sourceContentHash: file.contentHash,
       authority: file.authority,
       relatedSymbols: file.relatedSymbols,
-      totalLines: lines.length,
+      totalLines: providerLines.length,
       excerpts: ranges.map(({ startLine, endLine }) => ({
         startLine,
         endLine,
-        content: lines.slice(startLine - 1, endLine).join("\n"),
+        content: providerLines.slice(startLine - 1, endLine).join("\n"),
         trustBoundary: "UNTRUSTED_REPOSITORY_DATA"
       }))
     };
