@@ -38,6 +38,15 @@ jobs:
       - name: Controlled pilot regression and offline acceptance
         run: npm run smoke:controlled-coding-pilot
 
+      - name: Controlled pilot evidence bundler regression
+        run: node scripts/controlled-coding-pilot-evidence-smoke.cjs
+
+      - name: Controlled pilot evidence verifier regression
+        run: node scripts/controlled-coding-pilot-evidence-verify-smoke.cjs
+
+      - name: Controlled pilot local JSON evidence chain
+        run: node scripts/controlled-coding-pilot-local-json-evidence-smoke.cjs
+
       - name: Product policy onboarding
         run: |
           mkdir -p /tmp/bounded-agent-ci
