@@ -158,7 +158,7 @@ function localJsonCorrectOutput(request) {
         "  const semantics = [body.code, body.type, body.param, body.message]",
         "    .map(boundedSemantic)",
         "    .filter((entry): entry is string => entry !== undefined)",
-        "    .join(\" \');",
+        "    .join(\" \");",
         "  return /\\bresponse format\\b/.test(semantics) &&",
         "    /\\bjson schema\\b/.test(semantics) &&",
         "    /\\b(?:not supported|unsupported)\\b/.test(semantics);",
