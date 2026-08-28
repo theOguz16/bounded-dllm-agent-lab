@@ -35,6 +35,9 @@ jobs:
       - name: Smoke contract tests
         run: npm run test:smoke
 
+      - name: Controlled pilot regression and offline acceptance
+        run: npm run smoke:controlled-coding-pilot
+
       - name: Product policy onboarding
         run: |
           mkdir -p /tmp/bounded-agent-ci
