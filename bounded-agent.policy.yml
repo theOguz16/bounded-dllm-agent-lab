@@ -17,6 +17,8 @@ allowed_paths:
   - scripts/controlled-coding-pilot-context-selector.cjs
   - scripts/controlled-coding-pilot-context-selector-smoke.cjs
   - scripts/controlled-coding-pilot-smoke.cjs
+  - scripts/controlled-coding-pilot-offline-gate-smoke.cjs
+  - scripts/controlled-coding-pilot-loopback-transport-smoke.cjs
   - scripts/controlled-coding-pilot-request-id-check.cjs
   - scripts/controlled-coding-pilot-local-json-schema-check.cjs
   - scripts/controlled-coding-pilot-v2-smoke.cjs
