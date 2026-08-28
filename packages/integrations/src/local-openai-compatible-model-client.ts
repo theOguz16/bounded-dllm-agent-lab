@@ -3,6 +3,10 @@ import OpenAI, {
   APIConnectionTimeoutError
 } from "openai";
 
+import {
+  ProductionModelError,
+  createProviderAbortError
+} from "./provider-execution-error.js";
 import type {
   ExecutorCredentialProvider,
   ProductionModelClient,
@@ -244,6 +248,52 @@ function mapTransportFailure(error: unknown, modelId: string): LocalOpenAIModelC
   return new LocalOpenAIModelClientError("LOCAL_INTERNAL_ERROR");
 }
 
+function toProductionModelError(error: LocalOpenAIModelClientError): Error {
+  switch (error.code) {
+    case "LOCAL_ABORTED":
+      return createProviderAbortError();
+    case "LOCAL_CREDENTIAL_MISSING":
+    case "LOCAL_AUTH_FAILED":
+    case "LOCAL_AUTHENTICATION_FAILED":
+    case "LOCAL_PERMISSION_DENIED":
+      return new ProductionModelError("AUTH_FAILURE");
+    case "LOCAL_RATE_LIMITED":
+      return new ProductionModelError("RATE_LIMITED");
+    case "LOCAL_JSON_SCHEMA_UNSUPPORTED":
+      return new ProductionModelError("STRUCTURED_OUTPUT_UNSUPPORTED");
+    case "LOCAL_COLD_START_TIMEOUT":
+    case "LOCAL_REQUEST_TIMEOUT":
+    case "LOCAL_PROXY_TIMEOUT":
+      return new ProductionModelError("TIMEOUT");
+    case "LOCAL_ENDPOINT_UNAVAILABLE":
+    case "LOCAL_UPSTREAM_SERVER_ERROR":
+    case "LOCAL_PROXY_BAD_GATEWAY":
+    case "LOCAL_PROXY_UNAVAILABLE":
+    case "LOCAL_NETWORK_ERROR":
+    case "LOCAL_INTERNAL_ERROR":
+      return new ProductionModelError("TRANSPORT_FAILURE");
+    case "LOCAL_RESPONSE_EMPTY":
+    case "LOCAL_RESPONSE_MULTIPLE_CHOICES":
+    case "LOCAL_RESPONSE_TRUNCATED":
+    case "LOCAL_RESPONSE_NOT_JSON":
+    case "LOCAL_RESPONSE_SCHEMA_INVALID":
+    case "LOCAL_RESPONSE_TOO_LARGE":
+    case "LOCAL_USAGE_INVALID":
+    case "LOCAL_RESPONSE_INVALID":
+      return new ProductionModelError("MODEL_RESPONSE_INVALID");
+    case "LOCAL_ENDPOINT_MISSING":
+    case "LOCAL_MODEL_MISSING":
+    case "LOCAL_BASE_URL_INVALID":
+    case "LOCAL_ENDPOINT_ID_INVALID":
+    case "LOCAL_BASE_URL_NOT_ALLOWED":
+    case "LOCAL_CREDENTIAL_BEARING_URL":
+    case "LOCAL_ENDPOINT_NOT_FOUND":
+    case "LOCAL_MODEL_NOT_FOUND":
+    case "LOCAL_REQUEST_REJECTED":
+      return new ProductionModelError("REQUEST_REJECTED");
+  }
+}
+
 export class LocalOpenAICompatibleModelClient implements ProductionModelClient {
   private readonly baseUrl: string;
 
@@ -386,13 +436,12 @@ export class LocalOpenAICompatibleModelClient implements ProductionModelClient {
         ...(providerRequestId ? { providerRequestId } : {})
       };
     } catch (error) {
-      if (
+      const localError =
         this.configuration.structuredOutputMode === "json_schema" &&
         (error as { status?: number } | null)?.status === 400
-      ) {
-        throw new LocalOpenAIModelClientError("LOCAL_JSON_SCHEMA_UNSUPPORTED");
-      }
-      throw mapTransportFailure(error, this.configuration.modelId);
+          ? new LocalOpenAIModelClientError("LOCAL_JSON_SCHEMA_UNSUPPORTED")
+          : mapTransportFailure(error, this.configuration.modelId);
+      throw toProductionModelError(localError);
     }
   }
 }
