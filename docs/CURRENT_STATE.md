@@ -1,6 +1,6 @@
 # Current State
 
-> This file is the single current-state source for product claims, implementation status, evidence boundaries, and blocking gates. Historical research and release documents remain evidence records, but they must not override this file.
+> This file is a narrative snapshot of product and runtime status. Experiment and evidence status is authoritative only in [`evidence/index.json`](../evidence/index.json); [`EVIDENCE_INDEX.md`](./EVIDENCE_INDEX.md) is generated from that machine-readable registry. Historical research and release documents remain evidence records, but they do not override the registry.
 
 ## Current Product Definition
 
@@ -30,7 +30,7 @@ It is not currently a finished autonomous software engineering platform or a hos
 
 ## Evidence Classes
 
-The canonical claim vocabulary is defined in [`EVIDENCE_CLAIMS.md`](./EVIDENCE_CLAIMS.md).
+The canonical claim vocabulary is defined in [`EVIDENCE_CLAIMS.md`](./EVIDENCE_CLAIMS.md). The canonical experiment/evidence status registry is [`evidence/index.json`](../evidence/index.json).
 
 ### `deterministic_fixture`
 
@@ -91,7 +91,7 @@ Status: **complete**.
 - Answer leakage explicitly recorded: complete.
 - Guided results excluded from independent quality metrics: complete.
 - Historical/current claim consistency verification: complete.
-- This file established as the single current-state source: complete.
+- Machine-readable evidence index established as the experiment/evidence status source: complete.
 - Automated claim-integrity regression and CI workflow: complete.
 
 ### Gate 2 — Runtime integrity
@@ -144,7 +144,7 @@ The maintenance contract proves repeatable installation and deterministic protot
 
 ### Gate 5 — Comparative product evidence
 
-Requires unguided hidden-oracle planner validation followed by A/B/C/D/E ablation and external repository tasks.
+The machine-readable status of Gate 5 experiments is defined by `evidence/index.json`. Do not infer Gate 5 completion from this narrative section.
 
 ## Allowed Current Product Claim
 
@@ -163,4 +163,4 @@ The project must not currently claim that it:
 
 ## Next Work
 
-Implement Gate 5 comparative product evidence: first create an unguided hidden-oracle planner-selection harness with strict provider-visible/evaluator-only separation, then run controlled A/B/C/D/E ablations and external repository tasks under one evidence schema.
+Use the machine-readable evidence registry to drive the remaining live comparative evidence work and update experiment status only when durable, verifiable artifacts are committed.
