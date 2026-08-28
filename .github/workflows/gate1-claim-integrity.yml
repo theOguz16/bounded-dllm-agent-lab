@@ -3,11 +3,14 @@ name: Gate 1 Claim Integrity
 on:
   pull_request:
     paths:
+      - "evidence/index.json"
+      - "docs/EVIDENCE_INDEX.md"
       - "docs/CURRENT_STATE.md"
       - "docs/EVIDENCE_CLAIMS.md"
       - "docs/results/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.md"
       - "docs/results/AG3C_LIVE_EVIDENCE_CLASSIFICATION.md"
       - "reports/ag/AG3C_LIVE_EVIDENCE_CLASSIFICATION.json"
+      - "scripts/evidence-index.cjs"
       - "scripts/verify-claim-integrity.cjs"
       - "scripts/claim-integrity-smoke.cjs"
       - ".github/workflows/gate1-claim-integrity.yml"

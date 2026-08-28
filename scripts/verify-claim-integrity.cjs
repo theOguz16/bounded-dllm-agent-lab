@@ -2,8 +2,14 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  parseIndex,
+  verifyIndex
+} = require("./evidence-index.cjs");
 
 const requiredFiles = [
+  "evidence/index.json",
+  "docs/EVIDENCE_INDEX.md",
   "docs/CURRENT_STATE.md",
   "docs/EVIDENCE_CLAIMS.md",
   "docs/results/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.md",
@@ -109,6 +115,7 @@ function runVerification(root = process.cwd()) {
   }
 
   const errors = [];
+  let evidenceIndexCanonical = false;
 
   for (const file of requiredFiles) {
     if (!exists(file)) errors.push({ code: "required_file_missing", file });
@@ -120,8 +127,23 @@ function runVerification(root = process.cwd()) {
     const classificationDoc = read("docs/results/AG3C_LIVE_EVIDENCE_CLASSIFICATION.md");
     const classification = JSON.parse(read("reports/ag/AG3C_LIVE_EVIDENCE_CLASSIFICATION.json"));
 
-    if (!currentState.includes("single current-state source")) {
-      errors.push({ code: "current_state_not_declared_canonical", file: "docs/CURRENT_STATE.md" });
+    try {
+      verifyIndex(parseIndex(root), root);
+      evidenceIndexCanonical = true;
+    } catch (error) {
+      errors.push({
+        code: "evidence_index_not_canonical",
+        file: "evidence/index.json",
+        detail: error?.code ?? "verification_failed"
+      });
+    }
+
+    if (!currentState.includes("Experiment and evidence status is authoritative only in") ||
+        !currentState.includes("evidence/index.json")) {
+      errors.push({
+        code: "current_state_does_not_delegate_evidence_authority",
+        file: "docs/CURRENT_STATE.md"
+      });
     }
 
     for (const evidenceClass of [
@@ -163,6 +185,7 @@ function runVerification(root = process.cwd()) {
     ok: errors.length === 0,
     gate: "claim_integrity",
     currentStatePresent: exists("docs/CURRENT_STATE.md"),
+    evidenceIndexCanonical,
     guidedEvidenceClassified: errors.every((entry) => entry.code !== "ag3c_not_classified_guided"),
     answerLeakageDocumented: errors.every((entry) => !["answer_leakage_not_recorded", "classification_document_does_not_explain_leakage"].includes(entry.code)),
     guidedQualityClaimsBlocked: errors.every((entry) => !["guided_quality_claim_not_blocked", "guided_token_savings_claim_not_blocked"].includes(entry.code)),
