@@ -1,0 +1,39 @@
+name: Evidence Index
+
+on:
+  push:
+    paths:
+      - 'evidence/**'
+      - 'scripts/evidence-index.cjs'
+      - 'scripts/evidence-index-smoke.cjs'
+      - 'docs/EVIDENCE_INDEX.md'
+      - 'reports/release/UNIFIED_BENCHMARK.json'
+      - 'docs/CONTROLLED_REAL_CODING_PILOT_V1_ACCEPTANCE.md'
+      - '.github/workflows/evidence-index.yml'
+  pull_request:
+    paths:
+      - 'evidence/**'
+      - 'scripts/evidence-index.cjs'
+      - 'scripts/evidence-index-smoke.cjs'
+      - 'docs/EVIDENCE_INDEX.md'
+      - 'reports/release/UNIFIED_BENCHMARK.json'
+      - 'docs/CONTROLLED_REAL_CODING_PILOT_V1_ACCEPTANCE.md'
+      - '.github/workflows/evidence-index.yml'
+
+jobs:
+  verify-evidence-index:
+    name: Verify Evidence Index
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify machine-readable evidence registry
+        run: node scripts/evidence-index.cjs verify
+      - name: Verify programmatic Gate 5 status
+        run: node scripts/evidence-index.cjs status gate5
+      - name: Evidence index regression smoke
+        run: node scripts/evidence-index-smoke.cjs
+      - name: Verify generated evidence documentation is in sync
+        run: node scripts/evidence-index.cjs generate --check
