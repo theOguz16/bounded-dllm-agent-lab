@@ -5,7 +5,7 @@ import {
   hashCanonicalJson
 } from "../../product-runtime/src/agent-event-ledger.js";
 import { canonicalizeRepositoryRelativePath } from "../../product-runtime/src/runtime-contract-foundation.js";
-import { isProductionModelFailureCode } from "./provider-execution-error.js";
+import { normalizeProductionModelFailureCode } from "./provider-execution-error.js";
 
 export const CODING_EXECUTOR_REQUEST_VERSION = "bounded.coding-executor-request/v1" as const;
 export const CODING_EXECUTOR_RESULT_VERSION = "bounded.coding-executor-result/v1" as const;
@@ -649,10 +649,11 @@ function providerFailure(error: unknown): ExecutorFailure {
   if (value?.name === "AbortError" || value?.code === "ABORT_ERR") {
     return new ExecutorFailure("EXECUTOR_ABORTED", "provider", false, "aborted");
   }
-  if (!isProductionModelFailureCode(value?.code)) {
+  const normalizedCode = normalizeProductionModelFailureCode(value?.code);
+  if (!normalizedCode) {
     return new ExecutorFailure("EXECUTOR_PROVIDER_INTERNAL_ERROR", "provider", false, "failed");
   }
-  switch (value.code) {
+  switch (normalizedCode) {
     case "AUTH_FAILURE":
       return new ExecutorFailure("EXECUTOR_AUTHENTICATION_FAILED", "provider");
     case "RATE_LIMITED":
