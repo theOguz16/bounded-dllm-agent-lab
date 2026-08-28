@@ -484,8 +484,10 @@ function client(mode, counter) {
   });
   assert.equal(truncatedCounter.calls, 1);
   assert.equal(truncatedPilot.failureCode, "PILOT_MODEL_RESPONSE_INVALID");
-  assert.equal(truncatedPilot.providerDiagnostic.providerErrorCode,
-    "MODEL_RESPONSE_INVALID");
+  assert.equal(
+    truncatedPilot.providerDiagnostic.executorDiagnosticCode,
+    "EXECUTOR_PROVIDER_RESPONSE_INVALID"
+  );
 
   for (const [mode, expected] of [
     ["path-selection", "PILOT_MODEL_RESPONSE_INVALID"],
@@ -638,7 +640,6 @@ function client(mode, counter) {
     configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
     configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
     executorMutationLineBudget: 2 * sourceBefore.split(/\r?\n/).length + 120,
-    providerErrorCode: "REQUEST_REJECTED",
     executorDiagnosticCode: "EXECUTOR_PROVIDER_REJECTED"
   });
   const parsedDebug = JSON.parse(debugOutput.trim().split("\n").at(-1));
