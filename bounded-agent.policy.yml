@@ -13,6 +13,8 @@ allowed_paths:
   - .github/**
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
+  - scripts/verify-claim-integrity.cjs
+  - scripts/claim-integrity-smoke.cjs
   - scripts/controlled-coding-pilot.cjs
   - scripts/controlled-coding-pilot-registry.cjs
   - scripts/controlled-coding-pilot-registry-smoke.cjs
