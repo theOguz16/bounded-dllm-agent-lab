@@ -16,7 +16,9 @@ const REPORT_SCHEMA_VERSION = "bounded.controlled-coding-pilot-report/v1";
 const V1_SOURCE_TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
 const PILOT_DEFINITIONS = {
   "controlled-real-coding-v2.worker-request-id-correlation":
-    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+    "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+  "controlled-real-coding-v2.local-json-schema-error-classification":
+    "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json"
 };
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
