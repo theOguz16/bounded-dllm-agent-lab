@@ -2,6 +2,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
 const {
   resolveContextSelections,
   validateContextSelections
@@ -105,6 +107,41 @@ for (const invalidSelections of [
     }], invalidSelections),
     (error) => error?.pilotCode === "PILOT_DEFINITION_INVALID"
   );
+}
+
+const canonicalDefinitions = [
+  "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+  "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json"
+];
+
+for (const definitionPath of canonicalDefinitions) {
+  const definition = JSON.parse(readFileSync(join(process.cwd(), definitionPath), "utf8"));
+  assert.equal(
+    definition.contextSelections.flatMap((entry) => entry.selectors)
+      .some((selector) => selector.kind === "lines"),
+    false,
+    `${definition.pilotId} should prefer semantic selectors`
+  );
+  validateContextSelections(definition.contextSelections, {
+    requiredPaths: definition.allowedMutationPaths,
+    allowedReadRoots: definition.allowedReadRoots
+  });
+
+  for (const entry of definition.contextSelections) {
+    const content = readFileSync(join(process.cwd(), entry.path), "utf8");
+    for (const selector of entry.selectors) {
+      assert.doesNotThrow(
+        () => resolveContextSelections([{
+          path: entry.path,
+          content,
+          contentHash: "sha256:canonical-selector-fixture",
+          authority: "change_allowed",
+          relatedSymbols: []
+        }], [{ path: entry.path, selectors: [selector] }]),
+        `${definition.pilotId} ${entry.path} ${JSON.stringify(selector)}`
+      );
+    }
+  }
 }
 
 process.stdout.write("controlled coding pilot context selector smoke: PASS\n");
