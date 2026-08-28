@@ -29,7 +29,7 @@
         {
           "kind": "anchor",
           "start": "function assertHealthResponse(",
-          "end": "function createHeaders("
+          "end": "function normalizeBaseUrl("
         }
       ]
     },
