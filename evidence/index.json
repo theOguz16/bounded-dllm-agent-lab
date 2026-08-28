@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "bounded.evidence-index/v1",
+  "experiments": [
+    {
+      "experimentId": "legacy-unified-release-v0.1",
+      "family": "legacy_unified_benchmark",
+      "sourceCommit": "cb3bb47e2da651e96be562d3296202bfdea56a22",
+      "tasksetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
+      "tasksetHashKind": "source_artifact_task_set_hash",
+      "evidenceClass": "mixed_observed_release_evidence",
+      "provider": "runpod-llama-cpp",
+      "model": "qwen2.5-coder-7b",
+      "artifactPath": "reports/release/UNIFIED_BENCHMARK.json",
+      "artifactHash": "sha256:b74fba212cee0f98c77c8d4505e6fed78a372f2b07c30e08086a6fadea6001bd",
+      "artifactHashKind": "json_field:reportHash",
+      "status": "observed",
+      "statusReason": "Durable release synthesis is committed and its internal report hash is verifiable."
+    },
+    {
+      "experimentId": "gate5-a-e-external-ablation",
+      "family": "gate5",
+      "sourceCommit": "9fbae0d402b55e544ef972f98ebcfd410b5c1889",
+      "tasksetHash": "sha256:11530edbb7bc0dfc2032adee698380a6f9dfb7b8649e3f5d324633e8b02fcb7d",
+      "tasksetHashKind": "index_taskset_identity_v1",
+      "evidenceClass": "deterministic_fixture_contract",
+      "provider": null,
+      "model": null,
+      "artifactPath": null,
+      "artifactHash": null,
+      "artifactHashKind": null,
+      "status": "fixture",
+      "statusReason": "A-E harness and fixture contract exist, but no durable live A-E result artifact is registered in the repository."
+    },
+    {
+      "experimentId": "gate5-mode-f-c-e-f",
+      "family": "gate5",
+      "sourceCommit": null,
+      "tasksetHash": "sha256:11530edbb7bc0dfc2032adee698380a6f9dfb7b8649e3f5d324633e8b02fcb7d",
+      "tasksetHashKind": "index_taskset_identity_v1",
+      "evidenceClass": "live_validation_pending",
+      "provider": null,
+      "model": null,
+      "artifactPath": null,
+      "artifactHash": null,
+      "artifactHashKind": null,
+      "status": "pending",
+      "statusReason": "Mode F continuation is active in PR #166; live C/E/F evidence is pending while the RunPod provider is unavailable."
+    },
+    {
+      "experimentId": "controlled-coding-pilot-v1-runpod-live-help",
+      "family": "controlled_coding_pilot_v1",
+      "sourceCommit": "e23e5fc58ec6107a459993ed172256d256045736",
+      "tasksetHash": "sha256:27272d8f3194319e06e233e0da240dcde3fef6d4192e2aa4c9a846a7cc4b4118",
+      "tasksetHashKind": "pilot_definition_hash",
+      "evidenceClass": "controlled_coding_pilot_observed",
+      "provider": "runpod",
+      "model": "qwen2.5-coder-7b",
+      "artifactPath": "docs/CONTROLLED_REAL_CODING_PILOT_V1_ACCEPTANCE.md",
+      "artifactHash": "sha256:ef8061acd86f60e6bea5ee387c0b0388426f45806d14d079a443e1cf90b5bbc9",
+      "artifactHashKind": "text_field:evidenceHash",
+      "status": "observed",
+      "statusReason": "Final acceptance record binds the tested source, model provenance, report, evidence bundle, acceptance hash, and archive checksum."
+    },
+    {
+      "experimentId": "controlled-coding-pilot-v2-suite",
+      "family": "controlled_coding_pilot_v2",
+      "sourceCommit": null,
+      "tasksetHash": "sha256:56e89240b09e02e7dd64131d45f6fe98e4e507ea487967d99c6ae466e96d6e7d",
+      "tasksetHashKind": "index_taskset_identity_v1",
+      "evidenceClass": "observed_run_pending",
+      "provider": null,
+      "model": null,
+      "artifactPath": null,
+      "artifactHash": null,
+      "artifactHashKind": null,
+      "status": "pending",
+      "statusReason": "Two V2 tasks and immutable observed-evidence tooling exist; real provider runs are deferred while RunPod is unavailable."
+    }
+  ],
+  "indexHash": "sha256:f90afcd2191ebde4d697e6ee80de9758c1a54e2858b88457bee345697e3c663e"
+}
