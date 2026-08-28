@@ -12,6 +12,42 @@
     "packages/worker-contract/src/index.ts",
     "tests/smoke/contracts.ts"
   ],
+  "contextSelections": [
+    {
+      "path": "packages/worker-contract/src/index.ts",
+      "selectors": [
+        {
+          "kind": "anchor",
+          "start": "export type DllmWorkerMode =",
+          "end": "type FetchLike = ("
+        },
+        {
+          "kind": "symbol",
+          "name": "createHttpWorkspaceWorkerClient"
+        },
+        {
+          "kind": "anchor",
+          "start": "function assertHealthResponse(",
+          "end": "function createHeaders("
+        }
+      ]
+    },
+    {
+      "path": "tests/smoke/contracts.ts",
+      "selectors": [
+        {
+          "kind": "anchor",
+          "start": "import { createHttpWorkspaceWorkerClient }",
+          "end": "import { parsePolicy, starterPolicyYaml, validatePolicy }"
+        },
+        {
+          "kind": "anchor",
+          "start": "const workerClient = createHttpWorkspaceWorkerClient({",
+          "end": "assert.deepEqual(auditFixtureWorkerRequest(timestampCollisionFixture), []);"
+        }
+      ]
+    }
+  ],
   "forbiddenPaths": [
     "package.json",
     "package-lock.json",
