@@ -7,6 +7,7 @@
       "sourceCommit": "cb3bb47e2da651e96be562d3296202bfdea56a22",
       "tasksetHash": "sha256:21e6ebd9d26a9a89a786ceed08c228529499bf5ce6d2b810851abebfde257df5",
       "tasksetHashKind": "source_artifact_task_set_hash",
+      "tasksetIdentity": null,
       "evidenceClass": "mixed_observed_release_evidence",
       "provider": "runpod-llama-cpp",
       "model": "qwen2.5-coder-7b",
@@ -22,6 +23,26 @@
       "sourceCommit": "9fbae0d402b55e544ef972f98ebcfd410b5c1889",
       "tasksetHash": "sha256:11530edbb7bc0dfc2032adee698380a6f9dfb7b8649e3f5d324633e8b02fcb7d",
       "tasksetHashKind": "index_taskset_identity_v1",
+      "tasksetIdentity": {
+        "kind": "external_repository_tasks/v1",
+        "tasks": [
+          {
+            "taskId": "external.p-limit.detached-map-selection",
+            "repository": "sindresorhus/p-limit",
+            "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a"
+          },
+          {
+            "taskId": "external.clsx.nested-array-selection",
+            "repository": "lukeed/clsx",
+            "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2"
+          },
+          {
+            "taskId": "external.yocto-queue.clear-reset-selection",
+            "repository": "sindresorhus/yocto-queue",
+            "commitSha": "b07eac099753833b29d06c614149904445739776"
+          }
+        ]
+      },
       "evidenceClass": "deterministic_fixture_contract",
       "provider": null,
       "model": null,
@@ -37,6 +58,26 @@
       "sourceCommit": null,
       "tasksetHash": "sha256:11530edbb7bc0dfc2032adee698380a6f9dfb7b8649e3f5d324633e8b02fcb7d",
       "tasksetHashKind": "index_taskset_identity_v1",
+      "tasksetIdentity": {
+        "kind": "external_repository_tasks/v1",
+        "tasks": [
+          {
+            "taskId": "external.p-limit.detached-map-selection",
+            "repository": "sindresorhus/p-limit",
+            "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a"
+          },
+          {
+            "taskId": "external.clsx.nested-array-selection",
+            "repository": "lukeed/clsx",
+            "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2"
+          },
+          {
+            "taskId": "external.yocto-queue.clear-reset-selection",
+            "repository": "sindresorhus/yocto-queue",
+            "commitSha": "b07eac099753833b29d06c614149904445739776"
+          }
+        ]
+      },
       "evidenceClass": "live_validation_pending",
       "provider": null,
       "model": null,
@@ -52,6 +93,7 @@
       "sourceCommit": "e23e5fc58ec6107a459993ed172256d256045736",
       "tasksetHash": "sha256:27272d8f3194319e06e233e0da240dcde3fef6d4192e2aa4c9a846a7cc4b4118",
       "tasksetHashKind": "pilot_definition_hash",
+      "tasksetIdentity": null,
       "evidenceClass": "controlled_coding_pilot_observed",
       "provider": "runpod",
       "model": "qwen2.5-coder-7b",
@@ -67,6 +109,19 @@
       "sourceCommit": null,
       "tasksetHash": "sha256:56e89240b09e02e7dd64131d45f6fe98e4e507ea487967d99c6ae466e96d6e7d",
       "tasksetHashKind": "index_taskset_identity_v1",
+      "tasksetIdentity": {
+        "kind": "controlled_pilot_definitions/v1",
+        "tasks": [
+          {
+            "pilotId": "controlled-real-coding-v2.local-json-schema-error-classification",
+            "path": "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json"
+          },
+          {
+            "pilotId": "controlled-real-coding-v2.worker-request-id-correlation",
+            "path": "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"
+          }
+        ]
+      },
       "evidenceClass": "observed_run_pending",
       "provider": null,
       "model": null,
@@ -77,5 +132,5 @@
       "statusReason": "Two V2 tasks and immutable observed-evidence tooling exist; real provider runs are deferred while RunPod is unavailable."
     }
   ],
-  "indexHash": "sha256:f90afcd2191ebde4d697e6ee80de9758c1a54e2858b88457bee345697e3c663e"
+  "indexHash": "sha256:429da3d6693a9ad9b0696c5f8a324c01c47cd75e39d0020cf7b009a64bda7688"
 }
