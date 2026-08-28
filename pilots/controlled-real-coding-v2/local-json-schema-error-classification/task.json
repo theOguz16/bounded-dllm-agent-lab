@@ -12,6 +12,37 @@
     "packages/integrations/src/local-openai-compatible-model-client.ts",
     "tests/smoke/contracts.ts"
   ],
+  "contextSelections": [
+    {
+      "path": "packages/integrations/src/local-openai-compatible-model-client.ts",
+      "selectors": [
+        {
+          "kind": "anchor",
+          "start": "import OpenAI, {",
+          "end": "type TransportFailure = {"
+        },
+        {
+          "kind": "anchor",
+          "start": "const MAX_ERROR_SEMANTIC_LENGTH =",
+          "end": "export class LocalOpenAICompatibleModelClient"
+        },
+        {
+          "kind": "symbol",
+          "name": "LocalOpenAICompatibleModelClient"
+        }
+      ]
+    },
+    {
+      "path": "tests/smoke/contracts.ts",
+      "selectors": [
+        {
+          "kind": "anchor",
+          "start": "import assert from \"node:assert/strict\";",
+          "end": "assert.deepEqual(validateFixtures(demoFixtures), []);"
+        }
+      ]
+    }
+  ],
   "forbiddenPaths": [
     "package.json",
     "package-lock.json",
