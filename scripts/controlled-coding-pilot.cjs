@@ -3,28 +3,29 @@
 
 const { createHash } = require("node:crypto");
 const { execFile } = require("node:child_process");
-const {
-  mkdir, mkdtemp, readFile, rm, symlink, writeFile
-} = require("node:fs/promises");
+const { mkdir, mkdtemp, readFile, rm, symlink, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
-const { dirname, join, resolve } = require("node:path");
+const { join, resolve } = require("node:path");
 const { promisify } = require("node:util");
 const {
   resolveContextSelections,
   validateContextSelections
 } = require("./controlled-coding-pilot-context-selector.cjs");
+const {
+  DEFINITION_VERSION,
+  RUNTIME_BUDGETS,
+  V2_DEFINITION_VERSION,
+  VERIFICATION_STAGES,
+  resolvePilotConfiguration
+} = require("./controlled-coding-pilot-registry.cjs");
+const { runVerificationProfile } = require("./controlled-coding-pilot-verification.cjs");
 
 const exec = promisify(execFile);
 const REPORT_VERSION = "bounded.controlled-coding-pilot-report/v1";
-const DEFINITION_VERSION = "bounded.controlled-coding-pilot/v1";
 const TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
 const DEFINITION = "pilots/controlled-real-coding-v1/runpod-live-help/task.json";
-const V2_DEFINITION_VERSION = "bounded.controlled-coding-pilot/v2";
 const V2_DEFINITION = "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json";
-const V2_TARGETS = [
-  "packages/worker-contract/src/index.ts",
-  "tests/smoke/contracts.ts"
-];
+const V2_TARGETS = ["packages/worker-contract/src/index.ts", "tests/smoke/contracts.ts"];
 const INSERTION_OUTPUT_VERSION = "bounded.controlled-help-copy-output/v1";
 const TEXT_EDIT_OUTPUT_VERSION = "bounded.controlled-text-edits/v1";
 const PILOT_MAX_TEXT_EDITS = 8;
@@ -38,22 +39,8 @@ const PILOT_EXECUTION_RUNTIME_MS = 120_000;
 const PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT = 6_144;
 const PILOT_PROVIDER_TIMEOUT_MS = 45_000;
 const PILOT_PROVIDER_MAX_OUTPUT_TOKENS = 1_024;
-
-const V1_RUNTIME_BUDGET = Object.freeze({
-  modelContextTokenLimit: PILOT_MODEL_CONTEXT_TOKEN_LIMIT,
-  executionRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
-  executorOutputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT,
-  providerTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
-  providerMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS
-});
-
-const V2_RUNTIME_BUDGET = Object.freeze({
-  modelContextTokenLimit: 32_768,
-  executionRuntimeMs: 270_000,
-  executorOutputTokenLimit: 6_144,
-  providerTimeoutMs: 250_000,
-  providerMaxOutputTokens: 6_144
-});
+const V1_RUNTIME_BUDGET = RUNTIME_BUDGETS.v1_default;
+const V2_RUNTIME_BUDGET = RUNTIME_BUDGETS.v2_default;
 
 const PROVIDER_SENSITIVE_LINE = [
   /bearer\s+[A-Za-z0-9._~+/-]+=*/i,
@@ -62,17 +49,6 @@ const PROVIDER_SENSITIVE_LINE = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
   /https?:\/\/[^/\s:@]+:[^/\s@]+@/i
 ];
-for (const runtimeBudget of [V1_RUNTIME_BUDGET, V2_RUNTIME_BUDGET]) {
-  if (
-    runtimeBudget.providerTimeoutMs > runtimeBudget.executionRuntimeMs ||
-    runtimeBudget.providerMaxOutputTokens >
-      runtimeBudget.executorOutputTokenLimit
-  ) {
-    throw new Error(
-      "Controlled pilot provider budget configuration is invalid."
-    );
-  }
-}
 const FAILURE_CODES = new Set([
   "PILOT_DEFINITION_INVALID", "PILOT_CONFIRMATION_REQUIRED",
   "PILOT_PROVIDER_CONFIGURATION_MISSING", "PILOT_PROVIDER_CALL_FAILED",
@@ -81,92 +57,7 @@ const FAILURE_CODES = new Set([
   "PILOT_ARTIFACT_INVALID", "PILOT_SOURCE_WORKTREE_MUTATED",
   "PILOT_CLEANUP_FAILED", "PILOT_CANCELLED"
 ]);
-const V1_VERIFIER_STAGES = [
-  "typecheck", "help_acceptance", "normal_missing_env", "runpod_proxy_smoke"
-];
-const V2_VERIFIER_STAGES = [
-  "typecheck", "build", "test_smoke", "request_id_acceptance"
-];
-const V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES = [
-  "typecheck", "build", "test_smoke", "local_json_schema_acceptance"
-];
-const VERIFIER_STAGES = new Set([
-  ...V1_VERIFIER_STAGES,
-  ...V2_VERIFIER_STAGES,
-  ...V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES
-]);
-const PILOT_PROFILES = {
-  "controlled-real-coding-v1.runpod-live-help": {
-    schemaVersion: DEFINITION_VERSION,
-    allowedMutationPaths: [TARGET],
-    requiredMutationPaths: [TARGET],
-    maxChangedFiles: 2,
-    maxPatchLines: 120,
-    providerCallBudget: 1,
-    retryBudget: 1,
-    providerMode: "controlled_help_copy",
-    executorMaxChangedFiles: 1,
-    runtimeBudget: V1_RUNTIME_BUDGET,
-    verifierStages: V1_VERIFIER_STAGES
-  },
-  "controlled-real-coding-v2.worker-request-id-correlation": {
-    schemaVersion: V2_DEFINITION_VERSION,
-    allowedMutationPaths: V2_TARGETS,
-    requiredMutationPaths: V2_TARGETS,
-    maxChangedFiles: 2,
-    maxPatchLines: 120,
-    providerCallBudget: 1,
-    retryBudget: 0,
-    providerMode: "bounded_text_edits",
-    providerRequirements: [
-      "For requestId correlation regression tests, every mocked response must otherwise satisfy the full response contract for that endpoint.",
-      "Test matching requestId acceptance and mismatched requestId rejection for refine, infill, and resolveConflict.",
-      "A mismatch test must not pass because unrelated response fields are missing or invalid.",
-      "Reuse a type-correct SharedSemanticWorkspace fixture visible in the supplied test excerpts instead of inventing a partial workspace object.",
-      "Do not reference a fixture before its declaration; place regression tests after any fixture they reuse.",
-      "Any global fetch mock must typecheck against the repository's TypeScript fetch type; do not rely on an unsafe direct cast that hides an incompatible mock shape."
-    ],
-    executorMaxChangedFiles: 2,
-    runtimeBudget: V2_RUNTIME_BUDGET,
-    verifierStages: V2_VERIFIER_STAGES,
-    requiredForbiddenPaths: [
-      "package.json", "package-lock.json", "dist", ".github", "docs",
-      "pilots", "scripts", "apps", "bounded-agent.policy.yml"
-    ]
-  },
-  "controlled-real-coding-v2.local-json-schema-error-classification": {
-    schemaVersion: V2_DEFINITION_VERSION,
-    allowedMutationPaths: [
-      "packages/integrations/src/local-openai-compatible-model-client.ts",
-      "tests/smoke/contracts.ts"
-    ],
-    requiredMutationPaths: [
-      "packages/integrations/src/local-openai-compatible-model-client.ts",
-      "tests/smoke/contracts.ts"
-    ],
-    maxChangedFiles: 2,
-    maxPatchLines: 120,
-    providerCallBudget: 1,
-    retryBudget: 0,
-    providerMode: "bounded_text_edits",
-    providerRequirements: [
-      "Classify LOCAL_JSON_SCHEMA_UNSUPPORTED only from bounded upstream error semantics that specifically indicate response_format/json_schema support itself is unavailable.",
-      "Do not classify a generic invalid request as LOCAL_JSON_SCHEMA_UNSUPPORTED.",
-      "Do not classify an invalid supplied JSON schema as LOCAL_JSON_SCHEMA_UNSUPPORTED.",
-      "json_object mode must continue to classify ordinary HTTP 400 responses through the normal transport failure mapping.",
-      "Regression tests must use mocked globalThis.fetch and must not perform real network access.",
-      "Preserve existing credential redaction and unrelated HTTP status classification behavior."
-    ],
-    executorMaxChangedFiles: 2,
-    runtimeBudget: V2_RUNTIME_BUDGET,
-    verifierStages: V2_LOCAL_JSON_SCHEMA_VERIFIER_STAGES,
-    requiredForbiddenPaths: [
-      "package.json", "package-lock.json", "dist", ".github", "docs",
-      "pilots", "scripts", "apps", "bounded-agent.policy.yml",
-      "packages/integrations/src/runpod-openai-compatible-model-client.ts"
-    ]
-  }
-};
+const VERIFIER_STAGES = new Set(VERIFICATION_STAGES);
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -194,7 +85,6 @@ function executorModelIdForProvider(providerModelId) {
   if (typeof providerModelId !== "string" || providerModelId.length === 0) {
     throw new TypeError("Controlled pilot provider model ID is invalid.");
   }
-
   return EXECUTOR_SAFE_MODEL_ID.test(providerModelId)
     ? providerModelId
     : `model:${createHash("sha256").update(providerModelId).digest("hex")}`;
@@ -217,65 +107,63 @@ async function sourceSnapshot(root) {
   };
 }
 
+function invalidDefinition() {
+  throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
+    pilotCode: "PILOT_DEFINITION_INVALID"
+  });
+}
+
+function validStringArray(value, { nonEmpty = false } = {}) {
+  return Array.isArray(value) && (!nonEmpty || value.length > 0) &&
+    value.every((entry) => typeof entry === "string" && entry.length > 0);
+}
+
 function validateDefinition(value) {
   const baseKeys = [
-    "schemaVersion", "pilotId", "taskTitle", "taskPrompt",
+    "schemaVersion", "pilotId", "profile", "contextPolicy", "runtimeBudget",
+    "verificationProfile", "taskTitle", "taskPrompt", "providerRequirements",
     "sourceRevisionPolicy", "allowedMutationPaths", "allowedReadRoots",
     "forbiddenPaths", "maxChangedFiles", "maxPatchLines",
-    "providerCallBudget", "retryBudget", "acceptanceCommands",
-    "requiredAssertions"
+    "providerCallBudget", "retryBudget", "requiredAssertions"
   ];
   const isV2 = value?.schemaVersion === V2_DEFINITION_VERSION;
   const keys = isV2 ? [...baseKeys, "contextSelections"] : baseKeys;
-  const profile = value && typeof value === "object"
-    ? PILOT_PROFILES[value.pilotId]
-    : undefined;
-  let contextSelectionsValid = !isV2;
-  if (isV2) {
+  if (
+    !value || typeof value !== "object" || Array.isArray(value) ||
+    canonical(Object.keys(value).sort()) !== canonical(keys.sort()) ||
+    ![DEFINITION_VERSION, V2_DEFINITION_VERSION].includes(value.schemaVersion) ||
+    typeof value.pilotId !== "string" || value.pilotId.length === 0 ||
+    typeof value.taskTitle !== "string" || value.taskTitle.length === 0 ||
+    typeof value.taskPrompt !== "string" || value.taskPrompt.length === 0 ||
+    value.sourceRevisionPolicy !== "current-head" ||
+    !validStringArray(value.allowedMutationPaths, { nonEmpty: true }) ||
+    !validStringArray(value.allowedReadRoots, { nonEmpty: true }) ||
+    !validStringArray(value.forbiddenPaths) ||
+    !validStringArray(value.providerRequirements) ||
+    !validStringArray(value.requiredAssertions, { nonEmpty: true })
+  ) invalidDefinition();
+
+  let configuration;
+  try {
+    configuration = resolvePilotConfiguration(value);
+  } catch {
+    invalidDefinition();
+  }
+  if (configuration.contextPolicy.requiresContextSelections) {
     try {
       validateContextSelections(value.contextSelections, {
         requiredPaths: value.allowedMutationPaths,
         allowedReadRoots: value.allowedReadRoots
       });
-      contextSelectionsValid = true;
     } catch {
-      contextSelectionsValid = false;
+      invalidDefinition();
     }
   }
-  if (
-    !value || typeof value !== "object" || Array.isArray(value) ||
-    canonical(Object.keys(value).sort()) !== canonical(keys.sort()) ||
-    !profile ||
-    value.schemaVersion !== profile.schemaVersion ||
-    value.sourceRevisionPolicy !== "current-head" ||
-    !Array.isArray(value.allowedMutationPaths) ||
-    canonical(value.allowedMutationPaths) !== canonical(profile.allowedMutationPaths) ||
-    value.maxChangedFiles !== profile.maxChangedFiles ||
-    value.maxPatchLines !== profile.maxPatchLines ||
-    value.providerCallBudget !== profile.providerCallBudget ||
-    value.retryBudget !== profile.retryBudget ||
-    !Array.isArray(value.allowedReadRoots) ||
-    !contextSelectionsValid ||
-    !Array.isArray(value.forbiddenPaths) ||
-    (profile.requiredForbiddenPaths ?? []).some(
-      (path) => !value.forbiddenPaths.includes(path)
-    ) ||
-    !Array.isArray(value.acceptanceCommands) ||
-    !Array.isArray(value.requiredAssertions)
-  ) throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
-    pilotCode: "PILOT_DEFINITION_INVALID"
-  });
   return structuredClone(value);
 }
 
 function profileForDefinition(definition) {
-  const profile = PILOT_PROFILES[definition.pilotId];
-  if (!profile) {
-    throw Object.assign(new Error("PILOT_DEFINITION_INVALID"), {
-      pilotCode: "PILOT_DEFINITION_INVALID"
-    });
-  }
-  return profile;
+  return resolvePilotConfiguration(definition).profile;
 }
 
 function createProviderSource(content, profile) {
@@ -307,68 +195,31 @@ function restoreProviderSource(content, maskedLines) {
 }
 
 function liveProviderConfiguration(environment) {
-  const endpoint = environment.LLM_UPSTREAM_URL ??
-    environment.MODEL_WORKER_UPSTREAM_URL;
+  const endpoint = environment.LLM_UPSTREAM_URL ?? environment.MODEL_WORKER_UPSTREAM_URL;
   const modelId = environment.LLM_MODEL_ID;
-
   if (!endpoint || !modelId) return null;
-
   let url;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return null;
-  }
-
-  if (
-    !url.pathname.endsWith("/v1/chat/completions") &&
-    !url.pathname.endsWith("/chat/completions")
-  ) {
-    return null;
-  }
-
-  const hostname = url.hostname
-    .toLowerCase()
-    .replace(/^\[|\]$/g, "");
-
-  const loopback = [
-    "127.0.0.1",
-    "localhost",
-    "::1"
-  ].includes(hostname);
-
+  try { url = new URL(endpoint); } catch { return null; }
+  if (!url.pathname.endsWith("/v1/chat/completions") &&
+      !url.pathname.endsWith("/chat/completions")) return null;
+  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const loopback = ["127.0.0.1", "localhost", "::1"].includes(hostname);
   let transport;
   let credential;
-
   if (loopback) {
     if (url.protocol !== "http:") return null;
-
     transport = "local_openai_compatible";
-    credential =
-      environment.LOCAL_OPENAI_API_KEY ??
+    credential = environment.LOCAL_OPENAI_API_KEY ??
       environment.LLM_UPSTREAM_API_KEY ??
-      environment.MODEL_WORKER_UPSTREAM_API_KEY ??
-      "local-loopback";
+      environment.MODEL_WORKER_UPSTREAM_API_KEY ?? "local-loopback";
   } else {
     if (url.protocol !== "https:") return null;
-
-    credential =
-      environment.LLM_UPSTREAM_API_KEY ??
-      environment.MODEL_WORKER_UPSTREAM_API_KEY;
-
+    credential = environment.LLM_UPSTREAM_API_KEY ?? environment.MODEL_WORKER_UPSTREAM_API_KEY;
     if (!credential) return null;
-
     transport = "runpod_openai_compatible";
   }
-
   url.pathname = url.pathname.replace(/\/chat\/completions$/, "");
-
-  return {
-    baseUrl: url.toString().replace(/\/+$/, ""),
-    credential,
-    modelId,
-    transport
-  };
+  return { baseUrl: url.toString().replace(/\/+$/, ""), credential, modelId, transport };
 }
 
 function pilotProviderClientConfiguration(
@@ -379,10 +230,7 @@ function pilotProviderClientConfiguration(
   return {
     schemaVersion,
     modelId: providerConfig.modelId,
-    endpoint: {
-      type: "custom_openai_compatible",
-      baseUrl: providerConfig.baseUrl
-    },
+    endpoint: { type: "custom_openai_compatible", baseUrl: providerConfig.baseUrl },
     structuredOutputMode: "json_schema",
     requestTimeoutMs: runtimeBudget.providerTimeoutMs,
     temperature: 0,
@@ -406,12 +254,8 @@ function controlledInsertionOutputSchema() {
           "dllmModelId", "runpodLiveRequired"
         ],
         properties: {
-          help: description,
-          llmUpstreamUrl: description,
-          dllmUpstreamUrl: description,
-          llmModelId: description,
-          dllmModelId: description,
-          runpodLiveRequired: description
+          help: description, llmUpstreamUrl: description, dllmUpstreamUrl: description,
+          llmModelId: description, dllmModelId: description, runpodLiveRequired: description
         }
       }
     }
@@ -434,8 +278,9 @@ function resolveControlledInsertionAuthority(request) {
     });
   }
   const firstAnchor = source.content.indexOf(INSERTION_ANCHOR);
-  if (firstAnchor < 0 || source.content.indexOf(INSERTION_ANCHOR,
-    firstAnchor + INSERTION_ANCHOR.length) >= 0) {
+  if (firstAnchor < 0 || source.content.indexOf(
+    INSERTION_ANCHOR, firstAnchor + INSERTION_ANCHOR.length
+  ) >= 0) {
     throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
       pilotCode: "PILOT_AUTHORITY_VIOLATION"
     });
@@ -445,12 +290,9 @@ function resolveControlledInsertionAuthority(request) {
   const excerptStartLine = Math.max(0, anchorLine - 8);
   const excerptEndLine = Math.min(sourceLines.length, anchorLine + 5);
   return {
-    bounded,
-    source,
-    anchorOffset: firstAnchor,
+    bounded, source, anchorOffset: firstAnchor,
     excerpt: sourceLines.slice(excerptStartLine, excerptEndLine).join("\n"),
-    excerptStartLine: excerptStartLine + 1,
-    excerptEndLine
+    excerptStartLine: excerptStartLine + 1, excerptEndLine
   };
 }
 
@@ -512,10 +354,8 @@ function validateInsertionOutput(value) {
 }
 
 function validateRenderedInsertion(content) {
-  if (
-    Buffer.byteLength(content) > PILOT_MAX_INSERTION_BYTES ||
-    content.split(/\r?\n/).length > PILOT_MAX_INSERTION_LINES
-  ) {
+  if (Buffer.byteLength(content) > PILOT_MAX_INSERTION_BYTES ||
+      content.split(/\r?\n/).length > PILOT_MAX_INSERTION_LINES) {
     throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
       pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
     });
@@ -526,28 +366,19 @@ function validateRenderedInsertion(content) {
 function renderControlledHelpInsertion(providerOutput) {
   const descriptions = validateInsertionOutput(providerOutput);
   const helpLines = [
-    "Usage: model-worker-runpod-live-smoke [options]",
-    "",
-    "Options:",
-    `  --help, -h               ${descriptions.help}`,
-    "",
-    "Environment variables:",
+    "Usage: model-worker-runpod-live-smoke [options]", "", "Options:",
+    `  --help, -h               ${descriptions.help}`, "", "Environment variables:",
     `  LLM_UPSTREAM_URL         ${descriptions.llmUpstreamUrl}`,
     `  DLLM_UPSTREAM_URL        ${descriptions.dllmUpstreamUrl}`,
     `  LLM_MODEL_ID             ${descriptions.llmModelId}`,
     `  DLLM_MODEL_ID            ${descriptions.dllmModelId}`,
-    `  RUNPOD_LIVE_REQUIRED     ${descriptions.runpodLiveRequired}`,
-    "",
+    `  RUNPOD_LIVE_REQUIRED     ${descriptions.runpodLiveRequired}`, "",
     "Default proxy: 127.0.0.1:8790"
   ];
   return validateRenderedInsertion([
     "if (process.argv.includes(\"--help\") || process.argv.includes(\"-h\")) {",
-    "  console.log([",
-    ...helpLines.map((line) => `    ${JSON.stringify(line)},`),
-    "  ].join(\"\\n\"));",
-    "  process.exit(0);",
-    "}",
-    ""
+    "  console.log([", ...helpLines.map((line) => `    ${JSON.stringify(line)},`),
+    "  ].join(\"\\n\"));", "  process.exit(0);", "}", ""
   ].join("\n"));
 }
 
@@ -560,51 +391,30 @@ function materializeControlledInsertion(request, providerOutput) {
     output: {
       schemaVersion: "bounded.executor-model-output/v1",
       mutations: [{
-        path: TARGET,
-        operation: "replace",
-        expectedContentHash: source.contentHash,
-        newContent,
-        relatedPlanStepIds: [bounded.existingPlan.steps[0].stepId],
+        path: TARGET, operation: "replace", expectedContentHash: source.contentHash,
+        newContent, relatedPlanStepIds: [bounded.existingPlan.steps[0].stepId],
         relatedSymbolIds: source.relatedSymbols
       }],
-      summary: "Added bounded early help handling.",
-      assumptions: [],
-      unresolvedQuestions: []
+      summary: "Added bounded early help handling.", assumptions: [], unresolvedQuestions: []
     },
-    insertionContent: content,
-    sourceContent: source.content,
-    anchorOffset
+    insertionContent: content, sourceContent: source.content, anchorOffset
   };
 }
 
 function boundedTextEditOutputSchema() {
   return {
-    type: "object",
-    additionalProperties: false,
+    type: "object", additionalProperties: false,
     required: ["schemaVersion", "edits", "summary"],
     properties: {
-      schemaVersion: {
-        type: "string",
-        const: TEXT_EDIT_OUTPUT_VERSION
-      },
+      schemaVersion: { type: "string", const: TEXT_EDIT_OUTPUT_VERSION },
       edits: {
-        type: "array",
-        minItems: 1,
-        maxItems: PILOT_MAX_TEXT_EDITS,
+        type: "array", minItems: 1, maxItems: PILOT_MAX_TEXT_EDITS,
         items: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "path",
-            "expectedContentHash",
-            "oldText",
-            "newText"
-          ],
+          type: "object", additionalProperties: false,
+          required: ["path", "expectedContentHash", "oldText", "newText"],
           properties: {
-            path: { type: "string" },
-            expectedContentHash: { type: "string" },
-            oldText: { type: "string" },
-            newText: { type: "string" }
+            path: { type: "string" }, expectedContentHash: { type: "string" },
+            oldText: { type: "string" }, newText: { type: "string" }
           }
         }
       },
@@ -619,7 +429,6 @@ function focusedTextEditWorkspaceFiles(workspaceFiles, definition) {
 
 function boundedTextEditInstruction(request, profile, definition) {
   const bounded = JSON.parse(request.instruction);
-
   return canonical({
     role: [
       "You are a bounded coding executor.",
@@ -628,16 +437,10 @@ function boundedTextEditInstruction(request, profile, definition) {
     ],
     task: bounded.task,
     existingPlan: bounded.existingPlan,
-    workspaceFiles: focusedTextEditWorkspaceFiles(
-      bounded.workspaceFiles,
-      definition
-    ),
+    workspaceFiles: focusedTextEditWorkspaceFiles(bounded.workspaceFiles, definition),
     authorityRules: bounded.authorityRules,
     requiredMutationPaths: profile.requiredMutationPaths,
-    patchBudget: {
-      maxChangedFiles: profile.maxChangedFiles,
-      maxPatchLines: profile.maxPatchLines
-    },
+    patchBudget: { maxChangedFiles: profile.maxChangedFiles, maxPatchLines: profile.maxPatchLines },
     contextPolicy: [
       "Only focused excerpts selected by the task context contract are supplied.",
       "Omitted source still exists and must remain unchanged.",
@@ -666,33 +469,24 @@ function boundedTextEditInstruction(request, profile, definition) {
 }
 
 function invalidBoundedTextEditOutput() {
-  throw Object.assign(
-    new Error("BOUNDED_TEXT_EDIT_OUTPUT_INVALID"),
-    { pilotCode: "PILOT_MODEL_RESPONSE_INVALID" }
-  );
+  throw Object.assign(new Error("BOUNDED_TEXT_EDIT_OUTPUT_INVALID"), {
+    pilotCode: "PILOT_MODEL_RESPONSE_INVALID"
+  });
 }
 
 function materializeBoundedTextEdits(request, providerOutput, profile) {
   if (
-    !providerOutput ||
-    typeof providerOutput !== "object" ||
-    Array.isArray(providerOutput) ||
+    !providerOutput || typeof providerOutput !== "object" || Array.isArray(providerOutput) ||
     canonical(Object.keys(providerOutput).sort()) !==
       canonical(["schemaVersion", "edits", "summary"].sort()) ||
     providerOutput.schemaVersion !== TEXT_EDIT_OUTPUT_VERSION ||
-    !Array.isArray(providerOutput.edits) ||
-    providerOutput.edits.length === 0 ||
+    !Array.isArray(providerOutput.edits) || providerOutput.edits.length === 0 ||
     providerOutput.edits.length > PILOT_MAX_TEXT_EDITS ||
-    typeof providerOutput.summary !== "string" ||
-    providerOutput.summary.trim().length === 0
-  ) {
-    invalidBoundedTextEditOutput();
-  }
+    typeof providerOutput.summary !== "string" || providerOutput.summary.trim().length === 0
+  ) invalidBoundedTextEditOutput();
 
   const bounded = JSON.parse(request.instruction);
-  const sources = new Map(
-    bounded.workspaceFiles.map((file) => [file.path, file])
-  );
+  const sources = new Map(bounded.workspaceFiles.map((file) => [file.path, file]));
   const allowedPaths = new Set(profile.allowedMutationPaths);
   const requiredPaths = new Set(profile.requiredMutationPaths);
   const touchedPaths = new Set();
@@ -702,130 +496,66 @@ function materializeBoundedTextEdits(request, providerOutput, profile) {
 
   for (const edit of providerOutput.edits) {
     if (
-      !edit ||
-      typeof edit !== "object" ||
-      Array.isArray(edit) ||
+      !edit || typeof edit !== "object" || Array.isArray(edit) ||
       canonical(Object.keys(edit).sort()) !== canonical([
-        "path",
-        "expectedContentHash",
-        "oldText",
-        "newText"
+        "path", "expectedContentHash", "oldText", "newText"
       ].sort()) ||
-      typeof edit.path !== "string" ||
-      typeof edit.expectedContentHash !== "string" ||
-      typeof edit.oldText !== "string" ||
-      typeof edit.newText !== "string" ||
-      edit.oldText.length === 0 ||
-      edit.oldText === edit.newText ||
-      edit.oldText.includes("\u0000") ||
-      edit.newText.includes("\u0000") ||
+      typeof edit.path !== "string" || typeof edit.expectedContentHash !== "string" ||
+      typeof edit.oldText !== "string" || typeof edit.newText !== "string" ||
+      edit.oldText.length === 0 || edit.oldText === edit.newText ||
+      edit.oldText.includes("\u0000") || edit.newText.includes("\u0000") ||
       edit.oldText.includes("PILOT_REDACTED_LINE_") ||
       edit.newText.includes("PILOT_REDACTED_LINE_")
-    ) {
-      invalidBoundedTextEditOutput();
+    ) invalidBoundedTextEditOutput();
+    totalEditBytes += Buffer.byteLength(edit.oldText) + Buffer.byteLength(edit.newText);
+    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) invalidBoundedTextEditOutput();
+    if (!allowedPaths.has(edit.path) || !requiredPaths.has(edit.path)) {
+      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+        pilotCode: "PILOT_AUTHORITY_VIOLATION"
+      });
     }
-
-    totalEditBytes +=
-      Buffer.byteLength(edit.oldText) +
-      Buffer.byteLength(edit.newText);
-
-    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) {
-      invalidBoundedTextEditOutput();
-    }
-
-    if (
-      !allowedPaths.has(edit.path) ||
-      !requiredPaths.has(edit.path)
-    ) {
-      throw Object.assign(
-        new Error("PILOT_AUTHORITY_VIOLATION"),
-        { pilotCode: "PILOT_AUTHORITY_VIOLATION" }
-      );
-    }
-
     const source = sources.get(edit.path);
-
-    if (
-      !source ||
-      source.authority !== "change_allowed" ||
-      edit.expectedContentHash !== source.contentHash
-    ) {
-      throw Object.assign(
-        new Error("PILOT_AUTHORITY_VIOLATION"),
-        { pilotCode: "PILOT_AUTHORITY_VIOLATION" }
-      );
+    if (!source || source.authority !== "change_allowed" ||
+        edit.expectedContentHash !== source.contentHash) {
+      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+        pilotCode: "PILOT_AUTHORITY_VIOLATION"
+      });
     }
-
-    const current = workingContent.has(edit.path)
-      ? workingContent.get(edit.path)
-      : source.content;
-
+    const current = workingContent.has(edit.path) ? workingContent.get(edit.path) : source.content;
     const first = current.indexOf(edit.oldText);
     const last = current.lastIndexOf(edit.oldText);
-
-    if (first < 0 || first !== last) {
-      invalidBoundedTextEditOutput();
-    }
-
-    const next =
-      current.slice(0, first) +
-      edit.newText +
+    if (first < 0 || first !== last) invalidBoundedTextEditOutput();
+    const next = current.slice(0, first) + edit.newText +
       current.slice(first + edit.oldText.length);
-
     workingContent.set(edit.path, next);
     touchedPaths.add(edit.path);
-    editCounts.set(
-      edit.path,
-      (editCounts.get(edit.path) ?? 0) + 1
-    );
+    editCounts.set(edit.path, (editCounts.get(edit.path) ?? 0) + 1);
   }
-
-  if (
-    touchedPaths.size !== requiredPaths.size ||
-    [...requiredPaths].some((path) => !touchedPaths.has(path))
-  ) {
+  if (touchedPaths.size !== requiredPaths.size ||
+      [...requiredPaths].some((path) => !touchedPaths.has(path))) {
     invalidBoundedTextEditOutput();
   }
-
-  const mutations = [...requiredPaths]
-    .sort()
-    .map((path) => {
-      const source = sources.get(path);
-      const relatedPlanStepIds = bounded.existingPlan.steps
-        .filter((step) => step.targetPaths.includes(path))
-        .map((step) => step.stepId);
-
-      if (
-        !source ||
-        !workingContent.has(path) ||
-        relatedPlanStepIds.length === 0
-      ) {
-        invalidBoundedTextEditOutput();
-      }
-
-      return {
-        path,
-        operation: "replace",
-        expectedContentHash: source.contentHash,
-        newContent: workingContent.get(path),
-        relatedPlanStepIds,
-        relatedSymbolIds: source.relatedSymbols
-      };
-    });
-
+  const mutations = [...requiredPaths].sort().map((path) => {
+    const source = sources.get(path);
+    const relatedPlanStepIds = bounded.existingPlan.steps
+      .filter((step) => step.targetPaths.includes(path)).map((step) => step.stepId);
+    if (!source || !workingContent.has(path) || relatedPlanStepIds.length === 0) {
+      invalidBoundedTextEditOutput();
+    }
+    return {
+      path, operation: "replace", expectedContentHash: source.contentHash,
+      newContent: workingContent.get(path), relatedPlanStepIds,
+      relatedSymbolIds: source.relatedSymbols
+    };
+  });
   return {
     output: {
-      schemaVersion: "bounded.executor-model-output/v1",
-      mutations,
-      summary: providerOutput.summary.trim(),
-      assumptions: [],
-      unresolvedQuestions: []
+      schemaVersion: "bounded.executor-model-output/v1", mutations,
+      summary: providerOutput.summary.trim(), assumptions: [], unresolvedQuestions: []
     },
-    editCounts: Object.fromEntries(
-      [...editCounts.entries()].sort(
-        ([left], [right]) => left.localeCompare(right)
-      )
-    )
+    editCounts: Object.fromEntries([...editCounts.entries()].sort(
+      ([left], [right]) => left.localeCompare(right)
+    ))
   };
 }
 
@@ -861,8 +591,7 @@ function reportBase(input) {
 function markdown(report) {
   return [
     "# Controlled Real Coding Pilot", "",
-    `- Status: \`${report.status}\``,
-    `- Source commit: \`${report.sourceCommit}\``,
+    `- Status: \`${report.status}\``, `- Source commit: \`${report.sourceCommit}\``,
     `- Definition hash: \`${report.pilotDefinitionHash}\``,
     `- Provider calls: \`${report.providerCallCount}\``,
     `- Changed files: \`${report.changedFiles.join(", ") || "none"}\``,
@@ -873,10 +602,8 @@ function markdown(report) {
     `- Source worktree mutated: \`${report.sourceWorktreeMutated}\``,
     `- GitHub mutation observed: \`${report.githubMutationObserved}\``,
     `- Cleanup completed: \`${report.cleanupCompleted}\``,
-    `- Failure code: \`${report.failureCode ?? "none"}\``, "",
-    "## Lifecycle", "",
-    ...report.lifecycle.map((event) => `- \`${event}\``),
-    ""
+    `- Failure code: \`${report.failureCode ?? "none"}\``, "", "## Lifecycle", "",
+    ...report.lifecycle.map((event) => `- \`${event}\``), ""
   ].join("\n");
 }
 
@@ -891,9 +618,7 @@ async function writeReport(output, report) {
 
 async function createCheckout(sourceRoot, temporaryRoot, commit) {
   const checkout = join(temporaryRoot, "checkout");
-  await exec("git", [
-    "clone", "--quiet", "--no-local", "--no-hardlinks", sourceRoot, checkout
-  ]);
+  await exec("git", ["clone", "--quiet", "--no-local", "--no-hardlinks", sourceRoot, checkout]);
   await exec("git", ["checkout", "--quiet", "--detach", commit], { cwd: checkout });
   return checkout;
 }
@@ -904,9 +629,7 @@ async function unifiedPatch(path, before, after, temporaryRoot) {
   await writeFile(oldFile, before);
   await writeFile(newFile, after);
   try {
-    await exec("diff", [
-      "-u", "--label", `a/${path}`, "--label", `b/${path}`, oldFile, newFile
-    ]);
+    await exec("diff", ["-u", "--label", `a/${path}`, "--label", `b/${path}`, oldFile, newFile]);
     return "";
   } catch (error) {
     if (error.code !== 1) throw error;
@@ -945,13 +668,10 @@ function deriveExecutorMutationLineBudget(input) {
 
 function classifyVerifierFailure(stage, error) {
   if (FAILURE_CODES.has(error?.pilotCode)) return error;
-  if (!VERIFIER_STAGES.has(stage)) {
-    throw new Error("Controlled pilot verifier stage is invalid.");
-  }
+  if (!VERIFIER_STAGES.has(stage)) invalidDefinition();
   const verifierExitCode = Number.isSafeInteger(error?.code) ? error.code : null;
   const verifierCode = ["ETIMEDOUT", "ABORT_ERR"].includes(error?.code)
-    ? "COMMAND_TIMEOUT"
-    : "COMMAND_FAILED";
+    ? "COMMAND_TIMEOUT" : "COMMAND_FAILED";
   return Object.assign(new Error("PILOT_VERIFICATION_FAILED"), {
     pilotCode: "PILOT_VERIFICATION_FAILED",
     verifierDiagnostic: { verifierStage: stage, verifierExitCode, verifierCode }
@@ -981,6 +701,8 @@ async function runControlledCodingPilot(options = {}) {
   const lifecycle = ["pilot.started"];
   let definition;
   let profile;
+  let runtimeBudget;
+  let verificationProfile;
   let definitionHash = "";
   let sourceBefore;
   let checkout;
@@ -995,8 +717,10 @@ async function runControlledCodingPilot(options = {}) {
   let workingReport;
   try {
     definition = validateDefinition(JSON.parse(await readFile(definitionPath, "utf8")));
-    profile = profileForDefinition(definition);
-    const runtimeBudget = profile.runtimeBudget;
+    const configuration = resolvePilotConfiguration(definition);
+    profile = configuration.profile;
+    runtimeBudget = configuration.runtimeBudget;
+    verificationProfile = configuration.verificationProfile;
     definitionHash = hash(definition);
     lifecycle.push("pilot.definition.validated");
     sourceBefore = await sourceSnapshot(sourceRoot);
@@ -1018,10 +742,8 @@ async function runControlledCodingPilot(options = {}) {
     }
     const providerConfig = options.modelClient
       ? {
-          modelId: options.modelId ?? "fake-qwen2.5-coder-7b",
-          credential: "fixture-value",
-          baseUrl: "https://fixture.invalid/v1",
-          transport: "injected"
+          modelId: options.modelId ?? "fake-qwen2.5-coder-7b", credential: "fixture-value",
+          baseUrl: "https://fixture.invalid/v1", transport: "injected"
         }
       : liveProviderConfiguration(options.environment ?? process.env);
     if (!providerConfig) {
@@ -1051,46 +773,32 @@ async function runControlledCodingPilot(options = {}) {
       maxPatchLines: definition.maxPatchLines
     });
 
-    const coding = await import(
-      "../dist/packages/integrations/src/coding-executor.js"
-    );
+    const coding = await import("../dist/packages/integrations/src/coding-executor.js");
     const runpod = await import(
       "../dist/packages/integrations/src/runpod-openai-compatible-model-client.js"
     );
     const localOpenAi = await import(
       "../dist/packages/integrations/src/local-openai-compatible-model-client.js"
     );
-    const credentials = {
-      async getCredential() {
-        return providerConfig.credential;
-      }
-    };
+    const credentials = { async getCredential() { return providerConfig.credential; } };
     const concreteClient = options.modelClient ??
       (providerConfig.transport === "local_openai_compatible"
         ? new localOpenAi.LocalOpenAICompatibleModelClient(
             pilotProviderClientConfiguration(
-              localOpenAi.LOCAL_OPENAI_MODEL_CLIENT_VERSION,
-              providerConfig,
-              runtimeBudget
-            ),
-            credentials
+              localOpenAi.LOCAL_OPENAI_MODEL_CLIENT_VERSION, providerConfig, runtimeBudget
+            ), credentials
           )
         : new runpod.RunpodOpenAICompatibleModelClient(
             pilotProviderClientConfiguration(
-              runpod.RUNPOD_MODEL_CLIENT_VERSION,
-              providerConfig,
-              runtimeBudget
-            ),
-            credentials
+              runpod.RUNPOD_MODEL_CLIENT_VERSION, providerConfig, runtimeBudget
+            ), credentials
           ));
     const countedClient = {
       async execute(request, executionOptions) {
         const insertionInstruction = profile.providerMode === "controlled_help_copy"
-          ? controlledInsertionInstruction(request)
-          : null;
+          ? controlledInsertionInstruction(request) : null;
         const textEditInstruction = profile.providerMode === "bounded_text_edits"
-          ? boundedTextEditInstruction(request, profile, definition)
-          : null;
+          ? boundedTextEditInstruction(request, profile, definition) : null;
         providerCallCount += 1;
         lifecycle.push("pilot.provider.started");
         if (providerCallCount > definition.providerCallBudget) {
@@ -1099,10 +807,8 @@ async function runControlledCodingPilot(options = {}) {
           });
         }
         try {
-          if (
-            runtimeBudget.providerTimeoutMs > request.remainingRuntimeMs ||
-            runtimeBudget.providerMaxOutputTokens > request.outputTokenLimit
-          ) {
+          if (runtimeBudget.providerTimeoutMs > request.remainingRuntimeMs ||
+              runtimeBudget.providerMaxOutputTokens > request.outputTokenLimit) {
             providerDiagnostic = {
               remainingRuntimeMs: request.remainingRuntimeMs,
               outputTokenLimit: request.outputTokenLimit ?? 0,
@@ -1114,107 +820,64 @@ async function runControlledCodingPilot(options = {}) {
           }
           const providerRequest = profile.providerMode === "controlled_help_copy"
             ? {
-                ...request,
-                instruction: insertionInstruction,
+                ...request, instruction: insertionInstruction,
                 instructionHash: hash(insertionInstruction),
                 outputSchema: controlledInsertionOutputSchema()
               }
             : profile.providerMode === "bounded_text_edits"
               ? {
-                  ...request,
-                  instruction: textEditInstruction,
+                  ...request, instruction: textEditInstruction,
                   instructionHash: hash(textEditInstruction),
                   outputSchema: boundedTextEditOutputSchema()
                 }
               : request;
           const providerResult = await concreteClient.execute(
-            {
-              ...providerRequest,
-              modelId: providerConfig.modelId
-            },
-            executionOptions
+            { ...providerRequest, modelId: providerConfig.modelId }, executionOptions
           );
-
-          const boundedMaterialization =
-            profile.providerMode === "bounded_text_edits"
-              ? materializeBoundedTextEdits(
-                  request,
-                  providerResult.output,
-                  profile
-                )
-              : null;
-
+          const boundedMaterialization = profile.providerMode === "bounded_text_edits"
+            ? materializeBoundedTextEdits(request, providerResult.output, profile) : null;
           const result = profile.providerMode === "controlled_help_copy"
             ? {
                 ...providerResult,
-                output: materializeControlledInsertion(
-                  request,
-                  providerResult.output
-                ).output
+                output: materializeControlledInsertion(request, providerResult.output).output
               }
             : profile.providerMode === "bounded_text_edits"
-              ? {
-                  ...providerResult,
-                  output: boundedMaterialization.output
-                }
+              ? { ...providerResult, output: boundedMaterialization.output }
               : providerResult;
 
-          if (
-            result?.output &&
-            typeof result.output === "object" &&
-            Array.isArray(result.output.mutations)
-          ) {
+          if (result?.output && typeof result.output === "object" &&
+              Array.isArray(result.output.mutations)) {
             const bounded = JSON.parse(request.instruction);
             let proposedPatchLines = 0;
             const perFilePatchLines = {};
             const candidatePatches = [];
-
             for (const mutation of result.output.mutations) {
-              const source = bounded.workspaceFiles.find(
-                (file) => file.path === mutation.path
-              );
-
+              const source = bounded.workspaceFiles.find((file) => file.path === mutation.path);
               if (source && typeof mutation.newContent === "string") {
                 const candidatePatch = await unifiedPatch(
-                  mutation.path,
-                  source.content,
-                  mutation.newContent,
-                  temporaryRoot
+                  mutation.path, source.content, mutation.newContent, temporaryRoot
                 );
                 const candidateLineCount = patchLines(candidatePatch);
-
                 candidatePatches.push(candidatePatch);
                 perFilePatchLines[mutation.path] = candidateLineCount;
                 proposedPatchLines += candidateLineCount;
               }
             }
-
             const boundedEdits = boundedMaterialization
               ? providerResult.output.edits.map((edit, index) => ({
-                  index,
-                  path: edit.path,
+                  index, path: edit.path,
                   oldTextLines: edit.oldText.split(/\r?\n/).length,
                   newTextLines: edit.newText.split(/\r?\n/).length,
                   oldTextBytes: Buffer.byteLength(edit.oldText),
                   newTextBytes: Buffer.byteLength(edit.newText)
-                }))
-              : null;
-
+                })) : null;
             const rejectedCandidateArtifacts = {
               patch: "rejected-candidate.patch",
-              providerOutput: boundedMaterialization
-                ? "rejected-provider-output.json"
-                : null
+              providerOutput: boundedMaterialization ? "rejected-provider-output.json" : null
             };
-
             const persistRejectedCandidate = async () => {
               await mkdir(output, { recursive: true });
-
-              await writeFile(
-                join(output, rejectedCandidateArtifacts.patch),
-                candidatePatches.join("")
-              );
-
+              await writeFile(join(output, rejectedCandidateArtifacts.patch), candidatePatches.join(""));
               if (boundedMaterialization) {
                 await writeFile(
                   join(output, rejectedCandidateArtifacts.providerOutput),
@@ -1230,53 +893,36 @@ async function runControlledCodingPilot(options = {}) {
                 );
               }
             };
-
             const patchDiagnostic = {
-              proposedPatchLines,
-              maxPatchLines: definition.maxPatchLines,
-              executorMutationLineBudget,
-              perFilePatchLines,
+              proposedPatchLines, maxPatchLines: definition.maxPatchLines,
+              executorMutationLineBudget, perFilePatchLines,
               boundedEditCounts: boundedMaterialization?.editCounts ?? null,
-              boundedEdits,
-              rejectedCandidateArtifacts
+              boundedEdits, rejectedCandidateArtifacts
             };
-
             if (result.output.mutations.length > definition.maxChangedFiles) {
               providerDiagnostic = patchDiagnostic;
               await persistRejectedCandidate();
               providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
-
-              throw Object.assign(
-                new Error("PILOT_PATCH_LIMIT_EXCEEDED"),
-                { pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED" }
-              );
+              throw Object.assign(new Error("PILOT_PATCH_LIMIT_EXCEEDED"), {
+                pilotCode: "PILOT_PATCH_LIMIT_EXCEEDED"
+              });
             }
-
             try {
-              enforceSemanticPatchLimit(
-                proposedPatchLines,
-                definition.maxPatchLines
-              );
+              enforceSemanticPatchLimit(proposedPatchLines, definition.maxPatchLines);
             } catch (error) {
               providerDiagnostic = patchDiagnostic;
               await persistRejectedCandidate();
               providerPilotFailure = "PILOT_PATCH_LIMIT_EXCEEDED";
               throw error;
             }
-
             providerDiagnostic = patchDiagnostic;
           }
-
           lifecycle.push("pilot.provider.completed");
           return result;
         } catch (error) {
-          if (FAILURE_CODES.has(error?.pilotCode)) {
-            providerPilotFailure = error.pilotCode;
-          }
+          if (FAILURE_CODES.has(error?.pilotCode)) providerPilotFailure = error.pilotCode;
           const errorCode = typeof error?.code === "string" &&
-            /^(?:RUNPOD|LOCAL)_[A-Z0-9_]+$/.test(error.code)
-            ? error.code
-            : null;
+            /^(?:RUNPOD|LOCAL)_[A-Z0-9_]+$/.test(error.code) ? error.code : null;
           if (errorCode) {
             providerDiagnostic = {
               remainingRuntimeMs: request.remainingRuntimeMs,
@@ -1292,10 +938,9 @@ async function runControlledCodingPilot(options = {}) {
         }
       }
     };
+
     const codingExecutor = new coding.ProductionCodingExecutorAdapter({
-      adapterId: "controlled-coding-pilot",
-      modelId: executorModelId,
-      transportRetries: 0
+      adapterId: "controlled-coding-pilot", modelId: executorModelId, transportRetries: 0
     }, countedClient, credentials);
     const sourceByPath = new Map(mutationBudgetSourceFiles.map(
       (file) => [file.path, file.content]
@@ -1312,18 +957,14 @@ async function runControlledCodingPilot(options = {}) {
       : `symbol:${filePath.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
     const selectedSymbols = profile.requiredMutationPaths.map(symbolForPath);
     const providerSources = new Map(profile.allowedMutationPaths.map((filePath) => [
-      filePath,
-      createProviderSource(sourceByPath.get(filePath), profile)
+      filePath, createProviderSource(sourceByPath.get(filePath), profile)
     ]));
     const plan = {
       planId: profile.providerMode === "controlled_help_copy"
-        ? "controlled-help-plan"
-        : "controlled-request-id-correlation-plan",
+        ? "controlled-help-plan" : "controlled-bounded-text-edit-plan",
       steps: [{
-        stepId: "step-1",
-        description: definition.taskPrompt,
-        targetPaths: profile.requiredMutationPaths,
-        requiredSymbolIds: selectedSymbols
+        stepId: "step-1", description: definition.taskPrompt,
+        targetPaths: profile.requiredMutationPaths, requiredSymbolIds: selectedSymbols
       }]
     };
     const authority = {
@@ -1334,41 +975,28 @@ async function runControlledCodingPilot(options = {}) {
     const workspaceFiles = profile.allowedMutationPaths.map((filePath) => {
       const content = providerSources.get(filePath).content;
       return {
-        path: filePath,
-        content,
-        contentHash: hash(content),
-        language: "TypeScript",
-        authority: "change_allowed",
-        relatedSymbols: [symbolForPath(filePath)]
+        path: filePath, content, contentHash: hash(content), language: "TypeScript",
+        authority: "change_allowed", relatedSymbols: [symbolForPath(filePath)]
       };
     });
     const request = {
       schemaVersion: coding.CODING_EXECUTOR_REQUEST_VERSION,
       executionId: "controlled-coding-pilot-execution",
       repository: {
-        repositoryId: "bounded-dllm-agent-lab.controlled-pilot",
-        commitSha: sourceBefore.commit
+        repositoryId: "bounded-dllm-agent-lab.controlled-pilot", commitSha: sourceBefore.commit
       },
       task: { taskId: definition.pilotId, summary: definition.taskPrompt },
       plan: { ...plan, planHash: hash(plan) },
       workspace: {
-        manifestHash: hash({ files: workspaceFiles }),
-        files: workspaceFiles,
+        manifestHash: hash({ files: workspaceFiles }), files: workspaceFiles,
         selectedSymbols,
-        selectedTests: [
-          "executor_mutations",
-          "bounded_text_edits"
-        ].includes(profile.providerMode)
-          ? ["tests/smoke/contracts.ts"]
-          : [],
-        evidenceReceiptIds: [],
-        expansionRound: 0
+        selectedTests: ["executor_mutations", "bounded_text_edits"].includes(profile.providerMode)
+          ? ["tests/smoke/contracts.ts"] : [],
+        evidenceReceiptIds: [], expansionRound: 0
       },
       authority: { ...authority, authorityHash: hash(authority) },
       budget: {
-        maxToolCalls: 1,
-        maxInputBytes: 500_000,
-        maxOutputBytes: 100_000,
+        maxToolCalls: 1, maxInputBytes: 500_000, maxOutputBytes: 100_000,
         maxChangedFiles: profile.executorMaxChangedFiles,
         maxChangedLines: executorMutationLineBudget,
         remainingRuntimeMs: runtimeBudget.executionRuntimeMs,
@@ -1383,8 +1011,7 @@ async function runControlledCodingPilot(options = {}) {
       const code = execution.diagnostics[0]?.code ?? "EXECUTOR_PROVIDER_RESPONSE_INVALID";
       if (!providerPilotFailure) {
         providerDiagnostic = {
-          ...(providerDiagnostic ?? {}),
-          executorMutationLineBudget,
+          ...(providerDiagnostic ?? {}), executorMutationLineBudget,
           executorDiagnosticCode: code
         };
       }
@@ -1393,16 +1020,14 @@ async function runControlledCodingPilot(options = {}) {
     const mutations = execution.mutationSet.mutations;
     const expectedPaths = [...profile.requiredMutationPaths].sort();
     if (
-      canonical(mutations.map((mutation) => mutation.path).sort()) !==
-        canonical(expectedPaths) ||
+      canonical(mutations.map((mutation) => mutation.path).sort()) !== canonical(expectedPaths) ||
       mutations.some((mutation) => {
         const sourceContent = providerSources.get(mutation.path)?.content;
         return mutation.operation !== "replace" ||
           mutation.expectedContentHash !== hash(sourceContent) ||
           typeof mutation.newContent !== "string" ||
           canonical(mutation.relatedPlanStepIds) !== canonical(["step-1"]) ||
-          canonical(mutation.relatedSymbolIds) !==
-            canonical([symbolForPath(mutation.path)]);
+          canonical(mutation.relatedSymbolIds) !== canonical([symbolForPath(mutation.path)]);
       })
     ) {
       throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
@@ -1413,114 +1038,34 @@ async function runControlledCodingPilot(options = {}) {
     const materializedMutations = mutations.map((mutation) => ({
       ...mutation,
       newContent: restoreProviderSource(
-        mutation.newContent,
-        providerSources.get(mutation.path)?.maskedLines ?? []
+        mutation.newContent, providerSources.get(mutation.path)?.maskedLines ?? []
       )
     }));
     const generatedPatches = [];
     for (const mutation of materializedMutations) {
       generatedPatches.push(await unifiedPatch(
-        mutation.path,
-        sourceByPath.get(mutation.path),
-        mutation.newContent,
-        temporaryRoot
+        mutation.path, sourceByPath.get(mutation.path), mutation.newContent, temporaryRoot
       ));
     }
     const generatedPatch = generatedPatches.join("");
     const lineCount = patchLines(generatedPatch);
     enforceSemanticPatchLimit(lineCount, definition.maxPatchLines);
     for (const mutation of materializedMutations) {
-      await writeFile(
-        join(checkout, ...mutation.path.split("/")),
-        mutation.newContent
-      );
+      await writeFile(join(checkout, ...mutation.path.split("/")), mutation.newContent);
     }
+
     lifecycle.push("pilot.verifier.started");
-    let verifierStage = "typecheck";
+    let verifierStage = verificationProfile[0] ?? null;
     try {
       await symlink(join(sourceRoot, "node_modules"), join(checkout, "node_modules"), "dir");
-      if (profile.providerMode === "controlled_help_copy") {
-        const tsc = join(sourceRoot, "node_modules/.bin/tsc");
-        await exec(tsc, ["-p", join(checkout, "tsconfig.json")], {
-          cwd: checkout,
-          env: { ...process.env, NODE_OPTIONS: "" },
-          maxBuffer: 10_000_000
-        });
-        verifierStage = "help_acceptance";
-        const { checkHelpAcceptance } = require("./controlled-coding-pilot-help-check.cjs");
-        await checkHelpAcceptance(checkout);
-        verifierStage = "normal_missing_env";
-        const normal = await exec(process.execPath, [
-          join(checkout, "dist/apps/cli/src/model-worker-runpod-live-smoke.js")
-        ], {
-          cwd: checkout,
-          env: {
-            PATH: process.env.PATH,
-            HOME: process.env.HOME,
-            NODE_OPTIONS: ""
-          }
-        });
-        if (!normal.stdout.includes("\"status\": \"skipped\"")) {
-          throw new Error("Controlled pilot normal missing-environment behavior changed.");
-        }
-        verifierStage = "runpod_proxy_smoke";
-        await exec(process.execPath, [
-          join(checkout, "dist/apps/cli/src/model-worker-runpod-proxy-smoke.js")
-        ], { cwd: checkout, env: { ...process.env, NODE_OPTIONS: "" } });
-      } else {
-        const npmEnvironment = { ...process.env, NODE_OPTIONS: "" };
-        await exec("npm", ["run", "typecheck"], {
-          cwd: checkout,
-          env: npmEnvironment,
-          maxBuffer: 10_000_000
-        });
-        verifierStage = "build";
-        await exec("npm", ["run", "build"], {
-          cwd: checkout,
-          env: npmEnvironment,
-          maxBuffer: 10_000_000
-        });
-        verifierStage = "test_smoke";
-        await exec("npm", ["run", "test:smoke"], {
-          cwd: checkout,
-          env: npmEnvironment,
-          maxBuffer: 10_000_000
-        });
-        if (
-          definition.pilotId ===
-          "controlled-real-coding-v2.worker-request-id-correlation"
-        ) {
-          verifierStage = "request_id_acceptance";
-          const { checkRequestIdAcceptance } = require(
-            "./controlled-coding-pilot-request-id-check.cjs"
-          );
-          await checkRequestIdAcceptance(checkout);
-        } else if (
-          definition.pilotId ===
-          "controlled-real-coding-v2.local-json-schema-error-classification"
-        ) {
-          verifierStage = "local_json_schema_acceptance";
-          const { checkLocalJsonSchemaAcceptance } = require(
-            "./controlled-coding-pilot-local-json-schema-check.cjs"
-          );
-          await checkLocalJsonSchemaAcceptance(checkout);
-        } else {
-          throw new Error("Controlled V2 pilot acceptance check is missing.");
-        }
-      }
+      await runVerificationProfile(verificationProfile, { sourceRoot, checkout });
     } catch (error) {
+      verifierStage = error?.verifierStage ?? verifierStage;
       const classified = classifyVerifierFailure(verifierStage, error);
       const verifierStdout = typeof error?.stdout === "string"
-        ? error.stdout
-        : error?.stdout
-          ? String(error.stdout)
-          : "";
+        ? error.stdout : error?.stdout ? String(error.stdout) : "";
       const verifierStderr = typeof error?.stderr === "string"
-        ? error.stderr
-        : error?.stderr
-          ? String(error.stderr)
-          : "";
-
+        ? error.stderr : error?.stderr ? String(error.stderr) : "";
       await mkdir(output, { recursive: true });
       await writeFile(join(output, "rejected-candidate.patch"), generatedPatch);
       await writeFile(
@@ -1534,7 +1079,6 @@ async function runControlledCodingPilot(options = {}) {
           stderr: verifierStderr
         }, null, 2)}\n`
       );
-
       verifierDiagnostic = {
         ...(classified.verifierDiagnostic ?? {}),
         rejectedCandidateArtifact: "rejected-candidate.patch",
@@ -1554,17 +1098,13 @@ async function runControlledCodingPilot(options = {}) {
       ...(profile.requiredMutationPaths.length === 1
         ? {
             targetPath: profile.requiredMutationPaths[0],
-            targetContentHash: hash(sourceByPath.get(
-              profile.requiredMutationPaths[0]
-            ))
+            targetContentHash: hash(sourceByPath.get(profile.requiredMutationPaths[0]))
           }
         : {
             targetPaths: profile.requiredMutationPaths,
-            targetContentHashes: Object.fromEntries(
-              profile.requiredMutationPaths.map(
-                (filePath) => [filePath, hash(sourceByPath.get(filePath))]
-              )
-            )
+            targetContentHashes: Object.fromEntries(profile.requiredMutationPaths.map(
+              (filePath) => [filePath, hash(sourceByPath.get(filePath))]
+            ))
           })
     };
     const artifactIdentity = {
@@ -1573,7 +1113,7 @@ async function runControlledCodingPilot(options = {}) {
       mutationSetHash: execution.mutationSet.mutationSetHash,
       changedFiles,
       patchHash: hash(generatedPatch),
-      verifierStages: [...profile.verifierStages]
+      verifierStages: [...verificationProfile]
     };
     const artifact = {
       ...artifactIdentity,
@@ -1588,10 +1128,7 @@ async function runControlledCodingPilot(options = {}) {
       `${lifecycle.map((type) => JSON.stringify({ type })).join("\n")}\n`);
     await writeFile(
       join(output, "verifier-report.json"),
-      `${JSON.stringify({
-        passed: true,
-        stages: [...profile.verifierStages]
-      }, null, 2)}\n`
+      `${JSON.stringify({ passed: true, stages: [...verificationProfile] }, null, 2)}\n`
     );
     await writeFile(
       join(output, "governed-change-artifact.json"),
@@ -1719,14 +1256,10 @@ if (require.main === module) {
     confirmLive: process.argv.includes("--confirm-live")
   }).then((report) => {
     process.stdout.write(`${JSON.stringify(report)}\n`);
-    if (report.status === "failed" || report.status === "cancelled") {
-      process.exitCode = 1;
-    }
+    if (report.status === "failed" || report.status === "cancelled") process.exitCode = 1;
   }).catch(() => {
     process.stdout.write(`${JSON.stringify(reportBase({
-      status: "failed",
-      failureCode: "PILOT_PROVIDER_CALL_FAILED",
-      cleanupCompleted: false
+      status: "failed", failureCode: "PILOT_PROVIDER_CALL_FAILED", cleanupCompleted: false
     }))}\n`);
     process.exitCode = 1;
   });
