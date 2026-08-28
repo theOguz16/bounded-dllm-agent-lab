@@ -635,10 +635,6 @@ function client(mode, counter) {
   else process.env.CONTROLLED_PILOT_DEBUG = previousDebug;
   assert.equal(rejected.failureCode, "PILOT_PROVIDER_CALL_FAILED");
   assert.deepEqual(rejected.providerDiagnostic, {
-    remainingRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
-    outputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT,
-    configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
-    configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
     executorMutationLineBudget: 2 * sourceBefore.split(/\r?\n/).length + 120,
     executorDiagnosticCode: "EXECUTOR_PROVIDER_REJECTED"
   });
