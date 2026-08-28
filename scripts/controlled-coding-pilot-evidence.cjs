@@ -21,6 +21,10 @@ const PILOT_DEFINITIONS = {
   "controlled-real-coding-v2.worker-request-id-correlation": {
     path: "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
     evidenceSchemaVersion: V2_SCHEMA_VERSION
+  },
+  "controlled-real-coding-v2.local-json-schema-error-classification": {
+    path: "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json",
+    evidenceSchemaVersion: V2_SCHEMA_VERSION
   }
 };
 const HASH = /^sha256:[0-9a-f]{64}$/;

@@ -645,11 +645,14 @@ function validateModelOutput(
 function providerFailure(error: unknown): ExecutorFailure {
   if (error instanceof ExecutorFailure) return error;
   const value = error as { status?: number; code?: string; name?: string } | null;
-  const runpodCode = value?.code ?? "";
+  const runpodCode = (value?.code ?? "").replace(/^LOCAL_/, "RUNPOD_");
   if (runpodCode === "RUNPOD_ABORTED") {
     return new ExecutorFailure("EXECUTOR_ABORTED", "provider", false, "aborted");
   }
-  if (runpodCode === "RUNPOD_AUTHENTICATION_FAILED") {
+  if (
+    runpodCode === "RUNPOD_AUTH_FAILED" ||
+    runpodCode === "RUNPOD_AUTHENTICATION_FAILED"
+  ) {
     return new ExecutorFailure("EXECUTOR_AUTHENTICATION_FAILED", "provider");
   }
   if (runpodCode === "RUNPOD_PERMISSION_DENIED") {
@@ -658,11 +661,32 @@ function providerFailure(error: unknown): ExecutorFailure {
   if (runpodCode === "RUNPOD_RATE_LIMITED") {
     return new ExecutorFailure("EXECUTOR_PROVIDER_RATE_LIMITED", "provider", true, "failed");
   }
-  if (runpodCode === "RUNPOD_ENDPOINT_UNAVAILABLE") {
-    return new ExecutorFailure("EXECUTOR_PROVIDER_UNAVAILABLE", "provider", true, "failed");
+  if (
+    runpodCode === "RUNPOD_ENDPOINT_NOT_FOUND" ||
+    runpodCode === "RUNPOD_ENDPOINT_UNAVAILABLE" ||
+    runpodCode === "RUNPOD_NETWORK_ERROR" ||
+    runpodCode === "RUNPOD_UPSTREAM_SERVER_ERROR" ||
+    runpodCode === "RUNPOD_PROXY_BAD_GATEWAY" ||
+    runpodCode === "RUNPOD_PROXY_UNAVAILABLE"
+  ) {
+    return new ExecutorFailure(
+      "EXECUTOR_PROVIDER_UNAVAILABLE",
+      "provider",
+      true,
+      "failed"
+    );
   }
-  if (["RUNPOD_COLD_START_TIMEOUT", "RUNPOD_REQUEST_TIMEOUT"].includes(runpodCode)) {
-    return new ExecutorFailure("EXECUTOR_PROVIDER_TIMEOUT", "provider", true, "failed");
+  if ([
+    "RUNPOD_COLD_START_TIMEOUT",
+    "RUNPOD_REQUEST_TIMEOUT",
+    "RUNPOD_PROXY_TIMEOUT"
+  ].includes(runpodCode)) {
+    return new ExecutorFailure(
+      "EXECUTOR_PROVIDER_TIMEOUT",
+      "provider",
+      true,
+      "failed"
+    );
   }
   if (["RUNPOD_MODEL_NOT_FOUND", "RUNPOD_REQUEST_REJECTED",
     "RUNPOD_JSON_SCHEMA_UNSUPPORTED"].includes(runpodCode)) {

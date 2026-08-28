@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "bounded.controlled-coding-pilot/v2",
+  "pilotId": "controlled-real-coding-v2.local-json-schema-error-classification",
+  "taskTitle": "Classify local OpenAI JSON-schema HTTP 400 errors precisely",
+  "taskPrompt": "Fix the local OpenAI-compatible model client so that HTTP 400 responses are classified as LOCAL_JSON_SCHEMA_UNSUPPORTED only when the upstream error specifically indicates that response_format/json_schema support itself is unavailable. Generic invalid requests and invalid supplied schemas must remain LOCAL_REQUEST_REJECTED. json_object mode must not use the JSON-schema-unsupported classification. Add focused regression coverage using mocked globalThis.fetch with no real network. Modify only packages/integrations/src/local-openai-compatible-model-client.ts and tests/smoke/contracts.ts, respect the configured patch budget, and preserve unrelated transport classification, endpoint policy, credential handling, request construction, timeout behavior, dependencies, and RunPod client behavior.",
+  "sourceRevisionPolicy": "current-head",
+  "allowedMutationPaths": [
+    "packages/integrations/src/local-openai-compatible-model-client.ts",
+    "tests/smoke/contracts.ts"
+  ],
+  "allowedReadRoots": [
+    "packages/integrations/src/local-openai-compatible-model-client.ts",
+    "tests/smoke/contracts.ts"
+  ],
+  "forbiddenPaths": [
+    "package.json",
+    "package-lock.json",
+    "node_modules",
+    "dist",
+    "reports",
+    ".github",
+    "docs",
+    "pilots",
+    "scripts",
+    "examples",
+    "fixtures",
+    "apps",
+    "bounded-agent.policy.yml",
+    ".env",
+    ".git",
+    "packages/integrations/src/runpod-openai-compatible-model-client.ts"
+  ],
+  "maxChangedFiles": 2,
+  "maxPatchLines": 120,
+  "providerCallBudget": 1,
+  "retryBudget": 0,
+  "acceptanceCommands": [
+    "npm run typecheck",
+    "npm run build",
+    "npm run test:smoke",
+    "node scripts/controlled-coding-pilot-local-json-schema-check.cjs --repository <disposable-checkout>"
+  ],
+  "requiredAssertions": [
+    "an explicit upstream lack of response_format/json_schema support maps to LOCAL_JSON_SCHEMA_UNSUPPORTED",
+    "a generic HTTP 400 invalid request maps to LOCAL_REQUEST_REJECTED",
+    "an invalid supplied JSON schema maps to LOCAL_REQUEST_REJECTED",
+    "json_object mode does not classify HTTP 400 as LOCAL_JSON_SCHEMA_UNSUPPORTED",
+    "regression coverage uses mocked globalThis.fetch without real network",
+    "unrelated transport classification remains unchanged",
+    "only the two authorized files change",
+    "patch stays within the configured maxPatchLines budget",
+    "source worktree and GitHub remain immutable"
+  ]
+}
