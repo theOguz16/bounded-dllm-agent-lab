@@ -3,6 +3,10 @@ import OpenAI, {
   APIConnectionTimeoutError
 } from "openai";
 
+import {
+  ProductionModelError,
+  createProviderAbortError
+} from "./provider-execution-error.js";
 import type {
   ExecutorCredentialProvider,
   ProductionModelClient,
@@ -254,6 +258,52 @@ function mapTransportFailure(error: unknown, modelId: string): RunpodModelClient
   return new RunpodModelClientError("RUNPOD_INTERNAL_ERROR");
 }
 
+function toProductionModelError(error: RunpodModelClientError): Error {
+  switch (error.code) {
+    case "RUNPOD_ABORTED":
+      return createProviderAbortError();
+    case "RUNPOD_CREDENTIAL_MISSING":
+    case "RUNPOD_AUTH_FAILED":
+    case "RUNPOD_AUTHENTICATION_FAILED":
+    case "RUNPOD_PERMISSION_DENIED":
+      return new ProductionModelError("AUTH_FAILURE");
+    case "RUNPOD_RATE_LIMITED":
+      return new ProductionModelError("RATE_LIMITED");
+    case "RUNPOD_JSON_SCHEMA_UNSUPPORTED":
+      return new ProductionModelError("STRUCTURED_OUTPUT_UNSUPPORTED");
+    case "RUNPOD_COLD_START_TIMEOUT":
+    case "RUNPOD_REQUEST_TIMEOUT":
+    case "RUNPOD_PROXY_TIMEOUT":
+      return new ProductionModelError("TIMEOUT");
+    case "RUNPOD_ENDPOINT_UNAVAILABLE":
+    case "RUNPOD_UPSTREAM_SERVER_ERROR":
+    case "RUNPOD_PROXY_BAD_GATEWAY":
+    case "RUNPOD_PROXY_UNAVAILABLE":
+    case "RUNPOD_NETWORK_ERROR":
+    case "RUNPOD_INTERNAL_ERROR":
+      return new ProductionModelError("TRANSPORT_FAILURE");
+    case "RUNPOD_RESPONSE_EMPTY":
+    case "RUNPOD_RESPONSE_MULTIPLE_CHOICES":
+    case "RUNPOD_RESPONSE_TRUNCATED":
+    case "RUNPOD_RESPONSE_NOT_JSON":
+    case "RUNPOD_RESPONSE_SCHEMA_INVALID":
+    case "RUNPOD_RESPONSE_TOO_LARGE":
+    case "RUNPOD_USAGE_INVALID":
+    case "RUNPOD_RESPONSE_INVALID":
+      return new ProductionModelError("MODEL_RESPONSE_INVALID");
+    case "RUNPOD_ENDPOINT_MISSING":
+    case "RUNPOD_MODEL_MISSING":
+    case "RUNPOD_BASE_URL_INVALID":
+    case "RUNPOD_ENDPOINT_ID_INVALID":
+    case "RUNPOD_BASE_URL_NOT_ALLOWED":
+    case "RUNPOD_CREDENTIAL_BEARING_URL":
+    case "RUNPOD_ENDPOINT_NOT_FOUND":
+    case "RUNPOD_MODEL_NOT_FOUND":
+    case "RUNPOD_REQUEST_REJECTED":
+      return new ProductionModelError("REQUEST_REJECTED");
+  }
+}
+
 export class RunpodOpenAICompatibleModelClient implements ProductionModelClient {
   private readonly baseUrl: string;
 
@@ -396,13 +446,12 @@ export class RunpodOpenAICompatibleModelClient implements ProductionModelClient 
         ...(providerRequestId ? { providerRequestId } : {})
       };
     } catch (error) {
-      if (
+      const runpodError =
         this.configuration.structuredOutputMode === "json_schema" &&
         (error as { status?: number } | null)?.status === 400
-      ) {
-        throw new RunpodModelClientError("RUNPOD_JSON_SCHEMA_UNSUPPORTED");
-      }
-      throw mapTransportFailure(error, this.configuration.modelId);
+          ? new RunpodModelClientError("RUNPOD_JSON_SCHEMA_UNSUPPORTED")
+          : mapTransportFailure(error, this.configuration.modelId);
+      throw toProductionModelError(runpodError);
     }
   }
 }
