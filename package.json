@@ -57,7 +57,7 @@
     "code:model-remask-verifier-remask-benchmark": "CODE_MODEL_CASE_SUITE=remask_required CODE_AGENT_FLOW=workspace_verifier_remask node dist/apps/cli/src/code-model-patch-benchmark.js",
     "code:dllm-benchmark": "node dist/apps/cli/src/code-dllm-patch-benchmark.js",
     "code:failure-taxonomy": "node dist/apps/cli/src/code-failure-taxonomy.js",
-    "ablation:run": "node dist/apps/cli/src/ablation-run.js",
+    "ablation:run": "node dist/apps/cli/src/ablation-run.js --suite hard",
     "hard:benchmark": "node dist/apps/cli/src/ablation-run.js --suite hard --modes bounded_refinement",
     "hard:ablation": "node dist/apps/cli/src/ablation-run.js --suite hard",
     "remask:benchmark": "node dist/apps/cli/src/remask-benchmark.js",
@@ -265,6 +265,7 @@
     "verify:ag3c": "npm run verify:ag3b && node scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs --verify",
     "validate:ag3c-live": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
     "generate:ag3c-live-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
+    "preflight:runpod-research": "node scripts/runpod-research-preflight.cjs",
     "smoke:controlled-coding-pilot": "npm run build && node scripts/controlled-coding-pilot-smoke.cjs",
     "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs"
   },
