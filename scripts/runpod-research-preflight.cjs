@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
 const {
   accessSync,
   constants,
@@ -10,10 +10,11 @@ const {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } = require("node:fs");
 const { tmpdir } = require("node:os");
-const { dirname, join, resolve } = require("node:path");
+const { join, resolve } = require("node:path");
 const { validateDefinition, V2_RUNTIME_BUDGET } = require("./controlled-pilot/definition.cjs");
 const { hashCanonical, parseIndex, verifyIndex } = require("./evidence-index.cjs");
 
@@ -73,15 +74,19 @@ function resolveResearchRef(root, branch) {
 function withDetachedWorktree(root, sha, prefix, callback) {
   const holder = mkdtempSync(join(tmpdir(), prefix));
   const worktree = join(holder, "repo");
+  const worktreeNodeModules = join(worktree, "node_modules");
+  let linkedNodeModules = false;
   git(root, ["worktree", "add", "--quiet", "--detach", worktree, sha]);
   try {
     const sourceNodeModules = join(root, "node_modules");
-    if (existsSync(sourceNodeModules) && !existsSync(join(worktree, "node_modules"))) {
+    if (existsSync(sourceNodeModules) && !existsSync(worktreeNodeModules)) {
       const link = process.platform === "win32" ? "junction" : "dir";
-      require("node:fs").symlinkSync(sourceNodeModules, join(worktree, "node_modules"), link);
+      symlinkSync(sourceNodeModules, worktreeNodeModules, link);
+      linkedNodeModules = true;
     }
     return callback(worktree);
   } finally {
+    if (linkedNodeModules) rmSync(worktreeNodeModules, { force: true });
     try { git(root, ["worktree", "remove", "--force", worktree]); } catch {}
     rmSync(holder, { recursive: true, force: true });
   }
