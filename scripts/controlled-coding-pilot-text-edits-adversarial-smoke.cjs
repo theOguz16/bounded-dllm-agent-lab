@@ -6,6 +6,8 @@ const {
   PILOT_MAX_TEXT_EDIT_BYTES,
   PILOT_MAX_TEXT_EDITS,
   TEXT_EDIT_OUTPUT_VERSION,
+  TEXT_EDIT_PROTOCOL,
+  boundedTextEditInstruction,
   materializeBoundedTextEdits
 } = require("./controlled-pilot/text-edits.cjs");
 const { hash } = require("./controlled-pilot/context.cjs");
@@ -33,10 +35,16 @@ function fixture(files, options = {}) {
   };
   const request = {
     instruction: JSON.stringify({
+      task: { taskId: "bounded-text-edit-test", summary: "Exercise bounded edit protocol." },
       existingPlan: {
         steps: [{ stepId: "step-1", targetPaths: requiredMutationPaths }]
       },
-      workspaceFiles: files
+      workspaceFiles: files,
+      authorityRules: {
+        readablePaths: requiredMutationPaths,
+        allowedChangePaths: allowedMutationPaths,
+        forbiddenPaths: []
+      }
     })
   };
   return { request, profile };
@@ -79,6 +87,47 @@ function rejectsAuthority(files, edits, options = {}) {
     () => materializeBoundedTextEdits(request, output(edits), profile),
     (error) => error?.pilotCode === "PILOT_AUTHORITY_VIOLATION"
   );
+}
+
+// Contract: schema/limits/materialization are first-class protocol data.
+assert.equal(TEXT_EDIT_PROTOCOL.schemaVersion, "bounded.controlled-text-edits/v1");
+assert.equal(TEXT_EDIT_PROTOCOL.limits.maxEdits, PILOT_MAX_TEXT_EDITS);
+assert.equal(TEXT_EDIT_PROTOCOL.limits.maxTotalUtf8Bytes, PILOT_MAX_TEXT_EDIT_BYTES);
+assert.equal(TEXT_EDIT_PROTOCOL.resolution.source, "original_supplied_source");
+assert.equal(TEXT_EDIT_PROTOCOL.resolution.occurrence, "exact_unique");
+assert.equal(TEXT_EDIT_PROTOCOL.resolution.overlap, "reject");
+assert.equal(TEXT_EDIT_PROTOCOL.resolution.duplicateSpan, "reject");
+assert.equal(
+  TEXT_EDIT_PROTOCOL.materialization.order,
+  "descending_original_start_offset"
+);
+assert.equal(
+  TEXT_EDIT_PROTOCOL.authority.expectedContentHashBinds,
+  "original_source_content"
+);
+
+// Instruction serialization regression: provider receives the normative protocol contract.
+{
+  const a = source("a.ts", "export const a = 1;\n");
+  const { request, profile } = fixture([a]);
+  const definition = {
+    contextSelections: [{
+      path: a.path,
+      selectors: [{ kind: "lines", startLine: 1, endLine: 1 }]
+    }]
+  };
+  const serialized = boundedTextEditInstruction(request, profile, definition);
+  const instruction = JSON.parse(serialized);
+  const rules = instruction.protocol.invariants.map((entry) => entry.rule).join("\n");
+
+  assert.equal(instruction.protocol.schemaVersion, TEXT_EDIT_PROTOCOL.schemaVersion);
+  assert.equal(instruction.protocol.resolution.source, "original_supplied_source");
+  assert.equal(instruction.protocol.materialization.order, "descending_original_start_offset");
+  assert.match(rules, /original supplied source content identified by expectedContentHash/i);
+  assert.match(rules, /introduced by other edits in the same response/i);
+  assert.match(rules, /generated text MUST NOT be used as oldText evidence/i);
+  assert.match(rules, /resolved against the original source before any replacement is applied/i);
+  assert.match(instruction.contextPolicy.join("\n"), /Omitted source still exists and must remain unchanged/i);
 }
 
 // PASS 1: single edit.
