@@ -35,16 +35,6 @@ jobs:
         env:
           RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
           RUNPOD_RESEARCH_PROVIDER: unavailable
-          LLM_UPSTREAM_URL: ''
-          MODEL_WORKER_UPSTREAM_URL: ''
-          LLM_MODEL_ID: ''
-          LLM_UPSTREAM_API_KEY: ''
-          MODEL_WORKER_UPSTREAM_API_KEY: ''
-          GATE5_OPENAI_ENDPOINT: ''
-          GATE5_MODEL: ''
-          GATE5_API_KEY: ''
-          GATE5_MAX_COMPLETION_TOKENS: ''
-          RUNPOD_RESEARCH_REPETITIONS: ''
         run: |
           set +e
           npm run preflight:runpod-research > /tmp/runpod-research-preflight.json
@@ -64,4 +54,34 @@ jobs:
           if (report.controlledPilotV2?.taskCount !== 2) process.exit(1);
           if (report.modeF?.repositories !== 3) process.exit(1);
           if (report.provider?.configured !== false) process.exit(1);
+          NODE
+      - name: Configured provider-shape research preflight
+        env:
+          RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
+          LLM_UPSTREAM_URL: https://example.invalid/v1/chat/completions
+          LLM_MODEL_ID: qwen2.5-coder-7b
+          LLM_UPSTREAM_API_KEY: preflight-controlled-secret-sentinel
+          GATE5_OPENAI_ENDPOINT: https://example.invalid/v1/chat/completions
+          GATE5_MODEL: qwen2.5-coder-7b
+          GATE5_API_KEY: preflight-mode-f-secret-sentinel
+          GATE5_MAX_COMPLETION_TOKENS: '256'
+          RUNPOD_RESEARCH_REPETITIONS: '3'
+        run: |
+          npm run preflight:runpod-research > /tmp/runpod-research-configured.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync('/tmp/runpod-research-configured.json', 'utf8');
+          for (const secret of [
+            'preflight-controlled-secret-sentinel',
+            'preflight-mode-f-secret-sentinel'
+          ]) {
+            if (text.includes(secret)) process.exit(1);
+          }
+          const start = text.indexOf('{');
+          if (start < 0) process.exit(1);
+          const report = JSON.parse(text.slice(start));
+          if (report.localReady !== true) process.exit(1);
+          if (report.providerReady !== true) process.exit(1);
+          if (report.runpodReady !== true) process.exit(1);
+          if (report.provider?.configured !== true) process.exit(1);
           NODE
