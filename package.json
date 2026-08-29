@@ -265,6 +265,7 @@
     "verify:ag3c": "npm run verify:ag3b && node scripts/ag3c-openai-compatible-planner-minimality-provider-smoke.cjs --verify",
     "validate:ag3c-live": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
     "generate:ag3c-live-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
+    "preflight:runpod-research": "node scripts/runpod-research-preflight.cjs",
     "smoke:controlled-coding-pilot": "npm run build && node scripts/controlled-coding-pilot-smoke.cjs",
     "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs"
   },

@@ -43,6 +43,7 @@ allowed_paths:
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
   - scripts/runpod-openai-compatible-model-client-error-smoke.cjs
+  - scripts/runpod-research-preflight.cjs
   - pilots/controlled-real-coding-v1/**
   - pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json
   - pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json
