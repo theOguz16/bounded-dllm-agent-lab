@@ -26,6 +26,10 @@ function sha256Bytes(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+function hashJson(value) {
+  return sha256Bytes(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
 function gitText(args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
 }
@@ -123,7 +127,7 @@ function makeModeF(root, { fixture = false, mutate } = {}) {
   ];
   mkdirSync(root, { recursive: true });
   const rawPath = join(root, "mode-f-live-evidence.json.raw.json");
-  const raw = {
+  const rawCore = {
     executionClass: fixture
       ? "fixture_adaptive_compressed_boundary"
       : "live_adaptive_compressed_boundary",
@@ -139,9 +143,9 @@ function makeModeF(root, { fixture = false, mutate } = {}) {
       strictOracleSuccessRate: 1,
       averageContextBytes: mode.startsWith("F_") ? 100 : 200,
       totalScopeDriftFiles: 0
-    })),
-    reportHash: `sha256:${"1".repeat(64)}`
+    }))
   };
+  const raw = { ...rawCore, reportHash: hashJson(rawCore) };
   writeJson(rawPath, raw);
   const rawBytes = readFileSync(rawPath);
   const config = {
