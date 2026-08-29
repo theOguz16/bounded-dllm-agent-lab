@@ -36,6 +36,7 @@ allowed_paths:
   - scripts/runpod-openai-compatible-model-client-error-smoke.cjs
   - scripts/gate5-adaptive-compressed-boundary.cjs
   - scripts/gate5-mode-f-live-evidence.cjs
+  - scripts/gate5-mode-f-promotion-gate.cjs
   - scripts/lib/gate5-language-resolver.cjs
   - pilots/controlled-real-coding-v1/**
   - pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json
