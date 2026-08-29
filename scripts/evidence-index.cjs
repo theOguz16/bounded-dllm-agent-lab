@@ -81,6 +81,62 @@ function verifyTaskset(record) {
   }
 }
 
+function normalizedExternalTasks(tasks) {
+  if (!Array.isArray(tasks)) return null;
+  return tasks.map((entry) => ({
+    taskId: entry?.taskId,
+    repository: entry?.repository,
+    commitSha: entry?.commitSha
+  })).sort((left, right) => String(left.taskId).localeCompare(String(right.taskId)));
+}
+
+function verifyPromotedEvidenceArtifact(record, parsed) {
+  if (parsed.evidenceHash !== record.artifactHash || parsed.sourceCommit !== record.sourceCommit) {
+    fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
+  }
+  const core = { ...parsed };
+  delete core.evidenceHash;
+  if (hashCanonical(core) !== parsed.evidenceHash) {
+    fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
+  }
+
+  if (parsed.schemaVersion === "bounded.controlled-coding-pilot-observed-evidence/v3") {
+    if (record.experimentId !== "controlled-coding-pilot-v2-suite" ||
+        parsed.experimentConfig?.modelId !== record.model ||
+        parsed.experimentConfig?.provider?.transport !== record.provider ||
+        !Array.isArray(parsed.runs) ||
+        parsed.runCount !== parsed.runs.length ||
+        record.tasksetIdentity?.kind !== "controlled_pilot_definitions/v1") {
+      fail("EVIDENCE_INDEX_PROMOTED_ARTIFACT_INVALID", record.experimentId);
+    }
+    const expected = record.tasksetIdentity.tasks.map((entry) => entry.pilotId).sort();
+    const actual = parsed.runs.map((entry) => entry?.pilotId).sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
+    }
+    return;
+  }
+
+  if (parsed.schemaVersion === "gate5-mode-f-live-evidence/v1") {
+    if (record.experimentId !== "gate5-mode-f-c-e-f" ||
+        parsed.researchStatus !== "observed_live_result" ||
+        parsed.executionClass !== "live_adaptive_compressed_boundary" ||
+        parsed.experimentConfig?.model !== record.model ||
+        parsed.experimentConfig?.transport !== record.provider ||
+        record.tasksetIdentity?.kind !== "external_repository_tasks/v1") {
+      fail("EVIDENCE_INDEX_PROMOTED_ARTIFACT_INVALID", record.experimentId);
+    }
+    const expected = normalizedExternalTasks(record.tasksetIdentity.tasks);
+    const actual = normalizedExternalTasks(parsed.immutableExternalRepositories);
+    if (!expected || !actual || JSON.stringify(actual) !== JSON.stringify(expected)) {
+      fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
+    }
+    return;
+  }
+
+  fail("EVIDENCE_INDEX_ARTIFACT_HASH_KIND_INVALID", record.experimentId);
+}
+
 function verifyArtifact(root, record) {
   if (record.status !== "observed") {
     if (record.artifactPath !== null || record.artifactHash !== null ||
@@ -128,6 +184,13 @@ function verifyArtifact(root, record) {
         fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
       }
     }
+    return;
+  }
+  if (record.artifactHashKind === "json_field:evidenceHash") {
+    let parsed;
+    try { parsed = JSON.parse(content); }
+    catch { fail("EVIDENCE_INDEX_ARTIFACT_JSON_INVALID", record.artifactPath); }
+    verifyPromotedEvidenceArtifact(record, parsed);
     return;
   }
   fail("EVIDENCE_INDEX_ARTIFACT_HASH_KIND_INVALID", record.experimentId);
