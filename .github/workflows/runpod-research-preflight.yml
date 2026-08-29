@@ -31,6 +31,17 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Diagnose Mode F detached-worktree fixture
+        run: |
+          MODE_F_WORKTREE="$(mktemp -d)/repo"
+          git worktree add --quiet --detach "$MODE_F_WORKTREE" origin/research/mode-f-live-validation
+          ln -s "$PWD/node_modules" "$MODE_F_WORKTREE/node_modules"
+          (
+            cd "$MODE_F_WORKTREE"
+            node scripts/gate5-mode-f-live-evidence.cjs --repetitions=3 --output=/tmp/mode-f-diagnostic-evidence.json
+          )
+          git worktree remove --force "$MODE_F_WORKTREE"
+          rm -f /tmp/mode-f-diagnostic-evidence.json /tmp/mode-f-diagnostic-evidence.json.raw.json
       - name: Provider-free research preflight
         env:
           RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
