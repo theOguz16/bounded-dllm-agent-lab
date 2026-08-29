@@ -46,7 +46,12 @@ jobs:
           GATE5_MAX_COMPLETION_TOKENS: ''
           RUNPOD_RESEARCH_REPETITIONS: ''
         run: |
+          set +e
           npm run preflight:runpod-research > /tmp/runpod-research-preflight.json
+          PREFLIGHT_STATUS=$?
+          set -e
+          cat /tmp/runpod-research-preflight.json
+          test "$PREFLIGHT_STATUS" -eq 0
           node - <<'NODE'
           const fs = require('node:fs');
           const text = fs.readFileSync('/tmp/runpod-research-preflight.json', 'utf8');
