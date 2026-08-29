@@ -11,6 +11,7 @@ const {
   validateDefinition
 } = require("./controlled-coding-pilot.cjs");
 const { resolvePilotConfiguration } = require("./controlled-coding-pilot-registry.cjs");
+const { hash } = require("./controlled-pilot/context.cjs");
 
 const root = process.cwd();
 const V1_DEFINITION = "pilots/controlled-real-coding-v1/runpod-live-help/task.json";
@@ -70,6 +71,10 @@ const profile = {
   maxPatchLines: 120,
   providerRequirements: []
 };
+const aContent = "export const a = 1;\n";
+const bContent = "export const b = 1;\n";
+const aHash = hash(aContent);
+const bHash = hash(bContent);
 const request = {
   instruction: JSON.stringify({
     existingPlan: {
@@ -81,15 +86,15 @@ const request = {
     workspaceFiles: [
       {
         path: "packages/example/src/a.ts",
-        content: "export const a = 1;\n",
-        contentHash: "sha256:a",
+        content: aContent,
+        contentHash: aHash,
         authority: "change_allowed",
         relatedSymbols: ["symbol:a"]
       },
       {
         path: "packages/example/src/b.ts",
-        content: "export const b = 1;\n",
-        contentHash: "sha256:b",
+        content: bContent,
+        contentHash: bHash,
         authority: "change_allowed",
         relatedSymbols: ["symbol:b"]
       }
@@ -101,13 +106,13 @@ const materialized = materializeBoundedTextEdits(request, {
   edits: [
     {
       path: "packages/example/src/a.ts",
-      expectedContentHash: "sha256:a",
+      expectedContentHash: aHash,
       oldText: "a = 1",
       newText: "a = 2"
     },
     {
       path: "packages/example/src/b.ts",
-      expectedContentHash: "sha256:b",
+      expectedContentHash: bHash,
       oldText: "b = 1",
       newText: "b = 2"
     }
@@ -127,7 +132,7 @@ assert.throws(
     schemaVersion: "bounded.controlled-text-edits/v1",
     edits: [{
       path: "package.json",
-      expectedContentHash: "sha256:a",
+      expectedContentHash: aHash,
       oldText: "a = 1",
       newText: "a = 2"
     }],
@@ -141,12 +146,12 @@ assert.throws(
     schemaVersion: "bounded.controlled-text-edits/v1",
     edits: [{
       path: "packages/example/src/a.ts",
-      expectedContentHash: "sha256:a",
+      expectedContentHash: aHash,
       oldText: "not-present",
       newText: "a = 2"
     }, {
       path: "packages/example/src/b.ts",
-      expectedContentHash: "sha256:b",
+      expectedContentHash: bHash,
       oldText: "b = 1",
       newText: "b = 2"
     }],
