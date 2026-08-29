@@ -31,6 +31,9 @@ jobs:
       - name: Controlled pilot context selector regression
         run: node scripts/controlled-coding-pilot-context-selector-smoke.cjs
 
+      - name: Controlled pilot engine split regression
+        run: node scripts/controlled-pilot-engine-split-smoke.cjs
+
       - name: Controlled pilot smoke
         run: node scripts/controlled-coding-pilot-smoke.cjs
         env:

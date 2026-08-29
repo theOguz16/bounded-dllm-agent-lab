@@ -17,6 +17,8 @@ allowed_paths:
   - scripts/claim-integrity-smoke.cjs
   - scripts/provider-neutral-execution-errors-smoke.cjs
   - scripts/controlled-coding-pilot.cjs
+  - scripts/controlled-pilot/**
+  - scripts/controlled-pilot-engine-split-smoke.cjs
   - scripts/controlled-coding-pilot-registry.cjs
   - scripts/controlled-coding-pilot-registry-smoke.cjs
   - scripts/controlled-coding-pilot-verification.cjs
