@@ -2,12 +2,16 @@
 
 const { resolveContextSelections } = require("../controlled-coding-pilot-context-selector.cjs");
 const { canonical, hash, pathMatchesScope } = require("./context.cjs");
+const {
+  TEXT_EDIT_PROTOCOL,
+  providerTextEditProtocolContract
+} = require("./text-edit-protocol.cjs");
 
 const TARGET = "apps/cli/src/model-worker-runpod-live-smoke.ts";
 const INSERTION_OUTPUT_VERSION = "bounded.controlled-help-copy-output/v1";
-const TEXT_EDIT_OUTPUT_VERSION = "bounded.controlled-text-edits/v1";
-const PILOT_MAX_TEXT_EDITS = 8;
-const PILOT_MAX_TEXT_EDIT_BYTES = 20_000;
+const TEXT_EDIT_OUTPUT_VERSION = TEXT_EDIT_PROTOCOL.schemaVersion;
+const PILOT_MAX_TEXT_EDITS = TEXT_EDIT_PROTOCOL.limits.maxEdits;
+const PILOT_MAX_TEXT_EDIT_BYTES = TEXT_EDIT_PROTOCOL.limits.maxTotalUtf8Bytes;
 const INSERTION_ANCHOR = "const reportName = \"model-worker-runpod-live-smoke-v1\";";
 const PILOT_MAX_INSERTION_LINES = 60;
 const PILOT_MAX_INSERTION_BYTES = 20_000;
@@ -216,6 +220,7 @@ function boundedTextEditInstruction(request, profile, definition) {
     authorityRules: bounded.authorityRules,
     requiredMutationPaths: profile.requiredMutationPaths,
     patchBudget: { maxChangedFiles: profile.maxChangedFiles, maxPatchLines: profile.maxPatchLines },
+    protocol: providerTextEditProtocolContract(),
     contextPolicy: [
       "Only focused excerpts selected by the task context contract are supplied.",
       "Omitted source still exists and must remain unchanged.",
@@ -230,10 +235,6 @@ function boundedTextEditInstruction(request, profile, definition) {
       "Treat the patch-line budget as a hard limit.",
       "Prefer surgical replacements and preserve unrelated code.",
       "Do not replace a large block when a smaller unique replacement works.",
-      "Copy expectedContentHash exactly from sourceContentHash for the matching workspace file.",
-      "Every oldText must identify exactly one occurrence in the original supplied full source, before any edit is applied.",
-      "All edits in one response are independently grounded in that original source; never use text produced by another edit as oldText.",
-      "Edits targeting the same file must refer to distinct, non-overlapping original-source spans.",
       "Use the smallest practical unique oldText.",
       "newText is the exact replacement for oldText.",
       "Do not attempt to modify omitted source.",
@@ -274,7 +275,9 @@ function isWellFormedBoundedTextEdit(edit) {
 
 function assertOriginalSourceAuthority(edit, source, allowedPaths, requiredPaths) {
   if (!allowedPaths.has(edit.path) || !requiredPaths.has(edit.path)) authorityViolation();
-  if (!source || source.authority !== "change_allowed") authorityViolation();
+  if (!source || source.authority !== TEXT_EDIT_PROTOCOL.authority.requiredSourceAuthority) {
+    authorityViolation();
+  }
   if (typeof source.content !== "string" || typeof source.contentHash !== "string" ||
       hash(source.content) !== source.contentHash) authorityViolation();
   if (edit.expectedContentHash !== source.contentHash) authorityViolation();
@@ -308,7 +311,9 @@ function preflightBoundedTextEdits(bounded, providerOutput, profile) {
     if (!isWellFormedBoundedTextEdit(edit)) invalidBoundedTextEditOutput();
 
     totalEditBytes += Buffer.byteLength(edit.oldText) + Buffer.byteLength(edit.newText);
-    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) invalidBoundedTextEditOutput();
+    if (totalEditBytes > TEXT_EDIT_PROTOCOL.limits.maxTotalUtf8Bytes) {
+      invalidBoundedTextEditOutput();
+    }
 
     const source = sources.get(edit.path);
     assertOriginalSourceAuthority(edit, source, allowedPaths, requiredPaths);
@@ -354,7 +359,7 @@ function materializeBoundedTextEdits(request, providerOutput, profile) {
       canonical(["schemaVersion", "edits", "summary"].sort()) ||
     providerOutput.schemaVersion !== TEXT_EDIT_OUTPUT_VERSION ||
     !Array.isArray(providerOutput.edits) || providerOutput.edits.length === 0 ||
-    providerOutput.edits.length > PILOT_MAX_TEXT_EDITS ||
+    providerOutput.edits.length > TEXT_EDIT_PROTOCOL.limits.maxEdits ||
     typeof providerOutput.summary !== "string" || providerOutput.summary.trim().length === 0
   ) invalidBoundedTextEditOutput();
 
@@ -395,6 +400,7 @@ module.exports = {
   PILOT_MAX_TEXT_EDITS,
   TARGET,
   TEXT_EDIT_OUTPUT_VERSION,
+  TEXT_EDIT_PROTOCOL,
   boundedTextEditInstruction,
   boundedTextEditOutputSchema,
   controlledInsertionInstruction,
