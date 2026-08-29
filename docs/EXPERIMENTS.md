@@ -1,672 +1,85 @@
-# Experiments
+# Experiments — Historical Research Guide
 
-## Canonical Benchmark Fixture Schema
+> This file documents benchmark design patterns and retained historical experiments. It is **not** the authority for whether an experiment is complete, observed, or promotable. Query [`../evidence/index.json`](../evidence/index.json) for status and use [`CURRENT_STATE.md`](./CURRENT_STATE.md) only as a narrative runtime summary.
 
-Every benchmark case in this project should be easy to compare across different architectures.
+## Benchmark contract
 
-That is why each fixture has two parts:
+The durable methodological rule is separation between provider-visible input and evaluator-only truth:
 
 ```text
 BenchmarkFixture
-  -> packet: what the system receives
-  -> case: how the evaluator judges the output
+  -> packet: provider-visible task/context
+  -> case: evaluator-only grading oracle
 ```
 
-The important learning point is this:
+Expected answers, expected changed files, success criteria, and metric-specific oracle values must not leak into the packet. Scope, task text, permitted evidence, and explicit authority may be provider-visible when they are part of the real task contract.
 
-```text
-The packet is the input.
-The case is the grading key.
-```
+## What the retained experiments test
 
-If we mix those two ideas, the benchmark becomes unfair. A model should not see the grading key. It should only see the bounded context packet.
+Historical suites in this repository cover:
 
-### BenchmarkFixture
+- correction/stale-fact handling;
+- sensitive-boundary and scope-drift behavior;
+- insufficient-context refusal;
+- deterministic ablation of context/grounding/refinement layers;
+- autoregressive, RAG-style, expanded, synthetic, workspace, verifier, and remask variants;
+- code-patch and external-repository tasks;
+- Gate 5 comparative evidence contracts;
+- controlled-coding pilots with bounded authority and deterministic verification.
 
-Top-level fields:
+Those experiments are inputs to architecture decisions, not alternate definitions of the current runtime.
 
-- `id`: unique fixture id.
-- `family`: experiment family such as correction override or scope drift.
-- `learningGoal`: one-sentence explanation for students and contributors.
-- `packet`: the bounded context packet sent to the system.
-- `case`: the evaluator oracle used after the system produces output.
+## Evidence rule
 
-### BoundedContextPacket
+A benchmark may have several materially different states:
 
-The packet defines the controlled input.
+- a deterministic fixture/harness exists;
+- a live provider was invoked;
+- an observed artifact was durably committed and verified;
+- the result was registered as evidence;
+- a research result justified promotion into canonical runtime code.
 
-Fields:
+These states must not be collapsed into one "done" label.
 
-- `id`: unique packet id.
-- `task`: what the user is asking.
-- `goal`: what success means in plain language.
-- `allowedScope`: regions the agent may use or touch.
-- `forbiddenScope`: regions the agent must avoid.
-- `facts`: current, stale, correction, sensitive, or uncertain context facts.
-- `mustNotInfer`: facts the agent must not invent.
-- `responseContract`: human-readable description of the allowed response shape.
-- `contextBudgetTokens`: deterministic context budget for comparison.
-
-This is where the project tests narrow context. Instead of sending every possible file and memory, the fixture sends a small but meaningful packet.
-
-### ContextFact
-
-Each fact has:
-
-- `id`: unique fact id.
-- `kind`: `current`, `stale`, `correction`, `sensitive`, or `uncertain`.
-- `content`: the actual fact.
-- `evidenceId`: where the fact came from.
-- `confidence`: confidence from 0 to 1.
-
-The fact kind matters because the agent must learn boundaries:
-
-- `current` should usually be trusted.
-- `correction` should usually override stale information.
-- `stale` should usually be rejected.
-- `sensitive` should usually stay out of generated output.
-- `uncertain` should push the agent toward a careful boundary decision.
-
-### BenchmarkCase
-
-The case defines how the output is graded.
-
-Fields:
-
-- `id`: unique case id.
-- `family`: experiment family.
-- `title`: short human-readable title.
-- `description`: what the case is testing.
-- `requiredTerms`: terms that must appear in generated output.
-- `forbiddenTerms`: terms that must not appear in generated output.
-- `expectedEvidenceIds`: evidence ids that should appear in the generated trace.
-- `expectedBoundary`: optional boundary decision such as `insufficient_context`.
-- `expectedResult`: exact expected result signal.
-
-This is intentionally simple for the first milestone. We want deterministic scoring before using more subjective judge models.
-
-### Oracle Leakage Audit
-
-The evaluator is allowed to know `expectedResult`, `requiredTerms`, `forbiddenTerms`, and scoring metrics.
-The worker is not.
-
-This distinction is important because a high benchmark score is meaningful only
-when the model did not receive the grading key. The project therefore includes an
-oracle leakage audit:
+Use the machine-readable registry:
 
 ```bash
-npm run build
-npm run oracle:audit
+node scripts/evidence-index.cjs verify
+node scripts/evidence-index.cjs status gate5
+node scripts/evidence-index.cjs status controlled_coding_pilot_v2
 ```
 
-The audit constructs the same worker refine requests used by the benchmark and
-checks whether evaluator-only keys or answer-key text appear outside legitimate
-evidence fields. Fact content, task text, scope rules, and `mustNotInfer` are
-allowed because they are part of the bounded context packet. Fields such as
-`expectedResult`, `requiredTerms`, `forbiddenTerms`, and metric names are not
-allowed because they belong to the grader.
+## Current comparative research boundary
 
-This does not prove that a model is generally intelligent. It proves a narrower,
-but necessary, condition: the benchmark input was not contaminated by its own
-answer key.
+Gate 5 A–E is registered as fixture evidence, not durable live observed evidence. Mode F C/E/F remains pending live validation. Controlled Coding Pilot V2 observed runs also remain pending even though its offline runtime and CI gates exist.
 
-### Ablation Benchmark
+Mode F's narrow JavaScript/TypeScript evidence resolver remains research-only. It can move into canonical repository intelligence only after live evidence demonstrates same-or-better strict success, less context, and no additional scope drift.
 
-After oracle leakage is clean, the next question is not only whether the system
-passes. The more important research question is which architecture layer caused
-the improvement.
+## Historical commands
 
-Run the controlled ablation benchmark with:
+The repository intentionally retains earlier research commands such as:
 
 ```bash
-npm run build
 npm run ablation:run
-```
-
-The ablation runner executes the same 50 fixtures under several controlled modes:
-
-- `raw_fact_only`: weak baseline that writes the first visible fact.
-- `bounded_context`: uses bounded packet selection and boundary decisions.
-- `bounded_grounded`: adds evidence claims and verifier trace.
-- `bounded_refinement`: runs the bounded grounded behavior through the refinement loop.
-
-This benchmark is not a real model leaderboard. It is an architecture isolation
-tool. It helps answer questions such as:
-
-- Did narrow context alone improve task success?
-- Did grounding improve evidence coverage and trace completeness?
-- Did boundary logic reduce sensitive leakage and insufficient-context guessing?
-- Did refinement add value beyond single-pass grounded output?
-
-The output includes one benchmark report per mode and one comparison table. If a
-mode improves task success but has weak evidence or trace metrics, that is useful
-information: it means the architecture may answer correctly but still be hard to
-audit.
-
-The ablation runner also writes an analysis artifact beside the comparison
-table. The analysis highlights metric deltas and warnings such as:
-
-- task success improved but evidence did not,
-- grounding improved traceability without changing task success,
-- refinement did not improve over grounded output in the current suite.
-
-### Hard Benchmark Suite
-
-The base suite checks whether the lab can measure core behaviors under controlled
-conditions. The hard suite checks whether those behaviors survive more adversarial
-bounded-context packets.
-
-Run the hard single-mode benchmark with:
-
-```bash
-npm run build
-npm run hard:benchmark
-```
-
-Run the hard ablation comparison with:
-
-```bash
-npm run build
 npm run hard:ablation
-```
-
-The hard suite currently contains 25 deterministic cases:
-
-- 5 hard correction override cases with distractor facts.
-- 5 hard sensitive boundary cases where a useful summary is requested but raw
-  secrets must stay hidden.
-- 5 hard scope drift cases with tempting adjacent work.
-- 5 hard insufficient-context cases with partial evidence that is not enough to
-  answer the exact question.
-- 5 hard conflict-resolution cases with stale, uncertain, and current facts.
-
-The hard suite is intentionally still deterministic. Its purpose is not random
-stress testing. Its purpose is to isolate failure modes that the base suite may
-hide: distractor selection, overconfident inference from partial evidence,
-scope temptation, sensitive-summary tension, and three-way conflict handling.
-
-This suite is still not a real code patch benchmark. It is the bridge between
-base behavior validation and future repository-level patch experiments.
-
-### Remask-Required Benchmark
-
-The base and hard suites can show that bounded context and grounding work, but
-they do not isolate the value of verifier-guided remasking. The remask-required
-benchmark is a controlled recovery test for that specific mechanism.
-
-Run it with:
-
-```bash
-npm run build
 npm run remask:benchmark
-```
-
-It compares two controlled modes:
-
-- `single_pass_stale`: writes the stale first-pass result and stops.
-- `remask_recovery`: lets the verifier fail `final_result`, remasks that region,
-  and then writes the corrected result on the second pass.
-
-This benchmark is not a real model leaderboard. It is a mechanism test. It asks:
-
-```text
-Can targeted remasking change a failed final_result into a verified corrected result?
-```
-
-### Autoregressive LLM Hard Baseline
-
-After the dLLM worker passes the base and hard behavior suites, the next fair
-comparison is an autoregressive LLM baseline on the same fixtures.
-
-Start an OpenAI-compatible chat-completions endpoint worker with:
-
-```bash
-npm run build
-LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
-LLM_API_KEY=optional-key \
-LLM_MODEL=your-model-name \
-npm run worker:llm-openai
-```
-
-Then run the hard baseline from another terminal:
-
-```bash
 npm run worker:llm-hard-benchmark
-```
-
-Run the RAG-style hard baseline with the same worker:
-
-```bash
 npm run worker:llm-rag-hard-benchmark
-```
-
-Run the expanded-context hard baseline with the same worker:
-
-```bash
 npm run worker:llm-expanded-hard-benchmark
-```
-
-Run the synthetic-context hard baseline with the same worker:
-
-```bash
 npm run worker:llm-synthetic-hard-benchmark
-```
-
-The worker expects an endpoint compatible with:
-
-```text
-POST /chat/completions
-```
-
-This can be a hosted API, a local vLLM server, an OpenAI-compatible router, or a
-small local model server. The important rule is that the same fixture packet is
-sent and the evaluator oracle is not sent.
-
-For a local open-source GGUF baseline, llama.cpp can serve an OpenAI-compatible
-endpoint. The first validated run used Qwen2.5-Coder 7B Instruct GGUF:
-
-```bash
-LLM_API_BASE_URL=http://127.0.0.1:8000/v1 \
-LLM_MODEL=qwen2.5-coder-7b-instruct-q4_k_m \
-npm run worker:llm-openai
-```
-
-The benchmark runner records model metadata from the worker health endpoint.
-This matters because the worker terminal often owns `LLM_MODEL`, while the
-benchmark terminal may not. Recording the model from `/health` keeps the run
-manifest tied to the actual model server instead of a guessed label.
-
-The LLM baseline worker intentionally does not canonicalize the final answer to
-the best fact after generation. It asks the model for a JSON decision and writes
-the model's `finalResult`, `boundaryStatus`, and `evidenceIds` into the shared
-workspace. This makes the baseline more honest: if the autoregressive model
-chooses stale evidence, leaks sensitive content, or omits evidence ids, the
-normal benchmark metrics should show it.
-
-### RAG-Style LLM Hard Baseline
-
-The RAG-style baseline keeps the same model and worker but changes the context
-strategy. Instead of sending only the original bounded packet, it adds a small
-deterministic set of retrieved facts from other hard-suite packets.
-
-This is not intended to be a production RAG system. It is a controlled research
-baseline for one question:
-
-```text
-Does extra retrieved context help the same autoregressive LLM, or does it add
-distractor pressure that hurts bounded reasoning?
-```
-
-The runner does not retrieve evaluator oracle fields such as `expectedResult`,
-`requiredTerms`, or `forbiddenTerms`. It only retrieves fact-like context from
-other packets. This keeps the comparison useful without leaking the answer key.
-
-The important comparison is:
-
-```text
-Plain Qwen2.5 hard baseline vs RAG-style Qwen2.5 hard baseline
-```
-
-Because the model is held constant, a difference in score is mainly evidence
-about the context strategy rather than the model family.
-
-### Expanded-Context LLM Hard Baseline
-
-The expanded-context baseline also keeps the same model and worker, but it does
-not try to retrieve only the most relevant facts. Instead, it adds a wider memory
-slice from multiple benchmark families.
-
-This is a controlled stress test for a common assumption:
-
-```text
-More context should make the model better.
-```
-
-The experiment checks whether a wider context improves task success or whether
-it increases distractor pressure, context mixing, weak evidence selection, or
-trace degradation.
-
-The important comparison is:
-
-```text
-Plain Qwen2.5 vs RAG-style Qwen2.5 vs expanded-context Qwen2.5
-```
-
-RAG tests selected extra context. Expanded-context tests broad extra context.
-That distinction matters because production agent systems often have access to
-large memory stores, but not every accessible memory should influence the current
-workspace region.
-
-### Synthetic-Context LLM Hard Baseline
-
-The synthetic-context baseline keeps the context narrow but adds one structured
-synthetic evidence plan to the packet. The plan is derived only from fields the
-worker is already allowed to see:
-
-- fact kinds,
-- evidence ids,
-- allowed and forbidden scope,
-- `mustNotInfer`,
-- sensitive markers.
-
-It does not use evaluator oracle fields such as `expectedResult`,
-`requiredTerms`, or `forbiddenTerms`.
-
-This baseline tests the project's most central context hypothesis:
-
-```text
-Can narrow bounded context plus synthetic structure improve reasoning without
-the auditability loss caused by broad context?
-```
-
-The important comparison is:
-
-```text
-Plain Qwen2.5 vs RAG-style Qwen2.5 vs expanded-context Qwen2.5 vs synthetic-context Qwen2.5
-```
-
-If synthetic context improves task success while keeping evidence and trace high,
-it supports the idea that context organization can matter more than context
-quantity.
-
-### LLM Context Comparison Report
-
-After the dLLM, plain LLM, RAG-style, expanded-context, and synthetic-context
-runs have produced artifacts, generate a single comparison report with:
-
-```bash
 npm run reports:llm-context
 ```
 
-The report reads the latest matching JSON artifacts from `reports/` and writes:
+They are reproducibility tools. Their outputs do not override the evidence registry or canonical runtime contracts.
 
-```text
-reports/<timestamp>-llm-context-comparison.json
-reports/<timestamp>-llm-context-comparison.md
-```
+## Documentation discipline
 
-This report is meant for research communication. It keeps task success,
-scope drift, leakage, evidence, trace, and failure taxonomy in one table so the
-comparison does not collapse into a single leaderboard number.
+When a research run changes the project state:
 
-## Code Patch Benchmark Preparation
+1. preserve the raw/durable artifact and provenance;
+2. verify it;
+3. update the machine-readable evidence registry;
+4. promote runtime code only if the evidence-backed decision requires it;
+5. then update narrative docs as a consequence.
 
-The next phase uses a pinned open-source repository instead of a toy local repo.
-The first selected target is Nano ID:
-
-```text
-https://github.com/ai/nanoid.git
-commit: e4b7a9a7323006474ec939112aec68944b0da097
-```
-
-Prepare it with:
-
-```bash
-npm run build
-npm run oss:prepare
-```
-
-See `docs/CODE_BENCHMARK.md` for the selection rationale and the next patch
-fixture schema plan.
-
-### Failure Taxonomy
-
-Benchmark reports include a deterministic failure taxonomy for failed cases.
-This taxonomy is not a judge model and it does not replace the main metrics.
-It is a research aid that separates different meanings of "fail":
-
-- `semantic_match_but_keyword_fail`: the final answer is close to the expected
-  result, but missed exact required terms.
-- `true_task_failure`: the final answer is not close enough to the expected
-  result under the deterministic heuristic.
-- `missing_evidence_or_trace`: the answer failed with incomplete evidence or
-  trace records.
-- `boundary_failure`: the boundary decision was wrong.
-- `leakage_or_scope_violation`: the output hit forbidden, sensitive, or
-  out-of-scope signals.
-
-This matters because a benchmark can otherwise punish two very different events
-with the same word: `fail`. A semantically close answer that missed exact wording
-is not the same scientific signal as a sensitive leakage event or a boundary
-failure.
-
-### Why Evidence IDs Matter
-
-The benchmark should not only ask whether the final answer is right. It should also ask whether the system left a trace.
-
-Example:
-
-```text
-Answer: The backend will be TypeScript Fastify.
-Evidence id: memory-correction.
-```
-
-If the answer is right but the evidence is missing, the system may still be hard to audit. This is why issue #2 adds `expectedEvidenceIds`.
-
-## Experiment 1: Correction Override
-
-Goal:
-
-Measure whether a system prefers corrected facts over stale facts.
-
-Input:
-
-- one stale fact,
-- one correction,
-- one question.
-
-Output:
-
-- resolved fact,
-- stale fact rejected flag,
-- evidence ids.
-
-Metric:
-
-- correction override accuracy.
-
-## Experiment 2: Sensitive Boundary
-
-Goal:
-
-Measure whether a system avoids leaking sensitive memory.
-
-Input:
-
-- one sensitive memory,
-- one unrelated project question.
-
-Output:
-
-- answer or decision,
-- sensitive leakage flag.
-
-Metric:
-
-- sensitive leakage rate.
-
-## Experiment 3: Scope Drift
-
-Goal:
-
-Measure whether a system respects allowed and forbidden scope.
-
-Input:
-
-- task,
-- allowed regions,
-- forbidden regions.
-
-Output:
-
-- action plan,
-- touched regions.
-
-Metric:
-
-- scope drift rate.
-
-## Experiment 4: Insufficient Context
-
-Goal:
-
-Measure whether a system refuses to infer when required information is absent.
-
-Input:
-
-- question,
-- context packet with missing fact.
-
-Output:
-
-- boundary decision.
-
-Metric:
-
-- insufficient context accuracy.
-
-## Experiment 5: Conflict Resolution
-
-Goal:
-
-Measure whether a system resolves contradictory facts with evidence and task relevance.
-
-Input:
-
-- two conflicting claims,
-- evidence ids,
-- current task.
-
-Output:
-
-- selected claim,
-- rejected claim,
-- reason.
-
-Metric:
-
-- conflict resolution accuracy.
-
-## Current Demo Fixtures
-
-Issue #3 expands the benchmark to 50 deterministic cases:
-
-- 10 correction override cases,
-- 10 sensitive boundary cases,
-- 10 scope drift cases,
-- 10 insufficient context cases,
-- 10 conflict resolution cases.
-
-The first fixture in each family is still small enough to inspect by hand:
-
-1. `correction-override-001`
-   Tests whether TypeScript Fastify beats an older Python Flask fact.
-
-2. `sensitive-boundary-001`
-   Tests whether a raw token stays out of generated output.
-
-3. `scope-drift-001`
-   Tests whether the system stays inside a billing test assertion task.
-
-4. `insufficient-context-001`
-   Tests whether the system says `insufficient_context` instead of inventing a server IP.
-
-5. `conflict-resolution-001`
-   Tests whether the system resolves a local-only assumption in favor of a GPU dLLM worker decision.
-
-The fixture file uses compact spec lists and builder functions. This keeps the dataset readable while still producing enough cases to detect patterns.
-
-You can run the current demo with:
-
-```bash
-npm run build
-npm run eval:demo
-```
-
-Issue #12 adds architecture selection:
-
-```bash
-npm run eval:demo -- --architecture bounded-dllm-refinement-loop
-npm run eval:demo -- --architecture long-context-llm-mock
-npm run eval:demo -- --architecture rag-llm-mock
-npm run eval:demo -- --architecture synthetic-context-llm-mock
-```
-
-The placeholder baselines are deterministic mocks. They do not claim real model
-quality. Their purpose is to make every future architecture use the same
-fixture, workspace, scoring, report, and manifest path.
-
-Issue #18 adds ablation settings. The first practical ablation is refinement
-attempt count:
-
-```bash
-npm run eval:demo -- --max-attempts 1
-npm run eval:demo -- --max-attempts 2
-```
-
-The manifest also records whether mask policy, verifier, and synthetic context
-are enabled. In the current mock lab these flags mostly document the condition;
-future real runners can attach behavior to the same config without changing the
-report format.
-
-The command writes two report files under `reports/`:
-
-- a JSON artifact for scripts and future automation,
-- a Markdown table for humans, GitHub comments, and research notes.
-
-The JSON and Markdown files come from the same `BenchmarkArtifact`, so they should always describe the same run.
-
-Issue #17 adds a family breakdown table to each report. This matters because a
-single global average can hide architecture weaknesses. A system can be strong
-on correction override but weak on sensitive boundary, or strong on insufficient
-context but weak on scope drift.
-
-Issue #11 adds a third file beside those reports:
-
-- a `.manifest.json` file for experiment conditions.
-
-The manifest is not another score report. It records how the score was produced:
-
-- `runId`,
-- `suiteName`,
-- `architectureName`,
-- `engineName`,
-- `modelName`,
-- `modelVersion`,
-- `workerUrl`,
-- `seed`,
-- `maxAttempts`,
-- `maskPolicyVersion`,
-- `gitCommit`,
-- `hardware`,
-- `createdAt`,
-- `reportPaths`,
-- summary metrics.
-
-This distinction matters for research reliability. The JSON/Markdown report says
-what happened. The manifest says under which conditions it happened.
-
-## Comparing Runs
-
-Issue #15 adds a comparison command:
-
-```bash
-npm run build
-npm run reports:compare
-```
-
-The command scans `reports/*.manifest.json` and writes:
-
-- `reports/comparison-index.json`,
-- `reports/comparison-index.md`.
-
-This comparison artifact lets us read architecture-level results side by side
-instead of opening each run report manually.
-
-## Failure Review
-
-Issue #16 adds a human review rubric in `docs/FAILURE_REVIEW.md`.
-
-Human review is used only when deterministic metrics are not expressive enough
-to explain a semantic failure. It complements benchmark metrics; it does not
-replace them.
+Markdown should explain code and evidence, never outvote them.
