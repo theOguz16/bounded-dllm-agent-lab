@@ -231,7 +231,9 @@ function boundedTextEditInstruction(request, profile, definition) {
       "Prefer surgical replacements and preserve unrelated code.",
       "Do not replace a large block when a smaller unique replacement works.",
       "Copy expectedContentHash exactly from sourceContentHash for the matching workspace file.",
-      "oldText must identify exactly one occurrence in the full source at the time the edit is applied.",
+      "Every oldText must identify exactly one occurrence in the original supplied full source, before any edit is applied.",
+      "All edits in one response are independently grounded in that original source; never use text produced by another edit as oldText.",
+      "Edits targeting the same file must refer to distinct, non-overlapping original-source spans.",
       "Use the smallest practical unique oldText.",
       "newText is the exact replacement for oldText.",
       "Do not attempt to modify omitted source.",
@@ -249,6 +251,102 @@ function invalidBoundedTextEditOutput() {
   });
 }
 
+function authorityViolation() {
+  throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
+    pilotCode: "PILOT_AUTHORITY_VIOLATION"
+  });
+}
+
+function isWellFormedBoundedTextEdit(edit) {
+  return Boolean(
+    edit && typeof edit === "object" && !Array.isArray(edit) &&
+    canonical(Object.keys(edit).sort()) === canonical([
+      "path", "expectedContentHash", "oldText", "newText"
+    ].sort()) &&
+    typeof edit.path === "string" && typeof edit.expectedContentHash === "string" &&
+    typeof edit.oldText === "string" && typeof edit.newText === "string" &&
+    edit.oldText.length > 0 && edit.oldText !== edit.newText &&
+    !edit.oldText.includes("\u0000") && !edit.newText.includes("\u0000") &&
+    !edit.oldText.includes("PILOT_REDACTED_LINE_") &&
+    !edit.newText.includes("PILOT_REDACTED_LINE_")
+  );
+}
+
+function assertOriginalSourceAuthority(edit, source, allowedPaths, requiredPaths) {
+  if (!allowedPaths.has(edit.path) || !requiredPaths.has(edit.path)) authorityViolation();
+  if (!source || source.authority !== "change_allowed") authorityViolation();
+  if (typeof source.content !== "string" || typeof source.contentHash !== "string" ||
+      hash(source.content) !== source.contentHash) authorityViolation();
+  if (edit.expectedContentHash !== source.contentHash) authorityViolation();
+}
+
+function findUniqueOriginalSpan(sourceContent, oldText) {
+  const start = sourceContent.indexOf(oldText);
+  if (start < 0 || sourceContent.indexOf(oldText, start + 1) >= 0) {
+    invalidBoundedTextEditOutput();
+  }
+  return { start, end: start + oldText.length };
+}
+
+function spansOverlap(left, right) {
+  return left.start < right.end && right.start < left.end;
+}
+
+function preflightBoundedTextEdits(bounded, providerOutput, profile) {
+  const sources = new Map((bounded.workspaceFiles ?? []).map((file) => [file.path, file]));
+  const allowedPaths = new Set(profile.allowedMutationPaths ?? []);
+  const requiredPaths = new Set(profile.requiredMutationPaths ?? []);
+  const touchedPaths = new Set();
+  const editCounts = new Map();
+  const spansByPath = new Map();
+  const preparedByPath = new Map();
+  let totalEditBytes = 0;
+
+  if (requiredPaths.size > profile.maxChangedFiles) invalidBoundedTextEditOutput();
+
+  for (const edit of providerOutput.edits) {
+    if (!isWellFormedBoundedTextEdit(edit)) invalidBoundedTextEditOutput();
+
+    totalEditBytes += Buffer.byteLength(edit.oldText) + Buffer.byteLength(edit.newText);
+    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) invalidBoundedTextEditOutput();
+
+    const source = sources.get(edit.path);
+    assertOriginalSourceAuthority(edit, source, allowedPaths, requiredPaths);
+    const span = findUniqueOriginalSpan(source.content, edit.oldText);
+    const existingSpans = spansByPath.get(edit.path) ?? [];
+    if (existingSpans.some((existing) => spansOverlap(existing, span))) {
+      invalidBoundedTextEditOutput();
+    }
+
+    existingSpans.push(span);
+    spansByPath.set(edit.path, existingSpans);
+    const prepared = preparedByPath.get(edit.path) ?? [];
+    prepared.push({ ...edit, start: span.start, end: span.end });
+    preparedByPath.set(edit.path, prepared);
+    touchedPaths.add(edit.path);
+    editCounts.set(edit.path, (editCounts.get(edit.path) ?? 0) + 1);
+  }
+
+  if (touchedPaths.size !== requiredPaths.size ||
+      [...requiredPaths].some((path) => !touchedPaths.has(path))) {
+    invalidBoundedTextEditOutput();
+  }
+
+  return { sources, requiredPaths, preparedByPath, editCounts };
+}
+
+function materializePreflightedTextEdits(sourceContent, preparedEdits) {
+  let content = sourceContent;
+  const descending = [...preparedEdits].sort((left, right) =>
+    right.start - left.start || right.end - left.end ||
+    left.oldText.localeCompare(right.oldText) || left.newText.localeCompare(right.newText)
+  );
+  for (const edit of descending) {
+    content = content.slice(0, edit.start) + edit.newText + content.slice(edit.end);
+  }
+  return content;
+}
+
 function materializeBoundedTextEdits(request, providerOutput, profile) {
   if (
     !providerOutput || typeof providerOutput !== "object" || Array.isArray(providerOutput) ||
@@ -261,65 +359,25 @@ function materializeBoundedTextEdits(request, providerOutput, profile) {
   ) invalidBoundedTextEditOutput();
 
   const bounded = JSON.parse(request.instruction);
-  const sources = new Map(bounded.workspaceFiles.map((file) => [file.path, file]));
-  const allowedPaths = new Set(profile.allowedMutationPaths);
-  const requiredPaths = new Set(profile.requiredMutationPaths);
-  const touchedPaths = new Set();
-  const workingContent = new Map();
-  const editCounts = new Map();
-  let totalEditBytes = 0;
-
-  for (const edit of providerOutput.edits) {
-    if (
-      !edit || typeof edit !== "object" || Array.isArray(edit) ||
-      canonical(Object.keys(edit).sort()) !== canonical([
-        "path", "expectedContentHash", "oldText", "newText"
-      ].sort()) ||
-      typeof edit.path !== "string" || typeof edit.expectedContentHash !== "string" ||
-      typeof edit.oldText !== "string" || typeof edit.newText !== "string" ||
-      edit.oldText.length === 0 || edit.oldText === edit.newText ||
-      edit.oldText.includes("\u0000") || edit.newText.includes("\u0000") ||
-      edit.oldText.includes("PILOT_REDACTED_LINE_") || edit.newText.includes("PILOT_REDACTED_LINE_")
-    ) invalidBoundedTextEditOutput();
-    totalEditBytes += Buffer.byteLength(edit.oldText) + Buffer.byteLength(edit.newText);
-    if (totalEditBytes > PILOT_MAX_TEXT_EDIT_BYTES) invalidBoundedTextEditOutput();
-    if (!allowedPaths.has(edit.path) || !requiredPaths.has(edit.path)) {
-      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
-        pilotCode: "PILOT_AUTHORITY_VIOLATION"
-      });
-    }
-    const source = sources.get(edit.path);
-    if (!source || source.authority !== "change_allowed" ||
-        edit.expectedContentHash !== source.contentHash) {
-      throw Object.assign(new Error("PILOT_AUTHORITY_VIOLATION"), {
-        pilotCode: "PILOT_AUTHORITY_VIOLATION"
-      });
-    }
-    const current = workingContent.has(edit.path) ? workingContent.get(edit.path) : source.content;
-    const first = current.indexOf(edit.oldText);
-    const last = current.lastIndexOf(edit.oldText);
-    if (first < 0 || first !== last) invalidBoundedTextEditOutput();
-    workingContent.set(edit.path,
-      current.slice(0, first) + edit.newText + current.slice(first + edit.oldText.length));
-    touchedPaths.add(edit.path);
-    editCounts.set(edit.path, (editCounts.get(edit.path) ?? 0) + 1);
-  }
-  if (touchedPaths.size !== requiredPaths.size ||
-      [...requiredPaths].some((path) => !touchedPaths.has(path))) invalidBoundedTextEditOutput();
+  const { sources, requiredPaths, preparedByPath, editCounts } =
+    preflightBoundedTextEdits(bounded, providerOutput, profile);
 
   const mutations = [...requiredPaths].sort().map((path) => {
     const source = sources.get(path);
+    const preparedEdits = preparedByPath.get(path);
     const relatedPlanStepIds = bounded.existingPlan.steps
       .filter((step) => step.targetPaths.includes(path)).map((step) => step.stepId);
-    if (!source || !workingContent.has(path) || relatedPlanStepIds.length === 0) {
+    if (!source || !preparedEdits || preparedEdits.length === 0 || relatedPlanStepIds.length === 0) {
       invalidBoundedTextEditOutput();
     }
     return {
       path, operation: "replace", expectedContentHash: source.contentHash,
-      newContent: workingContent.get(path), relatedPlanStepIds,
+      newContent: materializePreflightedTextEdits(source.content, preparedEdits),
+      relatedPlanStepIds,
       relatedSymbolIds: source.relatedSymbols
     };
   });
+
   return {
     output: {
       schemaVersion: "bounded.executor-model-output/v1", mutations,
@@ -333,6 +391,8 @@ function materializeBoundedTextEdits(request, providerOutput, profile) {
 
 module.exports = {
   PILOT_MAX_INSERTION_LINES,
+  PILOT_MAX_TEXT_EDIT_BYTES,
+  PILOT_MAX_TEXT_EDITS,
   TARGET,
   TEXT_EDIT_OUTPUT_VERSION,
   boundedTextEditInstruction,
