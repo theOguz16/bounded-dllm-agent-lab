@@ -47,6 +47,9 @@ jobs:
       - name: V1 and V2 definition plus bounded-edit protocol
         run: node scripts/controlled-coding-pilot-offline-gate-smoke.cjs
 
+      - name: Controlled pilot bounded text-edit adversarial regression
+        run: node scripts/controlled-coding-pilot-text-edits-adversarial-smoke.cjs
+
       - name: Controlled pilot evidence bundler regression
         run: node scripts/controlled-coding-pilot-evidence-smoke.cjs
 
