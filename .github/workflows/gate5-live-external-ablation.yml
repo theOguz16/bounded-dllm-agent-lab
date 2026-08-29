@@ -8,6 +8,7 @@ on:
       - 'scripts/gate5-external-patch-e2e.cjs'
       - 'scripts/gate5-adaptive-compressed-boundary.cjs'
       - 'scripts/gate5-mode-f-live-evidence.cjs'
+      - 'scripts/gate5-mode-f-promotion-gate.cjs'
       - 'scripts/lib/gate5-language-resolver.cjs'
       - '.github/workflows/gate5-live-external-ablation.yml'
   workflow_dispatch:
@@ -30,8 +31,11 @@ jobs:
       - run: node --check scripts/lib/gate5-language-resolver.cjs
       - run: node --check scripts/gate5-adaptive-compressed-boundary.cjs
       - run: node --check scripts/gate5-mode-f-live-evidence.cjs
+      - run: node --check scripts/gate5-mode-f-promotion-gate.cjs
       - run: node scripts/gate5-adaptive-compressed-boundary.cjs --repetitions=3 --output=reports/gate5/adaptive-compressed-boundary-fixture.json
       - run: node scripts/gate5-mode-f-live-evidence.cjs --repetitions=3 --output=reports/gate5/mode-f-fixture-evidence.json
+      - run: node scripts/gate5-mode-f-promotion-gate.cjs --evidence=reports/gate5/mode-f-fixture-evidence.json --output=reports/gate5/mode-f-fixture-promotion-decision.json
+      - run: node -e "const d=require('./reports/gate5/mode-f-fixture-promotion-decision.json'); if(d.promotionEligible!==false || !d.reasons.includes('live_observed_evidence_required')) process.exit(1)"
       - uses: actions/upload-artifact@v4
         with:
           name: gate5-external-benchmark-fixtures
@@ -42,3 +46,4 @@ jobs:
             reports/gate5/adaptive-compressed-boundary-fixture.json
             reports/gate5/mode-f-fixture-evidence.json
             reports/gate5/mode-f-fixture-evidence.json.raw.json
+            reports/gate5/mode-f-fixture-promotion-decision.json
