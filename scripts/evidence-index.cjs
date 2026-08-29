@@ -94,6 +94,11 @@ function verifyPromotedEvidenceArtifact(record, parsed) {
   if (parsed.evidenceHash !== record.artifactHash || parsed.sourceCommit !== record.sourceCommit) {
     fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
   }
+  const core = { ...parsed };
+  delete core.evidenceHash;
+  if (hashCanonical(core) !== parsed.evidenceHash) {
+    fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
+  }
 
   if (parsed.schemaVersion === "bounded.controlled-coding-pilot-observed-evidence/v3") {
     if (record.experimentId !== "controlled-coding-pilot-v2-suite" ||
