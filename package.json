@@ -57,7 +57,7 @@
     "code:model-remask-verifier-remask-benchmark": "CODE_MODEL_CASE_SUITE=remask_required CODE_AGENT_FLOW=workspace_verifier_remask node dist/apps/cli/src/code-model-patch-benchmark.js",
     "code:dllm-benchmark": "node dist/apps/cli/src/code-dllm-patch-benchmark.js",
     "code:failure-taxonomy": "node dist/apps/cli/src/code-failure-taxonomy.js",
-    "ablation:run": "node dist/apps/cli/src/ablation-run.js --suite hard",
+    "ablation:run": "node dist/apps/cli/src/ablation-run.js",
     "hard:benchmark": "node dist/apps/cli/src/ablation-run.js --suite hard --modes bounded_refinement",
     "hard:ablation": "node dist/apps/cli/src/ablation-run.js --suite hard",
     "remask:benchmark": "node dist/apps/cli/src/remask-benchmark.js",
