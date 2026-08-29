@@ -36,6 +36,15 @@ const PROVIDER_SECRET_NAMES = [
   "GATE5_API_KEY"
 ];
 
+function redactSecrets(value) {
+  let redacted = String(value || "");
+  for (const secretName of PROVIDER_SECRET_NAMES) {
+    const secret = process.env[secretName];
+    if (secret) redacted = redacted.split(secret).join("[REDACTED]");
+  }
+  return redacted;
+}
+
 function command(root, executable, args, options = {}) {
   const result = spawnSync(executable, args, {
     cwd: root,
@@ -45,7 +54,12 @@ function command(root, executable, args, options = {}) {
     stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"]
   });
   if (result.status !== 0) {
-    const error = new Error(`${options.code || "PREFLIGHT_COMMAND_FAILED"}: ${executable} ${args.join(" ")}`);
+    const diagnostic = redactSecrets(`${result.stderr || ""}\n${result.stdout || ""}`)
+      .trim().slice(-4000);
+    const suffix = diagnostic ? `: ${diagnostic}` : "";
+    const error = new Error(
+      `${options.code || "PREFLIGHT_COMMAND_FAILED"}: ${executable} ${args.join(" ")}${suffix}`
+    );
     error.stdout = result.stdout || "";
     error.stderr = result.stderr || "";
     throw error;
@@ -351,7 +365,7 @@ try {
     localReady: false,
     providerReady: false,
     runpodReady: false,
-    error: error?.message || String(error)
+    error: redactSecrets(error?.message || String(error))
   };
   process.stdout.write(`${JSON.stringify(failure, null, 2)}\n`);
   process.exitCode = 1;
