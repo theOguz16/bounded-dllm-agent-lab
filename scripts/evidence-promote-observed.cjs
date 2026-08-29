@@ -8,7 +8,6 @@ const {
   lstatSync,
   mkdtempSync,
   readFileSync,
-  readlinkSync,
   rmSync,
   symlinkSync,
   unlinkSync
@@ -50,24 +49,38 @@ function sha256Bytes(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function git(root, args, code = "EVIDENCE_PROMOTION_GIT_FAILED") {
+function hashJson(value) {
+  return sha256Bytes(Buffer.from(JSON.stringify(value), "utf8"));
+}
+
+function gitResult(root, args, options = {}) {
   const result = spawnSync("git", args, {
     cwd: root,
-    encoding: "utf8",
+    encoding: options.buffer ? null : "utf8",
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
     stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 10_000_000
+    maxBuffer: 20_000_000
   });
-  if (result.status !== 0) fail(code, (result.stderr || "").trim());
-  return (result.stdout || "").trim();
+  if (result.status !== 0) {
+    const stderr = Buffer.isBuffer(result.stderr)
+      ? result.stderr.toString("utf8") : (result.stderr || "");
+    fail(options.code || "EVIDENCE_PROMOTION_GIT_FAILED", stderr.trim());
+  }
+  return result.stdout;
+}
+
+function git(root, args, code) {
+  return String(gitResult(root, args, { code })).trim();
+}
+
+function gitBytes(root, args, code) {
+  const value = gitResult(root, args, { code, buffer: true });
+  return Buffer.isBuffer(value) ? value : Buffer.from(value);
 }
 
 function parseJsonFile(path, code) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    fail(code, path);
-  }
+  try { return JSON.parse(readFileSync(path, "utf8")); }
+  catch { fail(code, path); }
 }
 
 function plainObject(value) {
@@ -87,34 +100,24 @@ function assertObservedString(value, code) {
   if (typeof value !== "string" || value.length === 0 || NON_OBSERVED.test(value)) fail(code);
 }
 
-function normalizeIdentity(entries, kind) {
-  if (!Array.isArray(entries)) fail("EVIDENCE_PROMOTION_TASKSET_INVALID");
-  if (kind === "controlled_pilot_definitions/v1") {
-    return entries.map((entry) => ({ pilotId: entry.pilotId, path: entry.path }))
-      .sort((left, right) => left.pilotId.localeCompare(right.pilotId));
-  }
-  if (kind === "external_repository_tasks/v1") {
-    return entries.map((entry) => ({
-      taskId: entry.taskId,
-      repository: entry.repository,
-      commitSha: entry.commitSha
-    })).sort((left, right) => left.taskId.localeCompare(right.taskId));
-  }
-  fail("EVIDENCE_PROMOTION_TASKSET_KIND_UNSUPPORTED", kind);
-}
-
 function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function repoRelativeArtifact(root, artifactFile) {
-  const absolute = resolve(artifactFile);
-  const rootAbsolute = resolve(root);
-  const value = relative(rootAbsolute, absolute).split(sep).join("/");
-  if (!value || value === ".." || value.startsWith("../") || isAbsolute(value)) {
-    fail("EVIDENCE_PROMOTION_ARTIFACT_OUTSIDE_REPOSITORY");
+function normalizeIdentity(entries, kind) {
+  if (!Array.isArray(entries)) fail("EVIDENCE_PROMOTION_TASKSET_INVALID");
+  if (kind === "controlled_pilot_definitions/v1") {
+    return entries.map((entry) => ({ pilotId: entry?.pilotId, path: entry?.path }))
+      .sort((left, right) => String(left.pilotId).localeCompare(String(right.pilotId)));
   }
-  return value;
+  if (kind === "external_repository_tasks/v1") {
+    return entries.map((entry) => ({
+      taskId: entry?.taskId,
+      repository: entry?.repository,
+      commitSha: entry?.commitSha
+    })).sort((left, right) => String(left.taskId).localeCompare(String(right.taskId)));
+  }
+  fail("EVIDENCE_PROMOTION_TASKSET_KIND_UNSUPPORTED", kind);
 }
 
 function safeChild(root, relativePath, code) {
@@ -128,15 +131,46 @@ function safeChild(root, relativePath, code) {
   return absolute;
 }
 
-function experiment(index, id) {
-  const found = index.experiments.find((entry) => entry.experimentId === id);
-  if (!found) fail("EVIDENCE_PROMOTION_EXPERIMENT_NOT_REGISTERED", id);
-  if (found.status !== "pending") fail("EVIDENCE_PROMOTION_EXPERIMENT_NOT_PENDING", id);
-  if (found.tasksetHashKind !== "index_taskset_identity_v1" || !plainObject(found.tasksetIdentity) ||
-      hashCanonical(found.tasksetIdentity) !== found.tasksetHash) {
-    fail("EVIDENCE_PROMOTION_PENDING_TASKSET_INVALID", id);
+function repoRelativeArtifact(root, artifactFile) {
+  const value = relative(resolve(root), resolve(artifactFile)).split(sep).join("/");
+  if (!value || value === ".." || value.startsWith("../") || isAbsolute(value)) {
+    fail("EVIDENCE_PROMOTION_ARTIFACT_OUTSIDE_REPOSITORY");
   }
-  return found;
+  return value;
+}
+
+function experiment(index, experimentId) {
+  const record = index.experiments.find((entry) => entry.experimentId === experimentId);
+  if (!record) fail("EVIDENCE_PROMOTION_EXPERIMENT_NOT_REGISTERED", experimentId);
+  if (record.status !== "pending") fail("EVIDENCE_PROMOTION_EXPERIMENT_NOT_PENDING", experimentId);
+  if (record.tasksetHashKind !== "index_taskset_identity_v1" ||
+      !plainObject(record.tasksetIdentity) ||
+      hashCanonical(record.tasksetIdentity) !== record.tasksetHash) {
+    fail("EVIDENCE_PROMOTION_PENDING_TASKSET_INVALID", experimentId);
+  }
+  return record;
+}
+
+function verifyCanonicalHash(object, field, code) {
+  assertHash(object?.[field], code);
+  const core = { ...object };
+  delete core[field];
+  if (hashCanonical(core) !== object[field]) fail(code);
+}
+
+function ensureCommitAvailable(root, sha) {
+  assertCommit(sha, "EVIDENCE_PROMOTION_SOURCE_COMMIT_MISSING");
+  const probe = spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+    cwd: root,
+    stdio: "ignore"
+  });
+  if (probe.status === 0) return;
+  const fetched = spawnSync("git", ["fetch", "--quiet", "origin", sha], {
+    cwd: root,
+    stdio: "ignore"
+  });
+  if (fetched.status !== 0) fail("EVIDENCE_PROMOTION_SOURCE_COMMIT_UNAVAILABLE", sha);
+  git(root, ["cat-file", "-e", `${sha}^{commit}`], "EVIDENCE_PROMOTION_SOURCE_COMMIT_UNAVAILABLE");
 }
 
 function resolveControlledManifest(artifactPath) {
@@ -149,23 +183,14 @@ function resolveControlledManifest(artifactPath) {
   fail("EVIDENCE_PROMOTION_CONTROLLED_ARTIFACT_INVALID");
 }
 
-function verifyCanonicalHash(object, field, code) {
-  const claimed = object[field];
-  assertHash(claimed, code);
-  const core = { ...object };
-  delete core[field];
-  if (hashCanonical(core) !== claimed) fail(code);
-}
-
 function resolveResearchRef(root, branch) {
   const remoteRef = `refs/remotes/origin/${branch}`;
-  let sha = "";
   const probe = spawnSync("git", ["rev-parse", "--verify", remoteRef], {
     cwd: root,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]
   });
-  if (probe.status === 0) sha = (probe.stdout || "").trim();
+  let sha = probe.status === 0 ? (probe.stdout || "").trim() : "";
   if (!COMMIT.test(sha)) {
     git(root, ["fetch", "--quiet", "origin", `refs/heads/${branch}:${remoteRef}`],
       "EVIDENCE_PROMOTION_CONTROLLED_VERIFIER_FETCH_FAILED");
@@ -194,7 +219,7 @@ function withResearchWorktree(root, sha, callback) {
   } finally {
     for (const target of linked.reverse()) {
       try {
-        if (existsSync(target) || readlinkSync(target)) unlinkSync(target);
+        if (existsSync(target) && lstatSync(target).isSymbolicLink()) unlinkSync(target);
       } catch {}
     }
     try { git(root, ["worktree", "remove", "--force", worktree]); } catch {}
@@ -203,8 +228,7 @@ function withResearchWorktree(root, sha, callback) {
 }
 
 function runControlledCanonicalVerifier(root, bundleDir, sourceCommit) {
-  const localVerifier = join(root, "scripts/controlled-coding-pilot-observed-evidence-verify.cjs");
-  const run = (cwd, verifier) => {
+  function run(cwd, verifier) {
     const result = spawnSync(process.execPath, [
       verifier,
       "--bundle-dir", bundleDir,
@@ -220,13 +244,12 @@ function runControlledCanonicalVerifier(root, bundleDir, sourceCommit) {
       fail("EVIDENCE_PROMOTION_CONTROLLED_CANONICAL_VERIFY_FAILED",
         (result.stderr || result.stdout || "").trim());
     }
-  };
-  if (existsSync(localVerifier)) {
-    run(root, localVerifier);
-    return;
   }
-  const sha = resolveResearchRef(root, CONTROLLED_RESEARCH_REF);
-  withResearchWorktree(root, sha, (worktree) => run(
+
+  const localVerifier = join(root, "scripts/controlled-coding-pilot-observed-evidence-verify.cjs");
+  if (existsSync(localVerifier)) return run(root, localVerifier);
+  const researchSha = resolveResearchRef(root, CONTROLLED_RESEARCH_REF);
+  return withResearchWorktree(root, researchSha, (worktree) => run(
     worktree,
     join(worktree, "scripts/controlled-coding-pilot-observed-evidence-verify.cjs")
   ));
@@ -242,7 +265,8 @@ function verifyControlledArtifact({ root, artifactPath, pending, deepVerify = tr
     fail("EVIDENCE_PROMOTION_CONTROLLED_MANIFEST_INVALID");
   }
   verifyCanonicalHash(manifest, "evidenceHash", "EVIDENCE_PROMOTION_ARTIFACT_HASH_INVALID");
-  assertCommit(manifest.sourceCommit, "EVIDENCE_PROMOTION_SOURCE_COMMIT_MISSING");
+  ensureCommitAvailable(root, manifest.sourceCommit);
+
   const config = manifest.experimentConfig;
   assertObservedString(config.modelId, "EVIDENCE_PROMOTION_MODEL_MISSING");
   if (!plainObject(config.provider)) fail("EVIDENCE_PROMOTION_PROVIDER_MISSING");
@@ -252,8 +276,8 @@ function verifyControlledArtifact({ root, artifactPath, pending, deepVerify = tr
   }
 
   const expected = normalizeIdentity(pending.tasksetIdentity.tasks, pending.tasksetIdentity.kind);
-  const actualIds = manifest.runs.map((run) => run.pilotId).sort();
-  if (!sameJson(actualIds, expected.map((entry) => entry.pilotId).sort())) {
+  const runIds = manifest.runs.map((run) => run?.pilotId).sort();
+  if (!sameJson(runIds, expected.map((entry) => entry.pilotId).sort())) {
     fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH");
   }
 
@@ -276,16 +300,18 @@ function verifyControlledArtifact({ root, artifactPath, pending, deepVerify = tr
         hashCanonical(provenance) !== summary.runProvenanceHash) {
       fail("EVIDENCE_PROMOTION_CONTROLLED_RUN_BINDING_INVALID", summary.pilotId);
     }
+
     const expectedTask = expected.find((entry) => entry.pilotId === summary.pilotId);
     if (!expectedTask || provenance.taskDefinition?.path !== expectedTask.path) {
       fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH", summary.pilotId);
     }
     represented.push({ pilotId: summary.pilotId, path: provenance.taskDefinition.path });
 
-    const pilotReportPath = safeChild(runRoot, provenance.pilotReportArtifact,
-      "EVIDENCE_PROMOTION_CONTROLLED_PILOT_REPORT_PATH_INVALID");
-    const pilotReport = parseJsonFile(pilotReportPath,
-      "EVIDENCE_PROMOTION_CONTROLLED_PILOT_REPORT_JSON_INVALID");
+    const pilotReport = parseJsonFile(
+      safeChild(runRoot, provenance.pilotReportArtifact,
+        "EVIDENCE_PROMOTION_CONTROLLED_PILOT_REPORT_PATH_INVALID"),
+      "EVIDENCE_PROMOTION_CONTROLLED_PILOT_REPORT_JSON_INVALID"
+    );
     if (pilotReport.pilotId !== summary.pilotId || pilotReport.status !== summary.status ||
         pilotReport.sourceCommit !== manifest.sourceCommit) {
       fail("EVIDENCE_PROMOTION_CONTROLLED_PILOT_REPORT_BINDING_INVALID", summary.pilotId);
@@ -303,6 +329,7 @@ function verifyControlledArtifact({ root, artifactPath, pending, deepVerify = tr
       }
     }
   }
+
   if (!sameJson(normalizeIdentity(represented, pending.tasksetIdentity.kind), expected)) {
     fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH");
   }
@@ -320,11 +347,6 @@ function verifyControlledArtifact({ root, artifactPath, pending, deepVerify = tr
   };
 }
 
-function verifySourceCommitExists(root, sourceCommit) {
-  git(root, ["cat-file", "-e", `${sourceCommit}^{commit}`],
-    "EVIDENCE_PROMOTION_SOURCE_COMMIT_UNAVAILABLE");
-}
-
 function verifyModeFArtifact({ root, artifactPath, pending }) {
   const artifactFile = resolve(artifactPath);
   if (!existsSync(artifactFile) || !lstatSync(artifactFile).isFile() ||
@@ -338,8 +360,8 @@ function verifyModeFArtifact({ root, artifactPath, pending }) {
     fail("EVIDENCE_PROMOTION_NON_OBSERVED_ARTIFACT_REJECTED");
   }
   verifyCanonicalHash(evidence, "evidenceHash", "EVIDENCE_PROMOTION_ARTIFACT_HASH_INVALID");
-  assertCommit(evidence.sourceCommit, "EVIDENCE_PROMOTION_SOURCE_COMMIT_MISSING");
-  verifySourceCommitExists(root, evidence.sourceCommit);
+  ensureCommitAvailable(root, evidence.sourceCommit);
+
   const config = evidence.experimentConfig;
   assertObservedString(config.model, "EVIDENCE_PROMOTION_MODEL_MISSING");
   assertObservedString(config.transport, "EVIDENCE_PROMOTION_PROVIDER_INVALID");
@@ -352,33 +374,43 @@ function verifyModeFArtifact({ root, artifactPath, pending }) {
     pending.tasksetIdentity.kind);
   if (!sameJson(actual, expected)) fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH");
 
-  if (typeof evidence.benchmarkPath !== "string" || evidence.benchmarkPath.includes("..") ||
-      evidence.benchmarkPath.includes("\\") || !evidence.benchmarkPath) {
+  if (typeof evidence.benchmarkPath !== "string" || !evidence.benchmarkPath ||
+      evidence.benchmarkPath.includes("\\") || evidence.benchmarkPath.split("/").includes("..")) {
     fail("EVIDENCE_PROMOTION_MODE_F_BENCHMARK_PATH_INVALID");
   }
-  const benchmarkBytes = Buffer.from(git(root, ["show",
-    `${evidence.sourceCommit}:${evidence.benchmarkPath}`]));
+  const benchmarkBytes = gitBytes(root, ["show", `${evidence.sourceCommit}:${evidence.benchmarkPath}`],
+    "EVIDENCE_PROMOTION_SOURCE_COMMIT_BINDING_INVALID");
+  const benchmarkBlob = git(root,
+    ["rev-parse", `${evidence.sourceCommit}:${evidence.benchmarkPath}`],
+    "EVIDENCE_PROMOTION_SOURCE_COMMIT_BINDING_INVALID");
   if (sha256Bytes(benchmarkBytes) !== evidence.benchmarkFileHash ||
-      git(root, ["rev-parse", `${evidence.sourceCommit}:${evidence.benchmarkPath}`]) !==
-        evidence.benchmarkGitBlob) {
+      benchmarkBlob !== evidence.benchmarkGitBlob) {
     fail("EVIDENCE_PROMOTION_SOURCE_COMMIT_BINDING_INVALID");
   }
 
   const rawPath = safeChild(dirname(artifactFile), evidence.rawReportPath,
     "EVIDENCE_PROMOTION_MODE_F_RAW_PATH_INVALID");
+  if (!existsSync(rawPath) || !lstatSync(rawPath).isFile() || lstatSync(rawPath).isSymbolicLink()) {
+    fail("EVIDENCE_PROMOTION_MODE_F_RAW_PATH_INVALID");
+  }
   const rawBytes = readFileSync(rawPath);
   if (sha256Bytes(rawBytes) !== evidence.rawReportByteHash) {
     fail("EVIDENCE_PROMOTION_MODE_F_RAW_HASH_INVALID");
   }
   const raw = parseJsonFile(rawPath, "EVIDENCE_PROMOTION_MODE_F_RAW_JSON_INVALID");
-  if (raw.reportHash !== evidence.rawReportHash || raw.executionClass !== evidence.executionClass ||
-      raw.taskCount !== expected.length || raw.modeCount !== MODE_F_MODES.length ||
-      raw.sampleCount !== evidence.sampleCount || !Array.isArray(raw.tasks) ||
-      !Array.isArray(raw.results) || !Array.isArray(raw.aggregates)) {
+  assertHash(raw.reportHash, "EVIDENCE_PROMOTION_MODE_F_RAW_HASH_INVALID");
+  const rawCore = { ...raw };
+  delete rawCore.reportHash;
+  if (hashJson(rawCore) !== raw.reportHash || raw.reportHash !== evidence.rawReportHash ||
+      raw.executionClass !== evidence.executionClass || raw.taskCount !== expected.length ||
+      raw.modeCount !== MODE_F_MODES.length || raw.sampleCount !== evidence.sampleCount ||
+      !Array.isArray(raw.tasks) || !Array.isArray(raw.results) || !Array.isArray(raw.aggregates)) {
     fail("EVIDENCE_PROMOTION_MODE_F_RAW_BINDING_INVALID");
   }
-  const rawTasks = normalizeIdentity(raw.tasks, pending.tasksetIdentity.kind);
-  if (!sameJson(rawTasks, expected)) fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH");
+
+  if (!sameJson(normalizeIdentity(raw.tasks, pending.tasksetIdentity.kind), expected)) {
+    fail("EVIDENCE_PROMOTION_TASKSET_MISMATCH");
+  }
   const modes = raw.aggregates.map((entry) => entry?.mode).sort();
   if (!sameJson(modes, [...MODE_F_MODES].sort())) {
     fail("EVIDENCE_PROMOTION_MODE_F_MODES_INVALID");
@@ -425,12 +457,7 @@ function deriveObservedEntry({ root = process.cwd(), experimentId, artifactPath,
   const pending = experiment(index, experimentId);
   let verified;
   if (experimentId === CONTROLLED_EXPERIMENT) {
-    verified = verifyControlledArtifact({
-      root: repositoryRoot,
-      artifactPath,
-      pending,
-      deepVerify
-    });
+    verified = verifyControlledArtifact({ root: repositoryRoot, artifactPath, pending, deepVerify });
   } else if (experimentId === MODE_F_EXPERIMENT) {
     verified = verifyModeFArtifact({ root: repositoryRoot, artifactPath, pending });
   } else {
@@ -456,6 +483,7 @@ function main() {
     fail("EVIDENCE_PROMOTION_USAGE_INVALID",
       "require --experiment, --artifact, and exactly one of --check or --print-entry");
   }
+
   const entry = deriveObservedEntry({ root: process.cwd(), experimentId, artifactPath });
   if (printEntry) {
     process.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
