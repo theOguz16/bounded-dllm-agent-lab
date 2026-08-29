@@ -1,6 +1,6 @@
 # Current State
 
-> This document is a narrative projection of the repository. It does not own experiment status. Runtime truth comes from code and CI on `main`; experiment/evidence truth comes from [`evidence/index.json`](../evidence/index.json). [`EVIDENCE_INDEX.md`](./EVIDENCE_INDEX.md) is generated from that registry.
+> This document is a narrative projection of the repository. **Experiment and evidence status is authoritative only in [`evidence/index.json`](../evidence/index.json).** Runtime truth comes from code and CI on `main`; this file does not own experiment status. [`EVIDENCE_INDEX.md`](./EVIDENCE_INDEX.md) is generated from the machine-readable registry.
 
 ## Product definition
 
