@@ -363,14 +363,14 @@ function client(mode, counter) {
       clientConfiguration({ requestTimeoutMs: PILOT_EXECUTION_RUNTIME_MS + 1 }),
       credential
     ).execute(modelRequest, {}),
-    (error) => error.code === "RUNPOD_REQUEST_REJECTED"
+    (error) => error.code === "REQUEST_REJECTED"
   );
   await assert.rejects(
     new runpod.RunpodOpenAICompatibleModelClient(
       clientConfiguration({ maxOutputTokens: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT + 1 }),
       credential
     ).execute(modelRequest, {}),
-    (error) => error.code === "RUNPOD_REQUEST_REJECTED"
+    (error) => error.code === "REQUEST_REJECTED"
   );
   const originalFetch = globalThis.fetch;
   let providerRequestBody;
@@ -400,7 +400,7 @@ function client(mode, counter) {
       new runpod.RunpodOpenAICompatibleModelClient(
         clientConfiguration(), credential
       ).execute(modelRequest, {}),
-      (error) => error.code === "RUNPOD_RESPONSE_TRUNCATED"
+      (error) => error.code === "MODEL_RESPONSE_INVALID"
     );
     assert.equal(providerRequestBody.max_tokens, 1_024);
     assert.equal(providerRequestBody.response_format.type, "json_schema");
@@ -412,7 +412,7 @@ function client(mode, counter) {
       new runpod.RunpodOpenAICompatibleModelClient(
         clientConfiguration({ structuredOutputMode: "json_object" }), credential
       ).execute(modelRequest, {}),
-      (error) => error.code === "RUNPOD_RESPONSE_TRUNCATED"
+      (error) => error.code === "MODEL_RESPONSE_INVALID"
     );
     assert.deepEqual(providerRequestBody.response_format, { type: "json_object" });
     globalThis.fetch = async () => new Response(JSON.stringify({
@@ -425,7 +425,7 @@ function client(mode, counter) {
       new runpod.RunpodOpenAICompatibleModelClient(
         clientConfiguration(), credential
       ).execute(modelRequest, {}),
-      (error) => error.code === "RUNPOD_JSON_SCHEMA_UNSUPPORTED"
+      (error) => error.code === "STRUCTURED_OUTPUT_UNSUPPORTED"
     );
   } finally {
     globalThis.fetch = originalFetch;
@@ -477,15 +477,17 @@ function client(mode, counter) {
       async execute() {
         truncatedCounter.calls += 1;
         const error = new Error("truncated content must not be accepted");
-        error.code = "RUNPOD_RESPONSE_TRUNCATED";
+        error.code = "MODEL_RESPONSE_INVALID";
         throw error;
       }
     }
   });
   assert.equal(truncatedCounter.calls, 1);
   assert.equal(truncatedPilot.failureCode, "PILOT_MODEL_RESPONSE_INVALID");
-  assert.equal(truncatedPilot.providerDiagnostic.providerErrorCode,
-    "RUNPOD_RESPONSE_TRUNCATED");
+  assert.equal(
+    truncatedPilot.providerDiagnostic.executorDiagnosticCode,
+    "EXECUTOR_PROVIDER_RESPONSE_INVALID"
+  );
 
   for (const [mode, expected] of [
     ["path-selection", "PILOT_MODEL_RESPONSE_INVALID"],
@@ -623,7 +625,7 @@ function client(mode, counter) {
     modelClient: {
       async execute() {
         const error = new Error("sensitive detail must not be reported");
-        error.code = "RUNPOD_REQUEST_REJECTED";
+        error.code = "REQUEST_REJECTED";
         throw error;
       }
     }
@@ -633,12 +635,7 @@ function client(mode, counter) {
   else process.env.CONTROLLED_PILOT_DEBUG = previousDebug;
   assert.equal(rejected.failureCode, "PILOT_PROVIDER_CALL_FAILED");
   assert.deepEqual(rejected.providerDiagnostic, {
-    remainingRuntimeMs: PILOT_EXECUTION_RUNTIME_MS,
-    outputTokenLimit: PILOT_EXECUTOR_OUTPUT_TOKEN_LIMIT,
-    configuredRequestTimeoutMs: PILOT_PROVIDER_TIMEOUT_MS,
-    configuredMaxOutputTokens: PILOT_PROVIDER_MAX_OUTPUT_TOKENS,
     executorMutationLineBudget: 2 * sourceBefore.split(/\r?\n/).length + 120,
-    providerErrorCode: "RUNPOD_REQUEST_REJECTED",
     executorDiagnosticCode: "EXECUTOR_PROVIDER_REJECTED"
   });
   const parsedDebug = JSON.parse(debugOutput.trim().split("\n").at(-1));

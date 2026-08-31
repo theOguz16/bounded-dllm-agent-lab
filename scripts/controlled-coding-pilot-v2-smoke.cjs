@@ -167,22 +167,8 @@ function localJsonCorrectOutput(request) {
         "function mapTransportFailure(error: unknown, modelId: string): LocalOpenAIModelClientError {"
       ].join("\n")),
     edit(request, clientPath,
-      [
-        "      if (",
-        "        this.configuration.structuredOutputMode === \"json_schema\" &&",
-        "        (error as { status?: number } | null)?.status === 400",
-        "      ) {",
-        "        throw new LocalOpenAIModelClientError(\"LOCAL_JSON_SCHEMA_UNSUPPORTED\");",
-        "      }"
-      ].join("\n"),
-      [
-        "      if (",
-        "        this.configuration.structuredOutputMode === \"json_schema\" &&",
-        "        isJsonSchemaUnsupportedFailure(error)",
-        "      ) {",
-        "        throw new LocalOpenAIModelClientError(\"LOCAL_JSON_SCHEMA_UNSUPPORTED\");",
-        "      }"
-      ].join("\n")),
+      "(error as { status?: number } | null)?.status === 400",
+      "isJsonSchemaUnsupportedFailure(error)"),
     edit(request, contracts,
       "assert.deepEqual(validateFixtures(demoFixtures), []);",
       [

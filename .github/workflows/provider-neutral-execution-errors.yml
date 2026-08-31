@@ -1,0 +1,40 @@
+name: Provider Neutral Execution Errors
+
+on:
+  pull_request:
+    paths:
+      - 'packages/integrations/src/coding-executor.ts'
+      - 'packages/integrations/src/provider-execution-error.ts'
+      - 'packages/integrations/src/local-openai-compatible-model-client.ts'
+      - 'packages/integrations/src/runpod-openai-compatible-model-client.ts'
+      - 'scripts/provider-neutral-execution-errors-smoke.cjs'
+      - 'bounded-agent.policy.yml'
+      - '.github/workflows/provider-neutral-execution-errors.yml'
+  push:
+    paths:
+      - 'packages/integrations/src/coding-executor.ts'
+      - 'packages/integrations/src/provider-execution-error.ts'
+      - 'packages/integrations/src/local-openai-compatible-model-client.ts'
+      - 'packages/integrations/src/runpod-openai-compatible-model-client.ts'
+      - 'scripts/provider-neutral-execution-errors-smoke.cjs'
+      - 'bounded-agent.policy.yml'
+      - '.github/workflows/provider-neutral-execution-errors.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-provider-neutral-errors:
+    name: Verify Provider-Neutral Errors
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Verify provider-neutral execution boundary
+        run: node scripts/provider-neutral-execution-errors-smoke.cjs

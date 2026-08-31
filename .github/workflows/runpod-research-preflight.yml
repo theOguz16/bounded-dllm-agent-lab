@@ -1,0 +1,87 @@
+name: RunPod Research Preflight
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'bounded-agent.policy.yml'
+      - 'evidence/index.json'
+      - 'scripts/runpod-research-preflight.cjs'
+      - 'scripts/evidence-index.cjs'
+      - 'scripts/controlled-pilot/**'
+      - 'scripts/controlled-coding-pilot-offline-gate-smoke.cjs'
+      - 'scripts/controlled-coding-pilot-text-edits-adversarial-smoke.cjs'
+      - 'pilots/controlled-real-coding-v2/**'
+      - 'docs/RUNPOD_RESEARCH_PREFLIGHT.md'
+      - '.github/workflows/runpod-research-preflight.yml'
+  workflow_dispatch:
+
+jobs:
+  provider-free-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Provider-free research preflight
+        env:
+          RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
+          RUNPOD_RESEARCH_PROVIDER: unavailable
+        run: |
+          set +e
+          npm run preflight:runpod-research > /tmp/runpod-research-preflight.json
+          PREFLIGHT_STATUS=$?
+          set -e
+          cat /tmp/runpod-research-preflight.json
+          test "$PREFLIGHT_STATUS" -eq 0
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync('/tmp/runpod-research-preflight.json', 'utf8');
+          const start = text.indexOf('{');
+          if (start < 0) process.exit(1);
+          const report = JSON.parse(text.slice(start));
+          if (report.localReady !== true) process.exit(1);
+          if (report.providerReady !== false) process.exit(1);
+          if (report.runpodReady !== false) process.exit(1);
+          if (report.controlledPilotV2?.taskCount !== 2) process.exit(1);
+          if (report.modeF?.repositories !== 3) process.exit(1);
+          if (report.provider?.configured !== false) process.exit(1);
+          NODE
+      - name: Configured provider-shape research preflight
+        env:
+          RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
+          LLM_UPSTREAM_URL: https://example.invalid/v1/chat/completions
+          LLM_MODEL_ID: qwen2.5-coder-7b
+          LLM_UPSTREAM_API_KEY: preflight-controlled-secret-sentinel
+          GATE5_OPENAI_ENDPOINT: https://example.invalid/v1/chat/completions
+          GATE5_MODEL: qwen2.5-coder-7b
+          GATE5_API_KEY: preflight-mode-f-secret-sentinel
+          GATE5_MAX_COMPLETION_TOKENS: '256'
+          RUNPOD_RESEARCH_REPETITIONS: '3'
+        run: |
+          npm run preflight:runpod-research > /tmp/runpod-research-configured.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const text = fs.readFileSync('/tmp/runpod-research-configured.json', 'utf8');
+          for (const secret of [
+            'preflight-controlled-secret-sentinel',
+            'preflight-mode-f-secret-sentinel'
+          ]) {
+            if (text.includes(secret)) process.exit(1);
+          }
+          const start = text.indexOf('{');
+          if (start < 0) process.exit(1);
+          const report = JSON.parse(text.slice(start));
+          if (report.localReady !== true) process.exit(1);
+          if (report.providerReady !== true) process.exit(1);
+          if (report.runpodReady !== true) process.exit(1);
+          if (report.provider?.configured !== true) process.exit(1);
+          NODE
