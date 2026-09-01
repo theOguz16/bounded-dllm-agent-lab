@@ -1,6 +1,6 @@
 {
   "schemaVersion": "gate6-taskset/v1",
-  "frozen": true,
+  "frozen": false,
   "taskCount": 42,
   "repositoryCount": 14,
   "taskFiles": [
@@ -36,7 +36,9 @@
     "hard": 8
   },
   "repositoryManifestHash": "sha256:4f132ec98b0c85ac597d93209a923977ea1dc6bacbc6bbfe3f1bb098154c9b85",
-  "tasksetHash": "sha256:c73b390eb4c7293791097e7fbdf35117bdc819b961c6d15ab38b0459e5b8b5a9",
+  "tasksetHash": null,
+  "preconditionStatus": "pending_42_of_42_execution",
+  "preconditionAttestationHash": null,
   "oracleReviewStatus": "manually_verified_against_exact_repository_commits_before_model_execution",
   "oracleMutationPolicy": "requires_taskset_version_bump_after_freeze"
 }
