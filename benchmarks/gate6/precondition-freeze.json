@@ -1,0 +1,1545 @@
+{
+  "schemaVersion": "gate6-precondition-freeze-document/v1",
+  "status": "verified_42_of_42",
+  "workflowRunId": 33534874325,
+  "workflowHeadSha": "8f4e6ac17d59e8228087821d618c28c7ec00ed5f",
+  "freeze": {
+    "schemaVersion": "gate6-precondition-freeze/v1",
+    "taskCount": 42,
+    "repositoryCount": 14,
+    "passBaselineCount": 6,
+    "failBaselineCount": 36,
+    "preconditionSpecHash": "sha256:40f652fa3564156bba43589488f48bd7c08e39527239725a9d42eb63493a5a2e",
+    "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+    "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+    "attestationHashes": [
+      {
+        "repositoryId": "ai/nanoid",
+        "attestationHash": "sha256:d39dcabd6c5ad1394f928332bed6fc38892fa107d6091ecb290398ae14158f9e"
+      },
+      {
+        "repositoryId": "chalk/chalk",
+        "attestationHash": "sha256:e53230784204dd1aa21ea1d614b615047067d2d35bd7bea346706f2fcaed43b5"
+      },
+      {
+        "repositoryId": "lukeed/clsx",
+        "attestationHash": "sha256:50a06468220bfec510543e534e62dc8580a9c041c502a8cc963b5f3cda8cd3d1"
+      },
+      {
+        "repositoryId": "motdotla/dotenv",
+        "attestationHash": "sha256:c94c1014e2fe006efec9ca5798740b5978344099e47c8ed16badb7042b6b28fe"
+      },
+      {
+        "repositoryId": "sindresorhus/escape-string-regexp",
+        "attestationHash": "sha256:f3fcd0857dce1b05bcbfb88e60406f0f0887638c85763c3ab98dd544a9bdcf18"
+      },
+      {
+        "repositoryId": "sindresorhus/is",
+        "attestationHash": "sha256:2013e64d95941641374c8179a29a76d696c4ed18921b638566b88ca8c5d530b6"
+      },
+      {
+        "repositoryId": "sindresorhus/ky",
+        "attestationHash": "sha256:4207a75dcb66ffd975817a4fe832ab15579545ceddd380d6e1b1a5c4c317f9b1"
+      },
+      {
+        "repositoryId": "sindresorhus/p-limit",
+        "attestationHash": "sha256:20fdd19577480e2a24b01cd7e508878488949fac040ef3812737f59a99db79b1"
+      },
+      {
+        "repositoryId": "sindresorhus/p-map",
+        "attestationHash": "sha256:080b16f2c814aa716fe4704631fec6ff00c8f11553aab1044bd932563fa1c5e0"
+      },
+      {
+        "repositoryId": "sindresorhus/p-queue",
+        "attestationHash": "sha256:23d35a41a5dd497999b26ea72627c0049555078bafa1dba9bef18d9a2df07833"
+      },
+      {
+        "repositoryId": "sindresorhus/query-string",
+        "attestationHash": "sha256:2be5213970ce169cb1019684ca51c8e7fdd5db649e19032daac4ac246ade50b7"
+      },
+      {
+        "repositoryId": "sindresorhus/slugify",
+        "attestationHash": "sha256:defbb8e310322f41949457b3e3765bc616acb99054607a453dd6782e296cab3a"
+      },
+      {
+        "repositoryId": "sindresorhus/yocto-queue",
+        "attestationHash": "sha256:ccec498c157dcf0e51b72c5607a0af7c74d69cc99f0cca4279aa2fc3897fa135"
+      },
+      {
+        "repositoryId": "tj/commander.js",
+        "attestationHash": "sha256:4071b455a31911f1de6e48b495985cce3e27c5c0433b2db7a80be4b21bd7c9b8"
+      }
+    ],
+    "preconditionAttestationHash": "sha256:334d7893325c912ab916215131cf4d440152bc1bc7ae0da9575cdef77068c8ac"
+  },
+  "attestations": [
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "ai/nanoid",
+      "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.nanoid.node-browser-zero-size-parity",
+          "repositoryId": "ai/nanoid",
+          "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+          "probeId": "external.nanoid.node-browser-zero-size-parity",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "nanoid",
+            "replacementSymbol": "nanoid__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e08789e1aefb405153776478b0c8c28e39009e9b",
+            "beforeContentHash": "sha256:1d192040caff0d739f37c83c4b5e7c1b8fc54f6ee88948968ec2f7c3adacea4a",
+            "afterContentHash": "sha256:849cc6ddf0f0fbf29fb900f7254d181be98eb2059ad5fc287fa5d4f8d169a524",
+            "injectionId": "sha256:5a5d107e39cb4b3c2c26cbd15e7086d0b046031daab33bda94f0d39c17f69fb2"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.test.js"
+            ],
+            "requiredTestAnchors": [
+              "does not fall in infinite loop",
+              "is ready for 0 size"
+            ],
+            "behavioralChecks": [
+              "Both secure runtime entry points must return an empty string for explicit zero-size generation."
+            ]
+          }
+        },
+        {
+          "taskId": "external.nanoid.secure-pool-fractional-size",
+          "repositoryId": "ai/nanoid",
+          "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+          "probeId": "external.nanoid.secure-pool-fractional-size",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "nanoid",
+            "replacementSymbol": "nanoid__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e08789e1aefb405153776478b0c8c28e39009e9b",
+            "beforeContentHash": "sha256:1d192040caff0d739f37c83c4b5e7c1b8fc54f6ee88948968ec2f7c3adacea4a",
+            "afterContentHash": "sha256:849cc6ddf0f0fbf29fb900f7254d181be98eb2059ad5fc287fa5d4f8d169a524",
+            "injectionId": "sha256:5a5d107e39cb4b3c2c26cbd15e7086d0b046031daab33bda94f0d39c17f69fb2"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.test.js"
+            ],
+            "requiredTestAnchors": [
+              "avoids pool pollution, infinite loop"
+            ],
+            "behavioralChecks": [
+              "Fractional-size generation must not cause a later default-size Nano ID to repeat."
+            ]
+          }
+        },
+        {
+          "taskId": "external.nanoid.url-alphabet-dependency",
+          "repositoryId": "ai/nanoid",
+          "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+          "probeId": "external.nanoid.url-alphabet-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "nanoid",
+            "replacementSymbol": "nanoid__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e08789e1aefb405153776478b0c8c28e39009e9b",
+            "beforeContentHash": "sha256:1d192040caff0d739f37c83c4b5e7c1b8fc54f6ee88948968ec2f7c3adacea4a",
+            "afterContentHash": "sha256:849cc6ddf0f0fbf29fb900f7254d181be98eb2059ad5fc287fa5d4f8d169a524",
+            "injectionId": "sha256:5a5d107e39cb4b3c2c26cbd15e7086d0b046031daab33bda94f0d39c17f69fb2"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.test.js"
+            ],
+            "requiredTestAnchors": [
+              "generates URL-friendly IDs"
+            ],
+            "behavioralChecks": [
+              "Every default Nano ID character must belong to urlAlphabet."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:d39dcabd6c5ad1394f928332bed6fc38892fa107d6091ecb290398ae14158f9e"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "chalk/chalk",
+      "commitSha": "661317e6f91fe7c90306c2c48ea9354562ee9146",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.chalk-instance-level-api-contract",
+          "repositoryId": "chalk/chalk",
+          "commitSha": "661317e6f91fe7c90306c2c48ea9354562ee9146",
+          "probeId": "external.chalk-instance-level-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.js",
+            "symbol": "Chalk",
+            "replacementSymbol": "Chalk__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "229ea1ea4da6a87635ef3f1ca8987b7a8e938554",
+            "beforeContentHash": "sha256:08e92f2330a34d232f8aa987da4d953893094be5b2aa8cc39ddb4313743f206e",
+            "afterContentHash": "sha256:edf2b16d58276992bf9b1ee8ab6d8cde8792b1cd4c378f462ef83a6a068c9292",
+            "injectionId": "sha256:711c6df3a2305a02b0dc043d06781be53dd7cec248fdcb2d9cd565b46fdc8b7d"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/instance.js",
+              "test/level.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Constructed Chalk instances must honor their configured color level and public typing."
+            ]
+          }
+        },
+        {
+          "taskId": "external.chalk-style-utilities-dependency",
+          "repositoryId": "chalk/chalk",
+          "commitSha": "661317e6f91fe7c90306c2c48ea9354562ee9146",
+          "probeId": "external.chalk-style-utilities-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.js",
+            "symbol": "chalk",
+            "replacementSymbol": "chalk__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "229ea1ea4da6a87635ef3f1ca8987b7a8e938554",
+            "beforeContentHash": "sha256:08e92f2330a34d232f8aa987da4d953893094be5b2aa8cc39ddb4313743f206e",
+            "afterContentHash": "sha256:9c4dfee2984c470c40f2fc99fa9fbfcb1a3f8daacb797a81ee8766354500eb5b",
+            "injectionId": "sha256:816cbd77fb3724acc994cc36c0e75130faa8e4d04e7b43d3be98fcfa56da2a7a"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/chalk.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Nested and chained styles must continue to apply and close ANSI sequences correctly."
+            ]
+          }
+        },
+        {
+          "taskId": "external.chalk-visible-decoy-selection",
+          "repositoryId": "chalk/chalk",
+          "commitSha": "661317e6f91fe7c90306c2c48ea9354562ee9146",
+          "probeId": "external.chalk-visible-decoy-selection",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.js",
+            "symbol": "chalk",
+            "replacementSymbol": "chalk__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "229ea1ea4da6a87635ef3f1ca8987b7a8e938554",
+            "beforeContentHash": "sha256:08e92f2330a34d232f8aa987da4d953893094be5b2aa8cc39ddb4313743f206e",
+            "afterContentHash": "sha256:9c4dfee2984c470c40f2fc99fa9fbfcb1a3f8daacb797a81ee8766354500eb5b",
+            "injectionId": "sha256:816cbd77fb3724acc994cc36c0e75130faa8e4d04e7b43d3be98fcfa56da2a7a"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/visible.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "The visible modifier must emit content only when the active color level enables visibility semantics."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:e53230784204dd1aa21ea1d614b615047067d2d35bd7bea346706f2fcaed43b5"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "lukeed/clsx",
+      "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.clsx.nested-array-boundary",
+          "repositoryId": "lukeed/clsx",
+          "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+          "probeId": "external.clsx.nested-array-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "src/index.js",
+            "symbol": "toVal",
+            "replacementSymbol": "toVal__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "c1f53ca795dd8c91c50622476143c4e232ece247",
+            "beforeContentHash": "sha256:a577c500f65ed167cea489dd39c149c36880f959fc6ca24e4e1cc545cb7a53e1",
+            "afterContentHash": "sha256:9e532225b610aeb43b02cdad44a321823cc3ce7dd32b972ef7cffbda79949da2",
+            "injectionId": "sha256:7f913bc531e3d73380402e104dd392b2531c00101ba6e8b9b7d3e0f125d24c8d"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.js"
+            ],
+            "requiredTestAnchors": [
+              "arrays (nested)"
+            ],
+            "behavioralChecks": [
+              "Deeply nested class-value arrays must flatten in order while ignoring empty values."
+            ]
+          }
+        },
+        {
+          "taskId": "external.clsx.push-key-object-regression",
+          "repositoryId": "lukeed/clsx",
+          "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+          "probeId": "external.clsx.push-key-object-regression",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "src/index.js",
+            "symbol": "toVal",
+            "replacementSymbol": "toVal__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "c1f53ca795dd8c91c50622476143c4e232ece247",
+            "beforeContentHash": "sha256:a577c500f65ed167cea489dd39c149c36880f959fc6ca24e4e1cc545cb7a53e1",
+            "afterContentHash": "sha256:9e532225b610aeb43b02cdad44a321823cc3ce7dd32b972ef7cffbda79949da2",
+            "injectionId": "sha256:7f913bc531e3d73380402e104dd392b2531c00101ba6e8b9b7d3e0f125d24c8d"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.js"
+            ],
+            "requiredTestAnchors": [
+              "arrays (no `push` escape)"
+            ],
+            "behavioralChecks": [
+              "Objects with truthy push/pop keys must remain object class maps, not be mistaken for arrays."
+            ]
+          }
+        },
+        {
+          "taskId": "external.clsx.recursive-array-type-sync",
+          "repositoryId": "lukeed/clsx",
+          "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+          "probeId": "external.clsx.recursive-array-type-sync",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "src/index.js",
+            "symbol": "toVal",
+            "replacementSymbol": "toVal__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "c1f53ca795dd8c91c50622476143c4e232ece247",
+            "beforeContentHash": "sha256:a577c500f65ed167cea489dd39c149c36880f959fc6ca24e4e1cc545cb7a53e1",
+            "afterContentHash": "sha256:9e532225b610aeb43b02cdad44a321823cc3ce7dd32b972ef7cffbda79949da2",
+            "injectionId": "sha256:7f913bc531e3d73380402e104dd392b2531c00101ba6e8b9b7d3e0f125d24c8d"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/index.js"
+            ],
+            "requiredTestAnchors": [
+              "arrays (nested)"
+            ],
+            "behavioralChecks": [
+              "Recursive arrays accepted by the public type must flatten equivalently at runtime."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:50a06468220bfec510543e534e62dc8580a9c041c502a8cc963b5f3cda8cd3d1"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "motdotla/dotenv",
+      "commitSha": "2fc7eac8ad77cbd5f7814355c7fa352dbcf3c358",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.dotenv-duplicate-key-line-ending-regression",
+          "repositoryId": "motdotla/dotenv",
+          "commitSha": "2fc7eac8ad77cbd5f7814355c7fa352dbcf3c358",
+          "probeId": "external.dotenv-duplicate-key-line-ending-regression",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "lib/main.js",
+            "symbol": "parse",
+            "replacementSymbol": "parse__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "1403fbd27a225aaf0d2a4bbe7ea953512c9129a3",
+            "beforeContentHash": "sha256:4fcf55cdbb09a5758396bb2985518ffc87eceb7108dc644eeeae5d3b377b77d8",
+            "afterContentHash": "sha256:7e9580332211c710339fec143f975bd176092e805bae92c8eeb3362a0feec5be",
+            "injectionId": "sha256:a803bbdfc3099e6a8f25e1d4e092a82188cbeae931317b60f30f47ab2a682152"
+          },
+          "evidence": {
+            "testFiles": [
+              "tests/test-parse.js"
+            ],
+            "requiredTestAnchors": [
+              "last duplicate key wins",
+              "line endings"
+            ],
+            "behavioralChecks": [
+              "The last duplicate assignment must win and all supported line-ending conventions must parse equivalently."
+            ]
+          }
+        },
+        {
+          "taskId": "external.dotenv-export-keyword-no-change",
+          "repositoryId": "motdotla/dotenv",
+          "commitSha": "2fc7eac8ad77cbd5f7814355c7fa352dbcf3c358",
+          "probeId": "external.dotenv-export-keyword-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "tests/.env",
+              "tests/test-parse.js"
+            ],
+            "requiredTestAnchors": [
+              "ignores export keyword"
+            ],
+            "behavioralChecks": [
+              "export-prefixed environment declarations must parse as ordinary assignments without retaining the export keyword."
+            ]
+          }
+        },
+        {
+          "taskId": "external.dotenv-parse-config-api-contract",
+          "repositoryId": "motdotla/dotenv",
+          "commitSha": "2fc7eac8ad77cbd5f7814355c7fa352dbcf3c358",
+          "probeId": "external.dotenv-parse-config-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "lib/main.js",
+            "symbol": "parse",
+            "replacementSymbol": "parse__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "1403fbd27a225aaf0d2a4bbe7ea953512c9129a3",
+            "beforeContentHash": "sha256:4fcf55cdbb09a5758396bb2985518ffc87eceb7108dc644eeeae5d3b377b77d8",
+            "afterContentHash": "sha256:7e9580332211c710339fec143f975bd176092e805bae92c8eeb3362a0feec5be",
+            "injectionId": "sha256:a803bbdfc3099e6a8f25e1d4e092a82188cbeae931317b60f30f47ab2a682152"
+          },
+          "evidence": {
+            "testFiles": [
+              "tests/test-config.js",
+              "tests/test-parse.js"
+            ],
+            "requiredTestAnchors": [
+              "should return an object"
+            ],
+            "behavioralChecks": [
+              "parse must return key/value data compatible with the declared API, and config must expose parsed values/errors through its public result shape."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:c94c1014e2fe006efec9ca5798740b5978344099e47c8ed16badb7042b6b28fe"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/escape-string-regexp",
+      "commitSha": "cbc42403142c96923b482604e1f3d627b1956aff",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.escape-string-regexp-hyphen-boundary",
+          "repositoryId": "sindresorhus/escape-string-regexp",
+          "commitSha": "cbc42403142c96923b482604e1f3d627b1956aff",
+          "probeId": "external.escape-string-regexp-hyphen-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "escapeStringRegexp",
+            "replacementSymbol": "escapeStringRegexp__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "9ce9323ff246d2cafb0a1c3768f49ca9b7efee13",
+            "beforeContentHash": "sha256:af2065ad2f2d2b91946c2121e21618daa3f4b18787af9226f8c953ca54cca2f5",
+            "afterContentHash": "sha256:f6805245ec28d418cf8667361d43454af88411357221a1ac746ec066fba59fd1",
+            "injectionId": "sha256:9afe8f743a9dac42330a0900746783921bf52706a7ec8f09ca3410e225f327c1"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Hyphen must be escaped using a representation valid in contexts where a simple backslash escape would be unsafe."
+            ]
+          }
+        },
+        {
+          "taskId": "external.escape-string-regexp-special-char-decoy",
+          "repositoryId": "sindresorhus/escape-string-regexp",
+          "commitSha": "cbc42403142c96923b482604e1f3d627b1956aff",
+          "probeId": "external.escape-string-regexp-special-char-decoy",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "escapeStringRegexp",
+            "replacementSymbol": "escapeStringRegexp__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "9ce9323ff246d2cafb0a1c3768f49ca9b7efee13",
+            "beforeContentHash": "sha256:af2065ad2f2d2b91946c2121e21618daa3f4b18787af9226f8c953ca54cca2f5",
+            "afterContentHash": "sha256:f6805245ec28d418cf8667361d43454af88411357221a1ac746ec066fba59fd1",
+            "injectionId": "sha256:9afe8f743a9dac42330a0900746783921bf52706a7ec8f09ca3410e225f327c1"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Every RegExp syntax character covered by the package contract must be escaped without altering ordinary characters."
+            ]
+          }
+        },
+        {
+          "taskId": "external.escape-string-regexp-typeerror-no-change",
+          "repositoryId": "sindresorhus/escape-string-regexp",
+          "commitSha": "cbc42403142c96923b482604e1f3d627b1956aff",
+          "probeId": "external.escape-string-regexp-typeerror-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "The public function must reject non-string input rather than silently coercing it."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:f3fcd0857dce1b05bcbfb88e60406f0f0887638c85763c3ab98dd544a9bdcf18"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/is",
+      "commitSha": "7821031c66cdeb7256a0feb2d506535f9e84fcaf",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.is-boxed-primitive-boundary",
+          "repositoryId": "sindresorhus/is",
+          "commitSha": "7821031c66cdeb7256a0feb2d506535f9e84fcaf",
+          "probeId": "external.is-boxed-primitive-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.ts",
+            "symbol": "isBoxedPrimitiveObject",
+            "replacementSymbol": "isBoxedPrimitiveObject__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6c2f42892e01d7d72b97c3d779fe0d23323de25c",
+            "beforeContentHash": "sha256:0a52c323413367a0a71c1d45b148b34de8e77173f35e4d273642e5a8e9118cb2",
+            "afterContentHash": "sha256:ef31ef177fa8eedc811537045a9758332193c91abb6342f66cbdaa066c4d9c6d",
+            "injectionId": "sha256:2fc48a10559afb45733120607174684d6e37e1b6117b5b5f3e1bb39d6035f6b6"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/test.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Primitive and boxed primitive values must remain distinguishable according to the package runtime predicates."
+            ]
+          }
+        },
+        {
+          "taskId": "external.is-runtime-predicate-decoy-selection",
+          "repositoryId": "sindresorhus/is",
+          "commitSha": "7821031c66cdeb7256a0feb2d506535f9e84fcaf",
+          "probeId": "external.is-runtime-predicate-decoy-selection",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.ts",
+            "symbol": "isString",
+            "replacementSymbol": "isString__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6c2f42892e01d7d72b97c3d779fe0d23323de25c",
+            "beforeContentHash": "sha256:0a52c323413367a0a71c1d45b148b34de8e77173f35e4d273642e5a8e9118cb2",
+            "afterContentHash": "sha256:d1078df745c8b120ec5195504aef37d0346b5e6f8073088957ea2e57a8377d1a",
+            "injectionId": "sha256:286f47030e925139b8cedfff7f22c73b0e68b9b0130c8327dfd5e2f99551e49f"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/test.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Runtime predicates must classify values according to the public is API rather than type-only helper definitions."
+            ]
+          }
+        },
+        {
+          "taskId": "external.is-type-narrowing-no-change",
+          "repositoryId": "sindresorhus/is",
+          "commitSha": "7821031c66cdeb7256a0feb2d506535f9e84fcaf",
+          "probeId": "external.is-type-narrowing-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "test/test.ts",
+              "test/type-tests.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Type-level predicate narrowing must remain consistent with the corresponding runtime predicates."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:2013e64d95941641374c8179a29a76d696c4ed18921b638566b88ca8c5d530b6"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/ky",
+      "commitSha": "d27ad21266d162ee218d4ea69dce192b84b6f967",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.ky-hook-retry-regression",
+          "repositoryId": "sindresorhus/ky",
+          "commitSha": "d27ad21266d162ee218d4ea69dce192b84b6f967",
+          "probeId": "external.ky-hook-retry-regression",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/core/Ky.ts",
+            "symbol": "Ky",
+            "replacementSymbol": "Ky__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e48c1a2dbde045988b9d52a87e9a31b39bc96ab3",
+            "beforeContentHash": "sha256:d8e86e4afde8e097258ff10c434f5b292d0345e92b48e7788e0a53c2abb7a54e",
+            "afterContentHash": "sha256:d6e60449c1791530391de6c342177a15e91ecba0817cd53e071edb9770d5fbaf",
+            "injectionId": "sha256:9c05646d6a178df41859b0e782a35d5d74638ddb2b0869b5032be12d0a5bd090"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/hooks.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Hook execution around retries must preserve ordering and request/response lifecycle guarantees."
+            ]
+          }
+        },
+        {
+          "taskId": "external.ky-retry-constants-dependency",
+          "repositoryId": "sindresorhus/ky",
+          "commitSha": "d27ad21266d162ee218d4ea69dce192b84b6f967",
+          "probeId": "external.ky-retry-constants-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/core/Ky.ts",
+            "symbol": "Ky",
+            "replacementSymbol": "Ky__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e48c1a2dbde045988b9d52a87e9a31b39bc96ab3",
+            "beforeContentHash": "sha256:d8e86e4afde8e097258ff10c434f5b292d0345e92b48e7788e0a53c2abb7a54e",
+            "afterContentHash": "sha256:d6e60449c1791530391de6c342177a15e91ecba0817cd53e071edb9770d5fbaf",
+            "injectionId": "sha256:9c05646d6a178df41859b0e782a35d5d74638ddb2b0869b5032be12d0a5bd090"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/main.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Retry eligibility and delay calculation must use the shared status/method/backoff constants deterministically."
+            ]
+          }
+        },
+        {
+          "taskId": "external.ky-retry-timing-cross-file",
+          "repositoryId": "sindresorhus/ky",
+          "commitSha": "d27ad21266d162ee218d4ea69dce192b84b6f967",
+          "probeId": "external.ky-retry-timing-cross-file",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/core/Ky.ts",
+            "symbol": "Ky",
+            "replacementSymbol": "Ky__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "e48c1a2dbde045988b9d52a87e9a31b39bc96ab3",
+            "beforeContentHash": "sha256:d8e86e4afde8e097258ff10c434f5b292d0345e92b48e7788e0a53c2abb7a54e",
+            "afterContentHash": "sha256:d6e60449c1791530391de6c342177a15e91ecba0817cd53e071edb9770d5fbaf",
+            "injectionId": "sha256:9c05646d6a178df41859b0e782a35d5d74638ddb2b0869b5032be12d0a5bd090"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/main.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Retry attempts must use the shared retry timing policy and stop according to configured limits and response/error conditions."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:4207a75dcb66ffd975817a4fe832ab15579545ceddd380d6e1b1a5c4c317f9b1"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/p-limit",
+      "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [
+        "yocto-queue@1.2.1"
+      ],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.p-limit.detached-map-decoy-selection",
+          "repositoryId": "sindresorhus/p-limit",
+          "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+          "probeId": "external.p-limit.detached-map-decoy-selection",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "pLimit",
+            "replacementSymbol": "pLimit__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "5ecd39257c623b6dd4df204bbd7c94fbdf0b8d12",
+            "beforeContentHash": "sha256:30fa94b6aebe7f044f7383feee7931fc7c1a4912affadac97539cda67c14057d",
+            "afterContentHash": "sha256:88b14c39d21467e80b4062ab91d876f27f2f661bb790f4f2dd6e61255a857e0c",
+            "injectionId": "sha256:d2d1e08daef00bf3ec66e4e608a0ab3d08b34563cae0e0458ca732b0eea7f9a6"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "map works when detached from the limit"
+            ],
+            "behavioralChecks": [
+              "Calling a detached map helper must not require a bound receiver."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-limit.detached-map-no-change",
+          "repositoryId": "sindresorhus/p-limit",
+          "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+          "probeId": "external.p-limit.detached-map-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "map works when detached from the limit"
+            ],
+            "behavioralChecks": [
+              "Existing detached limit.map behavior and its regression test must already agree."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-limit.map-api-contract",
+          "repositoryId": "sindresorhus/p-limit",
+          "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+          "probeId": "external.p-limit.map-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "pLimit",
+            "replacementSymbol": "pLimit__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "5ecd39257c623b6dd4df204bbd7c94fbdf0b8d12",
+            "beforeContentHash": "sha256:30fa94b6aebe7f044f7383feee7931fc7c1a4912affadac97539cda67c14057d",
+            "afterContentHash": "sha256:88b14c39d21467e80b4062ab91d876f27f2f661bb790f4f2dd6e61255a857e0c",
+            "injectionId": "sha256:d2d1e08daef00bf3ec66e4e608a0ab3d08b34563cae0e0458ca732b0eea7f9a6"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "test('map'"
+            ],
+            "behavioralChecks": [
+              "The limit.map helper must preserve concurrency-limited mapping and its declared public shape."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:20fdd19577480e2a24b01cd7e508878488949fac040ef3812737f59a99db79b1"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/p-map",
+      "commitSha": "22dda61ea29037ba85af25e84bc5efba77e62f44",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.p-map-multiple-skip-regression",
+          "repositoryId": "sindresorhus/p-map",
+          "commitSha": "22dda61ea29037ba85af25e84bc5efba77e62f44",
+          "probeId": "external.p-map-multiple-skip-regression",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "pMap",
+            "replacementSymbol": "pMap__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "3368a0b1a2af000d250810020a9499d5dd1ddfc5",
+            "beforeContentHash": "sha256:068232b3902aef129b0686228481b1560e64e20b71ef00f9453390d8f72d43e2",
+            "afterContentHash": "sha256:9ce363dcfe01199b6c1e6d27d0304b17c274b5a1d2c8b157a79038f6603ae7bb",
+            "injectionId": "sha256:6a526f5d383cdeb3ee49e7e2744f387df2974d0d855d34def61fbbd0650f1601"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "multiple pMapSkips"
+            ],
+            "behavioralChecks": [
+              "Multiple pMapSkip results must be omitted while all non-skipped results retain input ordering."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-map-stop-on-error-boundary",
+          "repositoryId": "sindresorhus/p-map",
+          "commitSha": "22dda61ea29037ba85af25e84bc5efba77e62f44",
+          "probeId": "external.p-map-stop-on-error-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "pMap",
+            "replacementSymbol": "pMap__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "3368a0b1a2af000d250810020a9499d5dd1ddfc5",
+            "beforeContentHash": "sha256:068232b3902aef129b0686228481b1560e64e20b71ef00f9453390d8f72d43e2",
+            "afterContentHash": "sha256:9ce363dcfe01199b6c1e6d27d0304b17c274b5a1d2c8b157a79038f6603ae7bb",
+            "injectionId": "sha256:6a526f5d383cdeb3ee49e7e2744f387df2974d0d855d34def61fbbd0650f1601"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "aggregate errors when stopOnError is false"
+            ],
+            "behavioralChecks": [
+              "With stopOnError false, mapper failures must be aggregated rather than causing the first error to terminate mapping."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-map.empty-iterable-no-change",
+          "repositoryId": "sindresorhus/p-map",
+          "commitSha": "22dda61ea29037ba85af25e84bc5efba77e62f44",
+          "probeId": "external.p-map.empty-iterable-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              "handles empty iterable"
+            ],
+            "behavioralChecks": [
+              "An empty iterable must map to an empty array without invoking the mapper."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:080b16f2c814aa716fe4704631fec6ff00c8f11553aab1044bd932563fa1c5e0"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/p-queue",
+      "commitSha": "180ab9e25cd10b6f548767d7176076b50d25e188",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [
+        "eventemitter3@5.0.4",
+        "p-timeout@7.0.0"
+      ],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.p-queue-options-dependency",
+          "repositoryId": "sindresorhus/p-queue",
+          "commitSha": "180ab9e25cd10b6f548767d7176076b50d25e188",
+          "probeId": "external.p-queue-options-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.ts",
+            "symbol": "PQueue",
+            "replacementSymbol": "PQueue__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "bf7978ceea2929a6bca64791eb082494b89b353e",
+            "beforeContentHash": "sha256:d129e016be3752f374d5a9ab10b601d3634d2af3f17cfae2171bfadf4721e7a0",
+            "afterContentHash": "sha256:281ed1d8f7fa24f37de1e2d9272182d0f92bd96abbda9e36cc07b5a9aafd77bf",
+            "injectionId": "sha256:da29b39af797a76ac4fc70d3e6d9e4b9204bf3ff43ee42cf329a828b4434084a"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/validation.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Invalid queue configuration must be rejected consistently at the public constructor boundary."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-queue-priority-ordering-cross-file",
+          "repositoryId": "sindresorhus/p-queue",
+          "commitSha": "180ab9e25cd10b6f548767d7176076b50d25e188",
+          "probeId": "external.p-queue-priority-ordering-cross-file",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.ts",
+            "symbol": "PQueue",
+            "replacementSymbol": "PQueue__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "bf7978ceea2929a6bca64791eb082494b89b353e",
+            "beforeContentHash": "sha256:d129e016be3752f374d5a9ab10b601d3634d2af3f17cfae2171bfadf4721e7a0",
+            "afterContentHash": "sha256:281ed1d8f7fa24f37de1e2d9272182d0f92bd96abbda9e36cc07b5a9aafd77bf",
+            "injectionId": "sha256:da29b39af797a76ac4fc70d3e6d9e4b9204bf3ff43ee42cf329a828b4434084a"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/priority-queue.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Priority insertion must produce deterministic dequeue ordering and preserve FIFO behavior for equal priority where specified."
+            ]
+          }
+        },
+        {
+          "taskId": "external.p-queue-queueclass-api-contract",
+          "repositoryId": "sindresorhus/p-queue",
+          "commitSha": "180ab9e25cd10b6f548767d7176076b50d25e188",
+          "probeId": "external.p-queue-queueclass-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "source/index.ts",
+            "symbol": "PQueue",
+            "replacementSymbol": "PQueue__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "bf7978ceea2929a6bca64791eb082494b89b353e",
+            "beforeContentHash": "sha256:d129e016be3752f374d5a9ab10b601d3634d2af3f17cfae2171bfadf4721e7a0",
+            "afterContentHash": "sha256:281ed1d8f7fa24f37de1e2d9272182d0f92bd96abbda9e36cc07b5a9aafd77bf",
+            "injectionId": "sha256:da29b39af797a76ac4fc70d3e6d9e4b9204bf3ff43ee42cf329a828b4434084a"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/basic.ts"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "A custom queueClass satisfying the queue contract must remain usable through the public PQueue options API."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:23d35a41a5dd497999b26ea72627c0049555078bafa1dba9bef18d9a2df07833"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/query-string",
+      "commitSha": "7fd813338963583472586f228a74dcbfb067e785",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [
+        "decode-uri-component@0.5.0",
+        "filter-obj@5.1.0",
+        "split-on-first@3.0.0"
+      ],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.query-string-entrypoint-base-dependency",
+          "repositoryId": "sindresorhus/query-string",
+          "commitSha": "7fd813338963583472586f228a74dcbfb067e785",
+          "probeId": "external.query-string-entrypoint-base-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "base.js",
+            "symbol": "parse",
+            "replacementSymbol": "parse__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6fc590afc21d988d25bb91b087b382537656c2f1",
+            "beforeContentHash": "sha256:4fe40676faa0c35aa6f505d1b978fbf847a055059275a6f6ff335c8954abcf7e",
+            "afterContentHash": "sha256:5b694edd7dfca277072438358f5c8d5d1124eb1f7e70d54a0c3a6a875b18aca7",
+            "injectionId": "sha256:e84cb91d7e1374ef4cc6e27953df6a1fc1a7f246655d43861ee964a72c23fe7e"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/properties.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "The default entry point must expose the intended base query-string API without dropping or inventing properties."
+            ]
+          }
+        },
+        {
+          "taskId": "external.query-string-parse-stringify-cross-file",
+          "repositoryId": "sindresorhus/query-string",
+          "commitSha": "7fd813338963583472586f228a74dcbfb067e785",
+          "probeId": "external.query-string-parse-stringify-cross-file",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "base.js",
+            "symbol": "parse",
+            "replacementSymbol": "parse__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6fc590afc21d988d25bb91b087b382537656c2f1",
+            "beforeContentHash": "sha256:4fe40676faa0c35aa6f505d1b978fbf847a055059275a6f6ff335c8954abcf7e",
+            "afterContentHash": "sha256:5b694edd7dfca277072438358f5c8d5d1124eb1f7e70d54a0c3a6a875b18aca7",
+            "injectionId": "sha256:e84cb91d7e1374ef4cc6e27953df6a1fc1a7f246655d43861ee964a72c23fe7e"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/parse.js",
+              "test/stringify.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Values serialized by supported stringify options must be interpreted consistently by the corresponding parse semantics."
+            ]
+          }
+        },
+        {
+          "taskId": "external.query-string-url-api-contract",
+          "repositoryId": "sindresorhus/query-string",
+          "commitSha": "7fd813338963583472586f228a74dcbfb067e785",
+          "probeId": "external.query-string-url-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "base.js",
+            "symbol": "parseUrl",
+            "replacementSymbol": "parseUrl__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6fc590afc21d988d25bb91b087b382537656c2f1",
+            "beforeContentHash": "sha256:4fe40676faa0c35aa6f505d1b978fbf847a055059275a6f6ff335c8954abcf7e",
+            "afterContentHash": "sha256:97eb66b45f024e832552a119a02aec06d59cfba6f2ed747e013f6563a8fbbfd9",
+            "injectionId": "sha256:2d9dad08065fcb8fd1290a02690cfe9b678047c52a65b4d499d1753cfd9bd502"
+          },
+          "evidence": {
+            "testFiles": [
+              "test/parse-url.js",
+              "test/stringify-url.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "parseUrl and stringifyUrl must preserve their documented query/fragment contract and declared return/input types."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:2be5213970ce169cb1019684ca51c8e7fdd5db649e19032daac4ac246ade50b7"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/slugify",
+      "commitSha": "2acf5b3cadf7faed3928536d051104502ae2b667",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [
+        "@sindresorhus/transliterate@2.0.0",
+        "escape-string-regexp@5.0.0"
+      ],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.slugify-custom-replacement-boundary",
+          "repositoryId": "sindresorhus/slugify",
+          "commitSha": "2acf5b3cadf7faed3928536d051104502ae2b667",
+          "probeId": "external.slugify-custom-replacement-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "slugify",
+            "replacementSymbol": "slugify__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "7fb8db5a22a2396d5115a83fa505af43d2d4a520",
+            "beforeContentHash": "sha256:7fd5e0a1c24215ae93fde482c3b384da8c5ac9d43e761f3ca716be4a6ab27d7d",
+            "afterContentHash": "sha256:797e5e925a9c21b2f6ae5c870681daf0ca387da118dd0afc2c54a9cc24a1b333",
+            "injectionId": "sha256:c94bdeffdb75b9a57a582940e69533f76da1f6cbe542faccd9e093a4292c8759"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Custom replacements must be applied before separator normalization without leaking forbidden punctuation into the final slug."
+            ]
+          }
+        },
+        {
+          "taskId": "external.slugify-options-api-contract",
+          "repositoryId": "sindresorhus/slugify",
+          "commitSha": "2acf5b3cadf7faed3928536d051104502ae2b667",
+          "probeId": "external.slugify-options-api-contract",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "slugify",
+            "replacementSymbol": "slugify__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "7fb8db5a22a2396d5115a83fa505af43d2d4a520",
+            "beforeContentHash": "sha256:7fd5e0a1c24215ae93fde482c3b384da8c5ac9d43e761f3ca716be4a6ab27d7d",
+            "afterContentHash": "sha256:797e5e925a9c21b2f6ae5c870681daf0ca387da118dd0afc2c54a9cc24a1b333",
+            "injectionId": "sha256:c94bdeffdb75b9a57a582940e69533f76da1f6cbe542faccd9e093a4292c8759"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "All declared slugify options that affect replacements, separators, case, or custom replacement maps must match runtime behavior."
+            ]
+          }
+        },
+        {
+          "taskId": "external.slugify-transliteration-decoy-selection",
+          "repositoryId": "sindresorhus/slugify",
+          "commitSha": "2acf5b3cadf7faed3928536d051104502ae2b667",
+          "probeId": "external.slugify-transliteration-decoy-selection",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "slugify",
+            "replacementSymbol": "slugify__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "7fb8db5a22a2396d5115a83fa505af43d2d4a520",
+            "beforeContentHash": "sha256:7fd5e0a1c24215ae93fde482c3b384da8c5ac9d43e761f3ca716be4a6ab27d7d",
+            "afterContentHash": "sha256:797e5e925a9c21b2f6ae5c870681daf0ca387da118dd0afc2c54a9cc24a1b333",
+            "injectionId": "sha256:c94bdeffdb75b9a57a582940e69533f76da1f6cbe542faccd9e093a4292c8759"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Unicode transliteration and overridable replacements must feed the final slug normalization in deterministic order."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:defbb8e310322f41949457b3e3765bc616acb99054607a453dd6782e296cab3a"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "sindresorhus/yocto-queue",
+      "commitSha": "b07eac099753833b29d06c614149904445739776",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.yocto-queue-drain-boundary",
+          "repositoryId": "sindresorhus/yocto-queue",
+          "commitSha": "b07eac099753833b29d06c614149904445739776",
+          "probeId": "external.yocto-queue-drain-boundary",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "Queue",
+            "replacementSymbol": "Queue__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "627ed535f3163b37f2e3b208a23788fd0a715eba",
+            "beforeContentHash": "sha256:2eabf3096793c43934ef127fb50238dcba93074fb54f943fc62aeab616769dfc",
+            "afterContentHash": "sha256:de5bb0b0c99029f507f74c7b1e57517a726d9940b62c43d9224af6667ce4f034",
+            "injectionId": "sha256:4d5ab5997ff41e19895e1f3c7c0f395f710244dad1d25d6154b44c75344b0db3"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              ".drain()"
+            ],
+            "behavioralChecks": [
+              "drain must yield queued values in order, then leave the queue empty with size zero."
+            ]
+          }
+        },
+        {
+          "taskId": "external.yocto-queue.clear-reset-regression",
+          "repositoryId": "sindresorhus/yocto-queue",
+          "commitSha": "b07eac099753833b29d06c614149904445739776",
+          "probeId": "external.yocto-queue.clear-reset-regression",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "index.js",
+            "symbol": "Queue",
+            "replacementSymbol": "Queue__GATE6_FAULT",
+            "defaultExportRemoved": true,
+            "beforeBlobSha": "627ed535f3163b37f2e3b208a23788fd0a715eba",
+            "beforeContentHash": "sha256:2eabf3096793c43934ef127fb50238dcba93074fb54f943fc62aeab616769dfc",
+            "afterContentHash": "sha256:de5bb0b0c99029f507f74c7b1e57517a726d9940b62c43d9224af6667ce4f034",
+            "injectionId": "sha256:4d5ab5997ff41e19895e1f3c7c0f395f710244dad1d25d6154b44c75344b0db3"
+          },
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              ".clear()"
+            ],
+            "behavioralChecks": [
+              "clear must leave an empty reusable queue with size zero after zero, one, or multiple enqueued values."
+            ]
+          }
+        },
+        {
+          "taskId": "external.yocto-queue.empty-dequeue-no-change",
+          "repositoryId": "sindresorhus/yocto-queue",
+          "commitSha": "b07eac099753833b29d06c614149904445739776",
+          "probeId": "external.yocto-queue.empty-dequeue-no-change",
+          "baselineExpected": "pass",
+          "baselineObserved": "pass",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": null,
+          "faultInjection": null,
+          "evidence": {
+            "testFiles": [
+              "test.js"
+            ],
+            "requiredTestAnchors": [
+              ".dequeue()"
+            ],
+            "behavioralChecks": [
+              "Repeated dequeue calls on an empty queue must return undefined and keep size at zero."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:ccec498c157dcf0e51b72c5607a0af7c74d69cc99f0cca4279aa2fc3897fa135"
+    },
+    {
+      "schemaVersion": "gate6-precondition-attestation/v1",
+      "runnerVersion": "gate6-precondition-runner/v3",
+      "probeVersion": "gate6-precondition-probes/v1",
+      "runnerHash": "sha256:4c48aba33d2a63052bff76a617ebf1fd18a342b98f25e5f8913c3ac510aae35d",
+      "probeCatalogHash": "sha256:53a24f768796528684e57f9a16d8130c9636e0667d0416a2b9feeba324fe9f59",
+      "repositoryId": "tj/commander.js",
+      "commitSha": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+      "taskCount": 3,
+      "exactRuntimeDependencies": [],
+      "acceptanceType": "node_probe",
+      "results": [
+        {
+          "taskId": "external.commander-argument-choices-cross-file",
+          "repositoryId": "tj/commander.js",
+          "commitSha": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+          "probeId": "external.commander-argument-choices-cross-file",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "lib/argument.js",
+            "symbol": "Argument",
+            "replacementSymbol": "Argument__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "6da521d9fcc11a52508fd57d856ff0b14396b7e8",
+            "beforeContentHash": "sha256:a86c43174d904198b92ece266e97b6b711e640f3b89ac45291b682a753e145e4",
+            "afterContentHash": "sha256:8678bac73e6ec3e1c34293cc5cd0ede5f51fd3a6d828c76f3df6e8c492307b4b",
+            "injectionId": "sha256:abed718cb7cce48b9356f46e3a3fe70fbd4d4327f353056b67a21768a25370a3"
+          },
+          "evidence": {
+            "testFiles": [
+              "tests/argument.choices.test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Arguments constrained by choices must accept allowed values and reject values outside the configured set."
+            ]
+          }
+        },
+        {
+          "taskId": "external.commander-option-conflict-decoy",
+          "repositoryId": "tj/commander.js",
+          "commitSha": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+          "probeId": "external.commander-option-conflict-decoy",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "lib/option.js",
+            "symbol": "Option",
+            "replacementSymbol": "Option__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "4b4daafd980df717019dfe8a5838acd089cb12ce",
+            "beforeContentHash": "sha256:29fc1d0311f16f33fd0df2d8589c93b0a7e37fb89afd852672ba3b7083fa1515",
+            "afterContentHash": "sha256:f63cfc072917ffcad1509e2d5170429d5c306489ea290c637f0780b11052d701",
+            "injectionId": "sha256:c79da426f102b285797d32deca900d46fd7832d37d693d2a25209c825d28ae8f"
+          },
+          "evidence": {
+            "testFiles": [
+              "tests/options.conflicts.test.js",
+              "tests/options.implies.test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Configured option conflicts must fail deterministically while implied options are applied only under the documented trigger conditions."
+            ]
+          }
+        },
+        {
+          "taskId": "external.commander-suggestion-dependency",
+          "repositoryId": "tj/commander.js",
+          "commitSha": "ba6d13ddb4243e5913367734f8c159089ffe7834",
+          "probeId": "external.commander-suggestion-dependency",
+          "baselineExpected": "fail",
+          "baselineObserved": "fail",
+          "cleanAcceptanceExitCode": 0,
+          "injectedAcceptanceExitCode": 1,
+          "faultInjection": {
+            "type": "rename_primary_required_symbol",
+            "path": "lib/suggestSimilar.js",
+            "symbol": "suggestSimilar",
+            "replacementSymbol": "suggestSimilar__GATE6_FAULT",
+            "defaultExportRemoved": false,
+            "beforeBlobSha": "19930064dcc6e12e4ecdb648b098a687a6087f62",
+            "beforeContentHash": "sha256:eaa0c4bd9f4d51259c9107e65173f7de37a5413cbd5de39a5795d83d3c7deb3f",
+            "afterContentHash": "sha256:2d9fa957b02b473adf305ac1f1416a5b79f71b8567531d51a3e20bda9abccb26",
+            "injectionId": "sha256:335d5b277b73bcdd4ea9a3824ff1e3174dd01909fdaf1e5b0370342e2dd4fda9"
+          },
+          "evidence": {
+            "testFiles": [
+              "tests/command.showSuggestionAfterError.test.js",
+              "tests/command.unknownCommand.test.js"
+            ],
+            "requiredTestAnchors": [],
+            "behavioralChecks": [
+              "Unknown commands near a registered command name should produce a deterministic similarity suggestion when enabled."
+            ]
+          }
+        }
+      ],
+      "attestationHash": "sha256:4071b455a31911f1de6e48b495985cce3e27c5c0433b2db7a80be4b21bd7c9b8"
+    }
+  ]
+}
