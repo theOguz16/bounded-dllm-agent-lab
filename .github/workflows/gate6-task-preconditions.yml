@@ -1,0 +1,116 @@
+name: Gate 6 task preconditions
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'benchmarks/gate6/**'
+      - '!benchmarks/gate6/precondition-freeze.json'
+      - 'scripts/gate6-precondition-runner.cjs'
+      - 'scripts/gate6-freeze-preconditions.cjs'
+      - 'scripts/gate6-finalize-taskset.cjs'
+      - 'scripts/lib/gate6-precondition-probes.cjs'
+      - 'scripts/lib/gate6-precondition-freeze.cjs'
+      - 'scripts/lib/gate6-taskset.cjs'
+      - 'tests/gate6/**'
+      - '.github/workflows/gate6-task-preconditions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify-repository:
+    name: preconditions (${{ matrix.repository }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        repository:
+          - ai/nanoid
+          - sindresorhus/p-limit
+          - lukeed/clsx
+          - sindresorhus/yocto-queue
+          - sindresorhus/p-map
+          - sindresorhus/p-queue
+          - chalk/chalk
+          - tj/commander.js
+          - motdotla/dotenv
+          - sindresorhus/query-string
+          - sindresorhus/escape-string-regexp
+          - sindresorhus/is
+          - sindresorhus/ky
+          - sindresorhus/slugify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate runner syntax
+        run: |
+          node --check scripts/gate6-precondition-runner.cjs
+          node --check scripts/gate6-freeze-preconditions.cjs
+          node --check scripts/gate6-finalize-taskset.cjs
+          node --check scripts/lib/gate6-precondition-probes.cjs
+          node --check scripts/lib/gate6-precondition-freeze.cjs
+          node --check tests/gate6/precondition-freeze.test.cjs
+      - name: Execute exact-SHA preconditions
+        run: |
+          safe_name="${{ matrix.repository }}"
+          safe_name="${safe_name//\//__}"
+          node scripts/gate6-precondition-runner.cjs \
+            --repository '${{ matrix.repository }}' \
+            --output "evidence/gate6/preconditions/${safe_name}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate6-precondition-${{ strategy.job-index }}
+          path: evidence/gate6/preconditions/*.json
+          if-no-files-found: error
+
+  persist-freeze-evidence:
+    if: github.event_name == 'pull_request'
+    needs: verify-repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gate6-precondition-*
+          path: .gate6-precondition-artifacts
+          merge-multiple: true
+      - name: Validate and aggregate 42 preconditions
+        run: |
+          node scripts/gate6-freeze-preconditions.cjs \
+            --artifacts .gate6-precondition-artifacts \
+            --output benchmarks/gate6/precondition-freeze.json \
+            --workflow-run-id '${{ github.run_id }}' \
+            --workflow-head-sha '${{ github.event.pull_request.head.sha }}'
+      - name: Validate precondition freeze regressions
+        run: node tests/gate6/precondition-freeze.test.cjs
+      - name: Finalize frozen v1 lock
+        run: node scripts/gate6-finalize-taskset.cjs
+      - name: Validate frozen taskset regressions
+        run: node tests/gate6/taskset.test.cjs
+      - name: Persist verified freeze state on PR branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            benchmarks/gate6/precondition-freeze.json \
+            benchmarks/gate6/taskset.json \
+            scripts/lib/gate6-taskset.cjs
+          if git diff --cached --quiet; then
+            echo 'Freeze state already current.'
+            exit 0
+          fi
+          git commit -m 'Gate 6: freeze verified 42-task benchmark v1'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

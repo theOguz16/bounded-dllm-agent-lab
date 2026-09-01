@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "gate6-taskset-shard/v1",
+  "taskClass": "bugfix_with_regression",
+  "tasks": [
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.nanoid.secure-pool-fractional-size",
+      "repositoryId": "ai/nanoid",
+      "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "easy",
+      "objective": "Fix secure Nano ID pool handling so fractional size requests cannot pollute later IDs, and preserve the regression coverage.",
+      "candidateFiles": ["index.js", "test/index.test.js", "index.browser.js", "index.d.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["index.js", "index.browser.js", "index.d.ts", "test/**"],
+        "forbiddenInspectionPaths": ["non-secure/**", "bin/**"],
+        "allowedChangePaths": ["index.js", "test/**"]
+      }
+    },
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.clsx.push-key-object-regression",
+      "repositoryId": "lukeed/clsx",
+      "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "medium",
+      "objective": "Preserve object keys named push or pop while fixing any array-detection regression, with explicit regression coverage.",
+      "candidateFiles": ["src/index.js", "test/index.js", "clsx.d.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["src/**", "test/**", "clsx.d.ts"],
+        "forbiddenInspectionPaths": [],
+        "allowedChangePaths": ["src/index.js", "test/index.js"]
+      }
+    },
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.yocto-queue.clear-reset-regression",
+      "repositoryId": "sindresorhus/yocto-queue",
+      "commitSha": "b07eac099753833b29d06c614149904445739776",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "medium",
+      "objective": "Fix queue clear/reset behavior so size and internal head/tail state are reusable after clearing, with regression coverage.",
+      "candidateFiles": ["index.js", "test.js", "index.d.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["index.js", "test.js", "index.d.ts"],
+        "forbiddenInspectionPaths": [],
+        "allowedChangePaths": ["index.js", "test.js"]
+      }
+    },
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.p-map-multiple-skip-regression",
+      "repositoryId": "sindresorhus/p-map",
+      "commitSha": "22dda61ea29037ba85af25e84bc5efba77e62f44",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "medium",
+      "objective": "Fix multiple pMapSkip handling so skipped entries are removed without disturbing retained result ordering, with regression coverage.",
+      "candidateFiles": ["index.js", "test.js", "index.d.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["index.js", "test.js", "index.d.ts"],
+        "forbiddenInspectionPaths": [],
+        "allowedChangePaths": ["index.js", "test.js"]
+      }
+    },
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.dotenv-duplicate-key-line-ending-regression",
+      "repositoryId": "motdotla/dotenv",
+      "commitSha": "2fc7eac8ad77cbd5f7814355c7fa352dbcf3c358",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "medium",
+      "objective": "Fix dotenv parsing so duplicate keys and CR/LF/CRLF line endings remain deterministic, with regression coverage.",
+      "candidateFiles": ["lib/main.js", "tests/test-parse.js", "tests/.env", "lib/main.d.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["lib/**", "tests/**"],
+        "forbiddenInspectionPaths": [],
+        "allowedChangePaths": ["lib/main.js", "tests/test-parse.js"]
+      }
+    },
+    {
+      "schemaVersion": "gate6-task/v1",
+      "taskId": "external.ky-hook-retry-regression",
+      "repositoryId": "sindresorhus/ky",
+      "commitSha": "d27ad21266d162ee218d4ea69dce192b84b6f967",
+      "taskClass": "bugfix_with_regression",
+      "difficulty": "medium",
+      "objective": "Fix hook/retry interaction so retry-related hooks execute with the intended request lifecycle and add or preserve regression coverage.",
+      "candidateFiles": ["source/core/Ky.ts", "test/hooks.ts", "source/types/hooks.ts", "test/main.ts"],
+      "authority": {
+        "allowedInspectionPaths": ["source/**", "test/**"],
+        "forbiddenInspectionPaths": [],
+        "allowedChangePaths": ["source/core/Ky.ts", "test/hooks.ts"]
+      }
+    }
+  ]
+}
