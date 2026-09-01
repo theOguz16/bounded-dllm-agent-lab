@@ -1,0 +1,39 @@
+name: Gate 6 simulated coding harness
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gate6-simulated-coding-harness.yml'
+      - 'scripts/lib/gate6-simulated-coding-harness.cjs'
+      - 'scripts/lib/gate6-simulated-workspace.cjs'
+      - 'tests/gate6/simulated-coding-harness.test.cjs'
+      - 'bounded-agent.policy.yml'
+  push:
+    branches:
+      - agent/gate6-simulated-coding-harness
+    paths:
+      - '.github/workflows/gate6-simulated-coding-harness.yml'
+      - 'scripts/lib/gate6-simulated-coding-harness.cjs'
+      - 'scripts/lib/gate6-simulated-workspace.cjs'
+      - 'tests/gate6/simulated-coding-harness.test.cjs'
+      - 'bounded-agent.policy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  simulated-coding-harness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate syntax
+        run: |
+          node --check scripts/lib/gate6-simulated-workspace.cjs
+          node --check scripts/lib/gate6-simulated-coding-harness.cjs
+          node --check tests/gate6/simulated-coding-harness.test.cjs
+      - name: Run Gate 6 simulated coding harness regression
+        run: node tests/gate6/simulated-coding-harness.test.cjs
