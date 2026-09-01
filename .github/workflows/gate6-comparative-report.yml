@@ -1,0 +1,36 @@
+name: Gate 6 comparative report
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gate6-comparative-report.yml'
+      - 'scripts/lib/gate6-comparative-report.cjs'
+      - 'tests/gate6/comparative-report.test.cjs'
+      - 'bounded-agent.policy.yml'
+  push:
+    branches:
+      - agent/gate6-metrics-comparative-report
+    paths:
+      - '.github/workflows/gate6-comparative-report.yml'
+      - 'scripts/lib/gate6-comparative-report.cjs'
+      - 'tests/gate6/comparative-report.test.cjs'
+      - 'bounded-agent.policy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  comparative-report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate syntax
+        run: |
+          node --check scripts/lib/gate6-comparative-report.cjs
+          node --check tests/gate6/comparative-report.test.cjs
+      - name: Run Gate 6 comparative report regression
+        run: node tests/gate6/comparative-report.test.cjs
