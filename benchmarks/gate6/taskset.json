@@ -1,6 +1,6 @@
 {
   "schemaVersion": "gate6-taskset/v1",
-  "frozen": false,
+  "frozen": true,
   "taskCount": 42,
   "repositoryCount": 14,
   "taskFiles": [
@@ -21,10 +21,23 @@
     "benchmarks/gate6/oracles/06-no-change-needed.json",
     "benchmarks/gate6/oracles/07-boundary-sensitive-change.json"
   ],
-  "classCounts": {"bugfix_with_regression":6,"cross_file_change":6,"dependency_following":6,"api_contract_change":6,"decoy_file_selection":6,"no_change_needed":6,"boundary_sensitive_change":6},
-  "difficultyCounts": {"easy":13,"medium":21,"hard":8},
+  "classCounts": {
+    "bugfix_with_regression": 6,
+    "cross_file_change": 6,
+    "dependency_following": 6,
+    "api_contract_change": 6,
+    "decoy_file_selection": 6,
+    "no_change_needed": 6,
+    "boundary_sensitive_change": 6
+  },
+  "difficultyCounts": {
+    "easy": 13,
+    "medium": 21,
+    "hard": 8
+  },
   "repositoryManifestHash": "sha256:4f132ec98b0c85ac597d93209a923977ea1dc6bacbc6bbfe3f1bb098154c9b85",
-  "tasksetHash": "sha256:c73b390eb4c7293791097e7fbdf35117bdc819b961c6d15ab38b0459e5b8b5a9",
+  "tasksetHash": "sha256:e3e1e93b662fbd6ec0600787c462601a00540c4b56dd8fa72338882fad13f071",
   "oracleReviewStatus": "manually_verified_against_exact_repository_commits_before_model_execution",
-  "oracleMutationPolicy": "requires_taskset_version_bump_after_freeze"
+  "oracleMutationPolicy": "requires_taskset_version_bump_after_freeze",
+  "preconditionAttestationHash": "sha256:334d7893325c912ab916215131cf4d440152bc1bc7ae0da9575cdef77068c8ac"
 }

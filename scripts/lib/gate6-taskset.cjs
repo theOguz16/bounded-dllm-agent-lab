@@ -21,7 +21,7 @@ const ORACLE_SHARD_SCHEMA_VERSION = "gate6-oracle-shard/v1";
 const LOCK_FIELDS = Object.freeze([
   "schemaVersion", "frozen", "taskCount", "repositoryCount", "taskFiles", "oracleFiles",
   "classCounts", "difficultyCounts", "repositoryManifestHash", "tasksetHash",
-  "oracleReviewStatus", "oracleMutationPolicy"
+  "preconditionAttestationHash", "oracleReviewStatus", "oracleMutationPolicy"
 ]);
 const BUNDLE_INPUT_FIELDS = Object.freeze([
   "tasksDocument", "oraclesDocument", "repositoryManifest", "lock"
@@ -32,7 +32,10 @@ const V1_EXPECTED_DIFFICULTY_COUNTS = Object.freeze({ easy: 13, medium: 21, hard
 const MIN_REPOSITORY_COUNT = 10;
 const MAX_REPOSITORY_SHARE = 0.2;
 const FROZEN_TASKSET_HASHES = Object.freeze({
-  "gate6-taskset/v1": "sha256:c73b390eb4c7293791097e7fbdf35117bdc819b961c6d15ab38b0459e5b8b5a9"
+  "gate6-taskset/v1": "sha256:e3e1e93b662fbd6ec0600787c462601a00540c4b56dd8fa72338882fad13f071"
+});
+const FROZEN_PRECONDITION_ATTESTATION_HASHES = Object.freeze({
+  "gate6-taskset/v1": "sha256:334d7893325c912ab916215131cf4d440152bc1bc7ae0da9575cdef77068c8ac"
 });
 const FROZEN_REPOSITORY_MANIFEST_HASHES = Object.freeze({
   "gate6-taskset/v1": "sha256:4f132ec98b0c85ac597d93209a923977ea1dc6bacbc6bbfe3f1bb098154c9b85"
@@ -168,6 +171,10 @@ function validateLock(lock) {
   if (!isPlainObject(lock.classCounts) || !isPlainObject(lock.difficultyCounts)) {
     fail("GATE6_TASKSET_LOCK_COUNTS_INVALID");
   }
+  const frozenPreconditionHash = FROZEN_PRECONDITION_ATTESTATION_HASHES[lock.schemaVersion];
+  if (!frozenPreconditionHash || lock.preconditionAttestationHash !== frozenPreconditionHash) {
+    fail("GATE6_TASKSET_PRECONDITION_FREEZE_HASH_MISMATCH");
+  }
   if (lock.oracleReviewStatus !== ORACLE_REVIEW_STATUS) fail("GATE6_TASKSET_ORACLE_REVIEW_STATUS_INVALID");
   if (lock.oracleMutationPolicy !== ORACLE_MUTATION_POLICY) fail("GATE6_TASKSET_ORACLE_MUTATION_POLICY_INVALID");
 }
@@ -273,6 +280,7 @@ function validateFrozenGate6Taskset(input) {
     maxRepositoryShare,
     repositoryManifestHash,
     tasksetHash,
+    preconditionAttestationHash: lock.preconditionAttestationHash,
     oracleReviewStatus: lock.oracleReviewStatus,
     oracleMutationPolicy: lock.oracleMutationPolicy
   });
