@@ -11,8 +11,10 @@ allowed_paths:
   - examples/**
   - evidence/**
   - .github/**
+  - benchmarks/gate6/repositories.json
   - scripts/lib/gate6-task-schema.cjs
   - scripts/lib/gate6-task-classes.cjs
+  - scripts/lib/gate6-repository-manifest.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
   - scripts/evidence-promote-observed.cjs

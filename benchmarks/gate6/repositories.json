@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "gate6-repository-manifest/v1",
+  "repositories": [
+    {
+      "id": "ai/nanoid",
+      "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+      "language": "javascript",
+      "license": "MIT"
+    }
+  ]
+}
