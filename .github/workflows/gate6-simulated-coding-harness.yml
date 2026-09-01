@@ -7,6 +7,7 @@ on:
       - 'scripts/lib/gate6-simulated-coding-harness.cjs'
       - 'scripts/lib/gate6-simulated-workspace.cjs'
       - 'tests/gate6/simulated-coding-harness.test.cjs'
+      - 'tests/gate6/simulated-coding-integrity.test.cjs'
       - 'bounded-agent.policy.yml'
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - 'scripts/lib/gate6-simulated-coding-harness.cjs'
       - 'scripts/lib/gate6-simulated-workspace.cjs'
       - 'tests/gate6/simulated-coding-harness.test.cjs'
+      - 'tests/gate6/simulated-coding-integrity.test.cjs'
       - 'bounded-agent.policy.yml'
 
 permissions:
@@ -35,5 +37,8 @@ jobs:
           node --check scripts/lib/gate6-simulated-workspace.cjs
           node --check scripts/lib/gate6-simulated-coding-harness.cjs
           node --check tests/gate6/simulated-coding-harness.test.cjs
+          node --check tests/gate6/simulated-coding-integrity.test.cjs
       - name: Run Gate 6 simulated coding harness regression
-        run: node tests/gate6/simulated-coding-harness.test.cjs
+        run: |
+          node tests/gate6/simulated-coding-harness.test.cjs
+          node tests/gate6/simulated-coding-integrity.test.cjs
