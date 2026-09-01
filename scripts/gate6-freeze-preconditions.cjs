@@ -3,6 +3,7 @@
 const { readdirSync, readFileSync, writeFileSync } = require("node:fs");
 const path = require("node:path");
 const { validateAttestations } = require("./lib/gate6-precondition-freeze.cjs");
+const { hashGate6Taskset } = require("./lib/gate6-taskset.cjs");
 
 const ROOT = path.resolve(__dirname, "..");
 
@@ -48,17 +49,26 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv);
   const tasks = loadShards("tasks");
-  const repositories = readJson(path.join(ROOT, "benchmarks/gate6/repositories.json")).repositories;
+  const oracles = loadShards("oracles");
+  const repositoryManifest = readJson(path.join(ROOT, "benchmarks/gate6/repositories.json"));
   const preconditions = readJson(path.join(ROOT, "benchmarks/gate6/preconditions.json"));
   const attestationFiles = collectJsonFiles(path.resolve(args.artifacts));
   const attestations = attestationFiles.map(readJson);
-  const freeze = validateAttestations({ preconditions, tasks, repositories, attestations });
+  const freeze = validateAttestations({
+    preconditions,
+    tasks,
+    repositories: repositoryManifest.repositories,
+    attestations
+  });
+  const tasksetHash = hashGate6Taskset({
+    tasksDocument: { schemaVersion: "gate6-taskset/v1", tasks },
+    oraclesDocument: { schemaVersion: "gate6-taskset/v1", oracles },
+    repositoryManifest
+  });
 
   const document = {
     schemaVersion: "gate6-precondition-freeze-document/v1",
     status: "verified_42_of_42",
-    workflowRunId: args.workflowRunId,
-    workflowHeadSha: args.workflowHeadSha,
     freeze,
     attestations: [...attestations].sort((left, right) => left.repositoryId < right.repositoryId ? -1 : left.repositoryId > right.repositoryId ? 1 : 0)
   };
@@ -66,12 +76,13 @@ function main() {
   writeFileSync(path.resolve(args.output), `${JSON.stringify(document, null, 2)}\n`);
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    workflowRunId: document.workflowRunId,
-    workflowHeadSha: document.workflowHeadSha,
+    workflowRunId: args.workflowRunId,
+    workflowHeadSha: args.workflowHeadSha,
     taskCount: freeze.taskCount,
     passBaselineCount: freeze.passBaselineCount,
     failBaselineCount: freeze.failBaselineCount,
-    preconditionAttestationHash: freeze.preconditionAttestationHash
+    preconditionAttestationHash: freeze.preconditionAttestationHash,
+    tasksetHash
   })}\n`);
 }
 
