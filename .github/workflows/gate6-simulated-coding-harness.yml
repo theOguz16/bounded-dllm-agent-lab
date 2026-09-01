@@ -36,4 +36,6 @@ jobs:
           node --check scripts/lib/gate6-simulated-coding-harness.cjs
           node --check tests/gate6/simulated-coding-harness.test.cjs
       - name: Run Gate 6 simulated coding harness regression
-        run: node tests/gate6/simulated-coding-harness.test.cjs
+        run: |
+          sed -i '0,/assert.equal(report.status, "accepted");/s//console.error(JSON.stringify(report)); assert.equal(report.status, "accepted");/' tests/gate6/simulated-coding-harness.test.cjs
+          node tests/gate6/simulated-coding-harness.test.cjs
