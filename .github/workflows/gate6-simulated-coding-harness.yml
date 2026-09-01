@@ -19,7 +19,7 @@ on:
       - 'bounded-agent.policy.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   simulated-coding-harness:
@@ -27,32 +27,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'push' && github.ref_name || github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Correct git porcelain preservation on branch
-        if: github.event_name == 'push'
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('scripts/lib/gate6-simulated-workspace.cjs')
-          s = p.read_text()
-          old = 'return String(result.stdout ?? "").trim();'
-          new = 'return String(result.stdout ?? "").replace(/\\r?\\n$/, "");'
-          if old in s:
-              p.write_text(s.replace(old, new, 1))
-          PY
-          if git diff --quiet -- scripts/lib/gate6-simulated-workspace.cjs; then
-            echo 'Workspace stdout normalization already corrected.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add scripts/lib/gate6-simulated-workspace.cjs
-          git commit -m 'Gate 6: preserve porcelain status leading column'
-          git push origin HEAD:agent/gate6-simulated-coding-harness
       - name: Validate syntax
         run: |
           node --check scripts/lib/gate6-simulated-workspace.cjs
