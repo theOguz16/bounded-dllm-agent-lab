@@ -10,6 +10,7 @@ const {
 } = require("../../scripts/lib/gate6-precondition-freeze.cjs");
 
 const ROOT = path.resolve(__dirname, "../..");
+// The persisted freeze hash is intentionally immutable for gate6-taskset/v1.
 const EXPECTED_FREEZE_HASH = "sha256:334d7893325c912ab916215131cf4d440152bc1bc7ae0da9575cdef77068c8ac";
 
 function readJson(relativePath) {
