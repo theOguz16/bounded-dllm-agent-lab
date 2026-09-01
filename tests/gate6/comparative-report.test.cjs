@@ -14,6 +14,11 @@ function test(name, fn) {
   return Promise.resolve().then(fn).then(() => process.stdout.write(`PASS ${name}\n`));
 }
 
+function closeTo(actual, expected, tolerance = 1e-12) {
+  assert.equal(typeof actual, "number");
+  assert(Math.abs(actual - expected) <= tolerance, `${actual} != ${expected} within ${tolerance}`);
+}
+
 function observation(overrides = {}) {
   const strategy = overrides.strategy ?? "C_synthetic_context";
   const escalated = overrides.escalated ?? false;
@@ -114,13 +119,13 @@ async function main() {
     const report = createGate6ComparativeReport(rows);
     const c = report.aggregates.strategy.C_synthetic_context;
     assert.equal(c.sampleCount, 3);
-    assert.equal(c.exactSymbolSuccessRate, 2 / 3);
-    assert.equal(c.symbolPrecision, 5 / 6);
-    assert.equal(c.symbolRecall, 5 / 8);
-    assert.equal(c.symbolF1, 2 * (5 / 6) * (5 / 8) / ((5 / 6) + (5 / 8)));
-    assert.equal(c.criticalImplementationCoverage, 3 / 4);
-    assert.equal(c.criticalTestAnchorCoverage, 2 / 3);
-    assert.equal(c.criticalCoverageCompleteRate, 2 / 3);
+    closeTo(c.exactSymbolSuccessRate, 2 / 3);
+    closeTo(c.symbolPrecision, 5 / 6);
+    closeTo(c.symbolRecall, 5 / 8);
+    closeTo(c.symbolF1, 2 * (5 / 6) * (5 / 8) / ((5 / 6) + (5 / 8)));
+    closeTo(c.criticalImplementationCoverage, 3 / 4);
+    closeTo(c.criticalTestAnchorCoverage, 2 / 3);
+    closeTo(c.criticalCoverageCompleteRate, 2 / 3);
   });
 
   await test("cost per success is null when success count is zero", () => {
@@ -146,7 +151,7 @@ async function main() {
     });
     const report = createGate6ComparativeReport(rows);
     const ce = report.aggregates.strategy.CE_escalating_context;
-    assert.equal(ce.escalationRate, 2 / 3);
+    closeTo(ce.escalationRate, 2 / 3);
     assert.equal(ce.successfulWithoutEscalationRate, 1);
     assert.equal(ce.successfulAfterEscalationRate, 1 / 2);
     assert.deepEqual(ce.averageEscalationCost, { contextBytes: 400, tokens: 80, latency: 30 });
@@ -171,7 +176,7 @@ async function main() {
     assert.equal(report.repeatability.perTaskVariance.length, 4);
     const c = report.repeatability.perTaskVariance.find((entry) => entry.strategy === "C_synthetic_context");
     assert.deepEqual(c.repetitions, [1, 2, 3]);
-    assert.equal(c.variance.strictOracleSuccessRate, 1 / 3);
+    closeTo(c.variance.strictOracleSuccessRate, 1 / 3);
     assert.equal(c.variance.tokens, 10000);
     assert.equal(c.variance.contextBytes, 1000000);
   });
