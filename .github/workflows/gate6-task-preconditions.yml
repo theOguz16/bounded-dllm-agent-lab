@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - 'benchmarks/gate6/**'
+      - '!benchmarks/gate6/precondition-freeze.json'
       - 'scripts/gate6-precondition-runner.cjs'
+      - 'scripts/gate6-freeze-preconditions.cjs'
       - 'scripts/lib/gate6-precondition-probes.cjs'
       - 'scripts/lib/gate6-precondition-freeze.cjs'
       - 'scripts/lib/gate6-taskset.cjs'
@@ -14,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify-repository:
@@ -47,6 +49,7 @@ jobs:
       - name: Validate runner syntax
         run: |
           node --check scripts/gate6-precondition-runner.cjs
+          node --check scripts/gate6-freeze-preconditions.cjs
           node --check scripts/lib/gate6-precondition-probes.cjs
           node --check scripts/lib/gate6-precondition-freeze.cjs
       - name: Execute exact-SHA preconditions
@@ -57,8 +60,45 @@ jobs:
             --repository '${{ matrix.repository }}' \
             --output "evidence/gate6/preconditions/${safe_name}.json"
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: gate6-precondition-${{ strategy.job-index }}
           path: evidence/gate6/preconditions/*.json
-          if-no-files-found: warn
+          if-no-files-found: error
+
+  persist-freeze-evidence:
+    if: github.event_name == 'pull_request'
+    needs: verify-repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gate6-precondition-*
+          path: .gate6-precondition-artifacts
+          merge-multiple: true
+      - name: Validate and aggregate 42 preconditions
+        run: |
+          node scripts/gate6-freeze-preconditions.cjs \
+            --artifacts .gate6-precondition-artifacts \
+            --output benchmarks/gate6/precondition-freeze.json \
+            --workflow-run-id '${{ github.run_id }}' \
+            --workflow-head-sha '${{ github.event.pull_request.head.sha }}'
+      - name: Persist freeze evidence on PR branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add benchmarks/gate6/precondition-freeze.json
+          if git diff --cached --quiet; then
+            echo 'Freeze evidence already current.'
+            exit 0
+          fi
+          git commit -m 'Gate 6: persist verified 42-task precondition evidence'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
