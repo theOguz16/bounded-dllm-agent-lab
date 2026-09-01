@@ -26,6 +26,8 @@ allowed_paths:
   - scripts/lib/gate6-taskset.cjs
   - scripts/lib/gate6-precondition-probes.cjs
   - scripts/lib/gate6-precondition-freeze.cjs
+  - scripts/lib/gate6-simulated-workspace.cjs
+  - scripts/lib/gate6-simulated-coding-harness.cjs
   - scripts/gate6-precondition-runner.cjs
   - scripts/gate6-freeze-preconditions.cjs
   - scripts/gate6-finalize-taskset.cjs
