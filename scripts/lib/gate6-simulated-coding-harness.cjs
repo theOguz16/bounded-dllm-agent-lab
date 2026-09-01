@@ -1,6 +1,5 @@
 "use strict";
 
-const path = require("node:path");
 const { resolveContext } = require("./gate6-context-strategies.cjs");
 const { safeRelativePath, sha256 } = require("./gate6-simulated-workspace.cjs");
 
@@ -121,6 +120,41 @@ function changedSetAllowed(changedFiles, baselineFiles, permittedFiles) {
   return unexpected.sort();
 }
 
+function fingerprintEntries(fingerprint) {
+  if (!fingerprint || !Array.isArray(fingerprint.files)) return null;
+  const entries = new Map();
+  for (const file of fingerprint.files) {
+    if (!file || typeof file.path !== "string" || entries.has(file.path)) return null;
+    entries.set(file.path, `${file.state ?? "present"}:${file.byteLength ?? -1}:${file.contentHash ?? ""}`);
+  }
+  return entries;
+}
+
+function fingerprintMutations(before, after) {
+  const beforeEntries = fingerprintEntries(before);
+  const afterEntries = fingerprintEntries(after);
+  if (!beforeEntries || !afterEntries) return null;
+  const paths = new Set([...beforeEntries.keys(), ...afterEntries.keys()]);
+  return [...paths].filter((filePath) =>
+    beforeEntries.get(filePath) !== afterEntries.get(filePath)
+  ).sort();
+}
+
+async function snapshotContentFingerprint(workspace) {
+  if (typeof workspace.contentFingerprint !== "function") return null;
+  return workspace.contentFingerprint();
+}
+
+async function assertStageDidNotMutateWorkspace(workspace, stageFingerprint) {
+  if (stageFingerprint === null) return [];
+  const after = await workspace.contentFingerprint();
+  const mutations = fingerprintMutations(stageFingerprint, after);
+  if (mutations === null) {
+    fail(FAILURE_CODES.UNAUTHORIZED_FILE_MUTATION, "policy", "content_fingerprint_invalid");
+  }
+  return mutations;
+}
+
 async function preflightEdits(task, proposal, workspace) {
   const candidateUniverse = new Set(task.candidateFiles);
   const allowedRules = task.authority.allowedChangePaths ?? [];
@@ -131,19 +165,12 @@ async function preflightEdits(task, proposal, workspace) {
   for (const edit of proposal.edits) {
     const authorityAllowed = allowedRules.some((rule) => pathMatchesRule(edit.path, rule)) &&
       !forbiddenRules.some((rule) => pathMatchesRule(edit.path, rule));
-    if (!authorityAllowed) {
-      fail(FAILURE_CODES.AUTHORITY_VIOLATION, "policy", edit.path);
-    }
-    if (!candidateUniverse.has(edit.path)) {
-      fail(FAILURE_CODES.SCOPE_VIOLATION, "policy", edit.path);
-    }
+    if (!authorityAllowed) fail(FAILURE_CODES.AUTHORITY_VIOLATION, "policy", edit.path);
+    if (!candidateUniverse.has(edit.path)) fail(FAILURE_CODES.SCOPE_VIOLATION, "policy", edit.path);
 
     let source;
-    try {
-      source = await workspace.read(edit.path);
-    } catch (error) {
-      fail(FAILURE_CODES.PATCH_APPLY_FAILED, "execution", `${edit.path}:${error.message}`);
-    }
+    try { source = await workspace.read(edit.path); }
+    catch (error) { fail(FAILURE_CODES.PATCH_APPLY_FAILED, "execution", `${edit.path}:${error.message}`); }
     if (sha256(source) !== edit.expectedContentHash) {
       fail(FAILURE_CODES.PATCH_APPLY_FAILED, "execution", `${edit.path}:content_hash_mismatch`);
     }
@@ -195,9 +222,7 @@ function freezeReport(report) {
 
 function createGate6SimulatedCodingHarness(options = {}) {
   const workspaceFactory = options.workspaceFactory;
-  if (!workspaceFactory || typeof workspaceFactory.create !== "function") {
-    throw new TypeError("workspaceFactory.create is required");
-  }
+  if (!workspaceFactory || typeof workspaceFactory.create !== "function") throw new TypeError("workspaceFactory.create is required");
   const contextResolver = options.contextResolver ?? resolveContext;
   const modelProposalProvider = options.modelProposalProvider;
   const relevantTestRunner = options.relevantTestRunner;
@@ -221,20 +246,18 @@ function createGate6SimulatedCodingHarness(options = {}) {
     let providerFailureCode = null;
     let modelCapabilityFailure = false;
     let workspaceDisposed = false;
-    let originalRepositoryMutated = false;
+    let originalRepositoryMutated = null;
+    let originalRepositoryMutationMeasured = false;
+    let originalRepositoryFingerprintBefore = null;
+    let originalRepositoryFingerprintAfter = null;
     let changedFiles = [];
     let unauthorizedFiles = [];
     let baselineChangedFiles = [];
 
     try {
-      if (!task || typeof task !== "object") {
-        fail(FAILURE_CODES.WORKSPACE_SETUP_FAILURE, "infrastructure", "task_invalid");
-      }
-      try {
-        workspace = await workspaceFactory.create({ task, freezeDocument });
-      } catch (error) {
-        fail(FAILURE_CODES.WORKSPACE_SETUP_FAILURE, "infrastructure", error.code ?? error.message);
-      }
+      if (!task || typeof task !== "object") fail(FAILURE_CODES.WORKSPACE_SETUP_FAILURE, "infrastructure", "task_invalid");
+      try { workspace = await workspaceFactory.create({ task, freezeDocument }); }
+      catch (error) { fail(FAILURE_CODES.WORKSPACE_SETUP_FAILURE, "infrastructure", error.code ?? error.message); }
       lifecycle.push("workspace.created");
       baselineChangedFiles = await workspace.changedFiles();
 
@@ -258,9 +281,7 @@ function createGate6SimulatedCodingHarness(options = {}) {
         });
       } catch (error) {
         if (error instanceof Gate6SimulatedCodingError && error.domain === "provider") throw error;
-        if (error?.providerFailure === true || error?.domain === "provider") {
-          throw providerFailure(error.code ?? "PROVIDER_ERROR", error.message);
-        }
+        if (error?.providerFailure === true || error?.domain === "provider") throw providerFailure(error.code ?? "PROVIDER_ERROR", error.message);
         throw providerFailure(error?.code ?? "PROVIDER_CALL_FAILED", error?.message ?? String(error));
       }
       proposal = validateProposal(rawProposal);
@@ -282,9 +303,8 @@ function createGate6SimulatedCodingHarness(options = {}) {
 
       let prepared = new Map();
       if (proposal.action === "patch") {
-        try {
-          prepared = await preflightEdits(task, proposal, workspace);
-        } catch (error) {
+        try { prepared = await preflightEdits(task, proposal, workspace); }
+        catch (error) {
           if (error.code === FAILURE_CODES.SCOPE_VIOLATION) metrics.scopeViolation = true;
           metrics.verifierRejected = true;
           throw error;
@@ -315,19 +335,26 @@ function createGate6SimulatedCodingHarness(options = {}) {
         fail(FAILURE_CODES.UNAUTHORIZED_FILE_MUTATION, "policy", unauthorizedFiles.join(","));
       }
 
+      const postApplyFingerprint = await snapshotContentFingerprint(workspace);
+
       metrics.relevantTestsExecuted = true;
       lifecycle.push("tests.started");
       let testResult;
-      try {
-        testResult = normalizeStageResult(await relevantTestRunner({ task, workspace, proposal }), "tests");
-      } catch (error) {
-        testResult = { passed: false, detail: error.message ?? String(error) };
-      }
+      try { testResult = normalizeStageResult(await relevantTestRunner({ task, workspace, proposal }), "tests"); }
+      catch (error) { testResult = { passed: false, detail: error.message ?? String(error) }; }
       metrics.testsPassed = testResult.passed;
       lifecycle.push(testResult.passed ? "tests.passed" : "tests.failed");
       if (!testResult.passed) {
         metrics.rollbackRequired = metrics.patchApplied || (await workspace.changedFiles()).length > baselineChangedFiles.length;
         fail(FAILURE_CODES.TEST_FAILURE, "verification", testResult.detail);
+      }
+
+      const testStageMutations = await assertStageDidNotMutateWorkspace(workspace, postApplyFingerprint);
+      if (testStageMutations.length > 0) {
+        unauthorizedFiles = testStageMutations;
+        metrics.unauthorizedFileMutation = true;
+        metrics.rollbackRequired = true;
+        fail(FAILURE_CODES.UNAUTHORIZED_FILE_MUTATION, "policy", unauthorizedFiles.join(","));
       }
 
       changedFiles = await workspace.changedFiles();
@@ -338,18 +365,24 @@ function createGate6SimulatedCodingHarness(options = {}) {
         fail(FAILURE_CODES.UNAUTHORIZED_FILE_MUTATION, "policy", unauthorizedFiles.join(","));
       }
 
+      const preAcceptanceFingerprint = await snapshotContentFingerprint(workspace);
       lifecycle.push("acceptance.started");
       let acceptanceResult;
-      try {
-        acceptanceResult = normalizeStageResult(await acceptanceRunner({ task, workspace, proposal }), "acceptance");
-      } catch (error) {
-        acceptanceResult = { passed: false, detail: error.message ?? String(error) };
-      }
+      try { acceptanceResult = normalizeStageResult(await acceptanceRunner({ task, workspace, proposal }), "acceptance"); }
+      catch (error) { acceptanceResult = { passed: false, detail: error.message ?? String(error) }; }
       metrics.acceptancePassed = acceptanceResult.passed;
       lifecycle.push(acceptanceResult.passed ? "acceptance.passed" : "acceptance.failed");
       if (!acceptanceResult.passed) {
         metrics.rollbackRequired = metrics.patchApplied || (await workspace.changedFiles()).length > baselineChangedFiles.length;
         fail(FAILURE_CODES.ACCEPTANCE_FAILURE, "acceptance", acceptanceResult.detail);
+      }
+
+      const acceptanceStageMutations = await assertStageDidNotMutateWorkspace(workspace, preAcceptanceFingerprint);
+      if (acceptanceStageMutations.length > 0) {
+        unauthorizedFiles = acceptanceStageMutations;
+        metrics.unauthorizedFileMutation = true;
+        metrics.rollbackRequired = true;
+        fail(FAILURE_CODES.UNAUTHORIZED_FILE_MUTATION, "policy", unauthorizedFiles.join(","));
       }
 
       changedFiles = await workspace.changedFiles();
@@ -361,12 +394,8 @@ function createGate6SimulatedCodingHarness(options = {}) {
       }
       lifecycle.push("sample.finalized");
     } catch (error) {
-      failureCode = error instanceof Gate6SimulatedCodingError
-        ? error.code
-        : FAILURE_CODES.WORKSPACE_SETUP_FAILURE;
-      failureDomain = error instanceof Gate6SimulatedCodingError
-        ? error.domain
-        : "infrastructure";
+      failureCode = error instanceof Gate6SimulatedCodingError ? error.code : FAILURE_CODES.WORKSPACE_SETUP_FAILURE;
+      failureDomain = error instanceof Gate6SimulatedCodingError ? error.domain : "infrastructure";
       failureDetail = error.message ?? String(error);
       providerFailureCode = error.providerFailureCode ?? null;
       modelCapabilityFailure = failureDomain === "model";
@@ -375,11 +404,8 @@ function createGate6SimulatedCodingHarness(options = {}) {
 
       if (workspace && metrics.rollbackRequired) {
         lifecycle.push("rollback.started");
-        try {
-          metrics.rollbackCompleted = await workspace.rollback() === true;
-        } catch {
-          metrics.rollbackCompleted = false;
-        }
+        try { metrics.rollbackCompleted = await workspace.rollback() === true; }
+        catch { metrics.rollbackCompleted = false; }
         lifecycle.push(metrics.rollbackCompleted ? "rollback.completed" : "rollback.failed");
         if (!metrics.rollbackCompleted) {
           failureCode = FAILURE_CODES.ROLLBACK_FAILED;
@@ -390,16 +416,27 @@ function createGate6SimulatedCodingHarness(options = {}) {
     } finally {
       if (workspace) {
         try {
-          const unchanged = await workspace.assertOriginalRepositoryUnchanged();
-          originalRepositoryMutated = unchanged !== true;
-          if (originalRepositoryMutated) metrics.humanIntervention = true;
+          const receipt = await workspace.assertOriginalRepositoryUnchanged();
+          if (typeof receipt === "boolean") {
+            originalRepositoryMutationMeasured = true;
+            originalRepositoryMutated = receipt !== true;
+          } else if (isPlainObject(receipt) && typeof receipt.measured === "boolean") {
+            originalRepositoryMutationMeasured = receipt.measured;
+            originalRepositoryMutated = receipt.measured ? receipt.unchanged !== true : null;
+            originalRepositoryFingerprintBefore = receipt.beforeHash ?? null;
+            originalRepositoryFingerprintAfter = receipt.afterHash ?? null;
+          } else {
+            originalRepositoryMutationMeasured = false;
+            originalRepositoryMutated = null;
+          }
+          if (originalRepositoryMutated === true) metrics.humanIntervention = true;
         } catch {
-          originalRepositoryMutated = true;
+          originalRepositoryMutationMeasured = false;
+          originalRepositoryMutated = null;
           metrics.humanIntervention = true;
         }
-        try {
-          workspaceDisposed = await workspace.dispose() === true;
-        } catch {
+        try { workspaceDisposed = await workspace.dispose() === true; }
+        catch {
           workspaceDisposed = false;
           metrics.humanIntervention = true;
         }
@@ -429,7 +466,10 @@ function createGate6SimulatedCodingHarness(options = {}) {
       changedFiles,
       unauthorizedFiles,
       baselineChangedFiles: Object.freeze([...baselineChangedFiles]),
+      originalRepositoryMutationMeasured,
       originalRepositoryMutated,
+      originalRepositoryFingerprintBefore,
+      originalRepositoryFingerprintAfter,
       workspaceDisposed,
       lifecycle
     });
@@ -442,6 +482,7 @@ module.exports = {
   PROPOSAL_VERSION,
   Gate6SimulatedCodingError,
   createGate6SimulatedCodingHarness,
+  fingerprintMutations,
   pathMatchesRule,
   providerFailure,
   validateProposal
