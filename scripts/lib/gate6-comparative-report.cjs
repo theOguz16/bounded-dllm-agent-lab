@@ -99,9 +99,7 @@ function deepFreeze(value) {
 }
 
 function finiteNonNegative(value, field) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    fail("GATE6_METRICS_NUMBER_INVALID", field);
-  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail("GATE6_METRICS_NUMBER_INVALID", field);
   return value;
 }
 
@@ -176,9 +174,7 @@ function validateObservation(value) {
       value.escalation.incrementalContextBytes !== 0 ||
       value.escalation.incrementalTokens !== 0 ||
       value.escalation.incrementalLatencyMs !== 0
-    )) {
-      fail("GATE6_METRICS_NON_ESCALATED_COST_NONZERO", value.taskId);
-    }
+    )) fail("GATE6_METRICS_NON_ESCALATED_COST_NONZERO", value.taskId);
   } else if (value.escalation !== null) {
     fail("GATE6_METRICS_ESCALATION_FOR_NON_CE", value.taskId);
   }
@@ -321,7 +317,6 @@ function validateRepeatability(rows, minimumRepetitions) {
     for (const strategy of STRATEGIES) {
       if (!strategies.has(strategy)) fail("GATE6_METRICS_STRATEGY_MISSING", `${taskId}:${strategy}`);
     }
-    const referenceRepetitions = null;
     let expected = null;
     for (const strategy of STRATEGIES) {
       const strategyRows = strategies.get(strategy);
@@ -336,7 +331,6 @@ function validateRepeatability(rows, minimumRepetitions) {
       if (expected === null) expected = serialized;
       else if (serialized !== expected) fail("GATE6_METRICS_REPETITION_SET_MISMATCH", taskId);
     }
-    void referenceRepetitions;
   }
 }
 
