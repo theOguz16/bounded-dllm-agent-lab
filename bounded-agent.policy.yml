@@ -15,6 +15,7 @@ allowed_paths:
   - benchmarks/gate6/tasks/**
   - benchmarks/gate6/oracles/**
   - benchmarks/gate6/taskset.json
+  - benchmarks/gate6/preconditions.json
   - scripts/lib/gate6-task-schema.cjs
   - scripts/lib/gate6-task-classes.cjs
   - scripts/lib/gate6-repository-manifest.cjs
@@ -22,6 +23,7 @@ allowed_paths:
   - scripts/lib/gate6-context-strategies.cjs
   - scripts/lib/gate6-context-escalation.cjs
   - scripts/lib/gate6-taskset.cjs
+  - scripts/gate6-precondition-runner.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
   - scripts/evidence-promote-observed.cjs
