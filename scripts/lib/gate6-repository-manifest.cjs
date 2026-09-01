@@ -42,6 +42,12 @@ function sameKeys(value, expected) {
     JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
 }
 
+function compareStrings(left, right) {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function validateRepository(entry, index) {
   const label = `repositories[${index}]`;
   if (!sameKeys(entry, REPOSITORY_FIELDS)) {
@@ -109,7 +115,7 @@ function canonicalizeGate6RepositoryManifest(manifest) {
   validateGate6RepositoryManifest(manifest);
   const repositories = manifest.repositories
     .map((entry) => Object.freeze({ ...entry }))
-    .sort((left, right) => left.id.localeCompare(right.id) || left.commitSha.localeCompare(right.commitSha));
+    .sort((left, right) => compareStrings(left.id, right.id) || compareStrings(left.commitSha, right.commitSha));
   return Object.freeze({
     schemaVersion: manifest.schemaVersion,
     repositories: Object.freeze(repositories)
