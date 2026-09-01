@@ -1,10 +1,14 @@
 "use strict";
 
 const path = require("node:path");
+const {
+  TASK_CLASS_IDS,
+  hasGate6TaskClass
+} = require("./gate6-task-classes.cjs");
 
 const SCHEMA_VERSION = "gate6-task/v1";
 const DIFFICULTIES = Object.freeze(["easy", "medium", "hard"]);
-const TASK_CLASSES = Object.freeze(["bugfix_with_regression"]);
+const TASK_CLASSES = TASK_CLASS_IDS;
 const REQUIRED_FIELDS = Object.freeze([
   "schemaVersion",
   "taskId",
@@ -117,7 +121,7 @@ function validateGate6Task(task) {
   if (typeof task.commitSha !== "string" || !SHA40.test(task.commitSha)) {
     fail("GATE6_TASK_COMMIT_SHA_INVALID", String(task.commitSha));
   }
-  if (!TASK_CLASSES.includes(task.taskClass)) {
+  if (!hasGate6TaskClass(task.taskClass)) {
     fail("GATE6_TASK_CLASS_UNSUPPORTED", String(task.taskClass));
   }
   if (!DIFFICULTIES.includes(task.difficulty)) {
