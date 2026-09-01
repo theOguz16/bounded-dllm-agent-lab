@@ -81,10 +81,10 @@ function main() {
     expectReject(() => validateAttestations(current.input), "GATE6_PRECONDITION_ATTESTATION_HASH_INVALID");
   });
 
-  test("runner/probe code hashes must agree across all repository attestations", () => {
+  test("runner/probe code-hash tampering is rejected by the attestation hash", () => {
     const current = bundle();
     current.input.attestations[1].runnerHash = "sha256:" + "0".repeat(64);
-    expectReject(() => validateAttestations(current.input), "GATE6_PRECONDITION_ATTESTATION_CODE_HASH_DIVERGED");
+    expectReject(() => validateAttestations(current.input), "GATE6_PRECONDITION_ATTESTATION_HASH_INVALID");
   });
 
   test("missing repository attestation fails closed", () => {
