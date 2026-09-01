@@ -52,6 +52,7 @@ jobs:
           node --check scripts/gate6-freeze-preconditions.cjs
           node --check scripts/lib/gate6-precondition-probes.cjs
           node --check scripts/lib/gate6-precondition-freeze.cjs
+          node --check tests/gate6/precondition-freeze.test.cjs
       - name: Execute exact-SHA preconditions
         run: |
           safe_name="${{ matrix.repository }}"
@@ -91,6 +92,15 @@ jobs:
             --output benchmarks/gate6/precondition-freeze.json \
             --workflow-run-id '${{ github.run_id }}' \
             --workflow-head-sha '${{ github.event.pull_request.head.sha }}'
+      - name: Validate precondition freeze regressions
+        run: node tests/gate6/precondition-freeze.test.cjs
+      - name: Validate frozen taskset regressions when frozen
+        run: |
+          if node -e "process.exit(require('./benchmarks/gate6/taskset.json').frozen === true ? 0 : 1)"; then
+            node tests/gate6/taskset.test.cjs
+          else
+            echo 'Taskset remains intentionally unfrozen; frozen taskset regression deferred.'
+          fi
       - name: Persist freeze evidence on PR branch
         run: |
           git config user.name 'github-actions[bot]'
