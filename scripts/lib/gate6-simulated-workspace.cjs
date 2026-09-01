@@ -48,7 +48,7 @@ async function runGit(root, args) {
       env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
       maxBuffer: 32 * 1024 * 1024
     });
-    return String(result.stdout ?? "").trim();
+    return String(result.stdout ?? "").replace(/\r?\n$/, "");
   } catch (error) {
     fail("GATE6_SIM_WORKSPACE_GIT_FAILED", `${args.join(" ")}: ${String(error.stderr ?? error.message ?? error)}`);
   }
