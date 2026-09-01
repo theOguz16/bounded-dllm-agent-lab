@@ -1,8 +1,6 @@
 {
   "schemaVersion": "gate6-precondition-freeze-document/v1",
   "status": "verified_42_of_42",
-  "workflowRunId": 33534874325,
-  "workflowHeadSha": "8f4e6ac17d59e8228087821d618c28c7ec00ed5f",
   "freeze": {
     "schemaVersion": "gate6-precondition-freeze/v1",
     "taskCount": 42,
