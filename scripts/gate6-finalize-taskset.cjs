@@ -19,8 +19,8 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 function replaceOnce(source, before, after, code) {
+  if (source.includes(after)) return source;
   const count = source.split(before).length - 1;
-  if (count === 0 && source.includes(after)) return source;
   if (count !== 1) fail(code);
   return source.replace(before, after);
 }
