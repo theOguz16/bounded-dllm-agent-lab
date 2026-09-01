@@ -93,7 +93,7 @@ function makeMemoryWorkspaceFactory(options = {}) {
         async changedFiles() {
           const names = new Set(baselineChanged);
           for (const [filePath, value] of files) if (baseline.get(filePath) !== value) names.add(filePath);
-          for (const filePath of baseline) if (!files.has(filePath)) names.add(filePath);
+          for (const filePath of baseline.keys()) if (!files.has(filePath)) names.add(filePath);
           return [...names].sort();
         },
         async repositorySnapshot() {
