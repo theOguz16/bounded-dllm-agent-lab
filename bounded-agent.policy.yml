@@ -23,6 +23,8 @@ allowed_paths:
   - scripts/lib/gate6-context-strategies.cjs
   - scripts/lib/gate6-context-escalation.cjs
   - scripts/lib/gate6-taskset.cjs
+  - scripts/lib/gate6-precondition-probes.cjs
+  - scripts/lib/gate6-precondition-freeze.cjs
   - scripts/gate6-precondition-runner.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
