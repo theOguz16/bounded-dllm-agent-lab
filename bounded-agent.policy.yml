@@ -28,6 +28,7 @@ allowed_paths:
   - scripts/lib/gate6-precondition-freeze.cjs
   - scripts/gate6-precondition-runner.cjs
   - scripts/gate6-freeze-preconditions.cjs
+  - scripts/gate6-finalize-taskset.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
   - scripts/evidence-promote-observed.cjs
