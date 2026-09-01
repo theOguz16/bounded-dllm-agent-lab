@@ -10,10 +10,12 @@ const {
 } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const path = require("node:path");
+const { fileURLToPath } = require("node:url");
 const { promisify } = require("node:util");
 
 const exec = promisify(execFile);
 const WORKSPACE_VERSION = "gate6-simulated-workspace/v1";
+const CONTENT_FINGERPRINT_VERSION = "gate6-workspace-content-fingerprint/v1";
 
 class Gate6SimulatedWorkspaceError extends Error {
   constructor(code, detail) {
@@ -52,6 +54,77 @@ async function runGit(root, args) {
   } catch (error) {
     fail("GATE6_SIM_WORKSPACE_GIT_FAILED", `${args.join(" ")}: ${String(error.stderr ?? error.message ?? error)}`);
   }
+}
+
+async function fingerprintRepositoryContent(root) {
+  const listed = await runGit(root, ["ls-files", "-co", "--exclude-standard", "-z"]);
+  const paths = [...new Set(listed.split("\0").filter(Boolean))].sort();
+  const files = [];
+  for (const relativePath of paths) {
+    if (!safeRelativePath(relativePath)) {
+      fail("GATE6_SIM_WORKSPACE_FINGERPRINT_PATH_INVALID", relativePath);
+    }
+    const fullPath = path.join(root, ...relativePath.split("/"));
+    try {
+      const content = await readFile(fullPath);
+      files.push(Object.freeze({
+        path: relativePath,
+        state: "present",
+        byteLength: content.byteLength,
+        contentHash: sha256(content)
+      }));
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        files.push(Object.freeze({
+          path: relativePath,
+          state: "missing",
+          byteLength: 0,
+          contentHash: null
+        }));
+        continue;
+      }
+      if (error?.code === "EISDIR") {
+        files.push(Object.freeze({
+          path: relativePath,
+          state: "directory",
+          byteLength: 0,
+          contentHash: null
+        }));
+        continue;
+      }
+      throw error;
+    }
+  }
+  const frozenFiles = Object.freeze(files);
+  return Object.freeze({
+    schemaVersion: CONTENT_FINGERPRINT_VERSION,
+    hash: sha256(JSON.stringify(frozenFiles)),
+    files: frozenFiles
+  });
+}
+
+function localCloneSourcePath(cloneSource) {
+  if (typeof cloneSource !== "string" || cloneSource.length === 0) return null;
+  if (cloneSource.startsWith("file://")) {
+    try { return path.resolve(fileURLToPath(cloneSource)); }
+    catch { return null; }
+  }
+  return path.isAbsolute(cloneSource) ? path.resolve(cloneSource) : null;
+}
+
+async function fingerprintLocalSourceRepository(cloneSource) {
+  const root = localCloneSourcePath(cloneSource);
+  if (!root) return null;
+  const bare = await runGit(root, ["rev-parse", "--is-bare-repository"]);
+  if (bare === "true") return null;
+  const head = await runGit(root, ["rev-parse", "HEAD"]);
+  const content = await fingerprintRepositoryContent(root);
+  return Object.freeze({
+    root,
+    head,
+    contentHash: content.hash,
+    hash: sha256(JSON.stringify({ head, contentHash: content.hash }))
+  });
 }
 
 function declarationPatterns(symbol) {
@@ -154,6 +227,7 @@ function createDisposableWorkspaceFactory(options = {}) {
       let fixtureReceipt = null;
       try {
         const cloneSource = cloneSourceResolver(task.repositoryId);
+        const originalSourceFingerprint = await fingerprintLocalSourceRepository(cloneSource);
         await exec("git", ["clone", "--quiet", "--no-checkout", "--no-hardlinks", cloneSource, checkout], {
           encoding: "utf8",
           env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1" },
@@ -184,6 +258,9 @@ function createDisposableWorkspaceFactory(options = {}) {
         async function changedFiles() {
           return parseChangedFiles(await runGit(checkout, ["status", "--porcelain=v1", "--untracked-files=all"]));
         }
+        async function contentFingerprint() {
+          return fingerprintRepositoryContent(checkout);
+        }
         async function repositorySnapshot() {
           const files = [];
           for (const relativePath of [...task.candidateFiles].sort()) {
@@ -203,6 +280,23 @@ function createDisposableWorkspaceFactory(options = {}) {
           return (await changedFiles()).sort().join("\n") ===
             (fixtureReceipt ? [fixtureReceipt.path].sort().join("\n") : "");
         }
+        async function assertOriginalRepositoryUnchanged() {
+          if (!originalSourceFingerprint) {
+            return Object.freeze({
+              measured: false,
+              unchanged: null,
+              beforeHash: null,
+              afterHash: null
+            });
+          }
+          const after = await fingerprintLocalSourceRepository(cloneSource);
+          return Object.freeze({
+            measured: true,
+            unchanged: after?.hash === originalSourceFingerprint.hash,
+            beforeHash: originalSourceFingerprint.hash,
+            afterHash: after?.hash ?? null
+          });
+        }
         async function dispose() {
           if (disposed) return true;
           await rm(temporaryRoot, { recursive: true, force: true });
@@ -218,10 +312,11 @@ function createDisposableWorkspaceFactory(options = {}) {
           read,
           write,
           changedFiles,
+          contentFingerprint,
           repositorySnapshot,
           rollback,
-          dispose,
-          async assertOriginalRepositoryUnchanged() { return true; }
+          assertOriginalRepositoryUnchanged,
+          dispose
         });
       } catch (error) {
         await rm(temporaryRoot, { recursive: true, force: true });
@@ -232,10 +327,12 @@ function createDisposableWorkspaceFactory(options = {}) {
 }
 
 module.exports = {
+  CONTENT_FINGERPRINT_VERSION,
   WORKSPACE_VERSION,
   Gate6SimulatedWorkspaceError,
   applyFrozenFault,
   createDisposableWorkspaceFactory,
+  fingerprintRepositoryContent,
   safeRelativePath,
   sha256
 };
