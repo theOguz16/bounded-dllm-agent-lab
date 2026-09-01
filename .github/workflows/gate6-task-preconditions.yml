@@ -6,6 +6,8 @@ on:
     paths:
       - 'benchmarks/gate6/**'
       - 'scripts/gate6-precondition-runner.cjs'
+      - 'scripts/lib/gate6-precondition-probes.cjs'
+      - 'scripts/lib/gate6-precondition-freeze.cjs'
       - 'scripts/lib/gate6-taskset.cjs'
       - 'tests/gate6/**'
       - '.github/workflows/gate6-task-preconditions.yml'
@@ -43,7 +45,10 @@ jobs:
         with:
           node-version: '22'
       - name: Validate runner syntax
-        run: node --check scripts/gate6-precondition-runner.cjs
+        run: |
+          node --check scripts/gate6-precondition-runner.cjs
+          node --check scripts/lib/gate6-precondition-probes.cjs
+          node --check scripts/lib/gate6-precondition-freeze.cjs
       - name: Execute exact-SHA preconditions
         run: |
           safe_name="${{ matrix.repository }}"
