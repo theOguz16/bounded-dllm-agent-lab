@@ -38,6 +38,7 @@ allowed_paths:
   - scripts/gate6-finalize-taskset.cjs
   - scripts/gate6-verify.cjs
   - scripts/gate6-live-runner.cjs
+  - scripts/gate6-live-runner-core.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
   - scripts/evidence-promote-observed.cjs

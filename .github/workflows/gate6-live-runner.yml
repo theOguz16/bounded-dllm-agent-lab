@@ -5,7 +5,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/gate6-live-runner.cjs'
+      - 'scripts/gate6-live-runner-core.cjs'
       - 'tests/gate6/live-runner.test.cjs'
+      - 'tests/gate6/live-runner-structured-output.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -28,8 +30,12 @@ jobs:
       - name: Validate live runner syntax
         run: |
           node --check scripts/gate6-live-runner.cjs
+          node --check scripts/gate6-live-runner-core.cjs
           node --check tests/gate6/live-runner.test.cjs
+          node --check tests/gate6/live-runner-structured-output.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
+      - name: Gate 6 llama.cpp structured-output compatibility regressions
+        run: node tests/gate6/live-runner-structured-output.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
