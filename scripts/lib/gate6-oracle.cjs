@@ -4,6 +4,7 @@ const path = require("node:path");
 const { validateGate6Task } = require("./gate6-task-schema.cjs");
 
 const SCHEMA_VERSION = "gate6-oracle/v1";
+const SELECTION_EVIDENCE_VERSION = "gate6-oracle-selection-evidence/v1";
 const ORACLE_FIELDS = Object.freeze([
   "schemaVersion",
   "taskId",
@@ -14,6 +15,13 @@ const ORACLE_FIELDS = Object.freeze([
   "allowedTouchedFiles",
   "forbiddenFiles",
   "behavioralChecks"
+]);
+const SELECTION_EVIDENCE_FIELDS = Object.freeze([
+  "schemaVersion",
+  "selectedFiles",
+  "selectedSymbols",
+  "selectedTestFiles",
+  "selectedTestAnchors"
 ]);
 const PUBLIC_TASK_FIELDS = Object.freeze([
   "schemaVersion",
@@ -169,6 +177,98 @@ function validateGate6Oracle(oracle, publicTask) {
   return oracle;
 }
 
+function normalizeSelectionEvidence(value) {
+  if (!sameKeys(value, SELECTION_EVIDENCE_FIELDS)) {
+    fail("GATE6_ORACLE_SELECTION_EVIDENCE_INVALID");
+  }
+  if (value.schemaVersion !== SELECTION_EVIDENCE_VERSION) {
+    fail("GATE6_ORACLE_SELECTION_EVIDENCE_SCHEMA_UNSUPPORTED", String(value.schemaVersion));
+  }
+  assertUniqueStringArray(value.selectedFiles, "selectedFiles", { pathValues: true });
+  assertUniqueStringArray(value.selectedSymbols, "selectedSymbols");
+  assertUniqueStringArray(value.selectedTestFiles, "selectedTestFiles", { pathValues: true });
+  assertUniqueStringArray(value.selectedTestAnchors, "selectedTestAnchors");
+  return Object.freeze({
+    schemaVersion: SELECTION_EVIDENCE_VERSION,
+    selectedFiles: Object.freeze([...value.selectedFiles].sort()),
+    selectedSymbols: Object.freeze([...value.selectedSymbols].sort()),
+    selectedTestFiles: Object.freeze([...value.selectedTestFiles].sort()),
+    selectedTestAnchors: Object.freeze([...value.selectedTestAnchors].sort())
+  });
+}
+
+function intersectionCount(left, rightSet) {
+  let count = 0;
+  for (const value of left) if (rightSet.has(value)) count += 1;
+  return count;
+}
+
+function containsAll(selectedSet, required) {
+  return required.every((value) => selectedSet.has(value));
+}
+
+function setEqual(selectedSet, required) {
+  return selectedSet.size === required.length && containsAll(selectedSet, required);
+}
+
+function scoreGate6SelectionEvidence({ task, oracle, selectionEvidence }) {
+  validateGate6Oracle(oracle, task);
+  const normalized = normalizeSelectionEvidence(selectionEvidence);
+  const selectedFiles = new Set(normalized.selectedFiles);
+  const selectedSymbols = new Set(normalized.selectedSymbols);
+  const selectedTestFiles = new Set(normalized.selectedTestFiles);
+  const selectedTestAnchors = new Set(normalized.selectedTestAnchors);
+  const allowedTouched = new Set(oracle.allowedTouchedFiles);
+  const forbidden = new Set(oracle.forbiddenFiles);
+  const allSelectedFiles = [...selectedFiles, ...selectedTestFiles];
+
+  const fileScopeSuccess = allSelectedFiles.every(
+    (filePath) => allowedTouched.has(filePath) && !forbidden.has(filePath)
+  );
+  const symbolTruePositiveCount = intersectionCount(normalized.selectedSymbols, new Set(oracle.requiredSymbols));
+  const symbolPredictedCount = normalized.selectedSymbols.length;
+  const symbolRequiredCount = oracle.requiredSymbols.length;
+  const exactSymbolSuccess = setEqual(selectedSymbols, oracle.requiredSymbols);
+  const criticalImplementationCoveredCount = intersectionCount(
+    oracle.requiredImplementationFiles,
+    selectedFiles
+  );
+  const criticalImplementationRequiredCount = oracle.requiredImplementationFiles.length;
+  const criticalTestAnchorCoveredCount = intersectionCount(
+    oracle.requiredTestAnchors,
+    selectedTestAnchors
+  );
+  const criticalTestAnchorRequiredCount = oracle.requiredTestAnchors.length;
+  const requiredImplementationCovered = containsAll(
+    selectedFiles,
+    oracle.requiredImplementationFiles
+  );
+  const requiredTestFilesCovered = containsAll(selectedTestFiles, oracle.requiredTestFiles);
+  const requiredTestAnchorsCovered = containsAll(
+    selectedTestAnchors,
+    oracle.requiredTestAnchors
+  );
+  const strictOracleSuccess =
+    fileScopeSuccess &&
+    requiredImplementationCovered &&
+    requiredTestFilesCovered &&
+    exactSymbolSuccess &&
+    requiredTestAnchorsCovered;
+
+  return Object.freeze({
+    fileScopeSuccess,
+    strictOracleSuccess,
+    exactSymbolSuccess,
+    symbolTruePositiveCount,
+    symbolPredictedCount,
+    symbolRequiredCount,
+    criticalImplementationCoveredCount,
+    criticalImplementationRequiredCount,
+    criticalTestAnchorCoveredCount,
+    criticalTestAnchorRequiredCount
+  });
+}
+
 function clonePublicAuthority(authority) {
   const result = {};
   for (const field of AUTHORITY_FIELDS) result[field] = Object.freeze([...authority[field]]);
@@ -225,10 +325,14 @@ module.exports = {
   ORACLE_FIELDS,
   PUBLIC_TASK_FIELDS,
   SCHEMA_VERSION,
+  SELECTION_EVIDENCE_FIELDS,
+  SELECTION_EVIDENCE_VERSION,
   createGate6ProviderDebugRecord,
   createGate6ProviderPayload,
   createGate6PublicReport,
   createPublicGate6Task,
+  normalizeSelectionEvidence,
+  scoreGate6SelectionEvidence,
   stringifyGate6ProviderPrompt,
   validateGate6Oracle
 };
