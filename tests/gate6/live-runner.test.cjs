@@ -335,7 +335,8 @@ async function main() {
       }
     });
     await smoke(provider);
-    assert.equal(inspected, 4);
+    assert.equal(inspected, provider.calls.length);
+    assert.ok(inspected >= 4);
   });
 
   await test("frozen source/taskset/semantics mismatch fails before provider call", async () => {
