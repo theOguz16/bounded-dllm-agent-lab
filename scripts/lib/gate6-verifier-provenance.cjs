@@ -5,11 +5,16 @@ const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("node:fs"
 const path = require("node:path");
 const base = require("./gate6-verifier.cjs");
 const { FAILURE_CODES, HARNESS_VERSION } = require("./gate6-simulated-coding-harness.cjs");
+const {
+  SELECTION_EVIDENCE_VERSION,
+  normalizeSelectionEvidence,
+  scoreGate6SelectionEvidence
+} = require("./gate6-oracle.cjs");
 
-const VERIFIER_VERSION = "gate6-verifier/v2";
-const RAW_REPORT_VERSION = "gate6-raw-report/v2";
-const EVIDENCE_VERSION = "gate6-evidence/v2";
-const SAMPLE_RECEIPT_VERSION = "gate6-simulated-harness-receipt/v2";
+const VERIFIER_VERSION = "gate6-verifier/v3";
+const RAW_REPORT_VERSION = "gate6-raw-report/v3";
+const EVIDENCE_VERSION = "gate6-evidence/v3";
+const SAMPLE_RECEIPT_VERSION = "gate6-simulated-harness-receipt/v3";
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const ORACLE_FIELDS = Object.freeze([
   "fileScopeSuccess",
@@ -33,6 +38,8 @@ const RECEIPT_FIELDS = Object.freeze([
   "harnessVersion",
   "harnessReportHash",
   "harnessReport",
+  "selectionEvidence",
+  "selectionEvidenceHash",
   "oracleVerification",
   "oracleVerificationHash",
   "derivedOutcome",
@@ -118,11 +125,14 @@ function validateOracleVerification(value) {
   return value;
 }
 
-function createHarnessSampleReceipt({ observation, harnessReport, oracleVerification }) {
+function createHarnessSampleReceipt({ observation, harnessReport, task, oracle, selectionEvidence }) {
   if (!isPlainObject(observation) || !Number.isInteger(observation.repetition) || observation.repetition < 1) fail("GATE6_VERIFY_RECEIPT_REPETITION_INVALID");
+  if (!task || !oracle || task.taskId !== observation.taskId || oracle.taskId !== observation.taskId) fail("GATE6_VERIFY_RECEIPT_ORACLE_IDENTITY_INVALID", observation.taskId);
+  const normalizedSelection = normalizeSelectionEvidence(selectionEvidence);
+  const oracleVerification = scoreGate6SelectionEvidence({ task, oracle, selectionEvidence: normalizedSelection });
   validateOracleVerification(oracleVerification);
   const derivedOutcome = deriveHarnessOutcome(harnessReport);
-  if (harnessReport.taskId !== observation.taskId || harnessReport.repositoryId !== observation.repositoryId || harnessReport.strategy !== observation.strategy) fail("GATE6_VERIFY_RECEIPT_OBSERVATION_IDENTITY_MISMATCH", observation.taskId);
+  if (harnessReport.taskId !== observation.taskId || harnessReport.repositoryId !== observation.repositoryId || harnessReport.strategy !== observation.strategy || harnessReport.commitSha !== task.commitSha) fail("GATE6_VERIFY_RECEIPT_OBSERVATION_IDENTITY_MISMATCH", observation.taskId);
   const core = {
     schemaVersion: SAMPLE_RECEIPT_VERSION,
     taskId: observation.taskId,
@@ -133,6 +143,8 @@ function createHarnessSampleReceipt({ observation, harnessReport, oracleVerifica
     harnessVersion: HARNESS_VERSION,
     harnessReportHash: base.hashCanonical(harnessReport),
     harnessReport: structuredClone(harnessReport),
+    selectionEvidence: structuredClone(normalizedSelection),
+    selectionEvidenceHash: base.hashCanonical(normalizedSelection),
     oracleVerification: structuredClone(oracleVerification),
     oracleVerificationHash: base.hashCanonical(oracleVerification),
     derivedOutcome: structuredClone(derivedOutcome)
@@ -151,11 +163,15 @@ function validateSampleReceipts({ observations, sampleReceipts, frozen }) {
 
   for (const receipt of sampleReceipts) {
     if (!sameKeys(receipt, RECEIPT_FIELDS) || receipt.schemaVersion !== SAMPLE_RECEIPT_VERSION || receipt.harnessVersion !== HARNESS_VERSION) fail("GATE6_VERIFY_SAMPLE_RECEIPT_INVALID");
-    if (!SHA256.test(receipt.harnessReportHash) || !SHA256.test(receipt.oracleVerificationHash) || !SHA256.test(receipt.receiptHash)) fail("GATE6_VERIFY_SAMPLE_RECEIPT_HASH_INVALID");
+    if (!SHA256.test(receipt.harnessReportHash) || !SHA256.test(receipt.selectionEvidenceHash) || !SHA256.test(receipt.oracleVerificationHash) || !SHA256.test(receipt.receiptHash)) fail("GATE6_VERIFY_SAMPLE_RECEIPT_HASH_INVALID");
     if (receipt.receiptHash !== base.hashCanonical(receiptCore(receipt))) fail("GATE6_VERIFY_SAMPLE_RECEIPT_HASH_MISMATCH", receiptKey(receipt));
     if (receiptHashes.has(receipt.receiptHash)) fail("GATE6_VERIFY_SAMPLE_RECEIPT_HASH_REUSED", receiptKey(receipt));
     receiptHashes.add(receipt.receiptHash);
     if (receipt.harnessReportHash !== base.hashCanonical(receipt.harnessReport)) fail("GATE6_VERIFY_HARNESS_REPORT_HASH_MISMATCH", receiptKey(receipt));
+    let normalizedSelection;
+    try { normalizedSelection = normalizeSelectionEvidence(receipt.selectionEvidence); }
+    catch (error) { fail("GATE6_VERIFY_SELECTION_EVIDENCE_INVALID", `${receiptKey(receipt)}:${error.code ?? error.message}`); }
+    if (receipt.selectionEvidenceHash !== base.hashCanonical(normalizedSelection)) fail("GATE6_VERIFY_SELECTION_EVIDENCE_HASH_MISMATCH", receiptKey(receipt));
     validateOracleVerification(receipt.oracleVerification);
     if (receipt.oracleVerificationHash !== base.hashCanonical(receipt.oracleVerification)) fail("GATE6_VERIFY_ORACLE_VERIFICATION_HASH_MISMATCH", receiptKey(receipt));
     const key = receiptKey(receipt);
@@ -176,9 +192,28 @@ function validateSampleReceipts({ observations, sampleReceipts, frozen }) {
     for (const [field, expected] of Object.entries({ endToEndAccepted: derived.endToEndAccepted, testsPassed: derived.testsPassed, scopeViolation: derived.scopeViolation, authorityViolation: derived.authorityViolation, humanIntervention: derived.humanIntervention })) {
       if (observation[field] !== expected) fail("GATE6_VERIFY_RECEIPT_CLAIM_MISMATCH", `${key}:${field}`);
     }
-    const verification = receipt.oracleVerification;
-    for (const field of ORACLE_FIELDS) if (observation[field] !== verification[field]) fail("GATE6_VERIFY_RECEIPT_ORACLE_CLAIM_MISMATCH", `${key}:${field}`);
-    if (verification.symbolRequiredCount !== oracle.requiredSymbols.length || verification.criticalImplementationRequiredCount !== oracle.requiredImplementationFiles.length || verification.criticalTestAnchorRequiredCount !== oracle.requiredTestAnchors.length) fail("GATE6_VERIFY_RECEIPT_ORACLE_REQUIRED_COUNT_MISMATCH", key);
+
+    let recomputedVerification;
+    try {
+      recomputedVerification = scoreGate6SelectionEvidence({
+        task,
+        oracle,
+        selectionEvidence: receipt.selectionEvidence
+      });
+    } catch (error) {
+      fail("GATE6_VERIFY_ORACLE_SCORE_RECOMPUTE_FAILED", `${key}:${error.code ?? error.message}`);
+    }
+    if (base.stableStringify(recomputedVerification) !== base.stableStringify(receipt.oracleVerification)) {
+      fail("GATE6_VERIFY_ORACLE_SCORE_RECOMPUTE_MISMATCH", key);
+    }
+    if (receipt.oracleVerificationHash !== base.hashCanonical(recomputedVerification)) {
+      fail("GATE6_VERIFY_ORACLE_VERIFICATION_HASH_MISMATCH", key);
+    }
+    for (const field of ORACLE_FIELDS) {
+      if (observation[field] !== recomputedVerification[field]) {
+        fail("GATE6_VERIFY_RECEIPT_ORACLE_CLAIM_MISMATCH", `${key}:${field}`);
+      }
+    }
     if (observation.strictOracleSuccess === true && derived.endToEndAccepted !== true) fail("GATE6_VERIFY_RECEIPT_STRICT_ORACLE_SUCCESS_IMPOSSIBLE", key);
   }
   if (receiptByKey.size !== observationByKey.size) fail("GATE6_VERIFY_SAMPLE_RECEIPT_COVERAGE_INVALID");
@@ -226,8 +261,10 @@ function buildEvidence({ rootPath, rawReport, runtimeIdentity, preflight }) {
       sampleReceiptVersion: SAMPLE_RECEIPT_VERSION,
       sampleReceiptCount: normalizedReceipts.length,
       harnessVersion: HARNESS_VERSION,
+      selectionEvidenceVersion: SELECTION_EVIDENCE_VERSION,
       verifiedHarnessFields: ["endToEndAccepted", "testsPassed", "acceptancePassed", "scopeViolation", "authorityViolation", "humanIntervention"],
       verifiedOracleFields: [...ORACLE_FIELDS],
+      oracleScoreSource: "selection_evidence_plus_frozen_hidden_oracle_recomputed_by_verifier",
       unauthorizedMutationCountsAsScopeViolation: true,
       strictOracleSuccessRequiresAcceptedHarness: true
     }
