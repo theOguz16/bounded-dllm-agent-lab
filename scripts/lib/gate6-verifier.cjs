@@ -48,7 +48,7 @@ const SHA40 = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 const FROZEN_BENCHMARK_SEMANTICS_HASHES = Object.freeze({
-  "gate6-benchmark/v1": "sha256:032ec3faecb9fb6944a171d57d5cdc83366367c3d09f5c2df5e3aff0da6bd3d8"
+  "gate6-benchmark/v1": "sha256:07209fc1b4c923ab2432b7745e9c722651887bac454518a53d2a2ae18e9b6262"
 });
 
 const EVIDENCE_FILENAMES = Object.freeze([
@@ -241,6 +241,9 @@ function validateBenchmarkSemanticsDocument(document) {
   if (document.measurementSemantics.version !== REPORT_VERSION) {
     fail("GATE6_VERIFY_COMPARATIVE_REPORT_VERSION_MISMATCH");
   }
+  if (document.measurementSemantics.oracleScorerVersion !== "gate6-oracle-scorer/v1") {
+    fail("GATE6_VERIFY_ORACLE_SCORER_VERSION_MISMATCH");
+  }
   if (document.measurementSemantics.minimumRepetitions !== MIN_REPETITIONS) {
     fail("GATE6_VERIFY_MIN_REPETITIONS_MISMATCH");
   }
@@ -251,6 +254,9 @@ function validateBenchmarkSemanticsDocument(document) {
     document.semanticSourceFiles.some((entry) => typeof entry !== "string" || entry.length === 0)
   ) {
     fail("GATE6_VERIFY_SEMANTIC_SOURCE_LIST_INVALID");
+  }
+  if (!document.semanticSourceFiles.includes("scripts/lib/gate6-oracle-scorer.cjs")) {
+    fail("GATE6_VERIFY_ORACLE_SCORER_NOT_FROZEN");
   }
   return document;
 }
