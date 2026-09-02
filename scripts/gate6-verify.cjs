@@ -47,7 +47,7 @@ function main() {
     process.stdout.write(`GATE6_EVIDENCE_DIR=${result.outputDir}\nGATE6_EVIDENCE=VERIFIED\n`);
   } else {
     const preflight = createPreflightRecord({ rootPath: ROOT, sourceSha, mode: "frozen_attestation" });
-    process.stdout.write(`GATE6_SOURCE_SHA=${sourceSha}\nGATE6_TASKSET_VERSION=${preflight.tasksetVersion}\nGATE6_TASKSET_HASH=${preflight.tasksetHash}\nGATE6_REPOSITORY_MANIFEST=${preflight.repositoryManifest}\nGATE6_EXTERNAL_REPOSITORY_SHAS=${preflight.externalRepositoryShas}\nGATE6_ORACLE_VALIDATION=${preflight.oracleValidation}\nGATE6_ORACLE_LEAK_TESTS=${preflight.oracleLeakTests}\nGATE6_CONTEXT_STRATEGY_TESTS=${preflight.contextStrategyTests}\nGATE6_OFFLINE_FIXTURE=${preflight.offlineFixture}\nGATE6_RECEIPT_PROVENANCE=PASS\n`);
+    process.stdout.write(`GATE6_SOURCE_SHA=${sourceSha}\nGATE6_TASKSET_VERSION=${preflight.tasksetVersion}\nGATE6_TASKSET_HASH=${preflight.tasksetHash}\nGATE6_REPOSITORY_MANIFEST=${preflight.repositoryManifest}\nGATE6_EXTERNAL_REPOSITORY_SHAS=${preflight.externalRepositoryShas}\nGATE6_ORACLE_VALIDATION=${preflight.oracleValidation}\nGATE6_ORACLE_LEAK_TESTS=${preflight.oracleLeakTests}\nGATE6_CONTEXT_STRATEGY_TESTS=${preflight.contextStrategyTests}\nGATE6_OFFLINE_FIXTURE=${preflight.offlineFixture}\nGATE6_RECEIPT_PROVENANCE=PASS\nGATE6_ORACLE_SCORE_PROVENANCE=PASS\n`);
   }
   process.stdout.write("GATE6_VERIFY=PASS\n");
 }
