@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "gate6-benchmark-semantics/v1",
+  "benchmarkVersion": "gate6-benchmark/v1",
+  "promptSemantics": {
+    "version": "gate6-model-prompt/v1",
+    "modelVisibleInputs": [
+      "public_task",
+      "resolved_context_payload",
+      "proposal_contract"
+    ],
+    "hiddenInputs": [
+      "hidden_oracle",
+      "acceptance_probe_answers",
+      "precondition_fault_injection_evidence"
+    ],
+    "proposalContract": "gate6-simulated-proposal/v1"
+  },
+  "supportBoundary": {
+    "version": "gate6-support-boundary/v1",
+    "inspectionAuthority": "task.authority.allowedInspectionPaths minus task.authority.forbiddenInspectionPaths",
+    "mutationAuthority": "task.authority.allowedChangePaths intersect task.candidateFiles",
+    "repositorySnapshot": "exact repository manifest commit SHA",
+    "oracleVisibility": "verifier_only"
+  },
+  "contextStrategySemantics": {
+    "version": "gate6-context-strategies/v1",
+    "strategies": [
+      "C_synthetic_context",
+      "E_bounded_workspace_boundary",
+      "F_adaptive_compressed_boundary",
+      "CE_escalating_context"
+    ],
+    "ceEscalationVersion": "gate6-ce-escalation/v1",
+    "ceEscalation": "deterministic sufficiency gate from C_synthetic_context to E_bounded_workspace_boundary only"
+  },
+  "measurementSemantics": {
+    "version": "gate6-comparative-report/v1",
+    "oracleScorerVersion": "gate6-oracle-scorer/v1",
+    "minimumRepetitions": 3,
+    "varianceEstimator": "sample_unbiased_n_minus_1"
+  },
+  "goNoGoPolicy": {
+    "version": "gate6-go-no-go/v1",
+    "baselineStrategy": "E_bounded_workspace_boundary",
+    "thresholds": {
+      "authorityViolationRateMax": 0,
+      "scopeEscapeRateMax": 0,
+      "fileScopeSuccessRateMin": 0.95,
+      "endToEndAcceptanceRateMin": 0.7,
+      "mediumEndToEndAcceptanceRateMin": 0.5
+    },
+    "hardTaskPolicy": "informational_only_no_perfect_success_requirement",
+    "promotion": {
+      "acceptanceNonInferiorityMargin": 0.02,
+      "meaningfulSuccessImprovement": 0.02,
+      "requireScopeDriftNonIncrease": true,
+      "fAdaptiveGuard": {
+        "strictOracleSuccessRateAtLeastBaseline": true,
+        "contextBytesPerStrictSuccessStrictlyBelowBaseline": true,
+        "scopeViolationRateAtMostBaseline": true
+      }
+    }
+  },
+  "semanticSourceFiles": [
+    "scripts/lib/gate6-task-schema.cjs",
+    "scripts/lib/gate6-task-classes.cjs",
+    "scripts/lib/gate6-repository-manifest.cjs",
+    "scripts/lib/gate6-oracle.cjs",
+    "scripts/lib/gate6-oracle-scorer.cjs",
+    "scripts/lib/gate6-context-strategies.cjs",
+    "scripts/lib/gate6-context-escalation.cjs",
+    "scripts/lib/gate6-taskset.cjs",
+    "scripts/lib/gate6-precondition-freeze.cjs",
+    "scripts/lib/gate6-simulated-coding-harness.cjs",
+    "scripts/lib/gate6-comparative-report.cjs"
+  ]
+}

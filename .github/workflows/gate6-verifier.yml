@@ -1,0 +1,43 @@
+name: Gate 6 verifier
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'benchmarks/gate6/**'
+      - 'scripts/lib/gate6-*.cjs'
+      - 'scripts/gate6-verify.cjs'
+      - 'tests/gate6/**'
+      - 'bounded-agent.policy.yml'
+      - '.github/workflows/gate6-verifier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate verifier syntax
+        run: |
+          node --check scripts/lib/gate6-verifier.cjs
+          node --check scripts/lib/gate6-verifier-provenance.cjs
+          node --check scripts/lib/gate6-oracle-scorer.cjs
+          node --check scripts/gate6-verify.cjs
+          node --check tests/gate6/benchmark-semantics-freeze.test.cjs
+          node --check tests/gate6/verifier.test.cjs
+      - name: Gate 6 benchmark semantic freeze regression
+        run: node tests/gate6/benchmark-semantics-freeze.test.cjs
+      - name: Gate 6 verifier regression
+        run: node tests/gate6/verifier.test.cjs
+      - name: Gate 6 single-command preflight
+        run: node scripts/gate6-verify.cjs
