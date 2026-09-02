@@ -22,6 +22,7 @@ allowed_paths:
   - scripts/lib/gate6-task-classes.cjs
   - scripts/lib/gate6-repository-manifest.cjs
   - scripts/lib/gate6-oracle.cjs
+  - scripts/lib/gate6-oracle-scorer.cjs
   - scripts/lib/gate6-context-strategies.cjs
   - scripts/lib/gate6-context-escalation.cjs
   - scripts/lib/gate6-taskset.cjs
