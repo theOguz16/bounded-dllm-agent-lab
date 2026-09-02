@@ -29,7 +29,7 @@ function runCheck(relativePath) {
   if (result.status !== 0) throw new Error(`preflight check failed: ${relativePath}`);
 }
 function runRegressionPreflight() {
-  for (const check of ["tests/gate6/repository-manifest.test.cjs", "tests/gate6/taskset.test.cjs", "tests/gate6/precondition-freeze.test.cjs", "tests/gate6/oracle-separation.test.cjs", "tests/gate6/context-strategies.test.cjs", "tests/gate6/context-escalation.test.cjs", "tests/gate6/simulated-coding-harness.test.cjs", "tests/gate6/simulated-coding-integrity.test.cjs", "tests/gate6/comparative-report.test.cjs", "tests/gate6/verifier.test.cjs"]) runCheck(check);
+  for (const check of ["tests/gate6/repository-manifest.test.cjs", "tests/gate6/taskset.test.cjs", "tests/gate6/precondition-freeze.test.cjs", "tests/gate6/oracle-separation.test.cjs", "tests/gate6/context-strategies.test.cjs", "tests/gate6/context-escalation.test.cjs", "tests/gate6/simulated-coding-harness.test.cjs", "tests/gate6/simulated-coding-integrity.test.cjs", "tests/gate6/comparative-report.test.cjs", "tests/gate6/benchmark-semantics-freeze.test.cjs", "tests/gate6/verifier.test.cjs"]) runCheck(check);
 }
 function readJson(filePath) { return JSON.parse(fs.readFileSync(filePath, "utf8")); }
 function main() {
@@ -47,7 +47,7 @@ function main() {
     process.stdout.write(`GATE6_EVIDENCE_DIR=${result.outputDir}\nGATE6_EVIDENCE=VERIFIED\n`);
   } else {
     const preflight = createPreflightRecord({ rootPath: ROOT, sourceSha, mode: "frozen_attestation" });
-    process.stdout.write(`GATE6_SOURCE_SHA=${sourceSha}\nGATE6_TASKSET_VERSION=${preflight.tasksetVersion}\nGATE6_TASKSET_HASH=${preflight.tasksetHash}\nGATE6_REPOSITORY_MANIFEST=${preflight.repositoryManifest}\nGATE6_EXTERNAL_REPOSITORY_SHAS=${preflight.externalRepositoryShas}\nGATE6_ORACLE_VALIDATION=${preflight.oracleValidation}\nGATE6_ORACLE_LEAK_TESTS=${preflight.oracleLeakTests}\nGATE6_CONTEXT_STRATEGY_TESTS=${preflight.contextStrategyTests}\nGATE6_OFFLINE_FIXTURE=${preflight.offlineFixture}\nGATE6_RECEIPT_PROVENANCE=PASS\nGATE6_ORACLE_SCORE_PROVENANCE=PASS\n`);
+    process.stdout.write(`GATE6_SOURCE_SHA=${sourceSha}\nGATE6_TASKSET_VERSION=${preflight.tasksetVersion}\nGATE6_TASKSET_HASH=${preflight.tasksetHash}\nGATE6_BENCHMARK_SEMANTICS_HASH=${preflight.benchmarkSemanticsHash}\nGATE6_REPOSITORY_MANIFEST=${preflight.repositoryManifest}\nGATE6_EXTERNAL_REPOSITORY_SHAS=${preflight.externalRepositoryShas}\nGATE6_ORACLE_VALIDATION=${preflight.oracleValidation}\nGATE6_ORACLE_LEAK_TESTS=${preflight.oracleLeakTests}\nGATE6_CONTEXT_STRATEGY_TESTS=${preflight.contextStrategyTests}\nGATE6_OFFLINE_FIXTURE=${preflight.offlineFixture}\nGATE6_BENCHMARK_FREEZE=PASS\nGATE6_RECEIPT_PROVENANCE=PASS\nGATE6_ORACLE_SCORE_PROVENANCE=PASS\n`);
   }
   process.stdout.write("GATE6_VERIFY=PASS\n");
 }
