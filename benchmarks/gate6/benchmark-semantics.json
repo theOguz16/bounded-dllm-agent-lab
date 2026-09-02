@@ -35,6 +35,7 @@
   },
   "measurementSemantics": {
     "version": "gate6-comparative-report/v1",
+    "oracleScorerVersion": "gate6-oracle-scorer/v1",
     "minimumRepetitions": 3,
     "varianceEstimator": "sample_unbiased_n_minus_1"
   },
@@ -65,6 +66,7 @@
     "scripts/lib/gate6-task-classes.cjs",
     "scripts/lib/gate6-repository-manifest.cjs",
     "scripts/lib/gate6-oracle.cjs",
+    "scripts/lib/gate6-oracle-scorer.cjs",
     "scripts/lib/gate6-context-strategies.cjs",
     "scripts/lib/gate6-context-escalation.cjs",
     "scripts/lib/gate6-taskset.cjs",
