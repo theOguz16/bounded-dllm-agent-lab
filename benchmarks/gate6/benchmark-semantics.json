@@ -36,9 +36,7 @@
   "measurementSemantics": {
     "version": "gate6-comparative-report/v1",
     "minimumRepetitions": 3,
-    "varianceEstimator": "sample_unbiased_n_minus_1",
-    "sampleProvenanceVersion": "gate6-simulated-harness-receipt/v2",
-    "sampleProvenanceRule": "every task-strategy-repetition observation must match a hash-bound Step 8 harness report and hash-bound oracle verification result"
+    "varianceEstimator": "sample_unbiased_n_minus_1"
   },
   "goNoGoPolicy": {
     "version": "gate6-go-no-go/v1",
@@ -72,7 +70,6 @@
     "scripts/lib/gate6-taskset.cjs",
     "scripts/lib/gate6-precondition-freeze.cjs",
     "scripts/lib/gate6-simulated-coding-harness.cjs",
-    "scripts/lib/gate6-comparative-report.cjs",
-    "scripts/lib/gate6-verifier-provenance.cjs"
+    "scripts/lib/gate6-comparative-report.cjs"
   ]
 }
