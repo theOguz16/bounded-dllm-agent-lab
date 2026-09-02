@@ -31,6 +31,7 @@ jobs:
         run: |
           node --check scripts/lib/gate6-verifier.cjs
           node --check scripts/lib/gate6-verifier-provenance.cjs
+          node --check scripts/lib/gate6-oracle-scorer.cjs
           node --check scripts/gate6-verify.cjs
           node --check tests/gate6/verifier.test.cjs
       - name: Gate 6 verifier regression
