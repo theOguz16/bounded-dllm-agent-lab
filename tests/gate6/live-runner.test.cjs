@@ -2,12 +2,16 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { mkdtempSync, readFileSync, rmSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const path = require("node:path");
 const {
   DIAGNOSTIC_STATUS,
   LIVE_MODEL_OUTPUT_VERSION,
   Gate6LiveRunnerError,
   assertUniqueSampleIdentities,
   calculateExpectedSampleCount,
+  runCli,
   runGate6LiveBenchmark,
   stableProjection
 } = require("../../scripts/gate6-live-runner.cjs");
@@ -48,7 +52,7 @@ const oracle = Object.freeze({
   requiredTestFiles: Object.freeze(["test/main.test.js"]),
   requiredSymbols: Object.freeze(["calculate"]),
   requiredTestAnchors: Object.freeze(["calculate regression"]),
-  allowedTouchedFiles: Object.freeze(["src/main.js"]),
+  allowedTouchedFiles: Object.freeze(["src/main.js", "test/main.test.js"]),
   forbiddenFiles: Object.freeze([]),
   behavioralChecks: Object.freeze([HIDDEN_SENTINEL])
 });
@@ -225,14 +229,29 @@ async function smoke(provider = fakeProvider(), optionOverrides = {}, dependency
 async function main() {
   await test("1 task × 4 strategies × 1 repetition smoke run", async () => {
     const provider = fakeProvider();
-    const report = await smoke(provider);
-    assert.equal(report.sampleCount, 4);
-    assert.equal(report.taskCount, 1);
-    assert.equal(report.strategyCount, 4);
-    assert.equal(report.observations.length, 4);
-    assert.equal(report.receipts.length, 4);
-    assert.equal(report.researchStatus, DIAGNOSTIC_STATUS);
-    assert.equal(report.promotionEligible, false);
+    const temporary = mkdtempSync(path.join(tmpdir(), "gate6-live-cli-test-"));
+    const output = path.join(temporary, "smoke.json");
+    try {
+      const report = await runCli([
+        "node",
+        "scripts/gate6-live-runner.cjs",
+        "--live",
+        "--task-limit=1",
+        "--repetitions=1",
+        `--output=${output}`
+      ], dependencies(provider));
+      const written = JSON.parse(readFileSync(output, "utf8"));
+      assert.equal(report.sampleCount, 4);
+      assert.equal(written.sampleCount, 4);
+      assert.equal(report.taskCount, 1);
+      assert.equal(report.strategyCount, 4);
+      assert.equal(report.observations.length, 4);
+      assert.equal(report.receipts.length, 4);
+      assert.equal(report.researchStatus, DIAGNOSTIC_STATUS);
+      assert.equal(report.promotionEligible, false);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
   });
 
   await test("full expected sample count calculation is 504", () => {
