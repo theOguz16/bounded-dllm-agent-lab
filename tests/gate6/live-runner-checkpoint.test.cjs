@@ -243,7 +243,8 @@ async function main() {
       const second = fakeProvider();
       const report = await run(second, { checkpoint: checkpointPath, resumeFrom: checkpointPath });
       assert.equal(first.calls.length, 2);
-      assert.equal(second.calls.length, 2);
+      assert.equal(second.calls.length, 3);
+      assert.deepEqual(second.calls.map((call) => call.phase), ["single", "ce_initial_c", "ce_escalated_e"]);
       assert.equal(report.resumedFromCheckpoint, true);
       assert.equal(report.checkpointResumeCount, 1);
       assert.deepEqual(report.sampleOutcomes.map((row) => row.strategy), [
