@@ -5,12 +5,15 @@ on:
     branches: [main]
     paths:
       - 'scripts/gate6-live-runner.cjs'
+      - 'scripts/gate6-live-runner-v1.cjs'
       - 'scripts/gate6-live-runner-core.cjs'
       - 'scripts/lib/gate6-live-checkpoint.cjs'
+      - 'scripts/lib/gate6-live-checkpoint-v1.cjs'
       - 'tests/gate6/live-runner.test.cjs'
       - 'tests/gate6/live-runner-structured-output.test.cjs'
       - 'tests/gate6/live-runner-diagnostics.test.cjs'
       - 'tests/gate6/live-runner-checkpoint.test.cjs'
+      - 'tests/gate6/live-runner-provider-contract.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -33,12 +36,15 @@ jobs:
       - name: Validate live runner syntax
         run: |
           node --check scripts/gate6-live-runner.cjs
+          node --check scripts/gate6-live-runner-v1.cjs
           node --check scripts/gate6-live-runner-core.cjs
           node --check scripts/lib/gate6-live-checkpoint.cjs
+          node --check scripts/lib/gate6-live-checkpoint-v1.cjs
           node --check tests/gate6/live-runner.test.cjs
           node --check tests/gate6/live-runner-structured-output.test.cjs
           node --check tests/gate6/live-runner-diagnostics.test.cjs
           node --check tests/gate6/live-runner-checkpoint.test.cjs
+          node --check tests/gate6/live-runner-provider-contract.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
       - name: Gate 6 llama.cpp structured-output compatibility regressions
@@ -47,5 +53,7 @@ jobs:
         run: node tests/gate6/live-runner-diagnostics.test.cjs
       - name: Gate 6 crash-safe checkpoint and resume regressions
         run: node tests/gate6/live-runner-checkpoint.test.cjs
+      - name: Gate 6 explicit provider output contract v2 regressions
+        run: node tests/gate6/live-runner-provider-contract.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
