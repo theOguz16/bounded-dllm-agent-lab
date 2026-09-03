@@ -389,7 +389,7 @@ async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
       } : {})
     }
   );
-  let augmented = augmentReport(report, STRUCTURED_OUTPUT_MODE, diagnostics.slice(diagnosticCursor));
+  let augmented = augmentReport(report, STRUCTURED_OUTPUT_MODE, diagnostics);
   if (checkpointMode) {
     const state = checkpointContext;
     augmented = addCheckpointProvenance(augmented, {
