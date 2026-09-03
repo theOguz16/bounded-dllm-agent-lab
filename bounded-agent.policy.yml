@@ -34,11 +34,13 @@ allowed_paths:
   - scripts/lib/gate6-verifier.cjs
   - scripts/lib/gate6-verifier-provenance.cjs
   - scripts/lib/gate6-live-checkpoint.cjs
+  - scripts/lib/gate6-live-checkpoint-v1.cjs
   - scripts/gate6-precondition-runner.cjs
   - scripts/gate6-freeze-preconditions.cjs
   - scripts/gate6-finalize-taskset.cjs
   - scripts/gate6-verify.cjs
   - scripts/gate6-live-runner.cjs
+  - scripts/gate6-live-runner-v1.cjs
   - scripts/gate6-live-runner-core.cjs
   - scripts/evidence-index.cjs
   - scripts/evidence-index-smoke.cjs
