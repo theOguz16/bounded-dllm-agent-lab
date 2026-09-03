@@ -79,7 +79,9 @@ function diagnostic(result, maxCompletionTokens = 256) {
   return classifyLiveModelOutputDiagnostic({ result, task, maxCompletionTokens });
 }
 
-function rawReportFixture({ maxCompletionTokens = 256, traces = [] } = {}) {
+function rawReportFixture({ maxCompletionTokens = 256, traces = [], sampleStrategy = null } = {}) {
+  const resolvedSampleStrategy = sampleStrategy ??
+    (traces.length > 1 ? "CE_escalating_context" : traces[0]?.strategy ?? "C_synthetic_context");
   return {
     schemaVersion: "gate6-live-run/v1",
     executionClass: "live",
@@ -102,13 +104,13 @@ function rawReportFixture({ maxCompletionTokens = 256, traces = [] } = {}) {
     strategyCount: 1,
     sampleCount: 1,
     expectedFullSampleCount: 504,
-    filters: { taskLimit: 1, taskId: null, strategy: "C_synthetic_context" },
+    filters: { taskLimit: 1, taskId: null, strategy: resolvedSampleStrategy },
     observations: [],
     receipts: [],
     receiptSetHash: `sha256:${"5".repeat(64)}`,
     sampleOutcomes: traces.length === 0 ? [] : [{
       taskId: task.taskId,
-      strategy: traces[0].strategy,
+      strategy: resolvedSampleStrategy,
       repetition: 1,
       failureCode: "MODEL_OUTPUT_INVALID",
       failureDomain: "model",
@@ -291,7 +293,6 @@ async function main() {
   });
 
   await test("CE initial C and escalated E have independent diagnostics", () => {
-    const strategy = "CE_escalating_context";
     const traces = [
       baseTrace("ce_initial_c", "C_synthetic_context"),
       baseTrace("ce_escalated_e", "E_bounded_workspace_boundary")
@@ -311,7 +312,7 @@ async function main() {
     assert.equal(providerTrace[1].finishReason, "length");
     assert.equal(providerTrace[1].completionBudgetReached, true);
     assert.equal(providerTrace[1].terminationClassification, "output_token_limit");
-    assert.equal(report.sampleOutcomes[0].strategy, strategy);
+    assert.equal(report.sampleOutcomes[0].strategy, "CE_escalating_context");
   });
 
   await test("stable projection normalizes volatile counts but preserves categorical diagnostics", () => {
