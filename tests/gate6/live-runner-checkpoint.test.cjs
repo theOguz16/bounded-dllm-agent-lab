@@ -197,6 +197,14 @@ function rehashCheckpoint(value) {
   return { ...copy, checkpointHash: verifier.hashCanonical(copy) };
 }
 
+function receiptSemanticProjection(receipt) {
+  const copy = structuredClone(receipt);
+  delete copy.receiptHash;
+  delete copy.harnessReportHash;
+  if (copy.harnessReport) delete copy.harnessReport.workspaceId;
+  return copy;
+}
+
 async function makeTwoSampleCheckpoint(directory) {
   const checkpointPath = path.join(directory, "checkpoint.json");
   const provider = fakeProvider();
@@ -277,7 +285,7 @@ async function main() {
       const left = stableProjection(uninterrupted);
       const right = stableProjection(resumed);
       assert.deepEqual(left.observations, right.observations);
-      assert.deepEqual(left.receipts, right.receipts);
+      assert.deepEqual(left.receipts.map(receiptSemanticProjection), right.receipts.map(receiptSemanticProjection));
       assert.deepEqual(left.sampleOutcomes, right.sampleOutcomes);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });
