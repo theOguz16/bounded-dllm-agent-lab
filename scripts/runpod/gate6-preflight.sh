@@ -12,6 +12,11 @@ LLAMA_BASE_URL="${GATE6_LLAMA_BASE_URL:-http://127.0.0.1:8000}"
 READY_RETRIES="${GATE6_PREFLIGHT_READY_RETRIES:-120}"
 READY_INTERVAL="${GATE6_PREFLIGHT_READY_INTERVAL_SECONDS:-1}"
 PUBLIC_GIT_PROBE="${GATE6_PUBLIC_GIT_PROBE:-https://github.com/ai/nanoid.git}"
+NODE_BIN="${GATE6_NODE_BIN:-node}"
+NPM_BIN="${GATE6_NPM_BIN:-npm}"
+GIT_BIN="${GATE6_GIT_BIN:-git}"
+CURL_BIN="${GATE6_CURL_BIN:-curl}"
+SHA256_BIN="${GATE6_SHA256_BIN:-sha256sum}"
 NODE_INSTALL_COMMAND="curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs"
 
 fail() {
@@ -31,13 +36,13 @@ need_exec() {
 }
 
 [[ -d "$REPO_ROOT/.git" ]] || fail RUNPOD_PREFLIGHT_REPOSITORY_MISSING "$REPO_ROOT"
-need_exec git RUNPOD_PREFLIGHT_GIT_MISSING
-need_exec node RUNPOD_PREFLIGHT_NODE_MISSING
-need_exec npm RUNPOD_PREFLIGHT_NPM_MISSING
-need_exec curl RUNPOD_PREFLIGHT_CURL_MISSING
-need_exec sha256sum RUNPOD_PREFLIGHT_SHA256SUM_MISSING
+need_exec "$GIT_BIN" RUNPOD_PREFLIGHT_GIT_MISSING
+need_exec "$NODE_BIN" RUNPOD_PREFLIGHT_NODE_MISSING
+need_exec "$NPM_BIN" RUNPOD_PREFLIGHT_NPM_MISSING
+need_exec "$CURL_BIN" RUNPOD_PREFLIGHT_CURL_MISSING
+need_exec "$SHA256_BIN" RUNPOD_PREFLIGHT_SHA256SUM_MISSING
 
-NODE_VERSION="$(node --version 2>/dev/null || true)"
+NODE_VERSION="$("$NODE_BIN" --version 2>/dev/null || true)"
 NODE_MAJOR="${NODE_VERSION#v}"
 NODE_MAJOR="${NODE_MAJOR%%.*}"
 [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || fail RUNPOD_PREFLIGHT_NODE_VERSION_INVALID "$NODE_VERSION"
@@ -46,7 +51,7 @@ NODE_MAJOR="${NODE_MAJOR%%.*}"
 [[ -x "$LLAMA_SERVER_BIN" ]] || fail RUNPOD_PREFLIGHT_LLAMA_SERVER_MISSING "$LLAMA_SERVER_BIN"
 [[ -f "$MODEL_PATH" ]] || fail RUNPOD_PREFLIGHT_MODEL_MISSING "$MODEL_PATH"
 
-MODEL_SHA256="$(sha256sum "$MODEL_PATH" | awk '{print $1}')"
+MODEL_SHA256="$("$SHA256_BIN" "$MODEL_PATH" | awk '{print $1}')"
 [[ "$MODEL_SHA256" == "$EXPECTED_MODEL_SHA256" ]] || fail RUNPOD_PREFLIGHT_MODEL_SHA_MISMATCH "$MODEL_SHA256"
 
 LLAMA_BIN_DIR="$(cd "$(dirname "$LLAMA_SERVER_BIN")" && pwd -P)"
@@ -59,21 +64,21 @@ if ! LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}" "$LLAMA_SERVER_BIN" --version >/dev/
 fi
 
 cd "$REPO_ROOT"
-[[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]] || fail RUNPOD_PREFLIGHT_WORKTREE_DIRTY
+[[ -z "$("$GIT_BIN" status --porcelain=v1 --untracked-files=all)" ]] || fail RUNPOD_PREFLIGHT_WORKTREE_DIRTY
 
-git -c http.version=HTTP/1.1 fetch --quiet origin main || fail RUNPOD_PREFLIGHT_ORIGIN_FETCH_FAILED
-HEAD_SHA="$(git rev-parse HEAD)"
-ORIGIN_MAIN_SHA="$(git rev-parse origin/main)"
+"$GIT_BIN" -c http.version=HTTP/1.1 fetch --quiet origin main || fail RUNPOD_PREFLIGHT_ORIGIN_FETCH_FAILED
+HEAD_SHA="$("$GIT_BIN" rev-parse HEAD)"
+ORIGIN_MAIN_SHA="$("$GIT_BIN" rev-parse origin/main)"
 [[ "$HEAD_SHA" == "$ORIGIN_MAIN_SHA" ]] || fail RUNPOD_PREFLIGHT_SOURCE_SHA_MISMATCH "HEAD=$HEAD_SHA origin/main=$ORIGIN_MAIN_SHA"
 if [[ -n "${GATE6_EXPECTED_SOURCE_SHA:-}" && "$HEAD_SHA" != "$GATE6_EXPECTED_SOURCE_SHA" ]]; then
   fail RUNPOD_PREFLIGHT_SOURCE_SHA_MISMATCH "HEAD=$HEAD_SHA expected=$GATE6_EXPECTED_SOURCE_SHA"
 fi
 
-if ! node scripts/gate6-verify.cjs >/dev/null; then
+if ! "$NODE_BIN" scripts/gate6-verify.cjs >/dev/null; then
   fail RUNPOD_PREFLIGHT_GATE6_VERIFY_FAILED
 fi
 
-if ! git -c http.version=HTTP/1.1 ls-remote --exit-code "$PUBLIC_GIT_PROBE" HEAD >/dev/null; then
+if ! "$GIT_BIN" -c http.version=HTTP/1.1 ls-remote --exit-code "$PUBLIC_GIT_PROBE" HEAD >/dev/null; then
   fail RUNPOD_PREFLIGHT_PUBLIC_GIT_HTTP11_FAILED "$PUBLIC_GIT_PROBE"
 fi
 
@@ -86,7 +91,7 @@ MODEL_LOADING_SEEN=0
 READY=0
 LAST_STATUS="unavailable"
 for ((attempt=1; attempt<=READY_RETRIES; attempt+=1)); do
-  LAST_STATUS="$(curl -sS --max-time 5 -o "$TMP_MODELS" -w '%{http_code}' "$LLAMA_BASE_URL/v1/models" 2>/dev/null || true)"
+  LAST_STATUS="$("$CURL_BIN" -sS --max-time 5 -o "$TMP_MODELS" -w '%{http_code}' "$LLAMA_BASE_URL/v1/models" 2>/dev/null || true)"
   if [[ "$LAST_STATUS" == "503" ]]; then
     MODEL_LOADING_SEEN=1
     printf 'LLAMA_READINESS=MODEL_LOADING\n' >&2
@@ -98,7 +103,7 @@ for ((attempt=1; attempt<=READY_RETRIES; attempt+=1)); do
     continue
   fi
 
-  if ! node - "$TMP_MODELS" "$EXPECTED_MODEL_ALIAS" <<'NODE'
+  if ! "$NODE_BIN" - "$TMP_MODELS" "$EXPECTED_MODEL_ALIAS" <<'NODE'
 const fs = require('node:fs');
 const [file, expected] = process.argv.slice(2);
 try {
@@ -111,9 +116,9 @@ NODE
     fail RUNPOD_PREFLIGHT_MODEL_ALIAS_MISMATCH
   fi
 
-  PROPS_STATUS="$(curl -sS --max-time 5 -o "$TMP_PROPS" -w '%{http_code}' "$LLAMA_BASE_URL/props" 2>/dev/null || true)"
+  PROPS_STATUS="$("$CURL_BIN" -sS --max-time 5 -o "$TMP_PROPS" -w '%{http_code}' "$LLAMA_BASE_URL/props" 2>/dev/null || true)"
   [[ "$PROPS_STATUS" == "200" ]] || fail RUNPOD_PREFLIGHT_LLAMA_PROPS_UNREACHABLE "$PROPS_STATUS"
-  if ! node - "$TMP_PROPS" "$EXPECTED_N_CTX" <<'NODE'
+  if ! "$NODE_BIN" - "$TMP_PROPS" "$EXPECTED_N_CTX" <<'NODE'
 const fs = require('node:fs');
 const [file, expected] = process.argv.slice(2);
 try {
