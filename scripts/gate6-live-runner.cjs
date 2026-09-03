@@ -11,6 +11,7 @@ const {
 const {
   validateProposal
 } = require("./lib/gate6-simulated-coding-harness.cjs");
+const checkpoint = require("./lib/gate6-live-checkpoint.cjs");
 
 const STRUCTURED_OUTPUT_MODE = "json_object_local_strict_validation";
 const LIVE_EXPERIMENT_CONFIG_VERSION = "gate6-live-experiment-config/v1";
@@ -25,6 +26,7 @@ const LOCAL_VALIDATION_FAILURE_CODES = Object.freeze({
   NONE: "NONE"
 });
 const LIVE_MODEL_OUTPUT_FIELDS = Object.freeze(["schemaVersion", "selection", "proposal"]);
+const CORE_PATH = path.join(__dirname, "gate6-live-runner-core.cjs");
 
 function isPlainObject(value) {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
@@ -63,7 +65,6 @@ function classifyLiveModelOutputDiagnostic({ result, task, maxCompletionTokens }
   const completionBudgetReached = Number.isFinite(usage.outputTokens) &&
     Number.isFinite(maxCompletionTokens) &&
     usage.outputTokens >= maxCompletionTokens;
-
   const base = {
     finishReason,
     inputTokens: usage.inputTokens ?? 0,
@@ -73,63 +74,26 @@ function classifyLiveModelOutputDiagnostic({ result, task, maxCompletionTokens }
     completionBudgetReached,
     terminationClassification: terminationClassification(finishReason)
   };
-
   if (result?.diagnosticFailureCode === LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING) {
-    return Object.freeze({
-      ...base,
-      jsonParsed: false,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING
-    });
+    return Object.freeze({ ...base, jsonParsed: false, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING });
   }
   if (result?.diagnosticFailureCode === LOCAL_VALIDATION_FAILURE_CODES.JSON_PARSE_FAILED || result?.kind !== "ok") {
-    return Object.freeze({
-      ...base,
-      jsonParsed: false,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.JSON_PARSE_FAILED
-    });
+    return Object.freeze({ ...base, jsonParsed: false, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.JSON_PARSE_FAILED });
   }
-
   const value = result.output;
   if (!sameKeys(value, LIVE_MODEL_OUTPUT_FIELDS)) {
-    return Object.freeze({
-      ...base,
-      jsonParsed: true,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.TOP_LEVEL_SHAPE_INVALID
-    });
+    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.TOP_LEVEL_SHAPE_INVALID });
   }
   if (value.schemaVersion !== core.LIVE_MODEL_OUTPUT_VERSION) {
-    return Object.freeze({
-      ...base,
-      jsonParsed: true,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.TOP_LEVEL_SCHEMA_VERSION_INVALID
-    });
+    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.TOP_LEVEL_SCHEMA_VERSION_INVALID });
   }
   if (validateCandidateSelection(value.selection, task) === null) {
-    return Object.freeze({
-      ...base,
-      jsonParsed: true,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.SELECTION_INVALID
-    });
+    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.SELECTION_INVALID });
   }
   if (validateProposal(value.proposal) === null) {
-    return Object.freeze({
-      ...base,
-      jsonParsed: true,
-      localContractValid: false,
-      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.PROPOSAL_INVALID
-    });
+    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.PROPOSAL_INVALID });
   }
-  return Object.freeze({
-    ...base,
-    jsonParsed: true,
-    localContractValid: true,
-    localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.NONE
-  });
+  return Object.freeze({ ...base, jsonParsed: true, localContractValid: true, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.NONE });
 }
 
 function createObservedOpenAICompatibleProvider(config, options = {}) {
@@ -144,25 +108,16 @@ function createObservedOpenAICompatibleProvider(config, options = {}) {
           const body = JSON.parse(await response.clone().text());
           const content = body?.choices?.[0]?.message?.content;
           let diagnosticFailureCode = null;
-          if (typeof content !== "string") {
-            diagnosticFailureCode = LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING;
-          } else {
+          if (typeof content !== "string") diagnosticFailureCode = LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING;
+          else {
             try { JSON.parse(content); }
             catch { diagnosticFailureCode = LOCAL_VALIDATION_FAILURE_CODES.JSON_PARSE_FAILED; }
           }
-          observed = {
-            finishReason: body?.choices?.[0]?.finish_reason ?? null,
-            diagnosticFailureCode
-          };
-        } catch {
-          observed = null;
-        }
+          observed = { finishReason: body?.choices?.[0]?.finish_reason ?? null, diagnosticFailureCode };
+        } catch { observed = null; }
         return response;
       };
-      const provider = core.createOpenAICompatibleProvider(config, {
-        ...options,
-        fetchImpl: observingFetch
-      });
+      const provider = core.createOpenAICompatibleProvider(config, { ...options, fetchImpl: observingFetch });
       const result = await provider.execute(input);
       return Object.freeze({
         ...result,
@@ -179,10 +134,7 @@ function wrapProvider(provider, options = {}) {
   const maxCompletionTokens = options.maxCompletionTokens ?? null;
   return Object.freeze({
     async execute(input) {
-      const result = await provider.execute({
-        ...input,
-        request: withJsonObjectResponseFormat(input.request)
-      });
+      const result = await provider.execute({ ...input, request: withJsonObjectResponseFormat(input.request) });
       if (diagnostics) {
         diagnostics.push(Object.freeze({
           phase: input.phase,
@@ -200,9 +152,7 @@ function wrapProvider(provider, options = {}) {
 }
 
 function createOpenAICompatibleProvider(config, options = {}) {
-  return wrapProvider(createObservedOpenAICompatibleProvider(config, options), {
-    maxCompletionTokens: config.maxCompletionTokens
-  });
+  return wrapProvider(createObservedOpenAICompatibleProvider(config, options), { maxCompletionTokens: config.maxCompletionTokens });
 }
 
 function createLiveExperimentConfig(report, structuredOutputMode = STRUCTURED_OUTPUT_MODE) {
@@ -238,10 +188,9 @@ function augmentProviderDiagnostics(report, diagnostics = []) {
   let diagnosticIndex = 0;
   for (const outcome of copy.sampleOutcomes ?? []) {
     outcome.providerTrace = (outcome.providerTrace ?? []).map((trace) => {
+      if (trace.schemaVersion === PROVIDER_TRACE_SCHEMA_VERSION) return trace;
       const record = diagnostics[diagnosticIndex];
-      if (!record) {
-        throw new core.Gate6LiveRunnerError("GATE6_LIVE_PROVIDER_DIAGNOSTIC_MISSING", String(diagnosticIndex));
-      }
+      if (!record) throw new core.Gate6LiveRunnerError("GATE6_LIVE_PROVIDER_DIAGNOSTIC_MISSING", String(diagnosticIndex));
       if (record.phase !== trace.phase || record.strategy !== trace.strategy) {
         throw new core.Gate6LiveRunnerError(
           "GATE6_LIVE_PROVIDER_DIAGNOSTIC_ORDER_MISMATCH",
@@ -249,18 +198,11 @@ function augmentProviderDiagnostics(report, diagnostics = []) {
         );
       }
       diagnosticIndex += 1;
-      return {
-        ...trace,
-        schemaVersion: PROVIDER_TRACE_SCHEMA_VERSION,
-        ...record.diagnostic
-      };
+      return { ...trace, schemaVersion: PROVIDER_TRACE_SCHEMA_VERSION, ...record.diagnostic };
     });
   }
   if (diagnosticIndex !== diagnostics.length) {
-    throw new core.Gate6LiveRunnerError(
-      "GATE6_LIVE_PROVIDER_DIAGNOSTIC_UNUSED",
-      `${diagnosticIndex}:${diagnostics.length}`
-    );
+    throw new core.Gate6LiveRunnerError("GATE6_LIVE_PROVIDER_DIAGNOSTIC_UNUSED", `${diagnosticIndex}:${diagnostics.length}`);
   }
   return copy;
 }
@@ -277,10 +219,13 @@ function augmentReport(report, structuredOutputMode = STRUCTURED_OUTPUT_MODE, di
     experimentConfigHash
   };
   delete coreReport.reportHash;
-  return Object.freeze({
-    ...coreReport,
-    reportHash: verifier.hashCanonical(coreReport)
-  });
+  return Object.freeze({ ...coreReport, reportHash: verifier.hashCanonical(coreReport) });
+}
+
+function addCheckpointProvenance(report, { resumedFromCheckpoint, checkpointResumeCount }) {
+  const copy = { ...structuredClone(report), resumedFromCheckpoint, checkpointResumeCount };
+  delete copy.reportHash;
+  return Object.freeze({ ...copy, reportHash: verifier.hashCanonical(copy) });
 }
 
 function stableProjection(report) {
@@ -295,24 +240,163 @@ function stableProjection(report) {
   return copy;
 }
 
+function optionValue(argv, index, name) {
+  const argument = argv[index];
+  const prefix = `${name}=`;
+  if (argument.startsWith(prefix)) return { value: argument.slice(prefix.length), consumed: 0 };
+  if (argument === name) {
+    if (index + 1 >= argv.length) throw new core.Gate6LiveRunnerError("GATE6_LIVE_ARG_VALUE_REQUIRED", name);
+    return { value: argv[index + 1], consumed: 1 };
+  }
+  return null;
+}
+
+function parseArgs(argv = process.argv) {
+  const forwarded = argv.slice(0, 2);
+  let checkpointPath = null;
+  let resumeFrom = null;
+  for (let index = 2; index < argv.length; index += 1) {
+    let parsed = optionValue(argv, index, "--checkpoint");
+    if (parsed) {
+      if (!parsed.value) throw new core.Gate6LiveRunnerError("GATE6_LIVE_CHECKPOINT_PATH_INVALID");
+      checkpointPath = path.resolve(parsed.value);
+      index += parsed.consumed;
+      continue;
+    }
+    parsed = optionValue(argv, index, "--resume-from");
+    if (parsed) {
+      if (!parsed.value) throw new core.Gate6LiveRunnerError("GATE6_LIVE_RESUME_PATH_INVALID");
+      resumeFrom = path.resolve(parsed.value);
+      index += parsed.consumed;
+      continue;
+    }
+    forwarded.push(argv[index]);
+  }
+  const options = core.parseArgs(forwarded);
+  if (checkpointPath !== null) options.checkpoint = checkpointPath;
+  if (resumeFrom !== null) {
+    options.resumeFrom = resumeFrom;
+    if (checkpointPath === null) options.checkpoint = resumeFrom;
+  }
+  return options;
+}
+
+function checkpointReportIdentity({ plan, frozen, sourceCommit, providerConfig, options }) {
+  return Object.freeze({
+    sourceCommit,
+    tasksetVersion: frozen.tasksetReport.schemaVersion,
+    tasksetHash: frozen.tasksetReport.tasksetHash,
+    benchmarkSemanticsHash: frozen.semantics.benchmarkSemanticsHash,
+    repositoryManifestHash: frozen.tasksetReport.repositoryManifestHash,
+    preconditionAttestationHash: frozen.tasksetReport.preconditionAttestationHash,
+    model: providerConfig.model,
+    endpointClass: "openai_compatible",
+    temperature: 0,
+    maxCompletionTokens: providerConfig.maxCompletionTokens,
+    repetitions: plan.repetitions,
+    taskCount: plan.tasks.length,
+    strategyCount: plan.strategies.length,
+    filters: {
+      taskLimit: options.taskLimit ?? null,
+      taskId: options.taskId ?? null,
+      strategy: options.strategy ?? null
+    }
+  });
+}
+
+function orderedCheckpointSamples(plan, completedByKey) {
+  const ordered = [];
+  for (const sample of plan.samples) {
+    const key = checkpoint.sampleKey(checkpoint.sampleIdentity(sample));
+    const completed = completedByKey.get(key);
+    if (completed) ordered.push(completed);
+  }
+  return ordered;
+}
+
 async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
-  const providerConfig = dependencies.providerConfig ??
-    core.validateProviderConfig(options.environment ?? process.env);
+  const providerConfig = dependencies.providerConfig ?? core.validateProviderConfig(options.environment ?? process.env);
   const diagnostics = [];
-  const baseProvider = dependencies.provider ??
-    createObservedOpenAICompatibleProvider(providerConfig, dependencies.providerOptions);
-  const report = await core.runGate6LiveBenchmark(
+  const baseProvider = dependencies.provider ?? createObservedOpenAICompatibleProvider(providerConfig, dependencies.providerOptions);
+  const checkpointMode = Boolean(options.checkpoint || options.resumeFrom);
+  const runnerCore = checkpointMode ? checkpoint.loadInstrumentedCore(CORE_PATH) : core;
+  let checkpointContext = null;
+  let diagnosticCursor = 0;
+
+  function initializeCheckpointContext(hook) {
+    if (!checkpointMode) return null;
+    if (checkpointContext) return checkpointContext;
+    const reportIdentity = checkpointReportIdentity({ ...hook, options });
+    const experimentConfig = createLiveExperimentConfig(reportIdentity, STRUCTURED_OUTPUT_MODE);
+    const experimentConfigHash = hashLiveExperimentConfig(experimentConfig);
+    const samplePlanHash = checkpoint.hashSamplePlan(hook.plan);
+    const identity = checkpoint.createCheckpointIdentity({
+      reportIdentity,
+      experimentConfigHash,
+      samplePlanHash,
+      structuredOutputMode: STRUCTURED_OUTPUT_MODE
+    });
+    let completedByKey = new Map();
+    let checkpointResumeCount = 0;
+    if (options.resumeFrom) {
+      const loaded = checkpoint.readCheckpoint(options.resumeFrom);
+      const validated = checkpoint.validateRestoredSamples({
+        checkpoint: loaded,
+        expectedIdentity: identity,
+        plan: hook.plan,
+        frozen: hook.frozen
+      });
+      completedByKey = new Map(validated.restored);
+      checkpointResumeCount = validated.checkpointResumeCount + 1;
+    }
+    checkpointContext = { identity, completedByKey, checkpointResumeCount, plan: hook.plan };
+    return checkpointContext;
+  }
+
+  const report = await runnerCore.runGate6LiveBenchmark(
     { ...options, output: undefined },
     {
       ...dependencies,
       providerConfig,
-      provider: wrapProvider(baseProvider, {
-        diagnostics,
-        maxCompletionTokens: providerConfig.maxCompletionTokens
-      })
+      provider: wrapProvider(baseProvider, { diagnostics, maxCompletionTokens: providerConfig.maxCompletionTokens }),
+      ...(checkpointMode ? {
+        restoreSample: async (hook) => {
+          const state = initializeCheckpointContext(hook);
+          const key = checkpoint.sampleKey(checkpoint.sampleIdentity(hook.sample));
+          return state.completedByKey.get(key) ?? null;
+        },
+        onSampleCompleted: async (hook) => {
+          const state = initializeCheckpointContext(hook);
+          const traceCount = hook.outcome.providerTrace?.length ?? 0;
+          const sampleDiagnostics = diagnostics.slice(diagnosticCursor, diagnosticCursor + traceCount);
+          diagnosticCursor += traceCount;
+          const diagnosed = augmentProviderDiagnostics({ sampleOutcomes: [hook.outcome] }, sampleDiagnostics).sampleOutcomes[0];
+          const identity = checkpoint.sampleIdentity(hook.sample);
+          const key = checkpoint.sampleKey(identity);
+          state.completedByKey.set(key, Object.freeze({
+            ...identity,
+            observation: structuredClone(hook.observation),
+            receipt: structuredClone(hook.receipt),
+            outcome: structuredClone(diagnosed)
+          }));
+          const document = checkpoint.createCheckpoint({
+            identity: state.identity,
+            completedSamples: orderedCheckpointSamples(state.plan, state.completedByKey),
+            checkpointResumeCount: state.checkpointResumeCount
+          });
+          checkpoint.atomicWriteCheckpoint(options.checkpoint, document, dependencies.checkpointWriteHooks);
+        }
+      } : {})
     }
   );
-  const augmented = augmentReport(report, STRUCTURED_OUTPUT_MODE, diagnostics);
+  let augmented = augmentReport(report, STRUCTURED_OUTPUT_MODE, diagnostics);
+  if (checkpointMode) {
+    const state = checkpointContext;
+    augmented = addCheckpointProvenance(augmented, {
+      resumedFromCheckpoint: Boolean(options.resumeFrom),
+      checkpointResumeCount: state?.checkpointResumeCount ?? 0
+    });
+  }
   if (options.output) {
     mkdirSync(path.dirname(options.output), { recursive: true });
     writeFileSync(options.output, `${JSON.stringify(augmented, null, 2)}\n`);
@@ -321,7 +405,7 @@ async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
 }
 
 async function runCli(argv = process.argv, dependencies = {}) {
-  const options = core.parseArgs(argv);
+  const options = parseArgs(argv);
   if (options.help) {
     process.stdout.write([
       "Usage:",
@@ -330,6 +414,10 @@ async function runCli(argv = process.argv, dependencies = {}) {
       `Structured output: ${STRUCTURED_OUTPUT_MODE}`,
       `Provider trace: ${PROVIDER_TRACE_SCHEMA_VERSION}`,
       "Provider transport uses response_format.type=json_object; Gate 6 contracts are enforced locally.",
+      "",
+      "Crash-safe execution:",
+      "  --checkpoint=/path/to/checkpoint.json",
+      "  --resume-from=/path/to/checkpoint.json",
       "",
       "Filters:",
       "  --task-limit=N",
@@ -354,6 +442,8 @@ async function runCli(argv = process.argv, dependencies = {}) {
     providerTraceSchemaVersion: report.providerTraceSchemaVersion,
     experimentConfigHash: report.experimentConfigHash,
     sampleCount: report.sampleCount,
+    resumedFromCheckpoint: report.resumedFromCheckpoint ?? false,
+    checkpointResumeCount: report.checkpointResumeCount ?? 0,
     output: options.output ?? null,
     reportHash: report.reportHash
   })}\n`);
@@ -362,18 +452,22 @@ async function runCli(argv = process.argv, dependencies = {}) {
 
 module.exports = {
   ...core,
+  CHECKPOINT_SCHEMA_VERSION: checkpoint.CHECKPOINT_SCHEMA_VERSION,
   LIVE_EXPERIMENT_CONFIG_VERSION,
   LOCAL_VALIDATION_FAILURE_CODES,
   PROVIDER_TRACE_SCHEMA_VERSION,
   STRUCTURED_OUTPUT_MODE,
+  addCheckpointProvenance,
   augmentProviderDiagnostics,
   augmentReport,
   buildProviderRequest,
+  checkpoint,
   classifyLiveModelOutputDiagnostic,
   createLiveExperimentConfig,
   createOpenAICompatibleProvider,
   createObservedOpenAICompatibleProvider,
   hashLiveExperimentConfig,
+  parseArgs,
   runCli,
   runGate6LiveBenchmark,
   stableProjection,
