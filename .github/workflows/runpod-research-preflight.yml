@@ -8,6 +8,8 @@ on:
       - 'bounded-agent.policy.yml'
       - 'evidence/index.json'
       - 'scripts/runpod-research-preflight.cjs'
+      - 'scripts/runpod/**'
+      - 'tests/runpod/gate6-preflight.test.cjs'
       - 'scripts/evidence-index.cjs'
       - 'scripts/controlled-pilot/**'
       - 'scripts/controlled-coding-pilot-offline-gate-smoke.cjs'
@@ -31,6 +33,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Gate 6 RunPod preflight regressions
+        run: |
+          bash -n scripts/runpod/gate6-preflight.sh
+          bash -n scripts/runpod/bootstrap-node22.sh
+          bash -n scripts/runpod/start-gate6-llama.sh
+          node tests/runpod/gate6-preflight.test.cjs
       - name: Provider-free research preflight
         env:
           RESEARCH_PREFLIGHT_EXPECTED_BRANCH: HEAD
