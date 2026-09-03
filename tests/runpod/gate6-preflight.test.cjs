@@ -31,11 +31,16 @@ function fixture(overrides = {}) {
   writeFileSync(model, "fixture-model\n");
 
   const realNode = process.execPath;
-  executable(join(bin, "node"), `#!/usr/bin/env bash\nif [[ \"$1\" == \"--version\" ]]; then echo \"${overrides.nodeVersion ?? "v22.20.0"}\"; exit 0; fi\nif [[ \"$1\" == \"scripts/gate6-verify.cjs\" ]]; then exit \"${overrides.verifyExit ?? 0}\"; fi\nexec \"${realNode}\" \"$@\"\n`);
-  executable(join(bin, "npm"), "#!/usr/bin/env bash\nexit 0\n");
-  executable(join(bin, "git"), `#!/usr/bin/env bash\nargs=\"$*\"\nif [[ \"$args\" == *\"status --porcelain=v1\"* ]]; then printf '%s' '${overrides.dirty ? " M file\n" : ""}'; exit 0; fi\nif [[ \"$args\" == *\"fetch --quiet origin main\"* ]]; then exit ${overrides.fetchExit ?? 0}; fi\nif [[ \"$args\" == *\"rev-parse HEAD\"* ]]; then echo '${overrides.headSha ?? SOURCE_SHA}'; exit 0; fi\nif [[ \"$args\" == *\"rev-parse origin/main\"* ]]; then echo '${overrides.originSha ?? SOURCE_SHA}'; exit 0; fi\nif [[ \"$args\" == *\"ls-remote --exit-code\"* ]]; then [[ \"$args\" == *\"http.version=HTTP/1.1\"* ]] || exit 9; exit ${overrides.lsRemoteExit ?? 0}; fi\nexit 0\n`);
-  executable(join(bin, "sha256sum"), `#!/usr/bin/env bash\necho '${overrides.modelSha ?? MODEL_SHA}  $1'\n`);
-  executable(join(bin, "curl"), `#!/usr/bin/env bash\nout=''; url=''; while (($#)); do case \"$1\" in -o) out=\"$2\"; shift 2;; -w) shift 2;; -sS|--max-time) if [[ \"$1\" == \"--max-time\" ]]; then shift 2; else shift; fi;; *) url=\"$1\"; shift;; esac; done\nif [[ \"$url\" == */v1/models ]]; then status='${overrides.modelsStatus ?? "200"}'; printf '%s' '${JSON.stringify(overrides.modelsBody ?? { data: [{ id: "qwen3-coder-30b-a3b-q4-kxl-ctx16k-q8kv" }] })}' > \"$out\"; printf '%s' \"$status\"; exit 0; fi\nif [[ \"$url\" == */props ]]; then printf '%s' '${JSON.stringify(overrides.propsBody ?? { default_generation_settings: { n_ctx: 16384 } })}' > \"$out\"; printf '200'; exit 0; fi\nprintf '000'\n`);
+  const node = join(bin, "node");
+  const npm = join(bin, "npm");
+  const git = join(bin, "git");
+  const sha256sum = join(bin, "sha256sum");
+  const curl = join(bin, "curl");
+  executable(node, `#!/usr/bin/env bash\nif [[ \"$1\" == \"--version\" ]]; then echo \"${overrides.nodeVersion ?? "v22.20.0"}\"; exit 0; fi\nif [[ \"$1\" == \"scripts/gate6-verify.cjs\" ]]; then exit \"${overrides.verifyExit ?? 0}\"; fi\nexec \"${realNode}\" \"$@\"\n`);
+  executable(npm, "#!/usr/bin/env bash\nexit 0\n");
+  executable(git, `#!/usr/bin/env bash\nargs=\"$*\"\nif [[ \"$args\" == *\"status --porcelain=v1\"* ]]; then printf '%s' '${overrides.dirty ? " M file\n" : ""}'; exit 0; fi\nif [[ \"$args\" == *\"fetch --quiet origin main\"* ]]; then exit ${overrides.fetchExit ?? 0}; fi\nif [[ \"$args\" == *\"rev-parse HEAD\"* ]]; then echo '${overrides.headSha ?? SOURCE_SHA}'; exit 0; fi\nif [[ \"$args\" == *\"rev-parse origin/main\"* ]]; then echo '${overrides.originSha ?? SOURCE_SHA}'; exit 0; fi\nif [[ \"$args\" == *\"ls-remote --exit-code\"* ]]; then [[ \"$args\" == *\"http.version=HTTP/1.1\"* ]] || exit 9; exit ${overrides.lsRemoteExit ?? 0}; fi\nexit 0\n`);
+  executable(sha256sum, `#!/usr/bin/env bash\necho '${overrides.modelSha ?? MODEL_SHA}  $1'\n`);
+  executable(curl, `#!/usr/bin/env bash\nout=''; url=''; while (($#)); do case \"$1\" in -o) out=\"$2\"; shift 2;; -w) shift 2;; -sS) shift;; --max-time) shift 2;; *) url=\"$1\"; shift;; esac; done\nif [[ \"$url\" == */v1/models ]]; then status='${overrides.modelsStatus ?? "200"}'; printf '%s' '${JSON.stringify(overrides.modelsBody ?? { data: [{ id: "qwen3-coder-30b-a3b-q4-kxl-ctx16k-q8kv" }] })}' > \"$out\"; printf '%s' \"$status\"; exit 0; fi\nif [[ \"$url\" == */props ]]; then printf '%s' '${JSON.stringify(overrides.propsBody ?? { default_generation_settings: { n_ctx: 16384 } })}' > \"$out\"; printf '200'; exit 0; fi\nprintf '000'\n`);
   executable(join(llamaDir, "llama-server"), "#!/usr/bin/env bash\n[[ \"$1\" == \"--version\" ]] && { echo 'version fixture'; exit 0; }\nexit 0\n");
 
   const env = {
@@ -44,6 +49,11 @@ function fixture(overrides = {}) {
     GATE6_REPO_ROOT: repo,
     GATE6_LLAMA_SERVER_BIN: join(llamaDir, "llama-server"),
     GATE6_MODEL_PATH: model,
+    GATE6_NODE_BIN: overrides.nodeBin ?? node,
+    GATE6_NPM_BIN: npm,
+    GATE6_GIT_BIN: git,
+    GATE6_CURL_BIN: curl,
+    GATE6_SHA256_BIN: sha256sum,
     GATE6_PREFLIGHT_READY_RETRIES: String(overrides.retries ?? 1),
     GATE6_PREFLIGHT_READY_INTERVAL_SECONDS: "0",
     LD_LIBRARY_PATH: overrides.ldLibraryPath ?? llamaDir,
@@ -69,15 +79,10 @@ function test(name, fn) {
 }
 
 test("missing node fails before benchmark", () => {
-  const fx = fixture();
-  try {
-    const nodePath = join(fx.env.PATH.split(":")[0], "node");
-    rmSync(nodePath, { force: true });
-    const result = spawnSync("bash", [SCRIPT], { env: fx.env, encoding: "utf8" });
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /RUNPOD_PREFLIGHT_NODE_MISSING/);
-    assert.match(result.stderr, /setup_22\.x/);
-  } finally { rmSync(fx.holder, { recursive: true, force: true }); }
+  const r = run({ nodeBin: "/definitely/missing/node" });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /RUNPOD_PREFLIGHT_NODE_MISSING/);
+  assert.match(r.stderr, /setup_22\.x/);
 });
 
 test("wrong Node major fails", () => {
