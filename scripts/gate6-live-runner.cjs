@@ -186,7 +186,7 @@ function wrapProvider(provider, options = {}) {
       if (diagnostics) {
         diagnostics.push(Object.freeze({
           phase: input.phase,
-          strategy: input.strategy,
+          strategy: input.contextResult?.strategy ?? input.strategy,
           diagnostic: classifyLiveModelOutputDiagnostic({
             result,
             task: input.task,
