@@ -6,6 +6,11 @@ const path = require("node:path");
 const core = require("./gate6-live-runner-core.cjs");
 const verifier = require("./lib/gate6-verifier-provenance.cjs");
 const { validateCandidateSelection } = require("./lib/gate6-context-escalation.cjs");
+const {
+  SELECTION_VALIDATION_FAILURE_CODES,
+  SELECTION_VALIDATION_FAILURE_DETAIL_CODES,
+  classifyCandidateSelectionDiagnostic
+} = require("./lib/gate6-selection-validation-diagnostics.cjs");
 const { validateProposal } = require("./lib/gate6-simulated-coding-harness.cjs");
 const checkpoint = require("./lib/gate6-live-checkpoint.cjs");
 
@@ -139,7 +144,12 @@ function classifyLiveModelOutputDiagnostic({ result, task, maxCompletionTokens }
     totalTokens: usage.totalTokens ?? 0,
     maxCompletionTokens,
     completionBudgetReached,
-    terminationClassification: terminationClassification(finishReason)
+    terminationClassification: terminationClassification(finishReason),
+    contentLengthBytes: Number.isSafeInteger(result?.contentLengthBytes) && result.contentLengthBytes >= 0
+      ? result.contentLengthBytes
+      : null,
+    contentStartsWithObject: typeof result?.contentStartsWithObject === "boolean" ? result.contentStartsWithObject : null,
+    contentEndsWithObject: typeof result?.contentEndsWithObject === "boolean" ? result.contentEndsWithObject : null
   };
   if (result?.diagnosticFailureCode === LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING) {
     return Object.freeze({ ...base, jsonParsed: false, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING, observedTopLevelKeys: null });
@@ -155,13 +165,36 @@ function classifyLiveModelOutputDiagnostic({ result, task, maxCompletionTokens }
   if (value.schemaVersion !== core.LIVE_MODEL_OUTPUT_VERSION) {
     return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.TOP_LEVEL_SCHEMA_VERSION_INVALID, observedTopLevelKeys: keys });
   }
-  if (validateCandidateSelection(value.selection, task) === null) {
-    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.SELECTION_INVALID, observedTopLevelKeys: keys });
+  const selectionDiagnostic = classifyCandidateSelectionDiagnostic(value.selection, task);
+  const normalizedSelection = validateCandidateSelection(value.selection, task);
+  if (normalizedSelection === null) {
+    return Object.freeze({
+      ...base,
+      ...selectionDiagnostic,
+      jsonParsed: true,
+      localContractValid: false,
+      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.SELECTION_INVALID,
+      observedTopLevelKeys: keys
+    });
   }
   if (validateProposal(value.proposal) === null) {
-    return Object.freeze({ ...base, jsonParsed: true, localContractValid: false, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.PROPOSAL_INVALID, observedTopLevelKeys: keys });
+    return Object.freeze({
+      ...base,
+      ...selectionDiagnostic,
+      jsonParsed: true,
+      localContractValid: false,
+      localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.PROPOSAL_INVALID,
+      observedTopLevelKeys: keys
+    });
   }
-  return Object.freeze({ ...base, jsonParsed: true, localContractValid: true, localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.NONE, observedTopLevelKeys: keys });
+  return Object.freeze({
+    ...base,
+    ...selectionDiagnostic,
+    jsonParsed: true,
+    localContractValid: true,
+    localValidationFailureCode: LOCAL_VALIDATION_FAILURE_CODES.NONE,
+    observedTopLevelKeys: keys
+  });
 }
 
 function createObservedOpenAICompatibleProvider(config, options = {}) {
@@ -176,12 +209,24 @@ function createObservedOpenAICompatibleProvider(config, options = {}) {
           const body = JSON.parse(await response.clone().text());
           const content = body?.choices?.[0]?.message?.content;
           let diagnosticFailureCode = null;
+          let contentLengthBytes = null;
+          let contentStartsWithObject = null;
+          let contentEndsWithObject = null;
           if (typeof content !== "string") diagnosticFailureCode = LOCAL_VALIDATION_FAILURE_CODES.CONTENT_MISSING;
           else {
+            contentLengthBytes = Buffer.byteLength(content, "utf8");
+            contentStartsWithObject = content.trimStart().startsWith("{");
+            contentEndsWithObject = content.trimEnd().endsWith("}");
             try { JSON.parse(content); }
             catch { diagnosticFailureCode = LOCAL_VALIDATION_FAILURE_CODES.JSON_PARSE_FAILED; }
           }
-          observed = { finishReason: body?.choices?.[0]?.finish_reason ?? null, diagnosticFailureCode };
+          observed = {
+            finishReason: body?.choices?.[0]?.finish_reason ?? null,
+            diagnosticFailureCode,
+            contentLengthBytes,
+            contentStartsWithObject,
+            contentEndsWithObject
+          };
         } catch { observed = null; }
         return response;
       };
@@ -191,6 +236,9 @@ function createObservedOpenAICompatibleProvider(config, options = {}) {
         ...result,
         finishReason: observed?.finishReason ?? null,
         diagnosticFailureCode: observed?.diagnosticFailureCode ?? result.diagnosticFailureCode ?? null,
+        contentLengthBytes: observed?.contentLengthBytes ?? null,
+        contentStartsWithObject: observed?.contentStartsWithObject ?? null,
+        contentEndsWithObject: observed?.contentEndsWithObject ?? null,
         maxCompletionTokens: config.maxCompletionTokens
       });
     }
@@ -534,12 +582,15 @@ module.exports = {
   LIVE_PROVIDER_PROMPT_VERSION,
   LOCAL_VALIDATION_FAILURE_CODES,
   PROVIDER_TRACE_SCHEMA_VERSION,
+  SELECTION_VALIDATION_FAILURE_CODES,
+  SELECTION_VALIDATION_FAILURE_DETAIL_CODES,
   STRUCTURED_OUTPUT_MODE,
   addCheckpointProvenance,
   augmentProviderDiagnostics,
   augmentReport,
   buildProviderRequest,
   checkpoint,
+  classifyCandidateSelectionDiagnostic,
   classifyLiveModelOutputDiagnostic,
   createLiveExperimentConfig,
   createOpenAICompatibleProvider,
