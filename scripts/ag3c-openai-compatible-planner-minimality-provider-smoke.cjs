@@ -384,6 +384,92 @@ async function main() {
       assert.equal(adapter.getLastRunEvidence().failureCode, "planner_minimality_adapter_response_too_large");
     });
 
+    await check("valid JSON cannot hide truncated or filtered generation", async () => {
+      for (const [finishReason, expectedCode] of [
+        ["length", "planner_minimality_adapter_generation_truncated"],
+        ["content_filter", "planner_minimality_adapter_generation_filtered"],
+        [null, "planner_minimality_adapter_generation_incomplete"],
+        ["tool_calls", "planner_minimality_adapter_generation_incomplete"]
+      ]) {
+        const raw = JSON.parse(envelope(JSON.stringify(validDraft())));
+        raw.choices[0].finish_reason = finishReason;
+        const adapter = createOpenAICompatiblePlannerMinimalityProvider({
+          endpoint: "http://127.0.0.1:8000/v1/chat/completions", model: "fixture", maxAttempts: 2,
+          fetchImpl: async () => jsonResponse("unused", { rawEnvelope: JSON.stringify(raw) })
+        });
+        await assert.rejects(adapter.invoke(context), (error) => error.code === expectedCode);
+        const run = adapter.getLastRunEvidence();
+        assert.equal(run.decision, "planner_minimality_provider_failed");
+        assert.equal(run.attemptCount, 1);
+        assert.equal(run.attempts[0].finishReason, finishReason);
+        assert.equal(run.outputHash, null);
+      }
+      const adapter = createOpenAICompatiblePlannerMinimalityProvider({
+        endpoint: "http://127.0.0.1:8000/v1/chat/completions", model: "fixture", maxAttempts: 1,
+        fetchImpl: async () => new Response(JSON.stringify({ choices: [{
+          message: { content: null }, finish_reason: "content_filter"
+        }] }))
+      });
+      await assert.rejects(adapter.invoke(context), (error) => error.code === "planner_minimality_adapter_generation_filtered");
+    });
+
+    await check("oversized chunked bodies stop at the first over-limit chunk", async () => {
+      for (const headers of [{}, { "content-length": "1" }]) {
+        let pulls = 0, cancelled = false, requestSignal;
+        const adapter = createOpenAICompatiblePlannerMinimalityProvider({
+          endpoint: "http://127.0.0.1:8000/v1/chat/completions", model: "fixture", maxAttempts: 1,
+          maxResponseBytes: 1024,
+          fetchImpl: async (_url, init) => {
+            requestSignal = init.signal;
+            return new Response(new ReadableStream({
+              pull(controller) { pulls++; controller.enqueue(new Uint8Array(256).fill(120)); },
+              cancel() { cancelled = true; }
+            }, { highWaterMark: 0 }), { headers });
+          }
+        });
+        await assert.rejects(adapter.invoke(context), (error) => error.code === "planner_minimality_adapter_response_too_large");
+        assert.equal(pulls, 5);
+        assert.equal(cancelled, true);
+        assert.equal(requestSignal.aborted, true);
+        assert.equal(adapter.getLastRunEvidence().attempts[0].responseBytes, 1280);
+        assert.equal(adapter.getLastRunEvidence().attempts[0].responseHash, null);
+      }
+    });
+
+    await check("completed streamed JSON at the byte limit passes with split UTF-8", async () => {
+      const raw = JSON.parse(envelope(JSON.stringify(validDraft())));
+      raw.providerLabel = "Türkçe";
+      const encoded = new TextEncoder().encode(JSON.stringify(raw));
+      const limit = Math.max(1024, encoded.length);
+      const bytes = new Uint8Array(limit).fill(32);
+      bytes.set(encoded);
+      let offset = 0;
+      const adapter = createOpenAICompatiblePlannerMinimalityProvider({
+        endpoint: "http://127.0.0.1:8000/v1/chat/completions", model: "fixture", maxAttempts: 1,
+        maxResponseBytes: limit,
+        fetchImpl: async () => new Response(new ReadableStream({
+          pull(controller) {
+            if (offset === bytes.length) controller.close();
+            else controller.enqueue(bytes.slice(offset, ++offset));
+          }
+        }, { highWaterMark: 0 }))
+      });
+      const result = await adapter.invoke(context);
+      assert.equal(result.evidence.decision, "planner_minimality_provider_succeeded");
+      assert.equal(result.evidence.attempts[0].responseBytes, limit);
+    });
+
+    await check("stalled response body is cancelled on timeout", async () => {
+      let cancelled = false;
+      const adapter = createOpenAICompatiblePlannerMinimalityProvider({
+        endpoint: "http://127.0.0.1:8000/v1/chat/completions", model: "fixture", maxAttempts: 1,
+        timeoutMs: 100,
+        fetchImpl: async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }))
+      });
+      await assert.rejects(adapter.invoke(context), (error) => error.code === "planner_minimality_adapter_timeout");
+      assert.equal(cancelled, true);
+    });
+
     await check("missing usage stays explicit and does not fabricate cost", async () => {
       const adapter = createOpenAICompatiblePlannerMinimalityProvider({
         endpoint: "http://127.0.0.1:8000/v1/chat/completions",

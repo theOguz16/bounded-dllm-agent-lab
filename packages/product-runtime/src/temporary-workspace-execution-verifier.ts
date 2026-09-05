@@ -348,6 +348,39 @@ function buildEnvironment(
 export function verifyTemporaryWorkspaceExecution(
   context: TemporaryWorkspaceExecutionContext
 ): TemporaryWorkspaceExecutionResult {
+  const execution = executeCommands(context);
+  let step = execution.next();
+  while (!step.done) step = execution.next(null);
+  return step.value;
+}
+
+/** Await an integrity check before allowing the next command to start. */
+export async function verifyTemporaryWorkspaceExecutionWithCheck(
+  context: TemporaryWorkspaceExecutionContext,
+  afterCommand: (command: TempExecutionCommandResult) => Promise<TempExecutionIssue | null>
+): Promise<TemporaryWorkspaceExecutionResult> {
+  const execution = executeCommands(context);
+  let step = execution.next();
+  while (!step.done) {
+    let failure: TempExecutionIssue | null;
+    try {
+      failure = await afterCommand(step.value);
+    } catch {
+      failure = {
+        code: "validation_command_integrity_check_failed",
+        message: "Candidate integrity could not be verified after the command.",
+        severity: "failure",
+        commandId: step.value.id
+      };
+    }
+    step = execution.next(failure);
+  }
+  return step.value;
+}
+
+function* executeCommands(
+  context: TemporaryWorkspaceExecutionContext
+): Generator<TempExecutionCommandResult, TemporaryWorkspaceExecutionResult, TempExecutionIssue | null> {
   const startedAtMs = Date.now();
   const issues: TempExecutionIssue[] = [];
   const commandResults: TempExecutionCommandResult[] = [];
@@ -591,6 +624,11 @@ export function verifyTemporaryWorkspaceExecution(
         "failure",
         command.id
       );
+    }
+    const integrityFailure = yield result;
+    if (integrityFailure) {
+      issues.push(integrityFailure);
+      return buildResult(issues, commandResults, Date.now() - startedAtMs);
     }
   }
 

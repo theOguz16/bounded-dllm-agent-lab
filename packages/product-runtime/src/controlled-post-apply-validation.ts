@@ -40,15 +40,21 @@ import {
 } from "./controlled-repository-inspection.js";
 import { verifyControlledRollbackBundle } from "./controlled-rollback-bundle.js";
 import type { GovernedChangeKind } from "./governed-change-artifact.js";
+import { createValidationContainerIdentity, runContainerizedWorkspaceExecution,
+  DEFAULT_VALIDATION_CONTAINER_IMAGE,
+  VALIDATION_CONTAINER_BINDING_LABEL,
+  type ValidationContainerIdentity } from "./containerized-workspace-execution-runner.js";
 import {
   buildTemporaryWorkspaceExecutionVerificationEvidence,
   computeTemporaryWorkspaceExecutionSpecificationHash,
-  verifyTemporaryWorkspaceExecution,
+  type TemporaryWorkspaceExecutionResult,
   type TemporaryWorkspaceExecutionSpecification,
   type TemporaryWorkspaceExecutionVerificationEvidence
 } from "./temporary-workspace-execution-verifier.js";
 
 export const CONTROLLED_POST_APPLY_VALIDATION_VERSION = "1" as const;
+/** Reserved, initially empty workspace directory for generated validation reports. */
+export const CONTROLLED_VALIDATION_OUTPUT_DIRECTORY = ".validation-output" as const;
 
 export type ControlledPostApplyValidationDecision =
   | "controlled_post_apply_validation_finalized"
@@ -71,6 +77,12 @@ export type ControlledPostApplyValidationPolicy = {
   requireValidationWorkspaceOutsideRegistry: true;
   requireValidationWorkspaceOutsideRollbackBundle: true;
   requireValidationWorkspaceCleanup: true;
+  requireContainerizedValidation: true;
+  requireReadOnlyCandidateMount: true;
+  forbidValidationNetwork: true;
+  forbidHostHomeAndSecrets: true;
+  requireValidationResourceLimits: true;
+  forbidAutomaticContainerImagePull: true;
   requireRepositoryUnchangedDuringValidation: true;
   rollbackOnValidationFailure: true;
   rollbackOnValidationTimeout: true;
@@ -96,6 +108,12 @@ const STRICT_POLICY: ControlledPostApplyValidationPolicy = {
   requireValidationWorkspaceOutsideRegistry: true,
   requireValidationWorkspaceOutsideRollbackBundle: true,
   requireValidationWorkspaceCleanup: true,
+  requireContainerizedValidation: true,
+  requireReadOnlyCandidateMount: true,
+  forbidValidationNetwork: true,
+  forbidHostHomeAndSecrets: true,
+  requireValidationResourceLimits: true,
+  forbidAutomaticContainerImagePull: true,
   requireRepositoryUnchangedDuringValidation: true,
   rollbackOnValidationFailure: true,
   rollbackOnValidationTimeout: true,
@@ -144,11 +162,14 @@ export type ControlledPostApplyValidationIntent = {
   rollbackBundleManifestHash: string;
   rollbackBundleReceiptHash: string;
   policyHash: string;
+  validationContainer: ValidationContainerIdentity;
   intentHash: string;
 };
 
 export type ControlledPostApplyValidationRecord = {
   recordVersion: "1";
+  candidateManifestBeforeHash: string | null;
+  candidateManifestAfterHash: string | null;
   intentHash: string;
   decision: "passed" | "failed" | "needs_review" | "invalid" | "infrastructure_failure";
   validationSpecificationHash: string;
@@ -965,6 +986,57 @@ async function copyWorkspace(
   return { fileCount, bytes };
 }
 
+async function candidateManifestHash(
+  workspace: string, maxFiles: number, maxBytes: number
+): Promise<string> {
+  const entries: { path: string; kind: string; mode: number; hash: string | null }[] = [];
+  let files = 0;
+  let bytes = 0;
+  const walk = async (directory: string, relative: string, output = false): Promise<void> => {
+    for (const name of (await readdir(directory)).sort()) {
+      const file = path.join(directory, name);
+      const relativePath = relative ? `${relative}/${name}` : name;
+      const metadata = await lstat(file);
+      const isOutput = output || relativePath === CONTROLLED_VALIDATION_OUTPUT_DIRECTORY;
+      if (relativePath === CONTROLLED_VALIDATION_OUTPUT_DIRECTORY && !metadata.isDirectory()) {
+        throw new ValidationFailure("controlled_post_apply_validation_candidate_changed",
+          "Validation output path must remain a directory.");
+      }
+      if (isOutput && metadata.isSymbolicLink()) {
+        throw new ValidationFailure("controlled_post_apply_validation_candidate_changed",
+          "Validation output must not contain symbolic links.");
+      }
+      let hash: string | null = null;
+      let kind: string;
+      if (metadata.isDirectory()) {
+        kind = "directory";
+        await walk(file, relativePath, isOutput);
+      } else {
+        files++;
+        bytes += metadata.size;
+        if (files > maxFiles || bytes > maxBytes) throw new ValidationFailure(
+          "controlled_post_apply_validation_workspace_limit_exceeded",
+          "Validation workspace manifest exceeds its bounds.", "review"
+        );
+        if (metadata.isFile()) {
+          kind = "file";
+          const handle = await open(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+          try { hash = sha256(await handle.readFile()); } finally { await handle.close(); }
+        } else if (metadata.isSymbolicLink()) {
+          kind = "symlink";
+          hash = sha256(await readlink(file, { encoding: "buffer" }));
+        } else {
+          throw new ValidationFailure("controlled_post_apply_validation_candidate_changed",
+            "Validation workspace contains an unsupported entry.");
+        }
+      }
+      if (!isOutput) entries.push({ path: relativePath, kind, mode: metadata.mode & 0o777, hash });
+    }
+  };
+  await walk(workspace, "");
+  return hashCanonicalJson(entries);
+}
+
 async function workspaceMatchesReceipt(
   workspace: string, receipt: ControlledRepositoryApplyReceipt
 ): Promise<boolean> {
@@ -982,7 +1054,8 @@ function buildIntent(
   authorization: ControlledApplyExecutionAuthorization,
   gateInput: ControlledApplyExecutionGateInput,
   phaseEvidence: TemporaryWorkspaceExecutionVerificationEvidence,
-  specificationHash: string, policyHash: string
+  specificationHash: string, policyHash: string,
+  validationContainer: ValidationContainerIdentity
 ): ControlledPostApplyValidationIntent {
   if (applyReceipt.after.appliedStateHash === null || applyReceipt.after.finalScopeHash === null) {
     throw new ValidationFailure(
@@ -1006,7 +1079,8 @@ function buildIntent(
     rollbackManifestHash: gateInput.expectedInspection.rollbackManifest.manifestHash,
     rollbackBundleManifestHash: gateInput.rollbackBundleManifest.bundleManifestHash,
     rollbackBundleReceiptHash: gateInput.rollbackBundleReceipt.receiptHash,
-    policyHash
+    policyHash,
+    validationContainer
   };
   return { ...material, intentHash: hashCanonicalJson(material) };
 }
@@ -1023,10 +1097,13 @@ function buildRecord(
   intent: ControlledPostApplyValidationIntent,
   suppliedEvidence: TemporaryWorkspaceExecutionVerificationEvidence,
   currentEvidence: TemporaryWorkspaceExecutionVerificationEvidence | null,
-  decision: ControlledPostApplyValidationRecord["decision"], cleanupSucceeded: boolean
+  decision: ControlledPostApplyValidationRecord["decision"], cleanupSucceeded: boolean,
+  candidateManifestBeforeHash: string | null = null, candidateManifestAfterHash: string | null = null
 ): ControlledPostApplyValidationRecord {
   const material = {
     recordVersion: "1" as const,
+    candidateManifestBeforeHash,
+    candidateManifestAfterHash,
     intentHash: intent.intentHash,
     decision,
     validationSpecificationHash: intent.validationSpecificationHash,
@@ -1180,6 +1257,8 @@ export async function executeControlledPostApplyValidation(
   let timeoutMs = DEFAULT_TIMEOUT_MS;
   let maxGitOutputBytes = DEFAULT_GIT_OUTPUT_BYTES;
   let repositoryChanged = false;
+  let candidateManifestBeforeHash: string | null = null;
+  let candidateManifestAfterHash: string | null = null;
   let currentEvidence: TemporaryWorkspaceExecutionVerificationEvidence | null = null;
   let validationDecision: ControlledPostApplyValidationRecord["decision"] =
     "infrastructure_failure";
@@ -1332,8 +1411,17 @@ export async function executeControlledPostApplyValidation(
         "Validation transaction could not be created."
       );
     }
+    const containerBindingHash = hashCanonicalJson({
+      artifactType: "controlled_post_apply_validation_container_binding",
+      consumptionKey: applyReceipt.consumptionKey,
+      authorizationHash: authorization.authorizationHash,
+      x4ApplyReceiptHash: applyReceipt.receiptHash,
+      validationSpecificationHash: specificationHash
+    });
+    const validationContainer = createValidationContainerIdentity(containerBindingHash);
     intent = buildIntent(
-      applyReceipt, authorization, gateInput, phaseEvidence, specificationHash, policyHash
+      applyReceipt, authorization, gateInput, phaseEvidence, specificationHash, policyHash,
+      validationContainer
     );
     try {
       await writeExclusive(paths.intent, intent);
@@ -1354,7 +1442,7 @@ export async function executeControlledPostApplyValidation(
       "Durable validation start could not be recorded."
     ); }
 
-    let executionResult: ReturnType<typeof verifyTemporaryWorkspaceExecution> | null = null;
+    let executionResult: TemporaryWorkspaceExecutionResult | null = null;
     let beforeRepositoryHash: string | null = null;
     try {
       await mkdir(workspacePath, { mode: 0o700 });
@@ -1370,15 +1458,42 @@ export async function executeControlledPostApplyValidation(
         "controlled_post_apply_validation_workspace_binding_mismatch",
         "Isolated workspace does not match the X.4 applied state."
       );
+      // Never exempt an existing candidate subtree from integrity checks.
+      await mkdir(path.join(workspacePath, CONTROLLED_VALIDATION_OUTPUT_DIRECTORY), { mode: 0o700 });
+      candidateManifestBeforeHash = await candidateManifestHash(
+        workspacePath, maxWorkspaceFileCount, maxWorkspaceBytes
+      );
       beforeRepositoryHash = await repositoryInvariantHash(
         repository, timeoutMs, maxGitOutputBytes
       );
-      executionResult = verifyTemporaryWorkspaceExecution({
+      executionResult = await runContainerizedWorkspaceExecution({
         tempWorkspacePath: workspacePath,
         tempApplyDecision: "temp_apply_ready",
         tempWorkspaceCleanedUp: false,
         ...specification
-      });
+      }, async (command) => {
+        try {
+          // A failed read must not retain a previous command's successful manifest.
+          candidateManifestAfterHash = null;
+          candidateManifestAfterHash = await candidateManifestHash(
+            workspacePath!, maxWorkspaceFileCount, maxWorkspaceBytes
+          );
+          if (candidateManifestBeforeHash === candidateManifestAfterHash) return null;
+          throw new ValidationFailure(
+            "controlled_post_apply_validation_candidate_changed",
+            `Candidate files changed after validation command: ${command.id}.`
+          );
+        } catch (error) {
+          const failure = error instanceof ValidationFailure ? error : new ValidationFailure(
+            "controlled_post_apply_validation_execution_failed",
+            `Candidate integrity could not be verified after command: ${command.id}.`
+          );
+          issues.push(issue(failure));
+          return { code: failure.code, message: failure.message,
+            severity: "failure", commandId: command.id };
+        }
+      }, { validationOutputBytes: maxValidationOutputBytes,
+        containerIdentity: intent.validationContainer });
       summary.validationExecuted = true;
       validationDecision = recordDecision(executionResult.decision);
     } catch (error) {
@@ -1425,7 +1540,7 @@ export async function executeControlledPostApplyValidation(
     validationRecord = buildRecord(
       intent, phaseEvidence, currentEvidence,
       summary.workspaceCleanupSucceeded ? validationDecision : "infrastructure_failure",
-      summary.workspaceCleanupSucceeded
+      summary.workspaceCleanupSucceeded, candidateManifestBeforeHash, candidateManifestAfterHash
     );
     try {
       await writeExclusive(paths.record, validationRecord);
@@ -1503,7 +1618,7 @@ export async function executeControlledPostApplyValidation(
     if (validationRecord === null) {
       validationRecord = buildRecord(
         intent, phaseEvidence, currentEvidence, "infrastructure_failure",
-        summary.workspaceCleanupSucceeded
+        summary.workspaceCleanupSucceeded, candidateManifestBeforeHash, candidateManifestAfterHash
       );
       try { await writeExclusive(paths.record, validationRecord); } catch { /* best effort */ }
     }
@@ -1608,10 +1723,33 @@ function validateIntent(value: unknown): ControlledPostApplyValidationIntent {
     "governedArtifactHash", "handoffHash", "mutationHash", "appliedStateHash",
     "finalScopeHash", "phaseVExecutionVerificationResultHash",
     "validationSpecificationHash", "expectedInspectionHash", "rollbackManifestHash",
-    "rollbackBundleManifestHash", "rollbackBundleReceiptHash", "policyHash", "intentHash"
+    "rollbackBundleManifestHash", "rollbackBundleReceiptHash", "policyHash",
+    "validationContainer", "intentHash"
   ], "Validation intent");
-  if (record.intentVersion !== "1" || Object.entries(record).some(([field, value]) =>
-      field !== "intentVersion" && (!HASH.test(value as string)))) throw new ValidationFailure(
+  const container = exactObject(record.validationContainer, [
+    "containerName", "labelKey", "labelValue", "imageDigest", "transactionBindingHash"
+  ], "Validation container identity");
+  const hashFields = ["consumptionKey", "authorizationHash", "x4ApplyReceiptHash",
+    "governedArtifactHash", "handoffHash", "mutationHash", "appliedStateHash",
+    "finalScopeHash", "phaseVExecutionVerificationResultHash", "validationSpecificationHash",
+    "expectedInspectionHash", "rollbackManifestHash", "rollbackBundleManifestHash",
+    "rollbackBundleReceiptHash", "policyHash", "intentHash"];
+  if (record.intentVersion !== "1" || hashFields.some((field) => !HASH.test(record[field] as string)) ||
+      typeof container.containerName !== "string" ||
+      !/^bounded-validation-[0-9a-f]{24}$/.test(container.containerName) ||
+      container.labelKey !== VALIDATION_CONTAINER_BINDING_LABEL ||
+      !HASH.test(container.labelValue as string) ||
+      container.labelValue !== container.transactionBindingHash ||
+      !HASH.test(container.transactionBindingHash as string) ||
+      container.imageDigest !== DEFAULT_VALIDATION_CONTAINER_IMAGE.slice(
+        DEFAULT_VALIDATION_CONTAINER_IMAGE.lastIndexOf("@") + 1) ||
+      container.transactionBindingHash !== hashCanonicalJson({
+        artifactType: "controlled_post_apply_validation_container_binding",
+        consumptionKey: record.consumptionKey,
+        authorizationHash: record.authorizationHash,
+        x4ApplyReceiptHash: record.x4ApplyReceiptHash,
+        validationSpecificationHash: record.validationSpecificationHash
+      })) throw new ValidationFailure(
     "controlled_post_apply_validation_intent_hash_mismatch", "Validation intent is invalid."
   );
   if (record.intentHash !== hashWithout(record, "intentHash")) throw new ValidationFailure(
@@ -1625,9 +1763,14 @@ function validateRecord(value: unknown): ControlledPostApplyValidationRecord {
     "recordVersion", "intentHash", "decision", "validationSpecificationHash",
     "phaseVExecutionVerificationResultHash", "currentExecutionResultHash", "steps",
     "requiredStepCount", "completedStepCount", "passedStepCount",
-    "workspaceCleanupRequired", "workspaceCleanupSucceeded", "recordHash"
+    "workspaceCleanupRequired", "workspaceCleanupSucceeded", "recordHash",
+    "candidateManifestBeforeHash", "candidateManifestAfterHash"
   ], "Validation result record");
-  if (record.recordVersion !== "1" ||
+  if ((record.candidateManifestBeforeHash !== null && !HASH.test(record.candidateManifestBeforeHash as string)) ||
+      (record.candidateManifestAfterHash !== null && !HASH.test(record.candidateManifestAfterHash as string)) ||
+      (record.decision === "passed" && (record.candidateManifestBeforeHash === null ||
+        record.candidateManifestBeforeHash !== record.candidateManifestAfterHash)) ||
+      record.recordVersion !== "1" ||
       !["passed", "failed", "needs_review", "invalid", "infrastructure_failure"]
         .includes(record.decision as string) || !Array.isArray(record.steps) ||
       record.workspaceCleanupRequired !== true ||

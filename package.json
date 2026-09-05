@@ -7,6 +7,9 @@
   "license": "MIT",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:canonical-policy-compiler": "npm run build && node scripts/smoke/canonical-policy-compiler-smoke.cjs",
+    "test:bounded-task-state-machine": "npm run build && node scripts/smoke/bounded-task-state-machine-smoke.cjs",
+    "test:bounded-task-cross-process-recovery": "npm run build && node scripts/smoke/bounded-task-cross-process-recovery-suite.cjs",
     "build": "tsc -p tsconfig.json",
     "test:smoke": "node dist/tests/smoke/contracts.js",
     "eval:demo": "node dist/apps/cli/src/index.js",
@@ -267,7 +270,10 @@
     "generate:ag3c-live-evidence": "npm run build && node scripts/ag3c-openai-compatible-planner-minimality-provider-live.cjs",
     "preflight:runpod-research": "node scripts/runpod-research-preflight.cjs",
     "smoke:controlled-coding-pilot": "npm run build && node scripts/controlled-coding-pilot-smoke.cjs",
-    "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs"
+    "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs",
+    "test:product-runtime-package": "node scripts/product-runtime-package-smoke.cjs",
+    "test:text-file-update-contract": "npm run build && node scripts/text-file-update-contract-smoke.cjs",
+    "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs"
   },
   "workspaces": [
     "apps/*",
@@ -278,6 +284,8 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
-    "openai": "^7.4.0"
+    "minimatch": "^10.2.6",
+    "openai": "^7.4.0",
+    "yaml": "^2.9.0"
   }
 }

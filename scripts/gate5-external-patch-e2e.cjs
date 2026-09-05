@@ -146,6 +146,9 @@ function buildContext(mode, files) {
     candidateFiles: TASK.candidateFiles,
     allowedChangeFiles: TASK.allowedChangeFiles,
     forbiddenFiles: TASK.forbiddenFiles,
+    canonicalPolicy: {policyDocument: {schemaVersion: "1",
+      allowed_paths: TASK.allowedChangeFiles, forbidden_paths: TASK.forbiddenFiles,
+      paired_files: [], sensitive_patterns: [], sensitive_paths: [], ownership_rules: []}},
     outputContract: outputContract()
   };
   if (mode === 'A_long_context') {
@@ -360,12 +363,14 @@ function normalizeProviderOutput(rawOutput, repairSpec = null, originalFiles = n
   };
 }
 
-function outputToMutation(output) {
+function outputToMutation(output, originalFiles) {
   const claims = output.files.map(file => ({
     type: 'patch_draft',
     file: file.path,
     description: file.description,
-    proposedPatch: JSON.stringify({format: 'exact_replacements/v1', edits: file.edits})
+    claimVersion: 'text-file-update/v1', operation: 'update',
+    expectedContentHash: hash(originalFiles[file.path]),
+    newContent: file.edits.reduce((content, edit) => exactReplacementApply(content, edit), originalFiles[file.path])
   }));
   return {role: 'coder', target: 'patchDraft', summary: output.summary, claims, touchedFiles: claims.map(claim => claim.file), confidence: output.confidence};
 }
@@ -492,15 +497,11 @@ function makeApplyExecutor(checkout, diagnosticsRef, runtime) {
     diagnosticsRef.current = diagnostics;
     try {
       const staged = new Map();
-      for (const claim of mutation.claims) {
-        if (!claim || claim.type !== 'patch_draft' || typeof claim.file !== 'string' || typeof claim.proposedPatch !== 'string') throw new Error('invalid_patch_claim');
+      for (const claim of runtime.parseTextFileUpdates(mutation)) {
         if (!TASK.allowedChangeFiles.includes(claim.file)) throw new Error(`apply_out_of_scope_file:${claim.file}`);
-        const parsed = JSON.parse(claim.proposedPatch);
-        if (parsed.format !== 'exact_replacements/v1' || !Array.isArray(parsed.edits) || parsed.edits.length === 0) throw new Error('unsupported_patch_format');
-        const target = safeTargetPath(checkout, claim.file);
-        let content = staged.has(claim.file) ? staged.get(claim.file) : await fs.readFile(target, 'utf8');
-        for (const edit of parsed.edits) content = exactReplacementApply(content, edit);
-        staged.set(claim.file, content);
+        const source = await runtime.readTextUpdateSource(checkout, claim.file);
+        runtime.validateUpdateSource(claim, source.bytes);
+        staged.set(claim.file, claim.newContent);
       }
       for (const [file, content] of staged.entries()) await fs.writeFile(safeTargetPath(checkout, file), content, 'utf8');
       diagnostics.changedFiles = canonical(run('git', ['diff', '--name-only'], {cwd: checkout, capture: true}).stdout.split('\n').map(value => value.trim()).filter(Boolean));
@@ -757,7 +758,7 @@ async function main() {
       }
 
       let currentOutput = initialProvider.output;
-      let currentAttempt = await runAttempt(runtime, snapshot, mode, currentOutput ? outputToMutation(currentOutput) : providerFailureMutation(initialProviderError ?? 'unknown_provider_failure'));
+      let currentAttempt = await runAttempt(runtime, snapshot, mode, currentOutput ? outputToMutation(currentOutput, snapshot.files) : providerFailureMutation(initialProviderError ?? 'unknown_provider_failure'));
       const firstAttempt = currentAttempt;
       const initialRemaskReason = attemptPassed(runtime, currentAttempt) ? null : remaskReasonForAttempt(currentAttempt);
       const repairHistory = [];
@@ -793,7 +794,7 @@ async function main() {
         const mergedOutput = currentOutput
           ? mergePatchOutputs(currentOutput, repairProvider.output, currentAttempt.diagnostics)
           : repairProvider.output;
-        const repairedAttempt = await runAttempt(runtime, snapshot, mode, outputToMutation(mergedOutput));
+        const repairedAttempt = await runAttempt(runtime, snapshot, mode, outputToMutation(mergedOutput, snapshot.files));
         repairHistory.push({
           repairNumber, payload, providerError: null,
           providerOutput: repairProvider.output, rawContent: repairProvider.rawContent,

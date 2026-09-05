@@ -1,4 +1,5 @@
-import { lstat, realpath } from "node:fs/promises";
+import { parseTextFileUpdates, readTextUpdateSource, validateUpdateSource, MutationContractError, MUTATION_LIMITS, type TextFileUpdateClaimV1 } from "./text-file-update-contract.js";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -10,6 +11,7 @@ import {
   validateWorkspaceMutationContract,
   type WorkspaceMutation
 } from "./workspace-mutation.js";
+import { hashCanonicalJson } from "./agent-event-ledger.js";
 
 export const DETERMINISTIC_VERIFIER_V2_VERSION = "deterministic-verifier/v2" as const;
 
@@ -20,15 +22,18 @@ export const VERIFIER_V2_RULES = Object.freeze({
   notCoderPatchDraft: Object.freeze({ id: "DV2_ROLE_TARGET_INVALID", severity: "error", disposition: "reject" }),
   patchClaimMissing: Object.freeze({ id: "DV2_PATCH_CLAIM_MISSING", severity: "error", disposition: "reject" }),
   patchClaimInvalid: Object.freeze({ id: "DV2_PATCH_CLAIM_INVALID", severity: "error", disposition: "reject" }),
+  patchClaimDuplicate: Object.freeze({ id: "DV2_PATCH_CLAIM_DUPLICATE", severity: "error", disposition: "reject" }),
   pathInvalid: Object.freeze({ id: "DV2_PATH_INVALID", severity: "error", disposition: "reject" }),
   pathSymlink: Object.freeze({ id: "DV2_PATH_SYMLINK", severity: "error", disposition: "reject" }),
   pathOutsideRepository: Object.freeze({ id: "DV2_PATH_OUTSIDE_REPOSITORY", severity: "error", disposition: "reject" }),
+  sourceHashMismatch: Object.freeze({ id: "DV2_SOURCE_HASH_MISMATCH", severity: "review", disposition: "needs_review" }),
   pathMissing: Object.freeze({ id: "DV2_PATH_MISSING", severity: "review", disposition: "needs_review" }),
   touchedClaimMismatch: Object.freeze({ id: "DV2_TOUCHED_CLAIM_MISMATCH", severity: "error", disposition: "reject" }),
   forbiddenFile: Object.freeze({ id: "DV2_FORBIDDEN_FILE", severity: "error", disposition: "reject" }),
   allowlistViolation: Object.freeze({ id: "DV2_ALLOWLIST_VIOLATION", severity: "error", disposition: "reject" }),
   unsafePatch: Object.freeze({ id: "DV2_UNSAFE_PATCH", severity: "error", disposition: "reject" }),
-  lowConfidence: Object.freeze({ id: "DV2_LOW_CONFIDENCE", severity: "review", disposition: "needs_review" })
+  lowConfidence: Object.freeze({ id: "DV2_LOW_CONFIDENCE", severity: "review", disposition: "needs_review" }),
+  policyBindingInvalid: Object.freeze({ id: "DV2_POLICY_BINDING_INVALID", severity: "error", disposition: "reject" })
 } as const);
 
 export type VerifierV2RuleId = (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_V2_RULES]["id"];
@@ -36,7 +41,8 @@ export type VerifierV2RuleId = (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_
 type VerifierV2Rule = (typeof VERIFIER_V2_RULES)[keyof typeof VERIFIER_V2_RULES];
 
 export type VerifierV2Issue = Readonly<{
-  ruleId: VerifierV2RuleId;
+  ruleId: VerifierV2RuleId | `MUTATION_${string}`;
+  mutationCode?: string;
   severity: VerifierSeverity;
   disposition: VerifierRuleDisposition;
   message: string;
@@ -51,6 +57,10 @@ export type VerifyPatchDraftMutationV2Input = Readonly<{
   forbiddenFiles?: readonly string[];
   minConfidence?: number;
   requireExistingTouchedFiles?: boolean;
+  /** Trusted records from the successful bound context flow, never model output. */
+  boundContextFiles?: readonly { path: string; contentHash: string }[];
+  /** Canonical policy artifact hash. Older direct callers receive a closed compatibility binding. */
+  policyHash?: string;
 }>;
 
 export type DeterministicVerifierV2Result = Readonly<{
@@ -60,8 +70,12 @@ export type DeterministicVerifierV2Result = Readonly<{
   issues: readonly VerifierV2Issue[];
   canonicalTouchedFiles: readonly string[];
   canonicalClaimFiles: readonly string[];
+  policyHash: string;
   finding: WorkspaceMutation;
 }>;
+
+const HASH = /^sha256:[0-9a-f]{64}$/;
+const LEGACY_POLICY_HASH = hashCanonicalJson({ policyBinding: "legacy-deterministic-verifier-v2" });
 
 const UNSAFE_PATCH_NEEDLES = ["process.env", "SECRET", "TOKEN", "PASSWORD", ".env", "rm -rf", "curl ", "wget "] as const;
 
@@ -87,58 +101,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function inspectRepositoryPath(
-  repositoryRoot: string,
-  relativePath: string,
-  requireExisting: boolean
-): Promise<VerifierV2Issue[]> {
-  const issues: VerifierV2Issue[] = [];
-  const absolute = path.resolve(repositoryRoot, relativePath);
-  const relative = path.relative(repositoryRoot, absolute);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    return [issue(VERIFIER_V2_RULES.pathOutsideRepository, "Path resolves outside the repository.", { file: relativePath })];
-  }
-
-  const segments = relativePath.split("/");
-  let cursor = repositoryRoot;
-  for (let index = 0; index < segments.length; index += 1) {
-    cursor = path.join(cursor, segments[index]);
-    try {
-      const stat = await lstat(cursor);
-      if (stat.isSymbolicLink()) {
-        issues.push(issue(VERIFIER_V2_RULES.pathSymlink, "Touched paths must not traverse symbolic links.", { file: relativePath }));
-        return issues;
-      }
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
-        if (requireExisting && index === segments.length - 1) {
-          issues.push(issue(VERIFIER_V2_RULES.pathMissing, "Touched file does not exist in the repository snapshot.", { file: relativePath }));
-        }
-        return issues;
-      }
-      throw error;
-    }
-  }
-
-  const resolved = await realpath(absolute);
-  const resolvedRelative = path.relative(repositoryRoot, resolved);
-  if (resolvedRelative.startsWith("..") || path.isAbsolute(resolvedRelative)) {
-    issues.push(issue(VERIFIER_V2_RULES.pathOutsideRepository, "Resolved path escapes the repository root.", { file: relativePath }));
-  }
-  return issues;
+function mutationIssue(error: MutationContractError): VerifierV2Issue {
+  const review = ["MUTATION_NO_CHANGE", "MUTATION_SOURCE_HASH_MISMATCH"].includes(error.code);
+  return { ruleId: error.code as `MUTATION_${string}`, mutationCode: error.code,
+    message: error.message, severity: review ? "review" : "error",
+    disposition: review ? "needs_review" : "reject", ...(error.file ? { file: error.file } : {}) };
 }
 
 function buildFinding(
   mutation: WorkspaceMutation,
   decision: DeterministicVerifierV2Result["decision"],
-  issues: readonly VerifierV2Issue[]
+  issues: readonly VerifierV2Issue[],
+  policyHash: string
 ): WorkspaceMutation {
   return createWorkspaceMutation({
     role: "verifier",
     target: "verifierFinding",
     summary: decision === "approve" ? "Deterministic verifier v2 approved coder patchDraft." : `Deterministic verifier v2 returned ${decision}.`,
-    claims: [{ type: "deterministic_verifier_v2_finding", version: DETERMINISTIC_VERIFIER_V2_VERSION, decision, issues }],
+    claims: [{ type: "deterministic_verifier_v2_finding", version: DETERMINISTIC_VERIFIER_V2_VERSION, decision, issues, policyHash }],
     touchedFiles: [...mutation.touchedFiles],
     confidence: 1
   });
@@ -148,6 +128,16 @@ export async function verifyPatchDraftMutationV2(
   input: VerifyPatchDraftMutationV2Input
 ): Promise<DeterministicVerifierV2Result> {
   const issues: VerifierV2Issue[] = [];
+  const policyHash = input.policyHash ?? LEGACY_POLICY_HASH;
+  if (!HASH.test(policyHash)) {
+    issues.push(issue(VERIFIER_V2_RULES.policyBindingInvalid,
+      "Verifier requires a valid canonical policy hash.", { field: "policyHash" }));
+  }
+  let updates: TextFileUpdateClaimV1[] = [];
+  try { updates = parseTextFileUpdates(input.mutation); } catch (error) {
+    if (!(error instanceof MutationContractError)) throw error;
+    issues.push(mutationIssue(error));
+  }
   const minConfidence = input.minConfidence ?? 0.5;
   const requireExisting = input.requireExistingTouchedFiles ?? true;
 
@@ -190,12 +180,22 @@ export async function verifyPatchDraftMutationV2(
     if (typeof claim.description !== "string" || claim.description.trim().length === 0) {
       issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft description is required.", { field: `mutation.claims.${index}.description`, file: file ?? undefined }));
     }
-    const proposedPatch = claim.proposedPatch;
-    if (typeof proposedPatch !== "string" || proposedPatch.length === 0) {
-      issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft proposedPatch is required.", { field: `mutation.claims.${index}.proposedPatch`, file: file ?? undefined }));
-    } else if (UNSAFE_PATCH_NEEDLES.some((needle) => proposedPatch.includes(needle))) {
-      issues.push(issue(VERIFIER_V2_RULES.unsafePatch, "proposedPatch contains an unsafe content marker.", { field: `mutation.claims.${index}.proposedPatch`, file: file ?? undefined }));
+    const newContent = claim.newContent;
+    if (typeof newContent !== "string") {
+      issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft newContent is required.", { field: `mutation.claims.${index}.newContent`, file: file ?? undefined }));
+    } else if (UNSAFE_PATCH_NEEDLES.some((needle) => newContent.includes(needle))) {
+      issues.push(issue(VERIFIER_V2_RULES.unsafePatch, "newContent contains an unsafe content marker.", { field: `mutation.claims.${index}.newContent`, file: file ?? undefined }));
     }
+  }
+
+  const seenClaimFiles = new Set<string>();
+  for (const file of claimFiles) {
+    if (seenClaimFiles.has(file)) {
+      issues.push(issue(VERIFIER_V2_RULES.patchClaimDuplicate,
+        "Only one patch_draft claim per canonical file is allowed.",
+        { field: "mutation.claims", file }));
+    }
+    seenClaimFiles.add(file);
   }
 
   const canonicalClaimFiles = uniqueSorted(claimFiles);
@@ -205,10 +205,27 @@ export async function verifyPatchDraftMutationV2(
 
   const allowedSet = new Set(allowed);
   const forbiddenSet = new Set(forbidden);
+  let sourceTotal = 0;
   for (const file of touched) {
     if (!allowedSet.has(file)) issues.push(issue(VERIFIER_V2_RULES.allowlistViolation, "Touched file is outside the explicit allowlist.", { file }));
     if (forbiddenSet.has(file)) issues.push(issue(VERIFIER_V2_RULES.forbiddenFile, "Touched file is explicitly forbidden.", { file }));
-    issues.push(...await inspectRepositoryPath(repositoryRoot, file, requireExisting));
+    // Every new-schema update is checked through the same bounded source reader as apply.
+    for (const claim of updates.filter((entry) => entry.file === file)) {
+      try {
+        const source = await readTextUpdateSource(repositoryRoot, file);
+        sourceTotal += source.bytes.length;
+        if (sourceTotal > MUTATION_LIMITS.maxTotalBytes) throw new MutationContractError("MUTATION_TOTAL_LIMIT_EXCEEDED", "Source total exceeds 4 MiB.");
+        const records = (input.boundContextFiles ?? []).filter((entry) => entry.path === file);
+        if (records.length !== 1 || records[0].contentHash !== claim.expectedContentHash) throw new MutationContractError("MUTATION_SOURCE_HASH_MISMATCH", "Claim differs from verified bound context.", file);
+        validateUpdateSource(claim, source.bytes);
+      } catch (error) {
+        if (error instanceof MutationContractError) {
+          const missingSnapshotFile = error.code === "MUTATION_CREATE_UNSUPPORTED" && (input.boundContextFiles ?? []).some((entry) => entry.path === file);
+          issues.push(mutationIssue(missingSnapshotFile ? new MutationContractError("MUTATION_SOURCE_HASH_MISMATCH", "A bound source file disappeared after context creation.", file) : error));
+        }
+        else issues.push(mutationIssue(new MutationContractError("MUTATION_SOURCE_HASH_MISMATCH", "Current source could not be verified.", file)));
+      }
+    }
   }
 
   if (input.mutation.confidence !== undefined && input.mutation.confidence < minConfidence) {
@@ -219,12 +236,12 @@ export async function verifyPatchDraftMutationV2(
   if (issues.some((entry) => entry.disposition === "reject")) decision = "reject";
   else if (issues.length > 0) decision = "needs_review";
 
-  let finding = buildFinding(input.mutation, decision, issues);
+  let finding = buildFinding(input.mutation, decision, issues, policyHash);
   if (!validateWorkspaceMutationContract(finding).ok) {
     const fallback = issue(VERIFIER_V2_RULES.patchClaimInvalid, "Generated verifier finding failed contract validation.", { field: "finding" });
     issues.push(fallback);
     decision = "reject";
-    finding = buildFinding(input.mutation, decision, issues);
+    finding = buildFinding(input.mutation, decision, issues, policyHash);
   }
 
   return Object.freeze({
@@ -234,6 +251,7 @@ export async function verifyPatchDraftMutationV2(
     issues: Object.freeze([...issues]),
     canonicalTouchedFiles: Object.freeze(touched),
     canonicalClaimFiles: Object.freeze(canonicalClaimFiles),
+    policyHash,
     finding
   });
 }

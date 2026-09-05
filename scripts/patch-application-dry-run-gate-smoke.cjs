@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 
 function check(name, fn) {
@@ -23,11 +24,13 @@ function repairDraft(overrides = {}) {
     summary: "Repair a bounded patch draft.",
     claims: [
       {
+        claimVersion: "text-file-update/v1",
         type: "repair_draft",
+        operation: "update",
         file,
         description: "Export patch application dry-run gate.",
-        proposedPatch: proposedContent,
-        addressesIssueCodes: ["missing_export"]
+        expectedContentHash: `sha256:${createHash("sha256").update(originalContent).digest("hex")}`,
+        newContent: proposedContent
       }
     ],
     touchedFiles: [file],
@@ -92,7 +95,7 @@ function assertDecision(result, decision, code) {
     assertDecision(
       dryRunPatchApplication(repairDraft({ role: "coder" }), verifierFinding(), context()),
       "reject",
-      "not_remask_repair_draft"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -100,7 +103,7 @@ function assertDecision(result, decision, code) {
     assertDecision(
       dryRunPatchApplication(repairDraft({ target: "patchDraft" }), verifierFinding(), context()),
       "reject",
-      "not_repair_draft_target"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -127,16 +130,16 @@ function assertDecision(result, decision, code) {
   check("empty repair claims needs_review", () => {
     assertDecision(
       dryRunPatchApplication(repairDraft({ claims: [] }), verifierFinding(), context()),
-      "needs_review",
-      "empty_repair_claims"
+      "reject",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
   check("missing repair_draft claim needs_review", () => {
     assertDecision(
       dryRunPatchApplication(repairDraft({ claims: [{ type: "note" }] }), verifierFinding(), context()),
-      "needs_review",
-      "missing_repair_draft_claim"
+      "reject",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -156,8 +159,8 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "missing_repair_file"
+      "reject",
+      "MUTATION_LEGACY_PATCH_FIELD"
     );
   });
 
@@ -177,8 +180,8 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "missing_repair_proposed_patch"
+      "reject",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -199,16 +202,16 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "invalid_repair_proposed_patch"
+      "reject",
+      "MUTATION_LEGACY_PATCH_FIELD"
     );
   });
 
   check("missing original file content needs_review", () => {
     assertDecision(
       dryRunPatchApplication(repairDraft(), verifierFinding(), context({ fileContents: {} })),
-      "needs_review",
-      "missing_original_file_content"
+      "reject",
+      "MUTATION_CREATE_UNSUPPORTED"
     );
   });
 
@@ -219,8 +222,8 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "repair_claim_outside_touched_files"
+      "reject",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -231,8 +234,8 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "touched_file_without_repair_claim"
+      "reject",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -278,7 +281,7 @@ function assertDecision(result, decision, code) {
         context()
       ),
       "reject",
-      "unsafe_repair_patch_content"
+      "MUTATION_LEGACY_PATCH_FIELD"
     );
   });
 
@@ -287,7 +290,7 @@ function assertDecision(result, decision, code) {
       dryRunPatchApplication(
         repairDraft(),
         verifierFinding(),
-        context({ maxProposedPatchChars: 10 })
+        context({ maxFileBytes: 10 })
       ),
       "needs_review",
       "proposed_patch_too_large"
@@ -311,8 +314,8 @@ function assertDecision(result, decision, code) {
         verifierFinding(),
         context()
       ),
-      "needs_review",
-      "no_op_patch"
+      "reject",
+      "MUTATION_LEGACY_PATCH_FIELD"
     );
   });
 

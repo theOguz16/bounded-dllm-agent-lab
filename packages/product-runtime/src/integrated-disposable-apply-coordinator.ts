@@ -118,6 +118,8 @@ export type RunIntegratedDisposableApplyInput = {
   validationWorkspaceParentPath: string;
   phaseVExecutionSpecification: TemporaryWorkspaceExecutionSpecification;
   phaseVExecutionVerification: TemporaryWorkspaceExecutionVerificationEvidence;
+  durableCheckpoint?: (state: "x4_committed" | "validation_started" | "validation_completed",
+    artifact: unknown) => void | Promise<void>;
 };
 
 export type IntegratedDisposableApplyResult = {
@@ -1189,6 +1191,8 @@ export async function runIntegratedDisposableApply(
     applyResult.receipt !== null &&
     applyResult.receipt.outcome === "applied";
 
+  if (summary.x4ApplySucceeded) await input.durableCheckpoint?.("x4_committed", applyResult);
+
   if (!summary.x4ApplySucceeded) {
     const rollbackSucceeded =
       applyResult.decision ===
@@ -1250,6 +1254,8 @@ export async function runIntegratedDisposableApply(
 
   summary.validationCallCount = 1;
 
+  await input.durableCheckpoint?.("validation_started", applyResult);
+
   const postApplyValidation =
     await executeControlledPostApplyValidation({
       applyReceipt:
@@ -1268,6 +1274,8 @@ export async function runIntegratedDisposableApply(
       phaseVExecutionVerification:
         input.phaseVExecutionVerification
     });
+
+  await input.durableCheckpoint?.("validation_completed", postApplyValidation);
 
   summary.x5ValidationFinalized =
     postApplyValidation.decision ===

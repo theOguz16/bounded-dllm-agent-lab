@@ -1,3 +1,4 @@
+import { parseTextFileUpdates, validateUpdateSourceMap, MutationContractError } from "./text-file-update-contract.js";
 import type { WorkspaceMutation } from "./workspace-mutation.js";
 
 export type PatchDryRunDecision =
@@ -27,7 +28,7 @@ export type PatchApplicationDryRunContext = {
   forbiddenFiles?: string[];
   fileContents: Record<string, string>;
   requiredRepairVerifierDecision?: "approve";
-  maxProposedPatchChars?: number;
+  maxFileBytes?: number;
   maxDiffPreviewLines?: number;
 };
 
@@ -60,7 +61,7 @@ const unsafeRepairPatchNeedles = [
   "Function("
 ];
 
-const defaultMaxProposedPatchChars = 20_000;
+const defaultMaxFileBytes = 1024 * 1024;
 const defaultMaxDiffPreviewLines = 80;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -205,7 +206,7 @@ function findRepairVerifierDecision(finding: WorkspaceMutation): unknown {
   return undefined;
 }
 
-export function dryRunPatchApplication(
+function dryRunPatchApplicationUnchecked(
   repairDraftMutation: WorkspaceMutation,
   repairVerifierFinding: WorkspaceMutation,
   context: PatchApplicationDryRunContext
@@ -214,8 +215,8 @@ export function dryRunPatchApplication(
   const previews: PatchDryRunFilePreview[] = [];
   const allowedFiles = new Set(context.allowedFiles ?? []);
   const forbiddenFiles = new Set(context.forbiddenFiles ?? []);
-  const maxProposedPatchChars =
-    context.maxProposedPatchChars ?? defaultMaxProposedPatchChars;
+  const maxFileBytes =
+    context.maxFileBytes ?? defaultMaxFileBytes;
   const maxDiffPreviewLines =
     context.maxDiffPreviewLines ?? defaultMaxDiffPreviewLines;
   const requiredRepairVerifierDecision =
@@ -310,7 +311,7 @@ export function dryRunPatchApplication(
 
   for (const claim of repairDraftClaims) {
     const file = typeof claim.file === "string" ? claim.file.trim() : "";
-    const proposedPatch = claim.proposedPatch;
+    const newContent = claim.newContent;
 
     if (file.length === 0) {
       addIssue(
@@ -344,49 +345,49 @@ export function dryRunPatchApplication(
       }
     }
 
-    if (proposedPatch === undefined) {
+    if (newContent === undefined) {
       addIssue(
         issues,
         "missing_repair_proposed_patch",
-        "repair_draft claim must include proposedPatch.",
+        "repair_draft claim must include newContent.",
         "review",
         file || undefined
       );
-    } else if (typeof proposedPatch !== "string") {
+    } else if (typeof newContent !== "string") {
       addIssue(
         issues,
         "invalid_repair_proposed_patch",
-        "repair_draft proposedPatch must be a string.",
+        "repair_draft newContent must be a string.",
         "review",
         file || undefined
       );
     } else {
-      if (proposedPatch.length === 0) {
+      if (typeof claim.newContent !== "string") {
         addIssue(
           issues,
           "missing_repair_proposed_patch",
-          "repair_draft claim must include proposedPatch.",
+          "repair_draft claim must include newContent.",
           "review",
           file || undefined
         );
       }
 
-      if (proposedPatch.length > maxProposedPatchChars) {
+      if (Buffer.byteLength(newContent, "utf8") > maxFileBytes) {
         addIssue(
           issues,
           "proposed_patch_too_large",
-          `proposedPatch exceeds maxProposedPatchChars: ${proposedPatch.length} > ${maxProposedPatchChars}`,
+          `newContent exceeds maxFileBytes: ${Buffer.byteLength(newContent, "utf8")} > ${maxFileBytes}`,
           "review",
           file || undefined
         );
       }
 
       for (const needle of unsafeRepairPatchNeedles) {
-        if (proposedPatch.includes(needle)) {
+        if (newContent.includes(needle)) {
           addIssue(
             issues,
             "unsafe_repair_patch_content",
-            `proposedPatch contains unsafe content marker: ${needle}`,
+            `newContent contains unsafe content marker: ${needle}`,
             "reject",
             file || undefined
           );
@@ -401,14 +402,14 @@ export function dryRunPatchApplication(
         const originalContent = String(fileContents[file]);
         const { addedLines, removedLines } = countChangedLines(
           originalContent,
-          proposedPatch
+          newContent
         );
 
-        if (originalContent === proposedPatch) {
+        if (originalContent === newContent) {
           addIssue(
             issues,
             "no_op_patch",
-            `proposedPatch is identical to original content: ${file}`,
+            `newContent is identical to original content: ${file}`,
             "review",
             file
           );
@@ -417,14 +418,14 @@ export function dryRunPatchApplication(
         previews.push({
           file,
           originalContent,
-          proposedContent: proposedPatch,
-          changed: originalContent !== proposedPatch,
+          proposedContent: newContent,
+          changed: originalContent !== newContent,
           addedLines,
           removedLines,
           diffPreview: buildDiffPreview(
             file,
             originalContent,
-            proposedPatch,
+            newContent,
             maxDiffPreviewLines
           )
         });
@@ -468,4 +469,14 @@ export function dryRunPatchApplication(
       totalRemovedLines
     }
   };
+}
+
+export function dryRunPatchApplication(mutation: WorkspaceMutation, finding: WorkspaceMutation, context: PatchApplicationDryRunContext): PatchApplicationDryRunResult {
+  try { validateUpdateSourceMap(parseTextFileUpdates(mutation), context.fileContents); }
+  catch (error) {
+    if (!(error instanceof MutationContractError)) throw error;
+    const review = ["MUTATION_NO_CHANGE", "MUTATION_SOURCE_HASH_MISMATCH"].includes(error.code);
+    return { decision: review ? "needs_review" : "reject", issues: [{ code: error.code, message: error.message, severity: review ? "review" : "reject", ...(error.file ? { file: error.file } : {}) }], previews: [], summary: { totalFiles: 0, changedFiles: 0, unchangedFiles: 0, totalAddedLines: 0, totalRemovedLines: 0 } };
+  }
+  return dryRunPatchApplicationUnchecked(mutation, finding, context);
 }

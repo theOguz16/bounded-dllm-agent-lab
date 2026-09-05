@@ -59,6 +59,8 @@ import {
   type ControlledRepositoryInspectionResult
 } from "./controlled-repository-inspection.js";
 import { verifyControlledRollbackBundle } from "./controlled-rollback-bundle.js";
+import { recoverValidationContainer, verifyValidationContainerIdentity,
+  type ValidationContainerIdentity } from "./containerized-workspace-execution-runner.js";
 
 export const CONTROLLED_TRANSACTION_RECOVERY_VERSION = "1" as const;
 
@@ -208,6 +210,7 @@ export type ControlledTransactionRecoveryPlan = {
     rollbackBundleUsable: boolean;
   };
   reasonCodes: readonly string[];
+  validationContainer: ValidationContainerIdentity | null;
   policyHash: string;
   planHash: string;
 };
@@ -260,6 +263,7 @@ export type ControlledTransactionRecoveryIntent = {
   rollbackBundleManifestHash: string;
   rollbackBundleReceiptHash: string;
   rollbackPayloadRootHash: string;
+  validationContainer: ValidationContainerIdentity | null;
   policyHash: string;
   recoveryPlanHash: string;
   intentHash: string;
@@ -333,6 +337,8 @@ export type ControlledTransactionRecoveryResult = {
     repositoryMatchesX4AppliedState: boolean;
     validationWorkspaceCleanupAttempted: boolean;
     validationWorkspaceCleanupSucceeded: boolean | null;
+    validationContainerCleanupAttempted: boolean;
+    validationContainerCleanupSucceeded: boolean | null;
     receiptWritten: boolean;
     receiptVerified: boolean;
     terminalMarker: "RECOVERED_NO_WRITE" | "RECOVERED_ROLLED_BACK" | "RECOVERY_FAILED" | null;
@@ -501,6 +507,7 @@ const RECOVERY_CODES = new Set([
   "controlled_transaction_recovery_start_marker_failed",
   "controlled_transaction_recovery_state_changed_before_write",
   "controlled_transaction_recovery_workspace_cleanup_failed",
+  "controlled_transaction_recovery_container_recovery_required",
   "controlled_transaction_recovery_receipt_write_failed",
   "controlled_transaction_recovery_receipt_hash_mismatch",
   "controlled_transaction_recovery_terminal_marker_failed",
@@ -562,6 +569,7 @@ function issue(
     controlled_transaction_recovery_unexpected_changed_file: "An unexpected changed path prevents recovery.",
     controlled_transaction_recovery_baseline_mismatch: "Repository state does not match the baseline.",
     controlled_transaction_recovery_rollback_bundle_invalid: "The sealed rollback bundle is invalid.",
+    controlled_transaction_recovery_container_recovery_required: "The recorded validation container could not be safely removed.",
     controlled_transaction_recovery_recovery_required: "The recovery attempt requires further recovery."
   };
   return {
@@ -704,8 +712,15 @@ function validateRecoveryIntent(value: unknown): ControlledTransactionRecoveryIn
     "governedArtifactHash", "handoffHash", "mutationHash", "changedFiles", "x4State",
     "x5State", "action", "expectedInspectionHash", "rollbackManifestHash",
     "rollbackBundleManifestHash", "rollbackBundleReceiptHash", "rollbackPayloadRootHash",
-    "policyHash", "recoveryPlanHash", "intentHash"
+    "validationContainer", "policyHash", "recoveryPlanHash", "intentHash"
   ]);
+  if (record.validationContainer !== null &&
+      !verifyValidationContainerIdentity(record.validationContainer as ValidationContainerIdentity)) {
+    throw new RecoveryFailure(
+      "controlled_transaction_recovery_intent_hash_mismatch",
+      "Recovery container identity is invalid."
+    );
+  }
   if (record.intentVersion !== "1" || !Number.isSafeInteger(record.attemptIndex) ||
       (record.attemptIndex as number) < 0 || (record.attemptIndex as number) >= MAX_ATTEMPTS ||
       !Array.isArray(record.changedFiles) ||
@@ -1603,7 +1618,9 @@ export async function inspectControlledTransactionRecovery(
         repositoryMatchesX4AppliedState: summary.repositoryMatchesX4AppliedState,
         rollbackBundleUsable: summary.rollbackBundleVerified
       },
-      reasonCodes: sortedUnique(codes), policyHash: validated.policyHash
+      reasonCodes: sortedUnique(codes),
+      validationContainer: evidence.validationIntent?.validationContainer ?? null,
+      policyHash: validated.policyHash
     };
     const plan: ControlledTransactionRecoveryPlan = { ...material, planHash: hashCanonicalJson(material) };
     const decision = selection.kind === "invalid" ? "controlled_transaction_recovery_inspection_invalid" :
@@ -1637,7 +1654,9 @@ function initialResultSummary(): ControlledTransactionRecoveryResult["summary"] 
     rollbackAttempted: false, rollbackSucceeded: null,
     repositoryMatchesX1Baseline: false, repositoryMatchesX4AppliedState: false,
     validationWorkspaceCleanupAttempted: false,
-    validationWorkspaceCleanupSucceeded: null, receiptWritten: false,
+    validationWorkspaceCleanupSucceeded: null,
+    validationContainerCleanupAttempted: false,
+    validationContainerCleanupSucceeded: null, receiptWritten: false,
     receiptVerified: false, terminalMarker: null, consumptionClaimReleased: false,
     originalX4RegistryModified: false, originalX5RegistryModified: false,
     gitIndexMutated: false, gitHistoryMutated: false, shellExecuted: false,
@@ -1722,6 +1741,7 @@ function buildIntent(plan: ControlledTransactionRecoveryPlan, index: number): Co
     rollbackBundleManifestHash: plan.rollbackBundle.bundleManifestHash,
     rollbackBundleReceiptHash: plan.rollbackBundle.bundleReceiptHash,
     rollbackPayloadRootHash: plan.rollbackBundle.payloadRootHash,
+    validationContainer: plan.validationContainer,
     policyHash: plan.policyHash, recoveryPlanHash: plan.planHash
   };
   return { ...material, intentHash: hashCanonicalJson(material) };
@@ -1864,6 +1884,23 @@ export async function executeControlledTransactionRecovery(
         !reinspection.plan || reinspection.plan.planHash !== intent.recoveryPlanHash) throw new RecoveryFailure(
       "controlled_transaction_recovery_state_changed_before_write", "Recovery state changed after durable start."
     );
+    if (intent.validationContainer !== null) {
+      summary.validationContainerCleanupAttempted = true;
+      const containerRecovery = recoverValidationContainer(intent.validationContainer);
+      summary.validationContainerCleanupSucceeded =
+        containerRecovery.decision === "validation_container_removed" ||
+        containerRecovery.decision === "validation_container_absent";
+      if (!summary.validationContainerCleanupSucceeded) throw new RecoveryFailure(
+        "controlled_transaction_recovery_container_recovery_required",
+        "The exact recorded validation container could not be safely removed.", "review"
+      );
+    } else if (intent.x5State === "x5_validation_started_incomplete" ||
+        intent.x5State === "x5_intent_created_prevalidation_incomplete") {
+      throw new RecoveryFailure(
+        "controlled_transaction_recovery_container_recovery_required",
+        "Incomplete validation has no recorded container identity.", "review"
+      );
+    }
     let outcome: ControlledTransactionRecoveryReceipt["outcome"];
     if (intent.action === "close_prewrite_claim_without_repository_write") {
       outcome = "abandoned_before_repository_write";

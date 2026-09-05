@@ -1,3 +1,4 @@
+import { readBoundedMutationBytes, parseTextFileUpdates, readTextUpdateSource, validateUpdateSource, MutationContractError, MUTATION_LIMITS } from "./text-file-update-contract.js";
 /**
  * Phase X.4 is the first real repository-write security boundary. It creates
  * an external durable consumption claim before every repository write and
@@ -125,6 +126,16 @@ export type ControlledRepositoryApplyInput = {
   maxMutationFileBytes?: number;
   maxMutationTotalBytes?: number;
 };
+
+export type ControlledRepositoryApplyLifecycleEvent =
+  | Readonly<{ phase: "claim_created" }>
+  | Readonly<{ phase: "reservation_verified" }>
+  | Readonly<{ phase: "transaction_intent_verified" }>
+  | Readonly<{ phase: "write_started" }>
+  | Readonly<{ phase: "operation_persisted"; operationIndex: number }>;
+
+export type ControlledRepositoryApplyLifecycleObserver =
+  (event: ControlledRepositoryApplyLifecycleEvent) => void | Promise<void>;
 
 export type ControlledApplyConsumptionReservation = {
   registryVersion: "1";
@@ -379,6 +390,7 @@ type Operation = {
   expectedBeforeStateHash: string;
   expectedAfterStateHash: string;
   finalMode: "100644" | "100755" | null;
+  sourcePermissions: number;
 };
 type FileState = {
   state: "regular_file" | "symlink" | "directory" | "other" | "absent";
@@ -407,10 +419,10 @@ const DEFAULT_ENTRY_BYTES = 20 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 100 * 1024 * 1024;
 const DEFAULT_BUNDLE_BYTES = 200 * 1024 * 1024;
 const MAX_BUNDLE_BYTES = 1024 * 1024 * 1024;
-const DEFAULT_MUTATION_FILE_BYTES = 20 * 1024 * 1024;
-const MAX_MUTATION_FILE_BYTES = 100 * 1024 * 1024;
-const DEFAULT_MUTATION_TOTAL_BYTES = 200 * 1024 * 1024;
-const MAX_MUTATION_TOTAL_BYTES = 1024 * 1024 * 1024;
+const DEFAULT_MUTATION_FILE_BYTES = MUTATION_LIMITS.maxFileBytes;
+const MAX_MUTATION_FILE_BYTES = MUTATION_LIMITS.maxFileBytes;
+const DEFAULT_MUTATION_TOTAL_BYTES = MUTATION_LIMITS.maxTotalBytes;
+const MAX_MUTATION_TOTAL_BYTES = MUTATION_LIMITS.maxTotalBytes;
 const MAX_PATH_LENGTH = 4096;
 const MAX_NODES = 300_000;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -865,7 +877,7 @@ async function actualState(target: string, maxBytes: number): Promise<FileState>
     );
     const handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
     let bytes: Buffer;
-    try { bytes = await handle.readFile(); } finally { await handle.close(); }
+    try { bytes = Buffer.from(await readBoundedMutationBytes(handle, maxBytes)); } finally { await handle.close(); }
     const mode = (metadata.mode & 0o111) !== 0 ? "100755" : "100644";
     const contentHash = sha256(bytes);
     return {
@@ -965,27 +977,11 @@ function collectClaims(mutation: WorkspaceMutation): Map<string, Buffer> {
     );
   }
   const result = new Map<string, Buffer>();
-  for (const claim of mutation.claims) {
-    if (claim === null || typeof claim !== "object" || Array.isArray(claim)) continue;
-    const candidate = claim as PlainRecord;
-    if (candidate.type !== "repair_draft") continue;
-    if (["operation", "delete", "mode", "chmod", "symlinkTarget", "linkTarget"]
-      .some((field) => Object.prototype.hasOwnProperty.call(candidate, field))) {
-      throw new ApplyFailure(
-        candidate.operation === "delete"
-          ? "controlled_repository_apply_operation_unsupported"
-          : "controlled_repository_apply_operation_unsupported",
-        "The mutation requests an unsupported filesystem transformation.", "review"
-      );
-    }
-    if (typeof candidate.file !== "string" || typeof candidate.proposedPatch !== "string" ||
-        candidate.file.trim() !== candidate.file || result.has(candidate.file)) {
-      throw new ApplyFailure(
-        "controlled_repository_apply_operation_unsupported",
-        "Repair-draft operations are ambiguous.", "review"
-      );
-    }
-    result.set(candidate.file, Buffer.from(candidate.proposedPatch, "utf8"));
+  try {
+    for (const claim of parseTextFileUpdates(mutation)) result.set(claim.file, Buffer.from(claim.newContent, "utf8"));
+  } catch (error) {
+    if (error instanceof MutationContractError) throw new ApplyFailure(error.code, error.message, "invalid", undefined, error.file);
+    throw error;
   }
   return result;
 }
@@ -1010,12 +1006,25 @@ async function deriveOperations(
   );
   let total = 0;
   const operations: Operation[] = [];
+  let sourceTotal = 0;
+  const updateClaims = parseTextFileUpdates(mutation);
   for (const filePath of [...changedFiles].sort()) {
     const baseline = baselineByPath.get(filePath);
     const bytes = claims.get(filePath)!;
     if (!baseline) throw new ApplyFailure(
       "controlled_repository_apply_baseline_mismatch", "Baseline entry is missing."
     );
+    let source;
+    try {
+      source = await readTextUpdateSource(repository, filePath);
+      sourceTotal += source.bytes.length;
+      if (sourceTotal > MUTATION_LIMITS.maxTotalBytes) throw new MutationContractError("MUTATION_TOTAL_LIMIT_EXCEEDED", "Source total exceeds 4 MiB.");
+      validateUpdateSource(updateClaims.find((claim) => claim.file === filePath)!, source.bytes);
+    } catch (error) {
+      if (error instanceof MutationContractError) throw new ApplyFailure(error.code, error.message,
+        error.code === "MUTATION_SOURCE_HASH_MISMATCH" ? "blocked" : error.code === "MUTATION_NO_CHANGE" ? "review" : "invalid", undefined, error.file);
+      throw error;
+    }
     await validateParent(repository, filePath);
     if (baseline.baselineState === "tracked_gitlink") throw new ApplyFailure(
       "controlled_repository_apply_gitlink_unsupported", "Gitlink mutation is unsupported.",
@@ -1041,9 +1050,9 @@ async function deriveOperations(
       "review"
     );
     const before = expectedBaselineState(baseline);
-    const operation = baseline.baselineState === "absent" ? "create" : "update";
-    const finalMode = operation === "create" ? "100644" :
-      baseline.baseMode === "100755" ? "100755" : "100644";
+    if (baseline.baselineState === "absent") throw new ApplyFailure("MUTATION_CREATE_UNSUPPORTED", "Create is unsupported.");
+    const operation = "update";
+    const finalMode = baseline.baseMode === "100755" ? "100755" : "100644";
     const afterHash = stateHash("regular_file", finalMode, sha256(bytes));
     if (before.stateHash === afterHash) throw new ApplyFailure(
       "controlled_repository_apply_operation_unsupported",
@@ -1051,7 +1060,7 @@ async function deriveOperations(
       "review", undefined, filePath
     );
     operations.push({
-      filePath, operation, bytes, baseline,
+      filePath, operation, bytes, baseline, sourcePermissions: source.mode,
       expectedBeforeStateHash: before.stateHash,
       expectedAfterStateHash: afterHash, finalMode
     });
@@ -1110,14 +1119,14 @@ async function applyOperation(
     try {
       handle = await open(target, fsConstants.O_RDWR | (fsConstants.O_NOFOLLOW ?? 0));
       const metadata = await handle.stat();
-      if (!metadata.isFile()) throw new Error("not regular");
-      const beforeBytes = await handle.readFile();
+      if (!metadata.isFile() || (metadata.mode & 0o7777) !== operation.sourcePermissions) throw new Error("file type or permissions changed");
+      const beforeBytes = Buffer.from(await readBoundedMutationBytes(handle, MUTATION_LIMITS.maxFileBytes));
       const beforeMode = (metadata.mode & 0o111) !== 0 ? "100755" : "100644";
       if (stateHash("regular_file", beforeMode, sha256(beforeBytes)) !==
           operation.expectedBeforeStateHash) throw new Error("baseline mismatch");
       await handle.truncate(0);
       await handle.write(operation.bytes, 0, operation.bytes.length, 0);
-      await handle.chmod(operation.finalMode === "100755" ? 0o755 : 0o644);
+      await handle.chmod(operation.sourcePermissions);
       await handle.sync();
     } catch {
       throw new ApplyFailure(
@@ -1454,7 +1463,8 @@ function inspectionMatchesExpected(
 }
 
 export async function executeControlledRepositoryApply(
-  input: ControlledRepositoryApplyInput
+  input: ControlledRepositoryApplyInput,
+  lifecycleObserver?: ControlledRepositoryApplyLifecycleObserver
 ): Promise<ControlledRepositoryApplyResult> {
   const summary = initialSummary();
   const issues: ControlledRepositoryApplyIssue[] = [];
@@ -1479,6 +1489,9 @@ export async function executeControlledRepositoryApply(
   let unexpectedChangedFiles: string[] = [];
   try {
     const cloned = safeClone(input);
+    if (lifecycleObserver !== undefined && typeof lifecycleObserver !== "function") {
+      throw new TypeError("controlled_repository_apply_lifecycle_observer_invalid");
+    }
     const top = exactObject(
       cloned, INPUT_FIELDS, "Controlled repository apply input",
       ["authorization", "gateInput", "registryDirectoryPath"]
@@ -1591,6 +1604,7 @@ export async function executeControlledRepositoryApply(
       summary.consumptionClaimCreated = true;
       summary.consumptionClaimPermanent = true;
       await syncDirectory(paths.claims);
+      await lifecycleObserver?.({ phase: "claim_created" });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         summary.consumptionClaimPreviouslyExisted = true;
@@ -1611,6 +1625,7 @@ export async function executeControlledRepositoryApply(
       summary.reservationVerified = canonicalEqual(disk, reservation) &&
         disk.reservationHash === hashWithout(disk as unknown as PlainRecord, "reservationHash");
       if (!summary.reservationVerified) throw new Error("reservation mismatch");
+      await lifecycleObserver?.({ phase: "reservation_verified" });
     } catch {
       throw new ApplyFailure(
         "controlled_repository_apply_reservation_write_failed",
@@ -1632,6 +1647,7 @@ export async function executeControlledRepositoryApply(
           disk as unknown as PlainRecord, "transactionHash"
         );
       if (!summary.transactionIntentVerified) throw new Error("transaction mismatch");
+      await lifecycleObserver?.({ phase: "transaction_intent_verified" });
     } catch {
       throw new ApplyFailure(
         "controlled_repository_apply_transaction_write_failed",
@@ -1658,6 +1674,7 @@ export async function executeControlledRepositoryApply(
     await syncDirectory(paths.claim);
     await createMarker(paths.writeStarted);
     summary.writeStarted = true;
+    await lifecycleObserver?.({ phase: "write_started" });
 
     for (let index = 0; index < operations.length; index += 1) {
       const operation = operations[index];
@@ -1667,6 +1684,7 @@ export async function executeControlledRepositoryApply(
       completed.push(operation);
       summary.completedOperationCount += 1;
       await persistStep(paths, index, operation, actual);
+      await lifecycleObserver?.({ phase: "operation_persisted", operationIndex: index });
       appliedFiles.push({
         filePath: operation.filePath, operation: operation.operation,
         finalState: actual.state as "regular_file" | "symlink" | "absent",

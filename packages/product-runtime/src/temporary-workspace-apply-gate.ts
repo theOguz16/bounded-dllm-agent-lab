@@ -1,3 +1,4 @@
+import { parseTextFileUpdates, validateUpdateSourceMap, MutationContractError } from "./text-file-update-contract.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,13 +55,13 @@ export type TemporaryWorkspaceApplyResult = {
   };
 };
 
-const defaultMaxFiles = 10;
-const defaultMaxFileBytes = 100_000;
+const defaultMaxFiles = 32;
+const defaultMaxFileBytes = 1024 * 1024;
 const defaultMaxDiffPreviewLines = 80;
 
 type RepairDraftClaim = {
   file: string;
-  proposedPatch: string;
+  newContent: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -270,10 +271,10 @@ function collectRepairDraftClaims(
     }
 
     const file = typeof claim.file === "string" ? claim.file.trim() : "";
-    const proposedPatch =
-      typeof claim.proposedPatch === "string" ? claim.proposedPatch : "";
+    const newContent =
+      typeof claim.newContent === "string" ? claim.newContent : "";
 
-    claims.push({ file, proposedPatch });
+    claims.push({ file, newContent });
   }
 
   return claims;
@@ -316,7 +317,7 @@ function cleanupTempWorkspace(tempWorkspacePath: string | null): boolean {
   return true;
 }
 
-export function applyToTemporaryWorkspace(
+function applyToTemporaryWorkspaceUnchecked(
   repairDraftMutation: WorkspaceMutation,
   repairVerifierFinding: WorkspaceMutation,
   patchDryRunResult: PatchApplicationDryRunResult,
@@ -404,7 +405,7 @@ export function applyToTemporaryWorkspace(
   }
 
   for (const claim of repairDraftClaims) {
-    const { file, proposedPatch } = claim;
+    const { file, newContent } = claim;
     addPathSafetyIssue(issues, file);
 
     if (file.length > 0) {
@@ -418,22 +419,22 @@ export function applyToTemporaryWorkspace(
           "review",
           file
         );
-      } else if (fileContents[file] === proposedPatch) {
+      } else if (fileContents[file] === newContent) {
         addIssue(
           issues,
           "no_op_patch",
-          `proposedPatch is identical to original content: ${file}`,
+          `newContent is identical to original content: ${file}`,
           "review",
           file
         );
       }
     }
 
-    if (Buffer.byteLength(proposedPatch, "utf8") > maxFileBytes) {
+    if (Buffer.byteLength(newContent, "utf8") > maxFileBytes) {
       addIssue(
         issues,
         "proposed_patch_too_large",
-        `proposedPatch byte length exceeds maxFileBytes: ${Buffer.byteLength(proposedPatch, "utf8")} > ${maxFileBytes}`,
+        `newContent byte length exceeds maxFileBytes: ${Buffer.byteLength(newContent, "utf8")} > ${maxFileBytes}`,
         "review",
         file || undefined
       );
@@ -455,7 +456,7 @@ export function applyToTemporaryWorkspace(
 
     for (const claim of repairDraftClaims) {
       const originalContent = String(fileContents[claim.file]);
-      const appliedContent = claim.proposedPatch;
+      const appliedContent = claim.newContent;
       const targetPath = path.resolve(resolvedTempWorkspacePath, claim.file);
 
       if (!isWithinTempWorkspace(resolvedTempWorkspacePath, targetPath)) {
@@ -538,4 +539,14 @@ export function applyToTemporaryWorkspace(
       cleanedUp
     }
   };
+}
+
+export function applyToTemporaryWorkspace(mutation: WorkspaceMutation, finding: WorkspaceMutation, dryRun: PatchApplicationDryRunResult, context: TemporaryWorkspaceApplyContext): TemporaryWorkspaceApplyResult {
+  try { validateUpdateSourceMap(parseTextFileUpdates(mutation), context.fileContents); }
+  catch (error) {
+    if (!(error instanceof MutationContractError)) throw error;
+    const review = ["MUTATION_NO_CHANGE", "MUTATION_SOURCE_HASH_MISMATCH"].includes(error.code);
+    return emptyResult([{ code: error.code, message: error.message, severity: review ? "review" : "reject", ...(error.file ? { file: error.file } : {}) }], null, true);
+  }
+  return applyToTemporaryWorkspaceUnchecked(mutation, finding, dryRun, context);
 }

@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -26,11 +27,13 @@ function repairDraft(overrides = {}) {
     summary: "Repair a bounded patch draft.",
     claims: [
       {
+        claimVersion: "text-file-update/v1",
         type: "repair_draft",
+        operation: "update",
         file,
         description: "Export temporary workspace apply gate.",
-        proposedPatch: proposedContent,
-        addressesIssueCodes: ["missing_export"]
+        expectedContentHash: `sha256:${createHash("sha256").update(originalContent).digest("hex")}`,
+        newContent: proposedContent
       }
     ],
     touchedFiles: [file],
@@ -40,9 +43,18 @@ function repairDraft(overrides = {}) {
 }
 
 function repairDraftWithClaim(claim, overrides = {}) {
+  const normalizedClaim = claim.type === "repair_draft" ? {
+    claimVersion: "text-file-update/v1",
+    type: "repair_draft",
+    operation: "update",
+    description: "Update the bounded fixture.",
+    expectedContentHash: `sha256:${createHash("sha256").update(originalContent).digest("hex")}`,
+    newContent: proposedContent,
+    ...claim
+  } : claim;
   return repairDraft({
-    claims: [claim],
-    touchedFiles: typeof claim.file === "string" ? [claim.file] : [],
+    claims: [normalizedClaim],
+    touchedFiles: typeof normalizedClaim.file === "string" ? [normalizedClaim.file] : [],
     ...overrides
   });
 }
@@ -198,7 +210,7 @@ function removeIfExists(targetPath) {
         context()
       ),
       "temp_apply_rejected",
-      "not_remask_repair_draft"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -211,7 +223,7 @@ function removeIfExists(targetPath) {
         context()
       ),
       "temp_apply_rejected",
-      "not_repair_draft_target"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -249,8 +261,8 @@ function removeIfExists(targetPath) {
         patchDryRunResult(),
         context()
       ),
-      "temp_apply_needs_review",
-      "missing_repair_draft_claim"
+      "temp_apply_rejected",
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -262,14 +274,14 @@ function removeIfExists(targetPath) {
         repairDraftWithClaim({
           type: "repair_draft",
           file: unsafeFile,
-          proposedPatch: proposedContent
+          newContent: proposedContent
         }),
         verifierFinding(),
         patchDryRunResult({ previews: [{ ...patchDryRunResult().previews[0], file: unsafeFile }] }),
         context({ fileContents: { [unsafeFile]: originalContent } })
       ),
       "temp_apply_rejected",
-      "unsafe_file_path"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -281,14 +293,14 @@ function removeIfExists(targetPath) {
         repairDraftWithClaim({
           type: "repair_draft",
           file: unsafeFile,
-          proposedPatch: proposedContent
+          newContent: proposedContent
         }),
         verifierFinding(),
         patchDryRunResult({ previews: [{ ...patchDryRunResult().previews[0], file: unsafeFile }] }),
         context({ fileContents: { [unsafeFile]: originalContent } })
       ),
       "temp_apply_rejected",
-      "unsafe_file_path"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -300,7 +312,7 @@ function removeIfExists(targetPath) {
         repairDraftWithClaim({
           type: "repair_draft",
           file: unsafeFile,
-          proposedPatch: proposedContent
+          newContent: proposedContent
         }),
         verifierFinding(),
         patchDryRunResult({ previews: [{ ...patchDryRunResult().previews[0], file: unsafeFile }] }),
@@ -319,14 +331,14 @@ function removeIfExists(targetPath) {
         repairDraftWithClaim({
           type: "repair_draft",
           file: unsafeFile,
-          proposedPatch: proposedContent
+          newContent: proposedContent
         }),
         verifierFinding(),
         patchDryRunResult({ previews: [{ ...patchDryRunResult().previews[0], file: unsafeFile }] }),
         context({ fileContents: { [unsafeFile]: originalContent } })
       ),
       "temp_apply_rejected",
-      "unsafe_file_path"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 
@@ -364,16 +376,20 @@ function removeIfExists(targetPath) {
         patchDryRunResult(),
         context({ fileContents: {} })
       ),
-      "temp_apply_needs_review",
-      "missing_original_file_content"
+      "temp_apply_rejected",
+      "MUTATION_CREATE_UNSUPPORTED"
     );
   });
 
   check("too many files needs_review", () => {
-    const claims = Array.from({ length: 11 }, (_, index) => ({
+    const claims = Array.from({ length: 33 }, (_, index) => ({
+      claimVersion: "text-file-update/v1",
       type: "repair_draft",
+      operation: "update",
       file: `packages/product-runtime/src/file-${index}.ts`,
-      proposedPatch: `export const value${index} = ${index};\n`
+      description: "Update generated fixture.",
+      expectedContentHash: `sha256:${createHash("sha256").update("export const value = 0;\n").digest("hex")}`,
+      newContent: `export const value${index} = ${index};\n`
     }));
     const fileContents = Object.fromEntries(
       claims.map((claim) => [claim.file, `export const value = 0;\n`])
@@ -387,7 +403,7 @@ function removeIfExists(targetPath) {
           previews: claims.map((claim) => ({
             file: claim.file,
             originalContent: fileContents[claim.file],
-            proposedContent: claim.proposedPatch,
+            proposedContent: claim.newContent,
             changed: true,
             addedLines: 1,
             removedLines: 1,
@@ -396,8 +412,8 @@ function removeIfExists(targetPath) {
         }),
         context({ fileContents })
       ),
-      "temp_apply_needs_review",
-      "too_many_files"
+      "temp_apply_rejected",
+      "MUTATION_FILE_COUNT_EXCEEDED"
     );
   });
 
@@ -409,7 +425,10 @@ function removeIfExists(targetPath) {
             {
               type: "repair_draft",
               file,
-              proposedPatch: "x".repeat(8)
+              claimVersion: "text-file-update/v1", operation: "update",
+              description: "Update bounded fixture.",
+              expectedContentHash: `sha256:${createHash("sha256").update(originalContent).digest("hex")}`,
+              newContent: "x".repeat(8)
             }
           ]
         }),
@@ -430,7 +449,10 @@ function removeIfExists(targetPath) {
             {
               type: "repair_draft",
               file,
-              proposedPatch: originalContent
+              claimVersion: "text-file-update/v1", operation: "update",
+              description: "No-op replacement.",
+              expectedContentHash: `sha256:${createHash("sha256").update(originalContent).digest("hex")}`,
+              newContent: originalContent
             }
           ]
         }),
@@ -439,7 +461,7 @@ function removeIfExists(targetPath) {
         context()
       ),
       "temp_apply_needs_review",
-      "no_op_patch"
+      "MUTATION_NO_CHANGE"
     );
   });
 
@@ -451,14 +473,14 @@ function removeIfExists(targetPath) {
         repairDraftWithClaim({
           type: "repair_draft",
           file: unsafeFile,
-          proposedPatch: proposedContent
+          newContent: proposedContent
         }),
         verifierFinding(),
         patchDryRunResult({ previews: [{ ...patchDryRunResult().previews[0], file: unsafeFile }] }),
         context({ fileContents: { [unsafeFile]: originalContent } })
       ),
       "temp_apply_rejected",
-      "unsafe_file_path"
+      "MUTATION_SCHEMA_INVALID"
     );
   });
 

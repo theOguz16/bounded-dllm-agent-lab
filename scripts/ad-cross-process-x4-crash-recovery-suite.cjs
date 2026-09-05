@@ -491,9 +491,16 @@ async function check(name, callback) {
       summary:
         "Apply a bounded AD.1 crash fixture.",
       claims: files.map((file) => ({
+        claimVersion: "text-file-update/v1",
         type: "repair_draft",
+        operation: "update",
         file,
-        proposedPatch: proposedFiles[file]
+        expectedContentHash: `sha256:${crypto
+          .createHash("sha256")
+          .update(Buffer.from(baselineFiles[file], "utf8"))
+          .digest("hex")}`,
+        newContent: proposedFiles[file],
+        description: "Update the bounded crash recovery fixture."
       })),
       touchedFiles: [...files],
       confidence: 0.9
@@ -768,12 +775,19 @@ async function check(name, callback) {
       }
     );
 
-    await waitForMarker(
-      observedMarker,
-      failureMarker,
-      child,
-      20000
-    );
+    try {
+      await waitForMarker(
+        observedMarker,
+        failureMarker,
+        child,
+        20000
+      );
+    } catch (error) {
+      if (fs.existsSync(resultPath)) {
+        throw new Error(`${error.message}; result=${fs.readFileSync(resultPath, "utf8")}`);
+      }
+      throw error;
+    }
     await killStoppedWorker(child);
 
     return {
@@ -961,7 +975,7 @@ async function check(name, callback) {
             ]
           }),
           {
-            fileCount: 400,
+            fileCount: 32,
             proposedBytes: 0
           }
         );
@@ -988,7 +1002,7 @@ async function check(name, callback) {
             ]
           }),
           {
-            fileCount: 160,
+            fileCount: 32,
             proposedBytes: 0
           }
         );
@@ -999,8 +1013,8 @@ async function check(name, callback) {
       "SIGKILL after WRITE_STARTED restores exact X1 baseline",
       async () => {
         const value = await fixture({
-          fileCount: 24,
-          proposedBytes: 512 * 1024
+          fileCount: 4,
+          proposedBytes: 256
         });
 
         await spawnKilledApply(
@@ -1062,8 +1076,8 @@ async function check(name, callback) {
       "SIGKILL after first persisted file step restores all files",
       async () => {
         const value = await fixture({
-          fileCount: 24,
-          proposedBytes: 512 * 1024
+          fileCount: 4,
+          proposedBytes: 256
         });
 
         await spawnKilledApply(

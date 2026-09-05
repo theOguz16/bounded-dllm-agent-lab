@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+const { createHash } = require("node:crypto");
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -177,7 +177,7 @@ async function main() {
     const mutation = {
       role: "remask", target: "repairDraft", summary: "X4_MUTATION_SENTINEL",
       claims: changedFiles.map((file) => ({
-        type: "repair_draft", file, proposedPatch: proposed[file], ...(claimExtras[file] ?? {})
+        type: "repair_draft", claimVersion: "text-file-update/v1", operation: "update", description: "Update fixture.", expectedContentHash: `sha256:${createHash("sha256").update(tracked[file]?.content ?? "").digest("hex")}`, file, newContent: proposed[file], ...(claimExtras[file] ?? {})
       })),
       touchedFiles: [...changedFiles], confidence: 0.9
     };
@@ -385,21 +385,45 @@ async function main() {
       },
       proposed: {
         "bin/tool.sh": "#!/bin/sh\necho new\n",
-        "src/a.txt": "new\n",
-        "src/new.txt": "created\n"
+        "src/a.txt": "new\n"
       }
     });
     const combinedResult = await execute(combined);
-    check("create, update, executable preservation, and deterministic multi-file order work", () => {
+    check("update, executable preservation, and deterministic multi-file order work", () => {
       assert.equal(combinedResult.decision, "controlled_repository_apply_succeeded",
         JSON.stringify(combinedResult));
       assert.equal(fs.statSync(path.join(combined.gateInput.repositoryPath, "bin/tool.sh")).mode & 0o777,
         0o755);
-      assert.equal(fs.statSync(path.join(combined.gateInput.repositoryPath, "src/new.txt")).mode & 0o777,
-        0o644);
+
       assert.deepEqual(combinedResult.receipt.after.appliedFiles.map((entry) => entry.filePath),
-        ["bin/tool.sh", "src/a.txt", "src/new.txt"]);
+        ["bin/tool.sh", "src/a.txt"]);
     });
+
+    for (const [options, expectedCode] of [
+      [{ proposed: { "src/new.txt": "new" } }, "MUTATION_CREATE_UNSUPPORTED"],
+      [{ claimExtras: { "src/a.txt": { operation: "rename" } } }, "MUTATION_RENAME_UNSUPPORTED"],
+      [{ claimExtras: { "src/a.txt": { proposedPatch: "legacy" } } }, "MUTATION_LEGACY_PATCH_FIELD"],
+      [{ proposed: { "src/a.txt": "X4_SOURCE_SENTINEL\n" } }, "MUTATION_NO_CHANGE"],
+      [{ tracked: { "src/a.txt": { content: Buffer.from([255]), mode: 0o644 } } }, "MUTATION_UTF8_INVALID"],
+      [{ tracked: { "src/a.txt": { content: Buffer.from([0]), mode: 0o644 } } }, "MUTATION_BINARY_UNSUPPORTED"]
+    ]) {
+      const rejectedFixture = await fixture(options);
+      const rejected = await execute(rejectedFixture);
+      check(`${expectedCode} is explicit and performs no write`, () => {
+        assert(rejected.issues.some((entry) => entry.code === expectedCode), JSON.stringify(rejected));
+        assert.equal(rejected.summary.repositoryWritePerformed, false);
+        assert.equal(rejected.summary.consumptionClaimCreated, false);
+      });
+    }
+    for (const newContent of ["", "\ufeffTürkçe\r\n"]) {
+      const exact = await fixture({ tracked: { "src/a.txt": { content: "old", mode: 0o640 } }, proposed: { "src/a.txt": newContent } });
+      const result = await execute(exact);
+      check("apply preserves exact UTF-8 bytes and normal permission bits", () => {
+        assert.equal(result.decision, "controlled_repository_apply_succeeded", JSON.stringify(result));
+        assert.equal(fs.readFileSync(path.join(exact.gateInput.repositoryPath, "src/a.txt"), "utf8"), newContent);
+        assert.equal(fs.statSync(path.join(exact.gateInput.repositoryPath, "src/a.txt")).mode & 0o777, 0o640);
+      });
+    }
 
     const unsupportedResults = [];
     for (const extras of [
@@ -412,7 +436,7 @@ async function main() {
     }
     check("delete, directory, gitlink, FIFO, symlink, and mode transformations review", () => {
       for (const unsupported of unsupportedResults) {
-        assert.equal(unsupported.decision, "controlled_repository_apply_needs_review");
+        assert.equal(unsupported.decision, "controlled_repository_apply_invalid");
         assert.equal(unsupported.summary.consumptionClaimCreated, false);
         assert.equal(unsupported.summary.repositoryWritePerformed, false);
       }
@@ -447,7 +471,7 @@ async function main() {
       assert.equal(aboveTotalResult.summary.consumptionClaimCreated, false);
     });
 
-    const large = "x".repeat(2 * 1024 * 1024);
+    const large = "x".repeat(1024 * 1024);
     const rollbackFixture = await fixture({
       tracked: {
         "src/a.txt": { content: "baseline-a\n", mode: 0o644 },
@@ -494,7 +518,7 @@ async function main() {
 
     const stepFailureFixture = await fixture({
       tracked: { "src/a.txt": { content: "step-baseline\n", mode: 0o644 } },
-      proposed: { "src/a.txt": "s".repeat(8 * 1024 * 1024) }
+      proposed: { "src/a.txt": "s".repeat(1024 * 1024) }
     });
     const stepFailureClaim = path.join(
       stepFailureFixture.registryDirectoryPath, "claims",
@@ -516,7 +540,7 @@ async function main() {
 
     const afterMismatchFixture = await fixture({
       tracked: { "src/a.txt": { content: "mismatch-baseline\n", mode: 0o644 } },
-      proposed: { "src/a.txt": "m".repeat(8 * 1024 * 1024) }
+      proposed: { "src/a.txt": "m".repeat(1024 * 1024) }
     });
     const mismatchClaim = path.join(
       afterMismatchFixture.registryDirectoryPath, "claims",
@@ -526,7 +550,7 @@ async function main() {
     const mismatchPromise = execute(afterMismatchFixture);
     await waitForFile(path.join(mismatchClaim, "WRITE_STARTED"));
     const mismatchStarted = Date.now();
-    while (fs.statSync(mismatchTarget).size !== 8 * 1024 * 1024) {
+    while (fs.statSync(mismatchTarget).size !== 1024 * 1024) {
       if (Date.now() - mismatchStarted > 5000) throw new Error("after-state race timeout");
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
@@ -542,7 +566,7 @@ async function main() {
 
     const unexpectedFixture = await fixture({
       tracked: { "src/a.txt": { content: "scope-baseline\n", mode: 0o644 } },
-      proposed: { "src/a.txt": "u".repeat(8 * 1024 * 1024) }
+      proposed: { "src/a.txt": "u".repeat(1024 * 1024) }
     });
     const unexpectedClaim = path.join(
       unexpectedFixture.registryDirectoryPath, "claims",
@@ -565,7 +589,7 @@ async function main() {
 
     const operationStateFixture = await fixture({
       tracked: { "src/a.txt": { content: "operation-baseline\n", mode: 0o644 } },
-      proposed: { "src/a.txt": "o".repeat(8 * 1024 * 1024) }
+      proposed: { "src/a.txt": "o".repeat(1024 * 1024) }
     });
     const operationClaim = path.join(
       operationStateFixture.registryDirectoryPath, "claims",
@@ -589,7 +613,7 @@ async function main() {
 
     const stagedFixture = await fixture({
       tracked: { "src/a.txt": { content: "staged-baseline\n", mode: 0o644 } },
-      proposed: { "src/a.txt": "g".repeat(8 * 1024 * 1024) }
+      proposed: { "src/a.txt": "g".repeat(1024 * 1024) }
     });
     const stagedClaim = path.join(
       stagedFixture.registryDirectoryPath, "claims", stagedFixture.authorization.consumptionKey.slice(7)
@@ -598,7 +622,7 @@ async function main() {
     const stagedPromise = execute(stagedFixture);
     await waitForFile(path.join(stagedClaim, "WRITE_STARTED"));
     const stagedStarted = Date.now();
-    while (fs.statSync(stagedTarget).size !== 8 * 1024 * 1024) {
+    while (fs.statSync(stagedTarget).size !== 1024 * 1024) {
       if (Date.now() - stagedStarted > 5000) throw new Error("staged-state race timeout");
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
@@ -660,8 +684,8 @@ async function main() {
 
     const missingParent = await fixture({ proposed: { "missing/new.txt": "new\n" } });
     const missingParentResult = await execute(missingParent);
-    check("missing parent directory requires review before claim and write", () => {
-      assert.equal(missingParentResult.decision, "controlled_repository_apply_needs_review");
+    check("missing parent directory rejects create before claim and write", () => {
+      assert.equal(missingParentResult.decision, "controlled_repository_apply_invalid");
       assert.equal(missingParentResult.summary.consumptionClaimCreated, false);
       assert.equal(fs.existsSync(path.join(missingParent.gateInput.repositoryPath, "missing")), false);
     });
@@ -716,7 +740,7 @@ async function main() {
       registryDirectoryPath: invalidRegistryPath
     });
     check("pre-write precedence is invalid over needs-review over blocked", () => {
-      assert.equal(reviewPrecedence.decision, "controlled_repository_apply_needs_review");
+      assert.equal(reviewPrecedence.decision, "controlled_repository_apply_invalid");
       assert.equal(invalidPrecedence.decision, "controlled_repository_apply_invalid");
       assert.equal(reviewPrecedence.summary.consumptionClaimCreated, false);
       assert.equal(invalidPrecedence.summary.consumptionClaimCreated, false);

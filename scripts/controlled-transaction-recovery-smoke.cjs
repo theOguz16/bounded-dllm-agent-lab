@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+const { createHash } = require("node:crypto");
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -148,8 +148,8 @@ async function main() {
     git(repositoryPath, ["add", "--", "."]); git(repositoryPath, ["commit", "--quiet", "-m", "fixture"]);
     const mutation = {
       role: "remask", target: "repairDraft", summary: "X6_MUTATION_SENTINEL",
-      claims: files.map((file, index) => ({ type: "repair_draft", file,
-        proposedPatch: largeMutation ? `${index}`.repeat(2 * 1024 * 1024) : `X6_APPLIED_${index}\n` })),
+      claims: files.map((file, index) => ({ type: "repair_draft", claimVersion: "text-file-update/v1", operation: "update", description: "Update fixture.", expectedContentHash: `sha256:${createHash("sha256").update(`X6_BASELINE_${index}\n`).digest("hex")}`, file,
+        newContent: largeMutation ? `${index}`.repeat(512 * 1024) : `X6_APPLIED_${index}\n` })),
       touchedFiles: [...files].sort(), confidence: 0.9
     };
     let phaseVExecutionSpecification = null; let phaseVExecutionVerification = null;
@@ -222,6 +222,22 @@ async function main() {
   }
   function validation(value) {
     return path.join(value.registryDirectoryPath, "validations", value.authorization.consumptionKey.slice(7));
+  }
+  function makeValidationIncomplete(value) {
+    for (const name of ["validation-result.json", "final-receipt.json", "FINALIZED"]) {
+      fs.rmSync(path.join(validation(value), name), { force: true });
+    }
+  }
+  async function withFakeDocker(source, callback) {
+    const fakeBin = fs.mkdtempSync(path.join(os.tmpdir(), "x6-fake-docker-"));
+    roots.push(fakeBin);
+    const executable = path.join(fakeBin, "docker");
+    fs.writeFileSync(executable, `#!/usr/bin/env node\n${source}\n`);
+    fs.chmodSync(executable, 0o755);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}${path.delimiter}${originalPath ?? ""}`;
+    try { return await callback(); }
+    finally { process.env.PATH = originalPath; }
   }
   function executeX5(value) {
     return executeControlledPostApplyValidation({
@@ -356,6 +372,111 @@ async function main() {
       assert.equal(startedRecovery.decision, "controlled_transaction_recovery_rolled_back",
         JSON.stringify(startedRecovery));
       assert.equal(startedRecovery.summary.x5State, "x5_validation_started_incomplete");
+    });
+
+    const daemonDown = await fixture({ withPhaseV: true });
+    assert.equal((await executeX5(daemonDown)).decision,
+      "controlled_post_apply_validation_finalized");
+    makeValidationIncomplete(daemonDown);
+    const daemonDownResult = await withFakeDocker("process.exit(1);", () =>
+      executeControlledTransactionRecovery(input(daemonDown)));
+    check("unavailable Docker cannot produce a successful recovery receipt", () => {
+      assert.equal(daemonDownResult.decision, "controlled_transaction_recovery_failed",
+        JSON.stringify(daemonDownResult));
+      assert.equal(daemonDownResult.receipt.outcome, "recovery_failed");
+      assert.equal(daemonDownResult.summary.repositoryWriteAttempted, false);
+      assert.equal(daemonDownResult.summary.terminalMarker, "RECOVERY_FAILED");
+      assert.ok(daemonDownResult.issues.some((entry) =>
+        entry.code === "controlled_transaction_recovery_container_recovery_required"));
+      assert.equal(fs.readFileSync(path.join(daemonDown.gateInput.repositoryPath,
+        "src/a.txt"), "utf8"), "X6_APPLIED_0\n");
+    });
+    const daemonRetry = await executeControlledTransactionRecovery(input(daemonDown));
+    assert.equal(daemonRetry.decision, "controlled_transaction_recovery_rolled_back",
+      JSON.stringify(daemonRetry));
+
+    const removalFailure = await fixture({ withPhaseV: true });
+    assert.equal((await executeX5(removalFailure)).decision,
+      "controlled_post_apply_validation_finalized");
+    makeValidationIncomplete(removalFailure);
+    const removalIdentity = JSON.parse(fs.readFileSync(path.join(validation(removalFailure),
+      "validation-intent.json"), "utf8")).validationContainer;
+    const fakeContainerId = "a".repeat(64);
+    const fakeCalls = path.join(os.tmpdir(), `x6-fake-docker-calls-${Date.now()}.jsonl`);
+    roots.push(fakeCalls);
+    const removalSource = `
+const fs=require("node:fs");
+const args=process.argv.slice(2), id=${JSON.stringify(fakeContainerId)};
+fs.appendFileSync(${JSON.stringify(fakeCalls)},JSON.stringify(args)+"\\n");
+if(args[0]==="info") process.exit(0);
+if(args[0]==="ps"){process.stdout.write(id+"\\n");process.exit(0)}
+if(args[0]==="container"&&args[1]==="inspect"&&args.includes("--format")){
+ process.stdout.write(JSON.stringify(id)+"|"+JSON.stringify(${JSON.stringify(removalIdentity.labelValue)})+"|"+JSON.stringify(${JSON.stringify(runtime.DEFAULT_VALIDATION_CONTAINER_IMAGE)})+"\\n");process.exit(0)}
+if(args[0]==="kill") process.exit(0);
+if(args[0]==="rm") process.exit(1);
+if(args[0]==="container"&&args[1]==="inspect") process.exit(0);
+process.exit(0);`;
+    const removalResult = await withFakeDocker(removalSource, () =>
+      executeControlledTransactionRecovery(input(removalFailure)));
+    check("kill success followed by rm failure requires recovery", () => {
+      assert.equal(removalResult.decision, "controlled_transaction_recovery_failed",
+        JSON.stringify(removalResult));
+      assert.equal(removalResult.receipt.outcome, "recovery_failed");
+      assert.equal(removalResult.summary.repositoryWriteAttempted, false);
+      const calls = fs.readFileSync(fakeCalls, "utf8").trim().split("\n").map(JSON.parse);
+      assert(calls.some((args) => args[0] === "kill" && args[1] === "--signal" && args[2] === "KILL"));
+      assert(calls.some((args) => args[0] === "rm" && args[1] === "--force"));
+      assert(calls.some((args) => args[0] === "container" && args[1] === "inspect"));
+    });
+    assert.equal((await executeControlledTransactionRecovery(input(removalFailure))).decision,
+      "controlled_transaction_recovery_rolled_back");
+
+    const wrongLabel = await fixture({ withPhaseV: true });
+    assert.equal((await executeX5(wrongLabel)).decision,
+      "controlled_post_apply_validation_finalized");
+    makeValidationIncomplete(wrongLabel);
+    const wrongCalls = path.join(os.tmpdir(), `x6-wrong-label-calls-${Date.now()}.jsonl`);
+    roots.push(wrongCalls);
+    const wrongSource = `
+const fs=require("node:fs");const args=process.argv.slice(2),id=${JSON.stringify(fakeContainerId)};
+fs.appendFileSync(${JSON.stringify(wrongCalls)},JSON.stringify(args)+"\\n");
+if(args[0]==="info")process.exit(0);
+if(args[0]==="ps"){process.stdout.write(id+"\\n");process.exit(0)}
+if(args[0]==="container"&&args[1]==="inspect"&&args.includes("--format")){
+ process.stdout.write(JSON.stringify(id)+"|"+JSON.stringify("sha256:${"9".repeat(64)}")+"|"+JSON.stringify(${JSON.stringify(runtime.DEFAULT_VALIDATION_CONTAINER_IMAGE)})+"\\n");process.exit(0)}
+process.exit(0);`;
+    const wrongResult = await withFakeDocker(wrongSource, () =>
+      executeControlledTransactionRecovery(input(wrongLabel)));
+    check("same-name container with the wrong label is left untouched", () => {
+      assert.equal(wrongResult.decision, "controlled_transaction_recovery_failed",
+        JSON.stringify(wrongResult));
+      assert.equal(wrongResult.receipt.outcome, "recovery_failed");
+      const calls = fs.readFileSync(wrongCalls, "utf8").trim().split("\n").map(JSON.parse);
+      assert.equal(calls.some((args) => args[0] === "kill" || args[0] === "rm"), false);
+      assert.equal(wrongResult.summary.repositoryWriteAttempted, false);
+    });
+    assert.equal((await executeControlledTransactionRecovery(input(wrongLabel))).decision,
+      "controlled_transaction_recovery_rolled_back");
+
+    const tamperedIdentity = await fixture({ withPhaseV: true });
+    assert.equal((await executeX5(tamperedIdentity)).decision,
+      "controlled_post_apply_validation_finalized");
+    makeValidationIncomplete(tamperedIdentity);
+    const tamperedIntentPath = path.join(validation(tamperedIdentity), "validation-intent.json");
+    const tamperedIntent = JSON.parse(fs.readFileSync(tamperedIntentPath, "utf8"));
+    tamperedIntent.validationContainer.transactionBindingHash = `sha256:${"8".repeat(64)}`;
+    fs.writeFileSync(tamperedIntentPath, canonicalizeJson(tamperedIntent));
+    const tamperedInspection = await inspectControlledTransactionRecovery(input(tamperedIdentity));
+    const tamperedRecovery = await executeControlledTransactionRecovery(input(tamperedIdentity));
+    check("tampered durable container binding fails closed before cleanup or rollback", () => {
+      assert.notEqual(tamperedInspection.decision,
+        "controlled_transaction_recovery_inspection_ready", JSON.stringify(tamperedInspection));
+      assert.notEqual(tamperedRecovery.decision,
+        "controlled_transaction_recovery_rolled_back", JSON.stringify(tamperedRecovery));
+      assert.equal(tamperedRecovery.summary.repositoryWriteAttempted, false);
+      assert.equal(tamperedRecovery.receipt, null);
+      assert.equal(fs.readFileSync(path.join(tamperedIdentity.gateInput.repositoryPath,
+        "src/a.txt"), "utf8"), "X6_APPLIED_0\n");
     });
 
     const rolledBackX5 = await fixture({ withPhaseV: true, validationFails: true });
@@ -808,6 +929,7 @@ async function main() {
         rollbackBundleManifestHash: plan.rollbackBundle.bundleManifestHash,
         rollbackBundleReceiptHash: plan.rollbackBundle.bundleReceiptHash,
         rollbackPayloadRootHash: plan.rollbackBundle.payloadRootHash,
+        validationContainer: plan.validationContainer,
         policyHash: plan.policyHash, recoveryPlanHash: plan.planHash
       };
       const intent = { ...intentMaterial, intentHash: hashCanonicalJson(intentMaterial) };

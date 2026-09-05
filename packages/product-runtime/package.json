@@ -3,12 +3,29 @@
   "version": "0.2.0-dev.6",
   "description": "Canonical bounded-context execution and reliability runtime.",
   "type": "module",
-  "main": "src/canonical-runtime.ts",
+  "main": "./dist/canonical-runtime.js",
   "exports": {
-    ".": "./src/canonical-runtime.ts"
+    ".": {
+      "types": "./dist/canonical-runtime.d.ts",
+      "import": "./dist/canonical-runtime.js",
+      "default": "./dist/canonical-runtime.js"
+    }
   },
   "private": false,
   "dependencies": {
-    "typescript": "^5.6.3"
+    "minimatch": "^10.0.3",
+    "typescript": "^5.6.3",
+    "yaml": "^2.8.1"
+  },
+  "types": "./dist/canonical-runtime.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
   }
 }

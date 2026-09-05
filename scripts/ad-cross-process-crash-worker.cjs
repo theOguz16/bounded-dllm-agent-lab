@@ -10,6 +10,7 @@ async function startCheckpointMonitor(specification) {
 
   const monitorSource = `
     const fs = require("node:fs");
+    const { execFileSync } = require("node:child_process");
     const {
       parentPort,
       workerData
@@ -21,11 +22,25 @@ async function startCheckpointMonitor(specification) {
       );
 
     function matches() {
-      return workerData.present.every(
+      const filesMatch = workerData.present.every(
         (file) => fs.existsSync(file)
       ) && workerData.absent.every(
         (file) => !fs.existsSync(file)
       );
+      if (!filesMatch || workerData.container === null || workerData.container === undefined) {
+        return filesMatch;
+      }
+      try {
+        const intent = JSON.parse(fs.readFileSync(workerData.container.intentPath, "utf8"));
+        const name = intent.validationContainer.containerName;
+        const state = execFileSync("docker", ["container", "inspect", "--format",
+          "{{.State.Status}}", name], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+        if (state !== "running") return false;
+        if (!workerData.container.commandRunning) return true;
+        const processes = execFileSync("docker", ["top", name, "-eo", "pid,args"],
+          { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+        return processes.includes("validation-command-started");
+      } catch { return false; }
     }
 
     parentPort.postMessage({
@@ -55,12 +70,9 @@ async function startCheckpointMonitor(specification) {
         process.exit(0);
       }
 
-      Atomics.wait(
-        sleeper,
-        0,
-        0,
-        1
-      );
+      // This monitor runs in its own worker and must observe the narrow durable
+      // reservation/intent windows. Sleeping for even one millisecond can skip
+      // both atomic writes on fast filesystems.
     }
 
     fs.writeFileSync(
@@ -173,12 +185,29 @@ function writeResult(file, value) {
   );
 
   if (payload.mode === "apply") {
-    await startCheckpointMonitor(
-      payload.checkpoint ?? null
-    );
+    const checkpointPhases = {
+      after_reservation: "reservation_verified",
+      after_transaction_intent: "transaction_intent_verified",
+      after_write_started: "write_started",
+      after_first_file_write: "operation_persisted"
+    };
+    const expectedPhase = payload.checkpoint === null || payload.checkpoint === undefined
+      ? null
+      : checkpointPhases[payload.checkpoint.name];
 
     const result = await runtime.executeControlledRepositoryApply(
-      payload.applyInput
+      payload.applyInput,
+      expectedPhase === null || expectedPhase === undefined
+        ? undefined
+        : async (event) => {
+            if (event.phase !== expectedPhase ||
+                (event.phase === "operation_persisted" && event.operationIndex !== 0)) return;
+            fs.writeFileSync(payload.observedMarker, JSON.stringify({
+              checkpoint: payload.checkpoint.name,
+              observedAt: new Date().toISOString()
+            }), { mode: 0o600 });
+            process.kill(process.pid, "SIGSTOP");
+          }
     );
 
     writeResult(payload.resultPath, result);

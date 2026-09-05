@@ -1,3 +1,4 @@
+import { canonicalizeJson } from "./agent-event-ledger.js";
 import {
   canRoleWriteWorkspaceMutationTarget,
   createWorkspaceMutation,
@@ -247,7 +248,14 @@ export function validateModelWorkspaceMutation(
     };
   }
 
-  if (!isRecord(parsed.value)) {
+  return validateModelWorkspaceMutationValue(parsed.value, context);
+}
+
+export function validateModelWorkspaceMutationValue(
+  value: unknown,
+  context: ModelMutationValidationContext
+): ModelMutationValidationResult {
+  if (!isRecord(value)) {
     return {
       ok: false,
       blocked: true,
@@ -261,7 +269,7 @@ export function validateModelWorkspaceMutation(
     };
   }
 
-  const candidate = parsed.value;
+  const candidate = value;
   const issues: ModelMutationValidationIssue[] = [];
 
   addMissingRequiredFieldIssue(issues, candidate, "role");
@@ -323,6 +331,11 @@ export function validateModelWorkspaceMutation(
     );
   }
 
+  if (Array.isArray(candidate.touchedFiles) &&
+      candidate.touchedFiles.some((file) => typeof file !== "string")) {
+    addIssue(issues, "invalid_shape", "touchedFiles entries must be strings", "touchedFiles");
+  }
+
   if ("target" in candidate && target === "contextRequest") {
     if (!("contextRequest" in candidate)) {
       addIssue(
@@ -382,6 +395,21 @@ export function validateModelWorkspaceMutation(
       blocked: true,
       mutation: null,
       issues
+    };
+  }
+
+  try {
+    canonicalizeJson(candidate.claims);
+  } catch (error) {
+    return {
+      ok: false,
+      blocked: true,
+      mutation: null,
+      issues: [{
+        code: "invalid_shape",
+        message: error instanceof Error ? error.message : "claims must contain canonical JSON values",
+        path: "claims"
+      }]
     };
   }
 

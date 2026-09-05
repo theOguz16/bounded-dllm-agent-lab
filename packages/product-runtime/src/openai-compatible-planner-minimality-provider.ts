@@ -51,6 +51,9 @@ export type OpenAICompatiblePlannerMinimalityFailureCode =
   | "planner_minimality_adapter_timeout"
   | "planner_minimality_adapter_http_retryable"
   | "planner_minimality_adapter_http_non_retryable"
+  | "planner_minimality_adapter_generation_truncated"
+  | "planner_minimality_adapter_generation_filtered"
+  | "planner_minimality_adapter_generation_incomplete"
   | "planner_minimality_adapter_response_too_large"
   | "planner_minimality_adapter_response_envelope_invalid"
   | "planner_minimality_adapter_response_content_invalid"
@@ -713,7 +716,7 @@ function parseProviderEnvelope(value: unknown): ParsedProviderResponse {
         true
       );
   const content = message?.content ?? choice.text;
-  if (typeof content !== "string" || content.trim().length === 0) {
+  if (choice.finish_reason === "stop" && (typeof content !== "string" || content.trim().length === 0)) {
     throw new PlannerMinimalityAdapterError(
       "planner_minimality_adapter_response_content_invalid",
       "Provider response content must be a non-empty string.",
@@ -729,7 +732,7 @@ function parseProviderEnvelope(value: unknown): ParsedProviderResponse {
     );
   }
   return {
-    content,
+    content: typeof content === "string" ? content : "",
     finishReason: finishReason ?? null,
     ...parseUsage(record.usage)
   };
@@ -1034,6 +1037,63 @@ function retryableHttp(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
 }
 
+async function readBoundedResponse(
+  response: Response,
+  maxBytes: number,
+  controller: AbortController,
+  onBytes: (bytes: number) => void
+): Promise<string> {
+  const tooLarge = () => new PlannerMinimalityAdapterError(
+    "planner_minimality_adapter_response_too_large",
+    "Planner-minimality provider response exceeds the configured byte limit.", false, response.status
+  );
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    controller.abort();
+    void response.body?.cancel().catch(() => {});
+    throw tooLarge();
+  }
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let bytes = 0;
+  let abortRead: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortRead = () => {
+      reject(new PlannerMinimalityAdapterError(
+        "planner_minimality_adapter_timeout", "Planner-minimality response read timed out.", true, response.status
+      ));
+      void reader.cancel().catch(() => {});
+    };
+  });
+  controller.signal.addEventListener("abort", abortRead, { once: true });
+  try {
+    while (true) {
+      if (controller.signal.aborted) abortRead();
+      const chunk = await Promise.race([reader.read(), aborted]);
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      onBytes(bytes);
+      // Check raw bytes before decoding or retaining this chunk.
+      if (bytes > maxBytes) {
+        // Detach timeout classification before aborting an oversized transfer.
+        controller.signal.removeEventListener("abort", abortRead);
+        controller.abort();
+        void reader.cancel().catch(() => {});
+        throw tooLarge();
+      }
+      parts.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    parts.push(decoder.decode());
+    onBytes(bytes);
+    return parts.join("");
+  } finally {
+    controller.signal.removeEventListener("abort", abortRead);
+    reader.releaseLock();
+  }
+}
+
 export function createOpenAICompatiblePlannerMinimalityProvider(
   inputConfig: OpenAICompatiblePlannerMinimalityProviderConfig
 ): OpenAICompatiblePlannerMinimalityProviderAdapter {
@@ -1094,26 +1154,9 @@ export function createOpenAICompatiblePlannerMinimalityProvider(
           );
         }
         httpStatus = response.status;
-        const contentLength = response.headers.get("content-length");
-        if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > config.maxResponseBytes) {
-          throw new PlannerMinimalityAdapterError(
-            "planner_minimality_adapter_response_too_large",
-            "Planner-minimality provider response exceeds the configured byte limit.",
-            false,
-            response.status
-          );
-        }
-        const text = await response.text();
-        responseBytes = new TextEncoder().encode(text).byteLength;
+        const text = await readBoundedResponse(response, config.maxResponseBytes, controller,
+          (bytes) => { responseBytes = bytes; });
         responseHash = hashCanonicalJson({ responseText: text });
-        if (responseBytes > config.maxResponseBytes) {
-          throw new PlannerMinimalityAdapterError(
-            "planner_minimality_adapter_response_too_large",
-            "Planner-minimality provider response exceeds the configured byte limit.",
-            false,
-            response.status
-          );
-        }
         if (!response.ok) {
           const retryable = retryableHttp(response.status);
           throw new PlannerMinimalityAdapterError(
@@ -1137,6 +1180,15 @@ export function createOpenAICompatiblePlannerMinimalityProvider(
           );
         }
         parsed = parseProviderEnvelope(envelope);
+        if (parsed.finishReason !== "stop") {
+          const code = parsed.finishReason === "length"
+            ? "planner_minimality_adapter_generation_truncated"
+            : parsed.finishReason === "content_filter"
+              ? "planner_minimality_adapter_generation_filtered"
+              : "planner_minimality_adapter_generation_incomplete";
+          throw new PlannerMinimalityAdapterError(code,
+            "Planner-minimality generation did not complete normally.", false, response.status);
+        }
         const draft = normalizeDraft(parseContentJson(parsed.content), context);
         const output = finalizeOutput(draft, context);
         const minimalityDraftHash = hashCanonicalJson(output.minimalityPlan);

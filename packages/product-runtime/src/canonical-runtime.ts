@@ -55,3 +55,9 @@ export * from "./controlled-repository-apply.js";
 export * from "./controlled-post-apply-validation.js";
 export * from "./controlled-transaction-recovery.js";
 export * from "./durable-consumption-registry.js";
+
+export * from "./text-file-update-contract.js";
+export * from "./containerized-workspace-execution-runner.js";
+export * from "./canonical-governed-execution-adapter.js";
+export * from "./canonical-policy-compiler.js";
+export * from "./bounded-task-state-machine.js";

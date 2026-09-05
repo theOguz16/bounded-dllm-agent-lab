@@ -58,11 +58,14 @@ export type PlannerMinimalityExecutionBinding = {
   implementationContractHash: string;
   implementationAuditHash: string;
   intelligenceHash: string;
+  policyHash: string;
   minimalityPolicyHash: string;
   minimalityPlanHash: string;
   minimalityReceiptHash: string;
   minimalityBaselineHash: string;
   taskSeedExecutionBindingHash: string;
+  plannedFiles: readonly string[];
+  allowedMutationFiles: readonly string[];
   bindingHash: string;
 };
 
@@ -276,10 +279,13 @@ function bindingMaterial(
     implementationContractHash: binding.implementationContractHash,
     implementationAuditHash: binding.implementationAuditHash,
     intelligenceHash: binding.intelligenceHash,
+    policyHash: binding.policyHash,
     minimalityPolicyHash: binding.minimalityPolicyHash,
     minimalityPlanHash: binding.minimalityPlanHash,
     minimalityReceiptHash: binding.minimalityReceiptHash,
     minimalityBaselineHash: binding.minimalityBaselineHash,
+    plannedFiles: binding.plannedFiles,
+    allowedMutationFiles: binding.allowedMutationFiles,
     taskSeedExecutionBindingHash: binding.taskSeedExecutionBindingHash
   };
 }
@@ -655,12 +661,23 @@ export async function runPlannerMinimalityBoundCoderFlow<T>(
     });
   }
 
+  // The successful bound flow has verified visible evidence against repository facts.
+  const contextFiles = new Set(
+    taskSeedResult.repoResult?.adaptiveResult?.coderResult?.context?.evidence.map((entry) => entry.path) ?? []
+  );
+  const callerFiles = new Set(normalizedRequest.allowedChangeFiles);
+  const plannedFiles = minimalityPlan.plannedFiles.map((entry) => entry.path);
+  const allowedMutationFiles = plannedFiles.filter((file) => callerFiles.has(file) && contextFiles.has(file));
+
   const withoutHash: Omit<PlannerMinimalityExecutionBinding, "bindingHash"> = {
     bindingVersion: PLANNER_MINIMALITY_EXECUTION_BINDING_VERSION,
+    plannedFiles,
+    allowedMutationFiles,
     proposalHash: validation.proposal.proposalHash,
     implementationContractHash: validation.implementationContract.contractHash,
     implementationAuditHash: auditResult.audit.auditHash,
     intelligenceHash: auditResult.audit.intelligenceHash,
+    policyHash: input.policyHash,
     minimalityPolicyHash: input.minimalityPolicy.policyHash,
     minimalityPlanHash: minimalityPlan.planHash,
     minimalityReceiptHash: minimalityResult.receipt.receiptHash,

@@ -5,6 +5,10 @@
  * old fixtures remain reproducible. Package consumers must use the package root,
  * which resolves to ./canonical-runtime.ts. This file is not release evidence.
  */
+import { canonicalPolicyConditionMatches, canonicalPolicyOwnershipReason,
+  containsCanonicalSensitiveLiteral, evaluateCanonicalMutationPolicyRules,
+  evaluateCanonicalScopePatterns,
+  matchCanonicalPolicyPattern } from "./canonical-policy-compiler.js";
 export const RESEARCH_ONLY_COMPATIBILITY_ENTRYPOINT =
   "research-only-compatibility/v1" as const;
 
@@ -724,10 +728,8 @@ export function reviewPatch(input: ReviewInput): ReviewOutput {
   const findings = [
     ...findScopeFindings(input),
     ...findAuthorityFindings(input),
-    ...findOwnershipFindings(input),
+    ...findCanonicalSharedPolicyFindings(input),
     ...findModuleBoundaryFindings(input),
-    ...findSensitiveBoundaryFindings(input),
-    ...findPairedFileFindings(input),
     ...findTestFindings(input),
     ...normalizeVerifierAdapterFindings(input.verifierAdapterOutput)
   ];
@@ -2664,20 +2666,11 @@ function appendWorkspaceEvent(workspace: SharedWorkspaceSnapshot, event: Workspa
 }
 
 function findScopeFindings(input: ReviewInput): Finding[] {
-  const findings: Finding[] = [];
-
-  for (const file of input.diff.changedFiles) {
-    if (matchesAny(file, input.policy.forbidden_paths)) {
-      findings.push(createFinding("scope", "error", `Forbidden path touched: ${file}`, [file], "reject"));
-      continue;
-    }
-
-    if (input.policy.allowed_paths.length > 0 && !matchesAny(file, input.policy.allowed_paths)) {
-      findings.push(createFinding("scope", "error", `File is outside allowed scope: ${file}`, [file], "reject"));
-    }
-  }
-
-  return findings;
+  return evaluateCanonicalScopePatterns({ changedFiles: input.diff.changedFiles,
+    allowedPatterns: input.policy.allowed_paths, forbiddenPatterns: input.policy.forbidden_paths,
+    allowUnlistedWhenEmpty: true }).map(({ file, code }) => code === "canonical_policy_forbidden_path"
+      ? createFinding("scope", "error", `Forbidden path touched: ${file}`, [file], "reject")
+      : createFinding("scope", "error", `File is outside allowed scope: ${file}`, [file], "reject"));
 }
 
 function findAuthorityFindings(input: ReviewInput): Finding[] {
@@ -2696,7 +2689,9 @@ function findOwnershipFindings(input: ReviewInput): Finding[] {
   for (const file of input.diff.changedFiles) {
     for (const [pattern, owner] of Object.entries(ownership)) {
       if (!matchesPattern(file, pattern)) continue;
-      if (hasOwnerAuthority(authorityText, owner, input.policy.owner_aliases?.[owner] ?? [])) continue;
+      const granted = hasOwnerAuthority(authorityText, owner,
+        input.policy.owner_aliases?.[owner] ?? []) ? new Set([owner]) : null;
+      if (canonicalPolicyOwnershipReason([owner], granted) === null) continue;
       findings.push(createFinding(
         "ownership",
         "error",
@@ -2709,6 +2704,38 @@ function findOwnershipFindings(input: ReviewInput): Finding[] {
   }
 
   return findings;
+}
+
+function findCanonicalSharedPolicyFindings(input: ReviewInput): Finding[] {
+  const authorityText = `${input.task.description}\n${(input.task.authorityFacts ?? []).join("\n")}`.toLowerCase();
+  const ownership = Object.entries(input.policy.ownership ?? {});
+  const granted = new Set<string>();
+  for (const [, owner] of ownership) if (hasOwnerAuthority(authorityText, owner,
+    input.policy.owner_aliases?.[owner] ?? [])) granted.add(owner);
+  const additions = addedHunkLines(input.diff.raw);
+  const contentsByFile = Object.fromEntries(input.diff.changedFiles.map((file) => [file,
+    additions.filter((entry) => entry.file === file).map((entry) => entry.content).join("\n") || input.diff.raw]));
+  const findings = evaluateCanonicalMutationPolicyRules({
+    changedFiles: input.diff.changedFiles, contentsByFile,
+    pairedFiles: (input.policy.paired_files ?? []).map((rule) => ({ source: rule.source,
+      requires: rule.requires, reason: rule.reason ?? "Paired file required.",
+      changedWhenContains: rule.changed_when_contains ?? [] })),
+    sensitiveContentPatterns: input.policy.sensitive_patterns ?? [], sensitiveRules: [],
+    ownershipRules: ownership.map(([pattern, owner]) => ({ pattern,
+      matchedPaths: input.diff.changedFiles.filter((file) => matchesPattern(file, pattern)),
+      authorities: [owner] })), grantedAuthorities: granted.size > 0 ? granted : null
+  });
+  return findings.map((finding) => {
+    if (finding.code === "canonical_policy_paired_file_missing" ||
+        finding.code === "canonical_policy_conditional_evidence_missing") return createFinding(
+      "paired_file", "warning", "A required paired-file update is missing.",
+      [finding.file, ...(finding.relatedFile ? [finding.relatedFile] : [])], "remask_required");
+    if (finding.code.startsWith("canonical_policy_sensitive")) return createFinding(
+      "sensitive_boundary", "error", "Sensitive policy rejected the proposed content.",
+      [finding.file], finding.disposition === "deny" ? "reject" : "human_review_required");
+    return createFinding("ownership", "error", "Required ownership authority is missing.",
+      [finding.file], "refuse");
+  });
 }
 
 function findModuleBoundaryFindings(input: ReviewInput): Finding[] {
@@ -2829,8 +2856,7 @@ function findSensitiveBoundaryFindings(input: ReviewInput): Finding[] {
     const identifier = sensitiveIdentifier(pattern);
     if (!identifier) return [];
     const files = additions.flatMap(({ file, content }) => {
-      const value = assignedValue(content, identifier);
-      return value !== null && literalCredentialValue(value) !== null ? [file] : [];
+      return containsCanonicalSensitiveLiteral(content, [identifier]) ? [file] : [];
     });
     if (files.length === 0) return [];
     return [createFinding(
@@ -2886,7 +2912,6 @@ function findTestFindings(input: ReviewInput): Finding[] {
 }
 
 function ruleConditionMatches(diff: PatchDiff, changedWhenContains: string[] | undefined): boolean {
-  if (!changedWhenContains?.length) return true;
   const changedText = diff.raw
     .split("\n")
     .filter((line) =>
@@ -2895,7 +2920,7 @@ function ruleConditionMatches(diff: PatchDiff, changedWhenContains: string[] | u
     )
     .join("\n")
     .toLowerCase();
-  return changedWhenContains.some((signal) => changedText.includes(signal.toLowerCase()));
+  return canonicalPolicyConditionMatches(changedText, changedWhenContains ?? []);
 }
 
 function createRemaskRegions(findings: Finding[]): RemaskRegion[] {
@@ -3039,16 +3064,7 @@ function hasOwnerAuthority(authorityText: string, owner: string, aliases: string
 }
 
 function matchesPattern(file: string, pattern: string): boolean {
-  const doubleStarSlash = "__DOUBLE_STAR_SLASH__";
-  const doubleStar = "__DOUBLE_STAR__";
-  const escaped = pattern
-    .replace(/\*\*\//g, doubleStarSlash)
-    .replace(/\*\*/g, doubleStar)
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, "[^/]*")
-    .replaceAll(doubleStarSlash, "(?:.*/)?")
-    .replaceAll(doubleStar, ".*");
-  return new RegExp(`^${escaped}$`).test(file);
+  return matchCanonicalPolicyPattern(file, pattern);
 }
 
 function table(headers: string[], rows: string[][]): string {
@@ -3104,3 +3120,9 @@ export * from "./soft-scope-drift-benchmark.js";
 export * from "./observed-soft-scope-release.js";
 export * from "./run-cost-ledger.js";
 export * from "./agent-event-cost-binding.js";
+
+export * from "./text-file-update-contract.js";
+export * from "./containerized-workspace-execution-runner.js";
+export * from "./canonical-governed-execution-adapter.js";
+export * from "./canonical-policy-compiler.js";
+export * from "./bounded-task-state-machine.js";

@@ -1,3 +1,4 @@
+import { parseTextFileUpdates, validateUpdateSourceMap, MutationContractError } from "./text-file-update-contract.js";
 import {
   createWorkspaceMutation,
   validateWorkspaceMutationContract,
@@ -10,6 +11,7 @@ export type DeterministicVerifierDecision =
   | "reject";
 
 export type DeterministicVerifierIssueCode =
+  | `MUTATION_${string}`
   | "not_coder_patch_draft"
   | "empty_patch_claims"
   | "missing_patch_description"
@@ -30,6 +32,7 @@ export type DeterministicVerifierIssue = {
 };
 
 export type DeterministicVerifierContext = {
+  fileContents?: Record<string, string>;
   allowedFiles?: string[];
   forbiddenFiles?: string[];
   minConfidence?: number;
@@ -120,7 +123,7 @@ function buildFinding(
   });
 }
 
-export function verifyPatchDraftMutation(
+function verifyPatchDraftMutationUnchecked(
   mutation: WorkspaceMutation,
   context: DeterministicVerifierContext = {}
 ): DeterministicVerifierResult {
@@ -162,8 +165,8 @@ export function verifyPatchDraftMutation(
     const file = typeof claim.file === "string" ? claim.file.trim() : "";
     const description =
       typeof claim.description === "string" ? claim.description.trim() : "";
-    const proposedPatch =
-      typeof claim.proposedPatch === "string" ? claim.proposedPatch : "";
+    const newContent =
+      typeof claim.newContent === "string" ? claim.newContent : "";
 
     if (file.length === 0) {
       addIssue(issues, "missing_patch_file", "patch_draft claim must include file.", {
@@ -191,21 +194,21 @@ export function verifyPatchDraftMutation(
       );
     }
 
-    if (proposedPatch.length === 0) {
+    if (typeof claim.newContent !== "string") {
       addIssue(
         issues,
         "missing_proposed_patch",
-        "patch_draft claim must include proposedPatch.",
-        { path: `${path}.proposedPatch`, file: file || undefined }
+        "patch_draft claim must include newContent.",
+        { path: `${path}.newContent`, file: file || undefined }
       );
     } else {
       for (const needle of unsafePatchNeedles) {
-        if (proposedPatch.includes(needle)) {
+        if (newContent.includes(needle)) {
           addIssue(
             issues,
             "unsafe_patch_content",
-            `proposedPatch contains unsafe content marker: ${needle}`,
-            { path: `${path}.proposedPatch`, file: file || undefined }
+            `newContent contains unsafe content marker: ${needle}`,
+            { path: `${path}.newContent`, file: file || undefined }
           );
           break;
         }
@@ -279,4 +282,15 @@ export function verifyPatchDraftMutation(
     issues,
     finding
   };
+}
+
+export function verifyPatchDraftMutation(mutation: WorkspaceMutation, context: DeterministicVerifierContext = {}): DeterministicVerifierResult {
+  try { validateUpdateSourceMap(parseTextFileUpdates(mutation), context.fileContents ?? {}); }
+  catch (error) {
+    if (!(error instanceof MutationContractError)) throw error;
+    const decision = ["MUTATION_NO_CHANGE", "MUTATION_SOURCE_HASH_MISMATCH"].includes(error.code) ? "needs_review" : "reject";
+    const issues: DeterministicVerifierIssue[] = [{ code: error.code as `MUTATION_${string}`, message: error.message, ...(error.file ? { file: error.file } : {}) }];
+    return { ok: false, decision, issues, finding: buildFinding(mutation, decision, issues) };
+  }
+  return verifyPatchDraftMutationUnchecked(mutation, context);
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+const { createHash } = require("node:crypto");
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -162,7 +162,7 @@ async function main() {
     specification = {
       commands: [{
         id: "validate", executable: "node",
-        args: ["-e", "require('fs').writeFileSync('ISOLATED_SIDE_EFFECT','X5_SIDE_EFFECT_SENTINEL')"]
+        args: ["-e", "require('fs').mkdirSync('.validation-output',{recursive:true});require('fs').writeFileSync('.validation-output/report.txt','X5_SIDE_EFFECT_SENTINEL')"]
       }],
       allowedExecutables: ["node"], maxCommands: 5, defaultTimeoutMs: 30000,
       maxTimeoutMs: 120000, maxOutputChars: 20000
@@ -183,7 +183,7 @@ async function main() {
     const phaseVExecutionVerification = await priorEvidence(specification, proposed);
     const mutation = {
       role: "remask", target: "repairDraft", summary: "X5_MUTATION_SENTINEL",
-      claims: [{ type: "repair_draft", file: "src/a.txt", proposedPatch: proposed }],
+      claims: [{ type: "repair_draft", claimVersion: "text-file-update/v1", operation: "update", description: "Update fixture.", expectedContentHash: `sha256:${createHash("sha256").update("X5_BASELINE_SENTINEL\n").digest("hex")}`, file: "src/a.txt", newContent: proposed }],
       touchedFiles: ["src/a.txt"], confidence: 0.9
     };
     const inspected = await inspectControlledRepository({
@@ -252,7 +252,7 @@ async function main() {
       assert.equal(finalized.summary.terminalMarker, "FINALIZED");
       assert.equal(finalized.summary.emergencyRollbackExecuted, false);
       assert.equal(fs.existsSync(path.join(clean.gateInput.repositoryPath,
-        "ISOLATED_SIDE_EFFECT")), false);
+        ".validation-output/report.txt")), false);
       assert.equal(fs.readFileSync(path.join(clean.gateInput.repositoryPath, "src/a.txt"), "utf8"),
         clean.proposed);
       deepFrozen(finalized);
@@ -283,6 +283,96 @@ async function main() {
       assert.equal(finalizedVerification.decision,
         "controlled_post_apply_final_receipt_current", JSON.stringify(finalizedVerification));
       deepFrozen(finalizedVerification);
+    });
+
+    for (const [name, command, extraTracked] of [
+      ["source modification", "require('fs').writeFileSync('src/a.txt','tampered')", {}],
+      ["test modification", "if(require('fs').existsSync('tests/other.js'))require('fs').writeFileSync('tests/other.js','process.exit(0)')", { "tests/other.js": "throw new Error('failure');" }],
+      ["unapproved output", "require('fs').writeFileSync('unexpected-report.txt','report')", {}],
+      ["source deletion", "require('fs').unlinkSync('src/a.txt')", {}],
+      ["source replacement with symlink", "require('fs').unlinkSync('src/a.txt');require('fs').symlinkSync('../report.txt','src/a.txt')", {}]
+    ]) {
+      const malicious = await fixture({
+        specification: {
+          commands: [{ id: "test", executable: "node", args: ["-e", command] },
+            { id: "acceptance", executable: "node", args: ["-e", "if(require('fs').existsSync('tests/other.js'))require('./tests/other.js')"] }],
+          allowedExecutables: ["node"]
+        },
+        extraTracked
+      });
+      const result = await execute(malicious);
+      check(`${name} is blocked by the read-only candidate mount and restores baseline`, () => {
+        assert.equal(result.decision, "controlled_post_apply_validation_rolled_back", JSON.stringify(result));
+        assert.equal(result.validationRecord.decision, "failed");
+        assert.equal(result.summary.validationPassed, false);
+        assert.equal(result.summary.emergencyRollbackSucceeded, true);
+        assert.equal(result.validationRecord.steps.length, 1);
+        assert.equal(result.validationRecord.steps[0].passed, false);
+        assert.equal(result.validationRecord.candidateManifestBeforeHash, result.validationRecord.candidateManifestAfterHash);
+        assert.equal(fs.readFileSync(path.join(malicious.gateInput.repositoryPath, "src/a.txt"), "utf8"), "X5_BASELINE_SENTINEL\n");
+      });
+    }
+    for (const [target, original, firstStage] of [
+      ["src/a.txt", "X5_APPLIED_SENTINEL\n", "test"],
+      ["tests/other.js", "throw new Error('failure');", "test"],
+      ["src/a.txt", "X5_APPLIED_SENTINEL\n", "acceptance"]
+    ]) {
+      const mutate = `const fs=require('fs');if(fs.existsSync('stage-probe'))fs.writeFileSync(${JSON.stringify(target)},'tampered');`;
+      const restore = `const fs=require('fs');if(fs.existsSync('stage-probe')){fs.writeFileSync(${JSON.stringify(target)},${JSON.stringify(original)});}`;
+      const commands = [
+        ...(firstStage === "acceptance" ? [{ id: "test", executable: "node", args: ["-e", "process.exit(0)"] }] : []),
+        { id: firstStage, executable: "node", args: ["-e", mutate] },
+        { id: "restore", executable: "node", args: ["-e", restore] }
+      ];
+      const staged = await fixture({
+        specification: { commands, allowedExecutables: ["node"] },
+        extraTracked: { "stage-probe": "enabled", ...(target.startsWith("tests/") ? { [target]: original } : {}) }
+      });
+      const result = await execute(staged);
+      check(`${firstStage} changing ${target} stops before the restoring command`, () => {
+        assert.equal(result.decision, "controlled_post_apply_validation_rolled_back", JSON.stringify(result));
+        assert.equal(result.validationRecord.decision, "failed");
+        assert.equal(result.validationRecord.requiredStepCount, commands.length);
+        assert.equal(result.validationRecord.completedStepCount, commands.length - 1);
+        assert.equal(result.validationRecord.steps.length, commands.length - 1);
+        assert.equal(result.validationRecord.steps.at(-1).passed, false);
+        assert.equal(result.validationRecord.candidateManifestBeforeHash, result.validationRecord.candidateManifestAfterHash);
+        assert.equal(result.summary.validationPassed, false);
+        assert.equal(result.summary.emergencyRollbackSucceeded, true);
+        assert.equal(fs.readFileSync(path.join(staged.gateInput.repositoryPath, "src/a.txt"), "utf8"), "X5_BASELINE_SENTINEL\n");
+      });
+    }
+    const reportsOnly = await fixture({ specification: {
+      commands: ["test", "acceptance"].map((id) => ({ id, executable: "node", args: ["-e",
+        `const fs=require('fs');fs.mkdirSync('.validation-output',{recursive:true});fs.writeFileSync('.validation-output/${id}.txt','report');`
+      ] })), allowedExecutables: ["node"]
+    } });
+    const reportsResult = await execute(reportsOnly);
+    check("multiple commands writing only allowed reports complete", () => {
+      assert.equal(reportsResult.summary.validationPassed, true, JSON.stringify(reportsResult));
+      assert.equal(reportsResult.validationRecord.completedStepCount, 2);
+      assert.equal(reportsResult.validationRecord.candidateManifestBeforeHash, reportsResult.validationRecord.candidateManifestAfterHash);
+    });
+
+    const acceptanceMutation = await fixture({ specification: {
+      commands: [
+        { id: "test", executable: "node", args: ["-e", "process.exit(0)"] },
+        { id: "acceptance", executable: "node", args: ["-e", "require('fs').writeFileSync('src/a.txt','acceptance changed source')"] }
+      ], allowedExecutables: ["node"]
+    } });
+    const acceptanceMutationResult = await execute(acceptanceMutation);
+    check("acceptance commands cannot mutate the candidate either", () => {
+      assert.equal(acceptanceMutationResult.decision, "controlled_post_apply_validation_rolled_back");
+      assert.equal(acceptanceMutationResult.validationRecord.decision, "failed");
+      assert.equal(acceptanceMutationResult.validationRecord.steps.at(-1).passed, false);
+      assert.equal(acceptanceMutationResult.validationRecord.candidateManifestBeforeHash,
+        acceptanceMutationResult.validationRecord.candidateManifestAfterHash);
+    });
+
+    check("reports in reserved output directory preserve the candidate manifest", () => {
+      assert.match(finalized.validationRecord.candidateManifestBeforeHash, /^sha256:/);
+      assert.equal(finalized.validationRecord.candidateManifestBeforeHash, finalized.validationRecord.candidateManifestAfterHash);
+      assert.equal(finalized.validationRecord.decision, "passed");
     });
 
     const model = await fixture({ mode: "always" });
@@ -519,7 +609,7 @@ async function main() {
         existingWorkspaceResult]) assert.equal(result.summary.validationStarted, false);
     });
 
-    const atLimit = await fixture();
+    const atLimit = await fixture({ specification: { commands: [{ id: "noop", executable: "node", args: ["-e", "process.exit(0)"] }], allowedExecutables: ["node"] } });
     const atLimitResult = await execute(atLimit, {
       maxWorkspaceFileCount: 1,
       maxWorkspaceBytes: Buffer.byteLength(atLimit.proposed)
@@ -532,6 +622,21 @@ async function main() {
       assert.equal(overLimitResult.decision, "controlled_post_apply_validation_rolled_back",
         JSON.stringify(overLimitResult));
       assert.equal(overLimitResult.summary.emergencyRollbackSucceeded, true);
+    });
+
+    const outputQuota = await fixture({ specification: {
+      commands: [{ id: "output-quota", executable: "node",
+        args: ["-e", "require('fs').mkdirSync('.validation-output',{recursive:true});require('fs').writeFileSync('.validation-output/quota.bin',Buffer.alloc(1024*1024))"] }],
+      allowedExecutables: ["node"], maxOutputChars: 20_000
+    } });
+    const outputQuotaResult = await execute(outputQuota, { maxValidationOutputBytes: 64 * 1024 });
+    check("validation output disk quota fails during the command and rolls back", () => {
+      assert.equal(outputQuotaResult.decision,
+        "controlled_post_apply_validation_rolled_back", JSON.stringify(outputQuotaResult));
+      assert.equal(outputQuotaResult.summary.validationPassed, false);
+      assert.equal(outputQuotaResult.summary.emergencyRollbackSucceeded, true);
+      assert.equal(fs.readFileSync(path.join(outputQuota.gateInput.repositoryPath, "src/a.txt"), "utf8"),
+        "X5_BASELINE_SENTINEL\n");
     });
 
     const tamperedRollbackSpec = {

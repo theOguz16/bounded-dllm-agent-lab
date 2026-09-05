@@ -1,3 +1,4 @@
+import { parseTextFileUpdates, validateUpdateSourceMap, MutationContractError } from "./text-file-update-contract.js";
 import {
   createWorkspaceMutation,
   validateWorkspaceMutationContract,
@@ -17,6 +18,7 @@ export type RepairDraftVerifierIssue = {
 };
 
 export type RepairDraftVerifierContext = {
+  fileContents?: Record<string, string>;
   allowedFiles?: string[];
   forbiddenFiles?: string[];
   requiredIssueCodes?: string[];
@@ -126,7 +128,7 @@ function addScopeIssues(
   }
 }
 
-export function verifyRepairDraftMutation(
+function verifyRepairDraftMutationUnchecked(
   mutation: WorkspaceMutation,
   context: RepairDraftVerifierContext = {}
 ): RepairDraftVerifierResult {
@@ -187,9 +189,8 @@ export function verifyRepairDraftMutation(
     const file = typeof claim.file === "string" ? claim.file.trim() : "";
     const description =
       typeof claim.description === "string" ? claim.description.trim() : "";
-    const proposedPatch =
-      typeof claim.proposedPatch === "string" ? claim.proposedPatch : "";
-    const addressesIssueCodes = claim.addressesIssueCodes;
+    const newContent =
+      typeof claim.newContent === "string" ? claim.newContent : "";
 
     if (file.length === 0) {
       addIssue(
@@ -223,21 +224,21 @@ export function verifyRepairDraftMutation(
       );
     }
 
-    if (proposedPatch.length === 0) {
+    if (typeof claim.newContent !== "string") {
       addIssue(
         issues,
         "missing_repair_proposed_patch",
-        "repair_draft claim must include proposedPatch.",
+        "repair_draft claim must include newContent.",
         "review",
         file || undefined
       );
     } else {
       for (const needle of unsafeRepairPatchNeedles) {
-        if (proposedPatch.includes(needle)) {
+        if (newContent.includes(needle)) {
           addIssue(
             issues,
             "unsafe_repair_patch_content",
-            `proposedPatch contains unsafe content marker: ${needle}`,
+            `newContent contains unsafe content marker: ${needle}`,
             "reject",
             file || undefined
           );
@@ -246,37 +247,7 @@ export function verifyRepairDraftMutation(
       }
     }
 
-    if (addressesIssueCodes === undefined) {
-      addIssue(
-        issues,
-        "missing_addressed_issue_codes",
-        "repair_draft claim must include addressesIssueCodes.",
-        "review",
-        file || undefined
-      );
-    } else if (!Array.isArray(addressesIssueCodes)) {
-      addIssue(
-        issues,
-        "invalid_addressed_issue_codes",
-        "repair_draft addressesIssueCodes must be an array.",
-        "review",
-        file || undefined
-      );
-    } else if (addressesIssueCodes.length === 0) {
-      addIssue(
-        issues,
-        "empty_addressed_issue_codes",
-        "repair_draft addressesIssueCodes must include at least one issue code.",
-        "review",
-        file || undefined
-      );
-    } else {
-      for (const issueCode of addressesIssueCodes) {
-        if (typeof issueCode === "string" && issueCode.trim().length > 0) {
-          addressedIssueCodes.add(issueCode.trim());
-        }
-      }
-    }
+
   }
 
   for (const file of touchedFileList) {
@@ -341,4 +312,16 @@ export function verifyRepairDraftMutation(
     issues,
     finding
   };
+}
+
+export function verifyRepairDraftMutation(mutation: WorkspaceMutation, context: RepairDraftVerifierContext = {}): RepairDraftVerifierResult {
+  try { validateUpdateSourceMap(parseTextFileUpdates(mutation), context.fileContents ?? {}); }
+  catch (error) {
+    if (!(error instanceof MutationContractError)) throw error;
+    const review = ["MUTATION_NO_CHANGE", "MUTATION_SOURCE_HASH_MISMATCH"].includes(error.code);
+    const issues: RepairDraftVerifierIssue[] = [{ code: error.code, message: error.message, severity: review ? "review" : "reject", ...(error.file ? { file: error.file } : {}) }];
+    const decision = review ? "needs_review" : "reject";
+    return { decision, issues, finding: buildFinding(mutation, decision, issues) };
+  }
+  return verifyRepairDraftMutationUnchecked(mutation, context);
 }

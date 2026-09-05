@@ -53,6 +53,7 @@ export type ContextSufficiencyAuthorizationReceipt = {
   adaptiveRoute: "coder_executed";
   coderDecision:
     "coder_execution_completed";
+  policyHash: string;
   mutation: {
     changeKind: "coder_patch_draft";
     mutationHash: string;
@@ -115,11 +116,14 @@ export type AuthorizeContextSufficientPatchInput = {
     AdaptiveCoderContextFlowResult<unknown>;
   allowedFiles?: readonly string[];
   forbiddenFiles?: readonly string[];
+  /** Canonical policy artifact hash. Older direct callers receive a closed compatibility binding. */
+  policyHash?: string;
 };
 
 export type ContextAuthorizationVerificationResult = {
   ok: boolean;
   errors: readonly string[];
+  policyHashValid: boolean;
   mutationHashMatched: boolean;
   changedFilesMatched: boolean;
   authorizationHashMatched: boolean;
@@ -148,6 +152,7 @@ export type RunContextAuthorizedDeliveryChainInput<
     AdaptiveCoderContextFlowResult<unknown>;
   allowedFiles?: readonly string[];
   forbiddenFiles?: readonly string[];
+  policyHash?: string;
   patchPipeline: (
     mutation: WorkspaceMutation,
     authorization:
@@ -366,6 +371,24 @@ export function authorizeContextSufficientPatch(
           "error"
         )
       ],
+      null,
+      null,
+      summary
+    );
+  }
+
+  const policyHash = input.policyHash ??
+    hashCanonicalJson({ policyBinding: "legacy-context-authorization" });
+  if (!HASH.test(policyHash)) {
+    return authorizationFinish(
+      "context_authorization_invalid",
+      "human_review_required",
+      [issue(
+        "context_authorization_policy_hash_invalid",
+        "Context authorization requires a valid policy hash.",
+        "error",
+        { field: "policyHash" }
+      )],
       null,
       null,
       summary
@@ -708,6 +731,7 @@ export function authorizeContextSufficientPatch(
       "coder_executed",
     coderDecision:
       "coder_execution_completed",
+    policyHash,
     mutation: {
       changeKind:
         "coder_patch_draft",
@@ -810,11 +834,17 @@ export function verifyContextSufficiencyAuthorization(
       errors: [
         "Authorization receipt is missing or malformed."
       ],
+      policyHashValid: false,
       mutationHashMatched: false,
       changedFilesMatched: false,
       authorizationHashMatched:
         false
     };
+  }
+
+  const policyHashValid = HASH.test(authorization.policyHash);
+  if (!policyHashValid) {
+    errors.push("Authorization policy hash is missing or malformed.");
   }
 
   let currentMutationHash: string | null =
@@ -915,6 +945,7 @@ export function verifyContextSufficiencyAuthorization(
   return {
     ok: errors.length === 0,
     errors,
+    policyHashValid,
     mutationHashMatched,
     changedFilesMatched,
     authorizationHashMatched
@@ -1047,7 +1078,9 @@ export async function runContextAuthorizedDeliveryChain<
       allowedFiles:
         input.allowedFiles,
       forbiddenFiles:
-        input.forbiddenFiles
+        input.forbiddenFiles,
+      policyHash:
+        input.policyHash
     });
 
   if (

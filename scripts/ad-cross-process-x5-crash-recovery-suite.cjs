@@ -11,6 +11,10 @@ const {
 } = require("node:child_process");
 const { once } = require("node:events");
 
+function contentHash(value) {
+  return `sha256:${crypto.createHash("sha256").update(Buffer.from(value, "utf8")).digest("hex")}`;
+}
+
 const gitEnv = {
   ...process.env,
   GIT_AUTHOR_NAME: "AD2 Fixture",
@@ -619,8 +623,7 @@ async function check(name, callback) {
     const longCommand = [
       "const fs=require('fs');",
       "if(process.cwd().includes('ad2-phase-v-'))process.exit(0);",
-      "fs.writeFileSync(process.env.AD2_COMMAND_PID,String(process.pid));",
-      "fs.writeFileSync(process.env.AD2_COMMAND_MARKER,'started');",
+      "fs.writeFileSync('.validation-output/validation-command-started','started');",
       "setInterval(()=>{},1000);"
     ].join("");
 
@@ -641,17 +644,7 @@ async function check(name, callback) {
       maxCommands: 5,
       defaultTimeoutMs: 30000,
       maxTimeoutMs: 120000,
-      maxOutputChars: 20000,
-      ...(longRunningValidation
-        ? {
-            environment: {
-              AD2_COMMAND_MARKER:
-                commandMarker,
-              AD2_COMMAND_PID:
-                commandPidFile
-            }
-          }
-        : {})
+      maxOutputChars: 20000
     };
 
     const phaseVExecutionVerification =
@@ -667,9 +660,13 @@ async function check(name, callback) {
         "Apply a bounded AD.2 validation fixture.",
       claims: [
         {
+          claimVersion: "text-file-update/v1",
           type: "repair_draft",
+          operation: "update",
           file: "src/a.txt",
-          proposedPatch: proposed
+          expectedContentHash: contentHash(baseline),
+          newContent: proposed,
+          description: "Update the bounded crash recovery fixture."
         }
       ],
       touchedFiles: ["src/a.txt"],
@@ -846,7 +843,11 @@ async function check(name, callback) {
       gitBefore,
       phaseVExecutionSpecification,
       phaseVExecutionVerification,
-      commandMarker,
+      commandMarker: path.join(
+        validationWorkspacePath,
+        ".validation-output",
+        "validation-command-started"
+      ),
       commandPidFile
     };
   }
@@ -934,7 +935,8 @@ async function check(name, callback) {
     value,
     name,
     present,
-    absent
+    absent,
+    containerCheckpoint = null
   ) {
     const payloadPath =
       path.join(
@@ -984,6 +986,10 @@ async function check(name, callback) {
           absent,
           observedMarker,
           failureMarker,
+          container: containerCheckpoint === null ? null : {
+            intentPath: path.join(value.validationPath, "validation-intent.json"),
+            commandRunning: containerCheckpoint.commandRunning
+          },
           timeoutMs: 20000
         }
       }),
@@ -1008,20 +1014,37 @@ async function check(name, callback) {
       failureMarker,
       child
     );
+    let containerIdentity = null;
+    if (containerCheckpoint !== null) {
+      const deadline = Date.now() + 20000;
+      while (Date.now() <= deadline) {
+        try {
+          const intent = JSON.parse(fs.readFileSync(
+            path.join(value.validationPath, "validation-intent.json"), "utf8"));
+          containerIdentity = intent.validationContainer;
+          const state = execFileSync("docker", ["container", "inspect", "--format",
+            "{{.State.Status}}", containerIdentity.containerName], { encoding: "utf8" }).trim();
+          const processes = execFileSync("docker", ["top", containerIdentity.containerName,
+            "-eo", "pid,args"], { encoding: "utf8" });
+          if (state === "running" && (!containerCheckpoint.commandRunning ||
+              processes.includes("validation-command-started"))) break;
+        } catch { /* container is not created or the command is not running yet */ }
+        containerIdentity = null;
+        await delay(10);
+      }
+      if (containerIdentity === null) throw new Error("Validation container checkpoint was not observed.");
+    }
     await killStoppedWorker(child);
-
-    const commandPid =
-      killPidFromFile(
-        value.commandPidFile
-      );
-    await waitForProcessExit(
-      commandPid
-    );
+    if (containerIdentity !== null) {
+      const state = execFileSync("docker", ["container", "inspect", "--format",
+        "{{.State.Status}}", containerIdentity.containerName], { encoding: "utf8" }).trim();
+      assert.equal(state, "running");
+    }
 
     return {
       resultPath,
       observedMarker,
-      commandPid
+      containerIdentity
     };
   }
 
@@ -1097,9 +1120,9 @@ async function check(name, callback) {
       fillerFileCount
     });
 
-    await spawnKilledValidation(
+    const crashed = await spawnKilledValidation(
       value,
-      "after-validation-started",
+      "immediately-after-container-created",
       [
         path.join(
           value.validationPath,
@@ -1111,7 +1134,8 @@ async function check(name, callback) {
           value.validationPath,
           "validation-result.json"
         )
-      ]
+      ],
+      { commandRunning: false }
     );
 
     const inspection =
@@ -1131,7 +1155,8 @@ async function check(name, callback) {
 
     return {
       value,
-      inspection
+      inspection,
+      crashed
     };
   }
 
@@ -1141,7 +1166,8 @@ async function check(name, callback) {
       async () => {
         const {
           value,
-          inspection
+          inspection,
+          crashed
         } = await crashAtIntentOnly();
 
         assert.equal(
@@ -1221,6 +1247,9 @@ async function check(name, callback) {
           true
         );
         assertBaseline(value);
+        assert.throws(() => execFileSync("docker", ["container", "inspect",
+          crashed.containerIdentity.containerName],
+        { stdio: "ignore" }));
         await verifyRecoveryReceipt(
           value,
           result.receipt
@@ -1241,7 +1270,6 @@ async function check(name, callback) {
             value,
             "validation-command-running",
             [
-              value.commandMarker,
               path.join(
                 value.validationPath,
                 "VALIDATION_STARTED"
@@ -1252,19 +1280,11 @@ async function check(name, callback) {
                 value.validationPath,
                 "validation-result.json"
               )
-            ]
+            ],
+            { commandRunning: true }
           );
 
-        assert.equal(
-          crashed.commandPid === null,
-          false
-        );
-        assert.equal(
-          processExists(
-            crashed.commandPid
-          ),
-          false
-        );
+        assert.ok(crashed.containerIdentity);
         assert.equal(
           fs.existsSync(
             value.validationWorkspacePath
@@ -1309,6 +1329,8 @@ async function check(name, callback) {
           ),
           false
         );
+        assert.throws(() => execFileSync("docker", ["container", "inspect",
+          crashed.containerIdentity.containerName], { stdio: "ignore" }));
         assertBaseline(value);
         await verifyRecoveryReceipt(
           value,

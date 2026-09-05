@@ -382,6 +382,33 @@ function adaptiveInput(
   );
 
   await check(
+    "canonical policy hash is bound and malformed hashes fail closed",
+    async () => {
+      const adaptive = await completedAdaptive();
+      const policyHash = hashText("canonical-policy");
+      const authorized = authorizeContextSufficientPatch({
+        adaptiveResult: adaptive,
+        allowedFiles: ["src/config.ts"],
+        policyHash
+      });
+      assert.equal(authorized.decision, "context_authorization_ready");
+      assert.equal(authorized.authorization.policyHash, policyHash);
+      assert.equal(verifyContextSufficiencyAuthorization(
+        authorized.authorization, authorized.mutation).ok, true);
+      assert.equal(verifyContextSufficiencyAuthorization(
+        authorized.authorization, authorized.mutation).policyHashValid, true);
+
+      const invalid = authorizeContextSufficientPatch({
+        adaptiveResult: adaptive,
+        allowedFiles: ["src/config.ts"],
+        policyHash: "platform-owner"
+      });
+      assert.equal(invalid.decision, "context_authorization_invalid");
+      assert.equal(invalid.issues[0].code, "context_authorization_policy_hash_invalid");
+    }
+  );
+
+  await check(
     "stopped adaptive flow calls no downstream stage",
     async () => {
       const adaptive =

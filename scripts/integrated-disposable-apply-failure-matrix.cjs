@@ -389,9 +389,13 @@ async function check(name, fn) {
       summary: "Produce the final bounded repair.",
       claims: [
         {
+          claimVersion: "text-file-update/v1",
           type: "repair_draft",
+          operation: "update",
           file: "src/a.txt",
-          proposedPatch: proposed
+          expectedContentHash: contentHash(baseline),
+          newContent: proposed,
+          description: "Update the bounded fixture."
         }
       ],
       touchedFiles: ["src/a.txt"],
