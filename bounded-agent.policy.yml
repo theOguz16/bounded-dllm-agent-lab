@@ -71,6 +71,10 @@ allowed_paths:
   - scripts/controlled-coding-pilot-evidence-verify.cjs
   - scripts/controlled-coding-pilot-evidence-verify-smoke.cjs
   - scripts/controlled-coding-pilot-local-json-evidence-smoke.cjs
+  - scripts/controlled-coding-pilot-observed-evidence.cjs
+  - scripts/controlled-coding-pilot-observed-evidence-verify.cjs
+  - scripts/controlled-coding-pilot-observed-evidence-smoke.cjs
+  - scripts/controlled-coding-pilot-v2-observed-run.cjs
   - scripts/controlled-coding-pilot-acceptance.cjs
   - scripts/controlled-coding-pilot-acceptance-smoke.cjs
   - scripts/controlled-coding-pilot-acceptance-chain-smoke.cjs
@@ -82,6 +86,7 @@ allowed_paths:
   - pilots/controlled-real-coding-v1/**
   - pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json
   - pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json
+  - pilots/controlled-real-coding-v2/observed-runs/**
 forbidden_paths:
   - reports/**
   - benchmarks/repos/**
