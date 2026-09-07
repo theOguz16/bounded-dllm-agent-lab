@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+const { mkdirSync, writeFileSync } = require("node:fs");
+const path = require("node:path");
 const base = require("./gate6-live-runner-v3.cjs");
 const verifier = require("./lib/gate6-verifier-provenance.cjs");
 const {
@@ -20,6 +22,14 @@ const STRUCTURED_OUTPUT_MODE = base.STRUCTURED_OUTPUT_MODE;
 const LIVE_PROVIDER_PROMPT_VERSION = PROVIDER_PROMPT_VERSION;
 const LIVE_PROVIDER_CONTRACT_VERSION = PROVIDER_CONTRACT_VERSION;
 const LIVE_PROVIDER_CONTRACT_HASH = PROVIDER_CONTRACT_HASH;
+const PROPOSAL_DIAGNOSTIC_FIELDS = Object.freeze([
+  "proposalValidationFailureCode",
+  "proposalSchemaVersionValid",
+  "proposalAction",
+  "proposalEditCount",
+  "proposalSummaryLength",
+  "invalidEditIndex"
+]);
 
 base.checkpoint.configureProviderContractIdentity(
   LIVE_PROVIDER_CONTRACT_VERSION,
@@ -77,7 +87,7 @@ function proposalDiagnosticForResult(result) {
   return classifyProposalDiagnostic(result.output.proposal);
 }
 
-function wrapProviderWithCanonicalContract(provider, records) {
+function wrapProviderWithCanonicalContract(provider, records = []) {
   return Object.freeze({
     async execute(input) {
       const request = withCanonicalProviderContract(input.request);
@@ -90,6 +100,10 @@ function wrapProviderWithCanonicalContract(provider, records) {
       return result;
     }
   });
+}
+
+function createOpenAICompatibleProvider(config, options = {}) {
+  return wrapProviderWithCanonicalContract(base.createOpenAICompatibleProvider(config, options), []);
 }
 
 function attachProposalDiagnostics(report, records) {
@@ -165,6 +179,16 @@ function augmentReport(report, structuredOutputMode = STRUCTURED_OUTPUT_MODE, di
   return hardenReport(prior, []);
 }
 
+function stableProjection(report) {
+  const copy = base.stableProjection(report);
+  for (const outcome of copy.sampleOutcomes ?? []) {
+    for (const trace of outcome.providerTrace ?? []) {
+      for (const field of PROPOSAL_DIAGNOSTIC_FIELDS) delete trace[field];
+    }
+  }
+  return copy;
+}
+
 async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
   const providerConfig = dependencies.providerConfig ?? base.validateProviderConfig(options.environment ?? process.env);
   const proposalDiagnostics = [];
@@ -172,12 +196,20 @@ async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
     providerConfig,
     dependencies.providerOptions
   );
-  const report = await base.runGate6LiveBenchmark(options, {
-    ...dependencies,
-    providerConfig,
-    provider: wrapProviderWithCanonicalContract(underlyingProvider, proposalDiagnostics)
-  });
-  return hardenReport(report, proposalDiagnostics);
+  const report = await base.runGate6LiveBenchmark(
+    { ...options, output: undefined },
+    {
+      ...dependencies,
+      providerConfig,
+      provider: wrapProviderWithCanonicalContract(underlyingProvider, proposalDiagnostics)
+    }
+  );
+  const hardened = hardenReport(report, proposalDiagnostics);
+  if (options.output) {
+    mkdirSync(path.dirname(options.output), { recursive: true });
+    writeFileSync(options.output, `${JSON.stringify(hardened, null, 2)}\n`);
+  }
+  return hardened;
 }
 
 async function runCli(argv = process.argv, dependencies = {}) {
@@ -226,6 +258,7 @@ module.exports = {
   buildProviderRequest,
   classifyProposalDiagnostic,
   createLiveExperimentConfig,
+  createOpenAICompatibleProvider,
   hashLiveExperimentConfig,
   hardenReport,
   providerContractDescriptor,
@@ -233,6 +266,7 @@ module.exports = {
   providerStructuralExample,
   runCli,
   runGate6LiveBenchmark,
+  stableProjection,
   withCanonicalProviderContract,
   wrapProviderWithCanonicalContract
 };
