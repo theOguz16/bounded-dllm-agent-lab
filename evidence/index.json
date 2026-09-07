@@ -98,8 +98,8 @@
       "provider": "runpod",
       "model": "qwen2.5-coder-7b",
       "artifactPath": "docs/CONTROLLED_REAL_CODING_PILOT_V1_ACCEPTANCE.md",
-      "artifactHash": "sha256:ef8061acd86f60e6bea5ee387c0b0388426f45806d14d079a443e1cf90b5bbc9",
-      "artifactHashKind": "text_field:evidenceHash",
+      "artifactHash": "sha256:aa56afd683ff5f2b04011b573d34c8fa1911a462e134b6605ff222806b962660",
+      "artifactHashKind": "text_field:contentHash_placeholder_v1",
       "status": "observed",
       "statusReason": "Final acceptance record binds the tested source, model provenance, report, evidence bundle, acceptance hash, and archive checksum."
     },
@@ -132,5 +132,5 @@
       "statusReason": "Two V2 tasks and immutable observed-evidence tooling exist; real provider runs are deferred while RunPod is unavailable."
     }
   ],
-  "indexHash": "sha256:429da3d6693a9ad9b0696c5f8a324c01c47cd75e39d0020cf7b009a64bda7688"
+  "indexHash": "sha256:578e70c085870c0696f27020e318063129a9d1407a4bb298fa5b2d23fd3286dc"
 }

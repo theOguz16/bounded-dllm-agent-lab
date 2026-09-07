@@ -13,7 +13,8 @@ if (process.env.BOUNDED_LEASE_HOLDER === "1") {
       idempotencyKey: process.env.LEASE_KEY, leaseTimeoutMs: 90 }, {
       taskId: process.env.LEASE_TASK, repositoryPath: process.env.LEASE_REPO,
       repositoryIdentityHash: hash("repository"), baselineSnapshotHash: hash("snapshot"),
-      baselineHeadHash: hash("head"), compiledPolicyHash: hash("policy"), taskInputHash: hash("input") });
+      baselineHeadHash: hash("head"), compiledPolicyHash: hash("policy"),
+      acceptanceCriteriaContractHash: hash("acceptance"), taskInputHash: hash("input") });
     session.advance("planning_started");
     process.stdout.write("ready\n");
     setInterval(() => {}, 1_000);
@@ -29,7 +30,8 @@ if (process.env.BOUNDED_LEASE_HOLDER === "1") {
   const hash = (name) => runtime.hashCanonicalJson({ name });
   const identity = (taskId = "task.state") => ({ taskId, repositoryPath: repo,
     repositoryIdentityHash: hash("repository"), baselineSnapshotHash: hash("snapshot"),
-    baselineHeadHash: hash("head"), compiledPolicyHash: hash("policy"), taskInputHash: hash("input") });
+    baselineHeadHash: hash("head"), compiledPolicyHash: hash("policy"),
+    acceptanceCriteriaContractHash: hash("acceptance"), taskInputHash: hash("input") });
   const config = (idempotencyKey = "idem.state") => ({ registryRoot: registry, idempotencyKey });
   let checks = 0; const check = (name, fn) => { fn(); checks++; console.log(`[ok] ${name}`); };
   try {
@@ -87,9 +89,12 @@ if (process.env.BOUNDED_LEASE_HOLDER === "1") {
       (e) => e.code === "bounded_task_state_symlink"));
 
     const mismatch = new runtime.BoundedTaskStateSession(config("mismatch"), identity("task.mismatch")); mismatch.release();
-    check("repository/policy binding drift fails closed without leaking the lease", () => {
+    check("repository, policy, and acceptance binding drift fail closed without leaking the lease", () => {
       assert.throws(() => new runtime.BoundedTaskStateSession({ ...config("mismatch"), resume: true },
         { ...identity("task.mismatch"), compiledPolicyHash: hash("changed") }),
+      (e) => e.code === "bounded_task_state_resume_binding_mismatch");
+      assert.throws(() => new runtime.BoundedTaskStateSession({ ...config("mismatch"), resume: true },
+        { ...identity("task.mismatch"), acceptanceCriteriaContractHash: hash("changed-acceptance") }),
       (e) => e.code === "bounded_task_state_resume_binding_mismatch");
       const afterMismatch = new runtime.BoundedTaskStateSession(
         { ...config("mismatch"), resume: true }, identity("task.mismatch"));
@@ -146,6 +151,32 @@ if (process.env.BOUNDED_LEASE_HOLDER === "1") {
     check("missing taskInputHash fails closed even with a recomputed state hash", () => assert.throws(() =>
       runtime.readDurableBoundedTaskState({ registryRoot: registry, taskId: "task.missing-input",
         idempotencyKey: "missing-input" }), (e) => e.code === "bounded_task_state_corrupt"));
+
+    const legacyState = new runtime.BoundedTaskStateSession(config("legacy-state"),
+      identity("task.legacy-state"));
+    const legacyStatePath = path.join(legacyState.taskDirectory, "state.json"); legacyState.release();
+    const legacyRecord = JSON.parse(fs.readFileSync(legacyStatePath));
+    legacyRecord.schemaVersion = "3"; legacyRecord.taskInputVersion = "canonical-task-input/v3";
+    const { stateHash: legacyHash, ...legacyCore } = legacyRecord;
+    legacyRecord.stateHash = runtime.hashCanonicalJson(legacyCore);
+    fs.writeFileSync(legacyStatePath, JSON.stringify(legacyRecord));
+    check("v3 durable state is explicitly rejected instead of reinterpreted", () => assert.throws(() =>
+      runtime.readDurableBoundedTaskState({ registryRoot: registry, taskId: "task.legacy-state",
+        idempotencyKey: "legacy-state" }),
+      (e) => e.code === "bounded_task_state_version_unsupported"));
+
+    const oldInputState = new runtime.BoundedTaskStateSession(config("old-input-state"),
+      identity("task.old-input-state"));
+    const oldInputPath = path.join(oldInputState.taskDirectory, "state.json"); oldInputState.release();
+    const oldInputRecord = JSON.parse(fs.readFileSync(oldInputPath));
+    oldInputRecord.taskInputVersion = "canonical-task-input/v2";
+    const { stateHash: oldInputHash, ...oldInputCore } = oldInputRecord;
+    oldInputRecord.stateHash = runtime.hashCanonicalJson(oldInputCore);
+    fs.writeFileSync(oldInputPath, JSON.stringify(oldInputRecord));
+    check("v2 task input state is rejected under validation-profile semantics", () => assert.throws(() =>
+      runtime.readDurableBoundedTaskState({ registryRoot: registry, taskId: "task.old-input-state",
+        idempotencyKey: "old-input-state" }),
+      (e) => e.code === "bounded_task_state_version_unsupported"));
 
     for (const [key, task, mutate] of [
       ["bad-lease", "task.bad-lease", (state) => { state.leaseOwner.ownerNonceHash = "bad"; }],

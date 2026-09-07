@@ -364,6 +364,7 @@ async function check(name, fn) {
         commands: [
           {
             id: "validate",
+            checkKind: "behavior_test",
             executable: "node",
             args: [
               "-e",
@@ -390,8 +391,12 @@ async function check(name, fn) {
       claims: [
         {
           type: "repair_draft",
+          claimVersion: "text-file-update/v1",
+          operation: "update",
           file: "src/a.txt",
-          proposedPatch: proposed
+          expectedContentHash: contentHash(baseline),
+          description: "Update the existing fixture file.",
+          newContent: proposed
         }
       ],
       touchedFiles: ["src/a.txt"],
@@ -594,6 +599,27 @@ async function check(name, fn) {
           JSON.stringify(verified)
         );
         assert.equal(verified.downstreamEligible, true);
+      }
+    );
+
+    await check(
+      "X.5-incompatible command schema is rejected before real apply",
+      async () => {
+        const value = await fixture({
+          specification: {
+            commands: [{
+              id: "validate", checkKind: "behavior_test", executable: "node",
+              args: ["-e", "process.exit(0)"], postApplyOnlyUnknown: true
+            }],
+            allowedExecutables: ["node"]
+          }
+        });
+        const result = await runIntegratedDisposableApply(value.input);
+        assert.equal(result.decision, "integrated_disposable_apply_invalid");
+        assert.equal(result.issues[0].code, "integrated_validation_specification_invalid");
+        assert.equal(result.summary.validationPreflightReady, false);
+        assert.equal(result.summary.applyCallCount, 0);
+        assert.equal(fs.readFileSync(path.join(value.repositoryPath, "src/a.txt"), "utf8"), value.baseline);
       }
     );
 

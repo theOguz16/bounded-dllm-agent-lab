@@ -277,6 +277,14 @@ async function main() {
     assert.equal(adapter.getLastRunEvidence().failureCode, "planner_adapter_response_too_large");
   });
 
+  await check("truncated provider completion is not accepted as a plan", async () => {
+    const adapter = createOpenAICompatiblePlannerProvider(config(async () => response({
+      choices: [{ finish_reason: "length", message: { content: JSON.stringify(draft()) } }]
+    })));
+    await assert.rejects(() => adapter.invoke(context));
+    assert.equal(adapter.getLastRunEvidence().failureCode, "planner_adapter_response_content_invalid");
+  });
+
   await check("HTTP 429 is retried once and then succeeds", async () => {
     let calls = 0;
     const adapter = createOpenAICompatiblePlannerProvider(config(async () => {
@@ -415,7 +423,7 @@ async function main() {
     }
   });
 
-  assert.equal(checks.length, 16);
+  assert.equal(checks.length, 17);
   const reportCore = {
     evidenceVersion: "1",
     phase: "AG.2b",

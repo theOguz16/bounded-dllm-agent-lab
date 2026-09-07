@@ -161,7 +161,7 @@ async function main() {
     mode = "conditional",
     specification = {
       commands: [{
-        id: "validate", executable: "node",
+        id: "validate", checkKind: "behavior_test", executable: "node",
         args: ["-e", "require('fs').mkdirSync('.validation-output',{recursive:true});require('fs').writeFileSync('.validation-output/report.txt','X5_SIDE_EFFECT_SENTINEL')"]
       }],
       allowedExecutables: ["node"], maxCommands: 5, defaultTimeoutMs: 30000,

@@ -3,6 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { hashCanonicalJson } from "./agent-event-ledger.js";
+import {
+  VALIDATION_CHECK_KINDS,
+  VALIDATION_EVIDENCE_VERSION,
+  VALIDATION_PROFILES,
+  type ValidationCheckKind,
+  type ValidationEvidence,
+  type ValidationProfileId
+} from "./runtime-contract-foundation.js";
 
 export type TempExecutionDecision =
   | "temp_validation_passed"
@@ -18,6 +26,7 @@ export type TempExecutionIssue = {
 
 export type TempExecutionCommand = {
   id: string;
+  checkKind?: Exclude<ValidationCheckKind, "structural">;
   executable: string;
   args: string[];
   timeoutMs?: number;
@@ -113,6 +122,7 @@ function normalizedSpecification(
     tempApplyDecision: "temp_apply_ready",
     commands: specification.commands.map((command) => ({
       id: command.id,
+      ...(command.checkKind === undefined ? {} : { checkKind: command.checkKind }),
       executable: command.executable,
       args: [...command.args],
       ...(command.timeoutMs === undefined ? {} : { timeoutMs: command.timeoutMs }),
@@ -137,6 +147,79 @@ function normalizedSpecification(
       environment: { ...specification.environment }
     })
   };
+}
+
+export function buildValidationEvidence(input: Readonly<{
+  profile: ValidationProfileId;
+  structuralPassed: boolean;
+  specification?: TemporaryWorkspaceExecutionSpecification;
+  executionResult?: TemporaryWorkspaceExecutionResult;
+  executionEvidence?: TemporaryWorkspaceExecutionVerificationEvidence;
+}>): ValidationEvidence {
+  const required = new Set<ValidationCheckKind>(VALIDATION_PROFILES[input.profile].requiredChecks);
+  const specificationHash = input.specification === undefined ? null :
+    computeTemporaryWorkspaceExecutionSpecificationHash(input.specification);
+  const executionEvidenceCurrent = input.executionEvidence !== undefined &&
+    input.executionEvidence.validationSpecificationHash === specificationHash;
+  const checks = VALIDATION_CHECK_KINDS.map((kind) => {
+    if (kind === "structural") {
+      return { kind, required: required.has(kind),
+        status: input.structuralPassed ? "passed" as const : "failed" as const,
+        commandIds: [] as string[], evidenceHashes: [] as string[],
+        reasonCodes: input.structuralPassed ? [] as string[] : ["structural_verification_failed"] };
+    }
+    const commands = (input.specification?.commands ?? []).filter((command) => command.checkKind === kind);
+    const results = commands.map((command) => {
+      const index = input.specification?.commands.indexOf(command) ?? -1;
+      const result = index < 0 ? undefined : input.executionResult?.commandResults[index];
+      return result?.id === command.id && result.executable === command.executable &&
+        hashCanonicalJson(result.args) === hashCanonicalJson(command.args) ? result : undefined;
+    });
+    const steps = commands.map((command) => {
+      const index = input.specification?.commands.indexOf(command) ?? -1;
+      const step = index < 0 || !executionEvidenceCurrent ? undefined : input.executionEvidence?.steps[index];
+      const expectedIdentifierHash = hashCanonicalJson({
+        artifactType: "temporary_workspace_execution_step_identifier",
+        index, id: command.id, executable: command.executable, args: command.args
+      });
+      return step?.index === index && step.stepIdentifierHash === expectedIdentifierHash
+        ? step : undefined;
+    });
+    const completedResults = results.filter((result) => result !== undefined);
+    const completedSteps = steps.filter((step) => step !== undefined);
+    const completedCount = Math.max(completedResults.length, completedSteps.length);
+    const allPassed = input.executionResult !== undefined
+      ? completedResults.every((result) => result!.passed)
+      : completedSteps.every((step) => step!.passed);
+    const status = commands.length === 0 || completedCount !== commands.length
+      ? "not_run" as const
+      : allPassed
+        ? "passed" as const : "failed" as const;
+    const reasonCodes = commands.length === 0
+      ? ["validation_command_not_configured"]
+      : completedCount !== commands.length
+        ? ["validation_command_not_executed"]
+        : status === "failed" ? ["validation_command_failed"] : [];
+    return { kind, required: required.has(kind), status,
+      commandIds: commands.map((command) => command.id),
+      evidenceHashes: input.executionEvidence !== undefined
+        ? completedSteps.map((step) => step!.stepHash)
+        : completedResults.map((result) => hashCanonicalJson({
+        artifactType: "validation_check_command_result",
+        id: result!.id, executable: result!.executable, args: result!.args,
+        exitCode: result!.exitCode, signal: result!.signal, timedOut: result!.timedOut,
+        stdout: result!.stdout, stderr: result!.stderr, passed: result!.passed
+      })), reasonCodes };
+  });
+  const frozenChecks = checks.map((check) => Object.freeze({ ...check,
+    commandIds: Object.freeze([...check.commandIds]),
+    evidenceHashes: Object.freeze([...check.evidenceHashes]),
+    reasonCodes: Object.freeze([...check.reasonCodes]) }));
+  const profileSatisfied = frozenChecks.every((check) => !check.required || check.status === "passed");
+  const core = { evidenceVersion: VALIDATION_EVIDENCE_VERSION, profile: input.profile,
+    validationSpecificationHash: specificationHash,
+    checks: Object.freeze(frozenChecks), profileSatisfied };
+  return Object.freeze({ ...core, evidenceHash: hashCanonicalJson(core) });
 }
 
 export function computeTemporaryWorkspaceExecutionSpecificationHash(
@@ -473,6 +556,12 @@ function* executeCommands(
   const processEnvironment = buildEnvironment(context.environment);
 
   for (const command of commandList) {
+    if (command.checkKind !== undefined &&
+        !["syntax", "typecheck", "behavior_test"].includes(command.checkKind)) {
+      addIssue(issues, "validation_check_kind_invalid",
+        "Validation command checkKind is invalid.", "review", command.id);
+      return buildResult(issues, commandResults, Date.now() - startedAtMs);
+    }
     if (isUnsafeExecutable(command.executable)) {
       addIssue(
         issues,

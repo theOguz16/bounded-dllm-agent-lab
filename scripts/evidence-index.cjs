@@ -38,6 +38,16 @@ function hashCanonical(value) {
   return `sha256:${createHash("sha256").update(canonical(value)).digest("hex")}`;
 }
 
+function hashTextWithSelfFieldPlaceholder(content, field) {
+  const escapedField = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^(${escapedField}:\\s*)sha256:[0-9a-f]{64}(\\s*)$`, "gm");
+  const matches = [...content.matchAll(pattern)];
+  if (matches.length !== 1) fail("EVIDENCE_INDEX_TEXT_SELF_HASH_INVALID", field);
+  const placeholder = `sha256:${"0".repeat(64)}`;
+  const canonicalText = content.replace(pattern, `$1${placeholder}$2`);
+  return `sha256:${createHash("sha256").update(canonicalText, "utf8").digest("hex")}`;
+}
+
 function fail(code, detail = "") {
   const error = new Error(detail ? `${code}: ${detail}` : code);
   error.code = code;
@@ -167,21 +177,55 @@ function verifyArtifact(root, record) {
     if (parsed.reportHash !== record.artifactHash) {
       fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
     }
+    const reportCore = { ...parsed };
+    delete reportCore.reportHash;
+    if (hashCanonical(reportCore) !== parsed.reportHash) {
+      fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
+    }
+    if (parsed.sourceCommit !== undefined && parsed.sourceCommit !== record.sourceCommit) {
+      fail("EVIDENCE_INDEX_SOURCE_COMMIT_MISMATCH", record.experimentId);
+    }
+    if (parsed.tasksetHash !== undefined && parsed.tasksetHash !== record.tasksetHash) {
+      fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
+    }
+    const observedTokenCost = parsed.sourceArtifacts?.observedTokenCost;
+    if (observedTokenCost && (observedTokenCost.providerId !== record.provider ||
+        observedTokenCost.modelId !== record.model ||
+        observedTokenCost.taskSetHash !== record.tasksetHash)) {
+      fail("EVIDENCE_INDEX_PROVENANCE_MISMATCH", record.experimentId);
+    }
     if (record.tasksetHashKind === "source_artifact_task_set_hash" &&
         parsed?.sourceArtifacts?.observedTokenCost?.taskSetHash !== record.tasksetHash) {
       fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
     }
     return;
   }
-  if (record.artifactHashKind === "text_field:evidenceHash") {
-    const match = content.match(/^evidenceHash:\s*(sha256:[0-9a-f]{64})\s*$/m);
-    if (!match || match[1] !== record.artifactHash) {
+  if (record.artifactHashKind === "text_field:evidenceHash" ||
+      record.artifactHashKind === "text_field:contentHash_placeholder_v1") {
+    const field = record.artifactHashKind === "text_field:evidenceHash"
+      ? "evidenceHash" : "contentHash";
+    const match = content.match(new RegExp(`^${field}:\\s*(sha256:[0-9a-f]{64})\\s*$`, "m"));
+    if (!match || match[1] !== record.artifactHash ||
+        hashTextWithSelfFieldPlaceholder(content, field) !== record.artifactHash) {
       fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
     }
     if (record.tasksetHashKind === "pilot_definition_hash") {
       const definition = content.match(/^pilotDefinitionHash:\s*(sha256:[0-9a-f]{64})\s*$/m);
       if (!definition || definition[1] !== record.tasksetHash) {
         fail("EVIDENCE_INDEX_TASKSET_SOURCE_MISMATCH", record.experimentId);
+      }
+    }
+    const provenance = {
+      experimentId: record.experimentId,
+      testedSourceCommit: record.sourceCommit,
+      providerId: record.provider,
+      modelId: record.model
+    };
+    for (const [fieldName, expected] of Object.entries(provenance)) {
+      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const values = [...content.matchAll(new RegExp(`^${escaped}:\\s*(\\S+)\\s*$`, "gm"))];
+      if (values.length !== 1 || values[0][1] !== expected) {
+        fail("EVIDENCE_INDEX_PROVENANCE_MISMATCH", `${record.experimentId}.${fieldName}`);
       }
     }
     return;
@@ -333,6 +377,7 @@ module.exports = {
   INDEX_PATH,
   SCHEMA_VERSION,
   hashCanonical,
+  hashTextWithSelfFieldPlaceholder,
   parseIndex,
   renderMarkdown,
   statusFor,

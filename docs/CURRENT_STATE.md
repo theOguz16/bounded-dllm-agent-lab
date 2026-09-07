@@ -8,6 +8,15 @@ Bounded dLLM Agent Lab is a provider-independent agentic-coding runtime prototyp
 
 Earlier dLLM, remask, shared-workspace, synthetic-context, and benchmark implementations remain useful research inputs. They are not the canonical runtime definition.
 
+The V1 product target is narrower than the runtime's possible uses. As defined
+in [`PRODUCT_SCOPE_V1.md`](./PRODUCT_SCOPE_V1.md), it is an **untested product
+hypothesis** for a developer-supervised, single-machine tool that handles small
+updates to existing files in JavaScript/TypeScript repositories. The supported
+starting scenarios are an existing-function bug fix, a bounded behavior change
+in existing files, and a regression assertion added to an existing test file.
+Repository evidence verifies implementation boundaries; it does not yet verify
+market demand or user benefit.
+
 ## Canonical runtime surface
 
 ```text
@@ -29,6 +38,56 @@ Current canonical boundaries include:
 - task-owned Controlled Pilot V2 context selections and declarative profiles/verification stages;
 - deterministic verifier and controlled/disposable apply paths;
 - machine-readable experiment/evidence indexing.
+
+The canonical runtime must be distinguished from two other repository paths:
+
+- the older `apps/cli` patch/PR review, calibration, artifact, and pilot commands
+  are legacy compatibility/evaluation surfaces, not an independent reviewer of
+  canonical runs;
+- masking, dLLM/remask workers, fixtures, ablations, and benchmark reports are a
+  research pipeline whose claims remain governed by `evidence/index.json`.
+
+Fixture success in either path does not create a canonical product capability.
+
+## Current mutation and outcome boundary
+
+`text-file-update/v1` updates the complete contents of existing regular UTF-8
+text files with an expected source hash. It does not create, delete, or rename
+files, and it rejects mode, symlink, binary, non-canonical-path, duplicate,
+oversize, stale-source, and identical-content mutations. Product documentation
+must not imply those unsupported operations.
+
+V1 reports control success separately from behavioral success. Passing schema,
+hash, scope, policy, typecheck, build, and selected-test gates means **controls
+passed**. Scenario-specific evidence must independently establish that the
+requested behavior is satisfied. Only both together constitute product success.
+
+The existing runtime outcomes retain their code-defined meanings:
+
+- `validated_no_change` means acceptance was demonstrably already satisfied;
+- `human_review_required` stops for developer judgment or missing authority;
+- `replan_required` requires a new bounded plan or context/candidate;
+- `recovery_required` stops mutation until incomplete state is safely restored.
+
+Governed runs preserve the caller's original acceptance contract through
+preflight, apply, validation, and recovery. New results use
+`bounded-task-receipt/v3`: structural, syntax, typecheck, and behavior-test
+evidence is reported separately as `passed`, `failed`, or `not_run`. Draft-only
+results are named `structurally_verified_draft`; they do not imply executable
+validation. Exact historical v1 and v2 receipts retain their old shapes and
+meanings. Durable task state schema `4` uses `canonical-task-input/v4` and binds
+trusted task/configuration inputs plus separate starting and expected-terminal
+repository content snapshots. Terminal replay reports current cache validity
+separately from its historical receipt; drift preserves user content and stops
+with `recovery_required`. Schema 3 and older records are rejected rather than
+reinterpreted under these stronger currentness semantics.
+
+Canonical policy compiler v2 retains declared paired-file patterns and their
+resolved matches as separate fields. A required pattern with no existing match
+is a compile error because file creation is outside `text-file-update/v1`.
+Static scope, sensitive-path, unconditional pairing, and signed ownership checks
+run before planner/coder providers. Mutation-dependent pairing and sensitive
+content checks remain enforced immediately before apply.
 
 ## Evidence status
 
@@ -77,6 +136,10 @@ It must not currently claim that it:
 - proves Controlled Pilot V2 observed behavior before its real runs are committed and verified;
 - guarantees semantic correctness or complete security;
 - is a finished autonomous, distributed, enterprise-grade software engineering platform.
+- automatically repairs every failed change, supplies independent review
+  certification, or is ready for production use;
+- supports file creation, deletion, or rename through `text-file-update/v1`;
+- has validated developer demand, productivity gains, or defect reduction.
 
 ## Documentation rule
 

@@ -10,11 +10,14 @@ const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-package-"));
 const run = (command, args, cwd) => execFileSync(command, args, {
   cwd,
   encoding: "utf8",
-  env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "" },
+  env: { ...process.env, NODE_OPTIONS: "", NODE_PATH: "", npm_config_cache: path.join(temporary, "npm-cache") },
   stdio: ["ignore", "pipe", "inherit"]
 });
 
 try {
+  const staleDist = path.join(repository, "packages/product-runtime/dist");
+  fs.mkdirSync(staleDist, { recursive: true });
+  fs.writeFileSync(path.join(staleDist, "stale-sentinel.txt"), "must not be packaged\n");
   // Pack with lifecycle scripts enabled, so this also verifies the prepack build.
   run("npm", ["pack", "--pack-destination", temporary], path.join(repository, "packages/product-runtime"));
   const archives = fs.readdirSync(temporary).filter((file) => file.endsWith(".tgz"));
@@ -29,6 +32,7 @@ try {
   const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
   assert(fs.existsSync(path.join(installed, manifest.types)));
   assert.equal(fs.existsSync(path.join(installed, "src")), false);
+  assert.equal(fs.existsSync(path.join(installed, "stale-sentinel.txt")), false);
   fs.writeFileSync(path.join(consumer, "smoke.mjs"), `
 import assert from "node:assert/strict";
 import { runBoundedTask, resumeBoundedTask, compileCanonicalPolicy } from "@bounded-dllm-agent-lab/product-runtime";

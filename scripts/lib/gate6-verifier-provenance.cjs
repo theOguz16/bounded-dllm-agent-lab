@@ -12,9 +12,9 @@ const {
   scoreGate6SelectionEvidence
 } = require("./gate6-oracle-scorer.cjs");
 
-const VERIFIER_VERSION = "gate6-verifier/v3";
+const VERIFIER_VERSION = "gate6-verifier/v4";
 const RAW_REPORT_VERSION = "gate6-raw-report/v3";
-const EVIDENCE_VERSION = "gate6-evidence/v3";
+const EVIDENCE_VERSION = "gate6-evidence/v4";
 const SAMPLE_RECEIPT_VERSION = "gate6-simulated-harness-receipt/v3";
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const ORACLE_FIELDS = Object.freeze([

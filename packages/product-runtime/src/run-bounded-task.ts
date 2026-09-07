@@ -1,7 +1,8 @@
-import { createTaskProviderDeadline, TaskProviderInterruption, type TaskProviderControl } from "./task-provider-deadline.js";
+import { createTaskProviderDeadline, TaskProviderInterruption, type TaskProviderControl,
+  type TaskProviderUsageReport } from "./task-provider-deadline.js";
 export type { TaskProviderControl } from "./task-provider-deadline.js";
 import { validateModelWorkspaceMutationValue } from "./model-mutation-validator.js";
-import { hashCanonicalJson } from "./agent-event-ledger.js";
+import { canonicalizeJson, hashCanonicalJson } from "./agent-event-ledger.js";
 import {
   runPlannerMinimalityBoundCoderFlow,
   type PlannerMinimalityBoundCoderFlowResult,
@@ -15,8 +16,12 @@ import {
   canonicalizeRepositoryRelativePath,
   createRuntimeFailure,
   RUNTIME_CONTRACT_VERSION,
+  VALIDATION_PROFILES,
+  verifyValidationEvidence,
   type RuntimeFailure,
-  type RuntimeStage
+  type RuntimeStage,
+  type ValidationEvidence,
+  type ValidationProfileId
 } from "./runtime-contract-foundation.js";
 import type { WorkspaceMutation } from "./workspace-mutation.js";
 import {
@@ -27,6 +32,8 @@ import {
 } from "./canonical-governed-execution-adapter.js";
 import fs from "node:fs";
 import path from "node:path";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { execFileSync } from "node:child_process";
 import {
   BoundedTaskStateError,
@@ -36,17 +43,42 @@ import {
 import { executeControlledTransactionRecovery } from "./controlled-transaction-recovery.js";
 import { executeControlledPostApplyValidation } from "./controlled-post-apply-validation.js";
 import {
+  evaluateAcceptanceCriteria,
+  verifyAcceptanceCriteriaContract,
+  verifyAcceptanceCriteriaCoverageReceipt,
+  type HumanReviewAcceptanceEvidence
+} from "./acceptance-criteria-contract.js";
+import { rebuildFinalExecutionEvidence } from "./integrated-disposable-apply-coordinator.js";
+import {
+  buildValidationEvidence,
+  computeTemporaryWorkspaceExecutionSpecificationHash,
+  type TemporaryWorkspaceExecutionSpecification
+} from "./temporary-workspace-execution-verifier.js";
+import {
+  runContainerizedWorkspaceExecution,
+  type ContainerizedWorkspaceExecutionOptions
+} from "./containerized-workspace-execution-runner.js";
+import { parseTextFileUpdates } from "./text-file-update-contract.js";
+import { createTaskCostBudget, createTaskCostBudgetController, TaskCostBudgetError,
+  type TaskCostBudget, type TaskCostBudgetSnapshot, type TokenUsageEvidence } from "./run-cost-ledger.js";
+import {
   CanonicalPolicyError,
   compileCanonicalPolicy,
   evaluateCanonicalPolicy,
+  evaluateCanonicalPolicyPreflight,
   verifyCanonicalCompiledPolicy,
+  createCanonicalRepositoryContentSnapshot,
+  verifyCanonicalRepositoryContentSnapshot,
   canonicalPolicyRepositoryIdentity,
   type CanonicalCompiledPolicy,
-  type CanonicalPolicyAuthority
+  type CanonicalPolicyAuthority,
+  type CanonicalRepositoryContentSnapshot
 } from "./canonical-policy-compiler.js";
 
 export const RUN_BOUNDED_TASK_VERSION = "run-bounded-task/v1" as const;
-export const BOUNDED_TASK_RECEIPT_VERSION = "bounded-task-receipt/v1" as const;
+export const BOUNDED_TASK_RECEIPT_VERSION = "bounded-task-receipt/v3" as const;
+export const LEGACY_BOUNDED_TASK_RECEIPT_V2_VERSION = "bounded-task-receipt/v2" as const;
+export const LEGACY_BOUNDED_TASK_RECEIPT_VERSION = "bounded-task-receipt/v1" as const;
 
 export type BoundedTaskApplyExecutorResult = Readonly<{
   decision: "apply_completed" | "apply_blocked" | "apply_invalid" | "apply_recovery_required";
@@ -59,9 +91,26 @@ export type RunBoundedTaskInput = Omit<BoundedTaskFlowInput,
   "plannerMinimalityProvider" | "coderProvider" | "contextRequestProvider"> & {
   /** Shared task budget, default 120 seconds, maximum 10 minutes. */
   timeoutMs?: number;
+  /** Optional whole-task provider/token/cost budget. No provider call starts after exhaustion. */
+  costBudget?: Readonly<{
+    maxProviderCalls: number;
+    maxEstimatedTokens: number;
+    maxCostNanoUsd?: number | null;
+    providerId: string;
+    modelId: string;
+    inputNanoUsdPerToken?: number | null;
+    outputNanoUsdPerToken?: number | null;
+    reservedOutputTokens?: number;
+  }>;
   deadlineAt?: number;
   signal?: AbortSignal;
   durableTask?: DurableBoundedTaskConfiguration;
+  humanReviewEvidence?: readonly HumanReviewAcceptanceEvidence[];
+  validationProfile?: ValidationProfileId;
+  draftValidation?: Readonly<{
+    executionSpecification: TemporaryWorkspaceExecutionSpecification;
+    containerOptions?: ContainerizedWorkspaceExecutionOptions;
+  }>;
   plannerMinimalityProvider: (context: Parameters<BoundedTaskFlowInput["plannerMinimalityProvider"]>[0], control: TaskProviderControl) => Promise<unknown>;
   coderProvider: (context: Parameters<BoundedTaskFlowInput["coderProvider"]>[0], control: TaskProviderControl) => Promise<WorkspaceMutation>;
   contextRequestProvider: (context: Parameters<BoundedTaskFlowInput["contextRequestProvider"]>[0], control: TaskProviderControl) => ReturnType<BoundedTaskFlowInput["contextRequestProvider"]>;
@@ -96,22 +145,57 @@ export type BoundedTaskReceipt = Readonly<{
   runtimeContractVersion: typeof RUNTIME_CONTRACT_VERSION;
   taskId: string;
   objectiveHash: string;
-  outcome: "verified_draft_ready" | "applied_and_validated" | "validated_no_change";
+  outcome: "structurally_verified_draft" | "validated_draft_ready" |
+    "applied_and_validated" | "validated_no_change";
   plannerExecutionBindingHash: string;
   coderMutationHash: string;
   verifierFindingHash: string;
   compiledPolicyHash: string;
+  acceptanceContractHash: string;
+  acceptanceEvaluationReceiptHash: string | null;
+  validationSpecificationHash: string | null;
+  validationEvidence: ValidationEvidence;
   applyReceiptHash: string | null;
   stages: readonly BoundedTaskStageReceipt[];
   receiptHash: string;
 }>;
 
+type LegacyBoundedTaskReceiptV1 = Omit<BoundedTaskReceipt,
+  "receiptVersion" | "acceptanceContractHash" | "acceptanceEvaluationReceiptHash" |
+  "validationSpecificationHash" | "validationEvidence" | "outcome"> & {
+  receiptVersion: typeof LEGACY_BOUNDED_TASK_RECEIPT_VERSION;
+  outcome: "verified_draft_ready" | "applied_and_validated" | "validated_no_change";
+};
+
+type LegacyBoundedTaskReceiptV2 = Omit<BoundedTaskReceipt,
+  "receiptVersion" | "validationEvidence" | "outcome"> & {
+  receiptVersion: typeof LEGACY_BOUNDED_TASK_RECEIPT_V2_VERSION;
+  outcome: "verified_draft_ready" | "applied_and_validated" | "validated_no_change";
+};
+
 export type BoundedTaskRoute =
-  | "verified_draft_ready"
+  | "structurally_verified_draft"
+  | "validated_draft_ready"
   | "contract_approved"
   | "replan_required"
   | "human_review_required"
   | "recovery_required";
+
+export type TerminalCacheValidation = Readonly<{
+  validationVersion: "bounded-task-terminal-cache-validation/v1";
+  status: "current" | "repository_drift";
+  expectedRepositorySnapshotHash: string;
+  currentRepositorySnapshotHash: string;
+  expectedHeadHash: string;
+  currentHeadHash: string;
+}>;
+
+type TerminalRepositoryStateSnapshot = Readonly<{
+  snapshotVersion: "bounded-task-terminal-repository-state/v1";
+  contentSnapshot: CanonicalRepositoryContentSnapshot;
+  headHash: string;
+  stateHash: string;
+}>;
 
 export type RunBoundedTaskResult = Readonly<{
   decision: "bounded_task_completed" | "bounded_task_stopped" | "bounded_task_invalid";
@@ -121,12 +205,17 @@ export type RunBoundedTaskResult = Readonly<{
   plannerResult: PlannerMinimalityBoundCoderFlowResult<WorkspaceMutation> | null;
   verifierResult: DeterministicVerifierV2Result | null;
   applyResult: BoundedTaskApplyExecutorResult | null;
+  /** Historical success is retained when its expected repository state has drifted. */
+  historicalReceipt?: BoundedTaskReceipt | null;
+  /** Current validity is deliberately separate from the immutable historical receipt. */
+  terminalCacheValidation?: TerminalCacheValidation;
   summary: Readonly<{
     plannerCalled: boolean;
     coderCalled: boolean;
     verifierCalled: boolean;
     applyCalled: boolean;
     stageReceiptCount: number;
+    costBudget?: TaskCostBudgetSnapshot;
   }>;
 }>;
 
@@ -154,6 +243,44 @@ function deepFreeze<T>(value: T): T {
 
 function stageReceipt(stage: RuntimeStage, decision: string, route: string, evidence: unknown): BoundedTaskStageReceipt {
   return deepFreeze({ stage, decision, route, evidenceHash: hashCanonicalJson(evidence) });
+}
+
+async function validateCandidateInDisposableWorkspace(input: Readonly<{
+  repositoryPath: string;
+  mutation: WorkspaceMutation;
+  profile: ValidationProfileId;
+  structuralPassed: boolean;
+  specification?: TemporaryWorkspaceExecutionSpecification;
+  containerOptions?: ContainerizedWorkspaceExecutionOptions;
+}>): Promise<ValidationEvidence> {
+  if (input.profile === "structural_draft" || input.specification === undefined) {
+    return buildValidationEvidence({ profile: input.profile,
+      structuralPassed: input.structuralPassed,
+      ...(input.profile === "structural_draft" ? {} : { specification: input.specification }) });
+  }
+  const root = await mkdtemp(path.join(os.tmpdir(), "bounded-draft-validation-"));
+  try {
+    await cp(input.repositoryPath, root, { recursive: true,
+      filter: (source) => path.basename(source) !== ".git" });
+    for (const claim of parseTextFileUpdates(input.mutation)) {
+      const target = path.join(root, claim.file);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, claim.newContent, "utf8");
+    }
+    await mkdir(path.join(root, ".validation-output"), { recursive: true });
+    const execution = await runContainerizedWorkspaceExecution({
+      tempWorkspacePath: root, tempApplyDecision: "temp_apply_ready",
+      tempWorkspaceCleanedUp: false, ...input.specification
+    }, async () => null, input.containerOptions);
+    return buildValidationEvidence({ profile: input.profile,
+      structuralPassed: input.structuralPassed,
+      specification: input.specification, executionResult: execution });
+  } catch {
+    return buildValidationEvidence({ profile: input.profile,
+      structuralPassed: input.structuralPassed, specification: input.specification });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 function runtimeFailure(
@@ -241,30 +368,54 @@ function resolvePolicy(input: RunBoundedTaskInput): {
 
 function canonicalTaskInputBinding(input: RunBoundedTaskInput, repository: string,
   policy: CanonicalCompiledPolicy): { taskInputHash: string; effectiveAllowedFiles: readonly string[];
-    effectiveForbiddenFiles: readonly string[] } {
+    effectiveForbiddenFiles: readonly string[]; repositorySnapshot: CanonicalRepositoryContentSnapshot } {
   const callerAllowed = new Set(input.allowedChangeFiles.map(canonicalizeRepositoryRelativePath));
   const callerForbidden = new Set((input.forbiddenFiles ?? []).map(canonicalizeRepositoryRelativePath));
   const effectiveAllowedFiles = policy.allowedPaths
     .filter((file) => callerAllowed.has(file) && !callerForbidden.has(file)).sort();
   const effectiveForbiddenFiles = [...new Set([...policy.forbiddenPaths, ...callerForbidden])].sort();
   const repositoryIdentityHash = canonicalPolicyRepositoryIdentity(repository);
-  const baselineHeadHash = repositoryHeadHash(repository);
-  return { effectiveAllowedFiles, effectiveForbiddenFiles, taskInputHash: hashCanonicalJson({
-    version: "canonical-task-input/v1",
+  const repositorySnapshot = createCanonicalRepositoryContentSnapshot(repository);
+  return { effectiveAllowedFiles, effectiveForbiddenFiles, repositorySnapshot,
+    taskInputHash: hashCanonicalJson({
+    version: "canonical-task-input/v4",
     taskId: input.taskId,
     objectiveHash: input.objectiveHash,
+    taskContextHash: hashCanonicalJson(input.taskContext),
+    initialEvidenceHash: hashCanonicalJson(input.initialEvidence ?? []),
     acceptanceCriteriaContractHash: input.acceptanceCriteriaContract.contractHash,
     authorityHash: input.authorityHash,
+    authorityPresent: input.authorityPresent,
+    policyPresent: input.policyPresent,
+    policyHash: input.policyHash,
     canonicalAuthorityDocumentHash: input.canonicalPolicy?.authority?.authorityHash ?? null,
     compiledPolicyHash: policy.compiledPolicyHash,
     repositoryIdentityHash,
-    baselineHeadHash,
-    baselineSnapshotHash: policy.repositorySnapshotHash,
     effectiveAllowedFiles,
     effectiveForbiddenFiles,
     minimalityPolicyHash: input.minimalityPolicy.policyHash,
+    proposalLimitsHash: hashCanonicalJson(input.proposalLimits),
+    contextLimitsHash: hashCanonicalJson({ hardTotalBudgetTokens: input.hardTotalBudgetTokens,
+      reservedOutputTokens: input.reservedOutputTokens ?? null,
+      maxContextFileBytes: input.maxContextFileBytes ?? null,
+      maxContextTotalBytes: input.maxContextTotalBytes ?? null,
+      intelligenceLimits: input.intelligenceLimits ?? null }),
+    ...(input.costBudget === undefined ? {} : {
+      costBudgetHash: hashCanonicalJson(Object.fromEntries(
+        Object.entries(input.costBudget).filter(([, value]) => value !== undefined)
+      ))
+    }),
+    humanReviewEvidenceHash: hashCanonicalJson(input.humanReviewEvidence ?? []),
     governedValidationSpecificationHash: input.governedExecution === undefined ? null :
-      hashCanonicalJson(input.governedExecution.phaseVExecutionSpecification),
+      computeTemporaryWorkspaceExecutionSpecificationHash(
+        input.governedExecution.phaseVExecutionSpecification),
+    governedExecutionConfigurationHash: input.governedExecution === undefined ? null :
+      hashCanonicalJson(input.governedExecution),
+    validationProfile: input.validationProfile ?? "structural_draft",
+    draftValidationSpecificationHash: input.draftValidation === undefined ? null :
+      computeTemporaryWorkspaceExecutionSpecificationHash(input.draftValidation.executionSpecification),
+    draftValidationConfigurationHash: input.draftValidation === undefined ? null :
+      hashCanonicalJson(input.draftValidation),
     providerIdempotencySupport: Object.fromEntries(Object.entries(
       input.durableTask?.providerIdempotencySupport ?? {}).sort(([left], [right]) => left.localeCompare(right, "en"))),
     executionMode: input.governedExecution !== undefined ? "governed" :
@@ -272,19 +423,70 @@ function canonicalTaskInputBinding(input: RunBoundedTaskInput, repository: strin
   }) };
 }
 
-export function verifyBoundedTaskReceipt(receipt: BoundedTaskReceipt): boolean {
+export function verifyBoundedTaskReceipt(receipt: BoundedTaskReceipt | LegacyBoundedTaskReceiptV2 |
+  LegacyBoundedTaskReceiptV1): boolean {
   try {
-    if (receipt.receiptVersion !== BOUNDED_TASK_RECEIPT_VERSION) return false;
+    if (receipt.receiptVersion !== BOUNDED_TASK_RECEIPT_VERSION &&
+        receipt.receiptVersion !== LEGACY_BOUNDED_TASK_RECEIPT_V2_VERSION &&
+        receipt.receiptVersion !== LEGACY_BOUNDED_TASK_RECEIPT_VERSION) return false;
     if (receipt.runtimeContractVersion !== RUNTIME_CONTRACT_VERSION) return false;
     if (!IDENTIFIER.test(receipt.taskId) || !HASH.test(receipt.objectiveHash)) return false;
-    if (!["verified_draft_ready", "applied_and_validated", "validated_no_change"].includes(receipt.outcome)) return false;
+    if (!(receipt.receiptVersion === BOUNDED_TASK_RECEIPT_VERSION
+      ? ["structurally_verified_draft", "validated_draft_ready", "applied_and_validated", "validated_no_change"]
+      : ["verified_draft_ready", "applied_and_validated", "validated_no_change"]).includes(receipt.outcome)) return false;
     if (!HASH.test(receipt.plannerExecutionBindingHash)) return false;
     if (!HASH.test(receipt.coderMutationHash) || !HASH.test(receipt.verifierFindingHash)) return false;
     if (receipt.applyReceiptHash !== null && !HASH.test(receipt.applyReceiptHash)) return false;
     if (!HASH.test(receipt.compiledPolicyHash)) return false;
+    if (receipt.receiptVersion === BOUNDED_TASK_RECEIPT_VERSION) {
+      if (!verifyValidationEvidence(receipt.validationEvidence)) return false;
+      if (!receipt.validationEvidence.profileSatisfied) return false;
+      if (receipt.validationSpecificationHash !==
+          receipt.validationEvidence.validationSpecificationHash) return false;
+      if (!HASH.test(receipt.acceptanceContractHash)) return false;
+      if (receipt.acceptanceEvaluationReceiptHash !== null &&
+          !HASH.test(receipt.acceptanceEvaluationReceiptHash)) return false;
+      if (receipt.validationSpecificationHash !== null &&
+          !HASH.test(receipt.validationSpecificationHash)) return false;
+      if (["structurally_verified_draft", "validated_draft_ready"].includes(receipt.outcome) &&
+          receipt.acceptanceEvaluationReceiptHash !== null) return false;
+      if (receipt.outcome === "structurally_verified_draft" &&
+          receipt.validationSpecificationHash !== null) return false;
+      if (receipt.outcome === "validated_draft_ready" &&
+          receipt.validationSpecificationHash === null) return false;
+      if (!["structurally_verified_draft", "validated_draft_ready"].includes(receipt.outcome) &&
+          (receipt.acceptanceEvaluationReceiptHash === null ||
+            receipt.validationSpecificationHash === null)) return false;
+    } else if (receipt.receiptVersion === LEGACY_BOUNDED_TASK_RECEIPT_V2_VERSION) {
+      if (!HASH.test(receipt.acceptanceContractHash) ||
+          receipt.acceptanceEvaluationReceiptHash !== null &&
+            !HASH.test(receipt.acceptanceEvaluationReceiptHash) ||
+          receipt.validationSpecificationHash !== null &&
+            !HASH.test(receipt.validationSpecificationHash)) return false;
+      if (receipt.outcome === "verified_draft_ready" &&
+          (receipt.acceptanceEvaluationReceiptHash !== null ||
+            receipt.validationSpecificationHash !== null)) return false;
+      if (receipt.outcome !== "verified_draft_ready" &&
+          (receipt.acceptanceEvaluationReceiptHash === null ||
+            receipt.validationSpecificationHash === null)) return false;
+      const keys = Object.keys(receipt).sort();
+      const legacyKeys = ["acceptanceContractHash", "acceptanceEvaluationReceiptHash",
+        "applyReceiptHash", "coderMutationHash", "compiledPolicyHash", "objectiveHash",
+        "outcome", "plannerExecutionBindingHash", "receiptHash", "receiptVersion",
+        "runtimeContractVersion", "stages", "taskId", "validationSpecificationHash",
+        "verifierFindingHash"].sort();
+      if (hashCanonicalJson(keys) !== hashCanonicalJson(legacyKeys)) return false;
+    } else {
+      const keys = Object.keys(receipt).sort();
+      const legacyKeys = ["applyReceiptHash", "coderMutationHash", "compiledPolicyHash", "objectiveHash",
+        "outcome", "plannerExecutionBindingHash", "receiptHash", "receiptVersion",
+        "runtimeContractVersion", "stages", "taskId", "verifierFindingHash"].sort();
+      if (hashCanonicalJson(keys) !== hashCanonicalJson(legacyKeys)) return false;
+    }
     if (receipt.stages.length === 0 || receipt.stages.some((entry) => !HASH.test(entry.evidenceHash))) return false;
     const stageNames = new Set(receipt.stages.map((entry) => entry.stage));
-    if (receipt.outcome === "verified_draft_ready" && receipt.applyReceiptHash !== null) return false;
+    if (["verified_draft_ready", "structurally_verified_draft", "validated_draft_ready"].includes(receipt.outcome) &&
+        receipt.applyReceiptHash !== null) return false;
     if (receipt.outcome === "applied_and_validated" &&
         (receipt.applyReceiptHash === null || !stageNames.has("apply") || !stageNames.has("validation"))) return false;
     if (receipt.outcome === "validated_no_change" &&
@@ -299,7 +501,14 @@ export function verifyBoundedTaskReceipt(receipt: BoundedTaskReceipt): boolean {
 async function runBoundedTaskOnce(input: RunBoundedTaskInput,
   durableSession?: BoundedTaskStateSession): Promise<RunBoundedTaskResult> {
   const startedAt = Date.now();
-  const summary = {
+  const summary: {
+    plannerCalled: boolean;
+    coderCalled: boolean;
+    verifierCalled: boolean;
+    applyCalled: boolean;
+    stageReceiptCount: number;
+    costBudget?: TaskCostBudgetSnapshot;
+  } = {
     plannerCalled: false,
     coderCalled: false,
     verifierCalled: false,
@@ -318,6 +527,15 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
     if (input.signal !== undefined && !(input.signal instanceof AbortSignal)) throw new TypeError("signal must be an AbortSignal.");
     if (!IDENTIFIER.test(input.taskId)) throw new TypeError("taskId is invalid.");
     if (!HASH.test(input.objectiveHash)) throw new TypeError("objectiveHash must be a sha256 hash.");
+    if (!verifyAcceptanceCriteriaContract(input.acceptanceCriteriaContract,
+      { taskId: input.taskId, objectiveHash: input.objectiveHash })) {
+      throw new TypeError("acceptanceCriteriaContract is invalid or does not match the task.");
+    }
+    if (input.humanReviewEvidence !== undefined && !Array.isArray(input.humanReviewEvidence)) {
+      throw new TypeError("humanReviewEvidence must be an array.");
+    }
+    if (input.validationProfile !== undefined &&
+        !(input.validationProfile in VALIDATION_PROFILES)) throw new TypeError("validationProfile is invalid.");
     if (!Array.isArray(input.allowedChangeFiles)) throw new TypeError("allowedChangeFiles must be an array.");
     for (const value of input.allowedChangeFiles) canonicalizeRepositoryRelativePath(value);
     for (const value of input.forbiddenFiles ?? []) canonicalizeRepositoryRelativePath(value);
@@ -349,8 +567,90 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
     });
   }
 
+  const policyPreflight = evaluateCanonicalPolicyPreflight({ policy: policyBinding.policy,
+    requestedChangeFiles: effectiveAllowedFiles, authority: input.canonicalPolicy?.authority,
+    repositoryIdentityHash: canonicalPolicyRepositoryIdentity(input.repositoryPath), taskId: input.taskId });
+  if (policyPreflight.decision !== "allow") {
+    const pairMissing = policyPreflight.reasonCodes.includes("canonical_policy_paired_file_missing");
+    const route = pairMissing ? "replan_required" : "human_review_required";
+    stages.push(stageReceipt("planning", "canonical_policy_preflight_rejected", route,
+      { compiledPolicyHash: policyBinding.policy.compiledPolicyHash,
+        evaluationHash: policyPreflight.evaluationHash, reasonCodes: policyPreflight.reasonCodes }));
+    summary.stageReceiptCount = stages.length;
+    return deepFreeze({ decision: "bounded_task_stopped", route,
+      failure: runtimeFailure("planning", pairMissing ? "replan_required" : "policy_blocked",
+        policyPreflight.reasonCodes[0] ?? "bounded_task_policy_preflight_rejected",
+        "Canonical policy statically rejected the requested change scope before provider execution.",
+        { compiledPolicyHash: policyBinding.policy.compiledPolicyHash,
+          evaluationHash: policyPreflight.evaluationHash }),
+      receipt: null, plannerResult: null, verifierResult: null, applyResult: null, summary });
+  }
+
   const deadlineAt = Math.min(startedAt + (input.timeoutMs ?? 120_000), input.deadlineAt ?? Infinity);
   const budget = createTaskProviderDeadline(deadlineAt, input.signal);
+  let costController: ReturnType<typeof createTaskCostBudgetController> | null = null;
+  let providerCostFailure: TaskCostBudgetError | null = null;
+  if (input.costBudget !== undefined) {
+    const config = input.costBudget;
+    const taskBudget = createTaskCostBudget(config);
+    const existing = durableSession?.getArtifact<TaskCostBudgetSnapshot>("task-cost-budget");
+    if (existing !== undefined && hashCanonicalJson(existing.budget) !== hashCanonicalJson(taskBudget)) {
+      throw new TaskCostBudgetError("task_cost_budget_invalid", "Durable task cost budget binding changed.");
+    }
+    costController = createTaskCostBudgetController(taskBudget,
+      existing?.reservations ?? [], existing?.reconciliations ?? []);
+    summary.costBudget = costController.snapshot();
+  }
+  const persistCost = () => {
+    if (costController === null) return;
+    summary.costBudget = costController.snapshot();
+    durableSession?.writeArtifact("task-cost-budget", summary.costBudget);
+  };
+  const reserveProvider = (operation: "planner" | "coder" | "expansion", context: unknown,
+    providerIdempotencyKey?: string) => {
+    if (costController === null) return null;
+    const budgetInput = input.costBudget!;
+    const requestBytes = Buffer.byteLength(canonicalizeJson(context), "utf8");
+    const invocationId = providerIdempotencyKey ?? hashCanonicalJson({ taskId: input.taskId,
+      operation, request: context });
+    costController.reserve({ invocationId, operation,
+      attempt: 1, requestHash: hashCanonicalJson(context),
+      estimatedInputTokens: Math.ceil(requestBytes / 4), requestByteLength: requestBytes,
+      estimatorId: "canonical-json-utf8-bytes-div-4/v1",
+      reservedOutputTokens: budgetInput.reservedOutputTokens ?? 0 });
+    persistCost();
+    let reported = false;
+    const reportUsage = (report: TaskProviderUsageReport) => {
+      if (reported) return;
+      reported = true;
+      const usage: TokenUsageEvidence = report.status === "observed" ? {
+        status: "observed", inputTokens: report.inputTokens, outputTokens: report.outputTokens,
+        totalTokens: report.totalTokens, providerResponseHash: report.providerResponseHash,
+        providerRequestId: report.providerRequestId ?? null
+      } : { status: "unavailable", reason: report.reason,
+        providerResponseHash: report.providerResponseHash ?? null };
+      costController!.reconcile(invocationId, usage); persistCost();
+    };
+    return { reportUsage, complete() { if (!reported) reportUsage({ status: "unavailable",
+      reason: "provider_usage_unsupported", providerResponseHash: null }); },
+    failed() { if (!reported) reportUsage({ status: "unavailable",
+      reason: "provider_call_failed", providerResponseHash: null }); } };
+  };
+  const callProvider = async <T>(operation: "planner" | "coder" | "expansion", context: unknown,
+    control: TaskProviderControl, providerIdempotencyKey: string | undefined,
+    provider: (providerControl: TaskProviderControl) => Promise<T>): Promise<T> => {
+    let accounting: ReturnType<typeof reserveProvider>;
+    try { accounting = reserveProvider(operation, context, providerIdempotencyKey); }
+    catch (error) {
+      if (error instanceof TaskCostBudgetError) providerCostFailure = error;
+      throw error;
+    }
+    const providerControl: TaskProviderControl = { ...control,
+      ...(providerIdempotencyKey === undefined ? {} : { providerIdempotencyKey }),
+      ...(accounting === null ? {} : { reportUsage: accounting.reportUsage }) };
+    try { const value = await provider(providerControl); accounting?.complete(); return value; }
+    catch (error) { accounting?.failed(); throw error; }
+  };
   try {
     budget.check();
     const plannerResult = await runPlannerMinimalityBoundCoderFlow({
@@ -361,27 +661,35 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       plannerMinimalityProvider: (context) => budget.call("planning", (control) => {
         durableSession?.advance("planning_started");
         return durableSession ? durableSession.cachedProvider("planner", context, async (providerIdempotencyKey) => {
-          summary.plannerCalled = true; return input.plannerMinimalityProvider(context,
-            { ...control, providerIdempotencyKey });
+          summary.plannerCalled = true; return callProvider("planner", context, control,
+            providerIdempotencyKey, (providerControl) => input.plannerMinimalityProvider(context, providerControl));
         }).then(({ value }) => { durableSession.advance("planning_completed"); return value; }) :
-          (summary.plannerCalled = true, input.plannerMinimalityProvider(context, control));
+          (summary.plannerCalled = true, callProvider("planner", context, control,
+            control.providerIdempotencyKey, (providerControl) => input.plannerMinimalityProvider(context, providerControl)));
       }),
       coderProvider: (context) => budget.call("coding", (control) => {
         durableSession?.advance("context_authorized", { contextEvidenceHash: hashCanonicalJson(context) });
         durableSession?.advance("coding_started");
         return durableSession ? durableSession.cachedProvider("coder", context, async (providerIdempotencyKey) => {
-          summary.coderCalled = true; return input.coderProvider(context, { ...control, providerIdempotencyKey });
+          summary.coderCalled = true; return callProvider("coder", context, control,
+            providerIdempotencyKey, (providerControl) => input.coderProvider(context, providerControl));
         }).then(({ value }) => { durableSession.advance("coding_completed", {
           mutationArtifactHash: hashCanonicalJson(value) }); return value; }) :
-          (summary.coderCalled = true, input.coderProvider(context, control));
+          (summary.coderCalled = true, callProvider("coder", context, control,
+            control.providerIdempotencyKey, (providerControl) => input.coderProvider(context, providerControl)));
       }),
       contextRequestProvider: (context) => budget.call("repository_intelligence", (control) =>
-        durableSession ? durableSession.cachedProvider("context", context, async (providerIdempotencyKey) =>
-          await input.contextRequestProvider(context, { ...control, providerIdempotencyKey })).then(({ value }) => value) :
-          input.contextRequestProvider(context, control))
+        durableSession ? durableSession.cachedProvider("context", context, async (providerIdempotencyKey) => {
+          return callProvider("expansion", context, control, providerIdempotencyKey,
+            (providerControl) => input.contextRequestProvider(context, providerControl));
+        }).then(({ value }) => value) :
+          callProvider("expansion", context, control, control.providerIdempotencyKey,
+            (providerControl) => input.contextRequestProvider(context, providerControl)))
     });
     // Lower-level flows can convert callback rejections into their own failures.
     budget.check();
+    const costFailure = providerCostFailure as TaskCostBudgetError | null;
+    if (costFailure !== null) throw costFailure;
     if (!durableSession) summary.coderCalled = plannerResult.summary.coderProviderCallCount > 0;
     stages.push(stageReceipt("planning", plannerResult.decision, plannerResult.route, {
       proposalHash: plannerResult.proposal?.proposalHash ?? null,
@@ -455,7 +763,7 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
     budget.setStage("verification");
     budget.check();
     summary.verifierCalled = true;
-    const verifierResult = await verifyPatchDraftMutationV2({
+    let verifierResult: DeterministicVerifierV2Result = await verifyPatchDraftMutationV2({
       repositoryPath: input.repositoryPath,
       mutation,
       allowedFiles: effectiveAllowedFiles,
@@ -541,6 +849,34 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
         receipt: null, plannerResult, verifierResult, applyResult: null, summary });
     }
 
+    if (verifierResult.decision === "approve") {
+      const validationProfile = input.validationProfile ?? "structural_draft";
+      const validationEvidence = await validateCandidateInDisposableWorkspace({
+        repositoryPath: input.repositoryPath, mutation, profile: validationProfile,
+        structuralPassed: true,
+        specification: input.draftValidation?.executionSpecification ??
+          input.governedExecution?.phaseVExecutionSpecification,
+        containerOptions: input.draftValidation?.containerOptions
+      });
+      verifierResult = deepFreeze({ ...verifierResult, validationEvidence });
+      stages.push(stageReceipt("validation", validationEvidence.profileSatisfied
+        ? "validation_profile_satisfied" : "validation_profile_incomplete",
+      validationEvidence.profileSatisfied ? "continue" : "replan_required", validationEvidence));
+      if (!validationEvidence.profileSatisfied) {
+        const notRun = validationEvidence.checks.some((check) =>
+          check.required && check.status === "not_run");
+        summary.stageReceiptCount = stages.length;
+        return deepFreeze({ decision: "bounded_task_stopped", route: "replan_required",
+          failure: runtimeFailure("validation", "replan_required",
+            notRun ? "bounded_task_required_validation_not_run" :
+              "bounded_task_required_validation_failed",
+            notRun
+              ? "A required validation check was not run; missing tools or commands are not treated as passing."
+              : "A required validation check failed in the disposable candidate workspace."),
+          receipt: null, plannerResult, verifierResult, applyResult: null, summary });
+      }
+    }
+
     if (verifierResult.decision !== "approve" && noChange && input.governedExecution !== undefined) {
       if (!policyBinding.verifyFresh()) {
         summary.stageReceiptCount = stages.length;
@@ -557,7 +893,10 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
         accepted = await verifyCanonicalNoChangeAcceptance({ taskId: input.taskId,
           objectiveHash: input.objectiveHash, repositoryPath: input.repositoryPath,
           touchedFiles: mutation.touchedFiles,
-          specification: input.governedExecution.phaseVExecutionSpecification });
+          specification: input.governedExecution.phaseVExecutionSpecification,
+          acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+          humanReviewEvidence: input.humanReviewEvidence,
+          validationProfile: input.validationProfile });
       } catch (error) {
         stages.push(stageReceipt("validation", "no_change_acceptance_failed",
           "recovery_required", { code: "bounded_task_no_change_acceptance_error" }));
@@ -569,11 +908,12 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
           receipt: null, plannerResult, verifierResult, applyResult: null, summary });
       }
       stages.push(stageReceipt("validation", accepted.decision,
-        accepted.decision === "no_change_accepted" ? "contract_approved" : "replan_required", accepted));
+        accepted.route, accepted));
       summary.stageReceiptCount = stages.length;
       if (accepted.decision !== "no_change_accepted" || accepted.receiptHash === null) return deepFreeze({
-        decision: "bounded_task_stopped", route: "replan_required",
-        failure: runtimeFailure("validation", "replan_required",
+        decision: "bounded_task_stopped", route: accepted.route,
+        failure: runtimeFailure("validation", accepted.route === "human_review_required"
+          ? "policy_blocked" : "replan_required",
           "bounded_task_no_change_acceptance_failed", "No-change acceptance did not pass."),
         receipt: null, plannerResult, verifierResult, applyResult: null, summary
       });
@@ -581,6 +921,10 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
         outcome: "validated_no_change", plannerExecutionBindingHash: plannerResult.executionBinding.bindingHash,
         coderMutationHash: hashCanonicalJson(mutation), verifierFindingHash: hashCanonicalJson(verifierResult.finding),
         compiledPolicyHash: policyBinding.policy.compiledPolicyHash,
+        acceptanceContractHash: accepted.acceptanceContractHash,
+        acceptanceEvaluationReceiptHash: accepted.acceptanceEvaluationReceiptHash,
+        validationSpecificationHash: accepted.validationSpecificationHash,
+        validationEvidence: accepted.validationEvidence,
         applyReceiptHash: accepted.receiptHash, stages });
       return deepFreeze({ decision: "bounded_task_completed", route: "contract_approved",
         failure: null, receipt, plannerResult, verifierResult, applyResult: null, summary });
@@ -632,7 +976,9 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       try {
         if (durableSession) durableSession.writeArtifact("preapply-runtime", {
           plannerResult, verifierResult, stages, plannerExecutionBindingHash,
-          coderMutationHash, verifierFindingHash });
+          coderMutationHash, verifierFindingHash,
+          acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+          validationProfile: input.validationProfile ?? "structural_draft" });
         governed = await executeCanonicalGovernedMutation({ taskId: input.taskId,
           objectiveHash: input.objectiveHash, repositoryPath: input.repositoryPath,
           planHash: plannerResult.minimalityResult.plan.planHash,
@@ -642,10 +988,23 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
           coderMutation: mutation,
           verifierFinding: verifierResult.finding,
           adaptiveResult, allowedFiles: effectiveAllowedFiles,
-          forbiddenFiles: effectiveForbiddenFiles, configuration: input.governedExecution,
+          forbiddenFiles: effectiveForbiddenFiles,
+          declaredRiskClass: plannerResult.minimalityResult.plan.riskClass,
+          acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+          humanReviewEvidence: input.humanReviewEvidence,
+          configuration: input.governedExecution,
           durableCheckpoint: durableSession === undefined ? undefined : async (state, artifact) => {
-            const ref = durableSession.writeArtifact(state, artifact);
-            if (state === "governed_apply_prepared") durableSession.advance(state);
+            const lifecyclePhase = (artifact as any)?.containerLifecycle?.phase;
+            const artifactName = state === "phase_v_started" && typeof lifecyclePhase === "string"
+              ? `phase_v_${lifecyclePhase}` : state;
+            const ref = durableSession.writeArtifact(artifactName, artifact);
+            if (state === "phase_v_completed") durableSession.advance(state);
+            else if (state === "phase_v_prepared" || state === "phase_v_started")
+              durableSession.advance(state);
+            else if (state === "governed_apply_prepared") durableSession.advance(state, {
+              acceptanceEvaluationReceiptHash:
+                (artifact as any)?.acceptanceEvaluation?.receipt?.receiptHash ?? null
+            });
             else if (state === "x4_committed") durableSession.advance(state, { x4Reference: ref });
             else if (state === "validation_started") durableSession.advance(state, { x5IntentReference: ref });
             else if (state === "validation_completed") durableSession.advance(state, { x5ReceiptReference: ref });
@@ -666,11 +1025,25 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
           receipt: null, plannerResult, verifierResult, applyResult: null, summary });
       }
       const actual = governed.integratedResult;
+      verifierResult = deepFreeze({ ...verifierResult,
+        validationEvidence: buildValidationEvidence({
+          profile: input.validationProfile ?? "structural_draft", structuralPassed: true,
+          specification: input.governedExecution.phaseVExecutionSpecification,
+          executionEvidence: actual.finalExecutionEvidence ??
+            governed.governanceReceipts.phaseVExecutionVerification
+        }) });
+      if (durableSession && actual.finalAcceptance?.receipt !== null &&
+          actual.finalAcceptance?.receipt !== undefined) {
+        durableSession.advance("validation_completed", {
+          acceptanceEvaluationReceiptHash: actual.finalAcceptance.receipt.receiptHash
+        });
+      }
       const completed = actual.decision === "integrated_disposable_apply_finalized" &&
         actual.route === "contract_approved" && actual.receipt !== null &&
         actual.applyResult?.receipt?.outcome === "applied" &&
         actual.postApplyValidation?.finalReceipt?.outcome === "validated" &&
         actual.finalAcceptance?.decision === "contract_approved" &&
+        verifierResult.validationEvidence.profileSatisfied &&
         actual.finalReceiptVerification?.decision === "controlled_post_apply_final_receipt_current" &&
         actual.summary.finalReceiptCurrent &&
         actual.summary.repositoryFinalState === "validated_applied_state";
@@ -690,6 +1063,9 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
         repairVerifierFindingHash: hashCanonicalJson(governed.governanceReceipts.repairVerifierFinding),
         phaseVExecutionVerificationHash:
           governed.governanceReceipts.phaseVExecutionVerification.verificationResultHash,
+        acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+        acceptanceEvaluationReceiptHash:
+          governed.governanceReceipts.phaseVAcceptanceEvaluation.receipt?.receiptHash ?? null,
         finalLedgerRootHash: governed.governanceReceipts.finalLedger.rootHash,
         governanceHash: governed.governanceReceipts.governanceAssessment.governanceHash,
         adminInvocationAssessmentHash:
@@ -701,6 +1077,7 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       stages.push(stageReceipt("validation", actual.postApplyValidation?.decision ?? "not_run",
         actual.route, { x5ReceiptHash: actual.postApplyValidation?.finalReceipt?.receiptHash ?? null,
           finalAcceptanceHash: actual.finalAcceptance?.receipt?.receiptHash ?? null,
+          acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
           finalReceiptCurrent: actual.summary.finalReceiptCurrent }));
       summary.stageReceiptCount = stages.length;
       if (!completed) return deepFreeze({ decision: actual.decision.includes("invalid")
@@ -713,27 +1090,39 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       const receipt = buildReceipt({ taskId: input.taskId, objectiveHash: input.objectiveHash,
         outcome: "applied_and_validated", plannerExecutionBindingHash, coderMutationHash,
         verifierFindingHash, compiledPolicyHash: policyBinding.policy.compiledPolicyHash,
+        acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+        acceptanceEvaluationReceiptHash: actual.finalAcceptance!.receipt!.receiptHash,
+        validationSpecificationHash:
+          actual.finalAcceptance!.receipt!.validationSpecificationHash,
+        validationEvidence: verifierResult.validationEvidence,
         applyReceiptHash: actual.receipt!.receiptHash, stages });
       return deepFreeze({ decision: "bounded_task_completed", route: "contract_approved",
         failure: null, receipt, plannerResult, verifierResult, applyResult, summary });
     }
 
     if (input.applyExecutor === undefined) {
+      const validatedDraft = verifierResult.validationEvidence.profile !== "structural_draft";
       const receipt = buildReceipt({
         taskId: input.taskId,
         objectiveHash: input.objectiveHash,
-        outcome: "verified_draft_ready",
+        outcome: validatedDraft ? "validated_draft_ready" : "structurally_verified_draft",
         plannerExecutionBindingHash,
         coderMutationHash,
         verifierFindingHash,
         compiledPolicyHash: policyBinding.policy.compiledPolicyHash,
+        acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+        acceptanceEvaluationReceiptHash: null,
+        validationSpecificationHash: validatedDraft && input.draftValidation !== undefined
+          ? computeTemporaryWorkspaceExecutionSpecificationHash(
+            input.draftValidation.executionSpecification) : null,
+        validationEvidence: verifierResult.validationEvidence,
         applyReceiptHash: null,
         stages
       });
       summary.stageReceiptCount = stages.length;
       return deepFreeze({
         decision: "bounded_task_completed",
-        route: "verified_draft_ready",
+        route: validatedDraft ? "validated_draft_ready" : "structurally_verified_draft",
         failure: null,
         receipt,
         plannerResult,
@@ -840,6 +1229,14 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
     }
 
   } catch (error) {
+    if (error instanceof TaskCostBudgetError) {
+      summary.stageReceiptCount = stages.length;
+      if (costController !== null) summary.costBudget = costController.snapshot();
+      return deepFreeze({ decision: "bounded_task_stopped", route: "replan_required",
+        failure: runtimeFailure("planning", "replan_required", error.code, error.message,
+          { budget: "task-wide-provider-budget" }), receipt: null, plannerResult: null,
+        verifierResult: null, applyResult: null, summary });
+    }
     if (!(error instanceof TaskProviderInterruption)) throw error;
     summary.stageReceiptCount = stages.length;
     return deepFreeze({
@@ -877,6 +1274,23 @@ function repositoryHeadHash(repositoryPath: string): string {
   } catch { return hashCanonicalJson({ head: null }); }
 }
 
+function terminalRepositoryState(repositoryPath: string): TerminalRepositoryStateSnapshot {
+  const core = { snapshotVersion: "bounded-task-terminal-repository-state/v1" as const,
+    contentSnapshot: createCanonicalRepositoryContentSnapshot(repositoryPath),
+    headHash: repositoryHeadHash(repositoryPath) };
+  return deepFreeze({ ...core, stateHash: hashCanonicalJson(core) });
+}
+
+function verifyTerminalRepositoryState(value: TerminalRepositoryStateSnapshot): boolean {
+  try {
+    if (value.snapshotVersion !== "bounded-task-terminal-repository-state/v1" ||
+        !HASH.test(value.headHash) || !HASH.test(value.stateHash) ||
+        !verifyCanonicalRepositoryContentSnapshot(value.contentSnapshot)) return false;
+    const { stateHash, ...core } = value;
+    return hashCanonicalJson(core) === stateHash;
+  } catch { return false; }
+}
+
 function terminalStateFor(result: RunBoundedTaskResult): "finalized" | "failed" |
   "replan_required" | "human_review_required" | "recovery_required" {
   if (result.decision === "bounded_task_completed") return "finalized";
@@ -890,6 +1304,39 @@ async function resumeGovernedState(session: BoundedTaskStateSession): Promise<Ru
   const prepared = session.getArtifact<any>("governed_apply_prepared");
   if (!prepared?.recoveryInput) return durableFailure({}, "bounded_task_recovery_artifact_missing",
     "Governed recovery evidence is missing.");
+  const pre = session.getArtifact<any>("preapply-runtime");
+  if (!pre?.plannerResult || !pre?.verifierResult) return durableFailure({},
+    "bounded_task_preapply_artifact_missing", "Pre-apply task evidence is missing.");
+  if (!verifyAcceptanceCriteriaContract(prepared.acceptanceCriteriaContract,
+      { taskId: session.snapshot.taskId,
+        objectiveHash: pre.plannerResult.proposal.objectiveHash }) ||
+      prepared.acceptanceCriteriaContract.contractHash !==
+        session.snapshot.acceptanceCriteriaContractHash ||
+      pre.acceptanceCriteriaContract?.contractHash !==
+        prepared.acceptanceCriteriaContract.contractHash) {
+    return durableFailure({}, "bounded_task_recovery_acceptance_contract_invalid",
+      "Original acceptance criteria are missing, changed, or corrupt during recovery.");
+  }
+  const preflightAcceptance = evaluateAcceptanceCriteria({
+    contract: prepared.acceptanceCriteriaContract,
+    executionSpecification: prepared.phaseVExecutionSpecification,
+    executionEvidence: prepared.phaseVExecutionVerification,
+    humanReviewEvidence: prepared.humanReviewEvidence
+  });
+  const preflightCoverage = preflightAcceptance.receipt === null ? null :
+    verifyAcceptanceCriteriaCoverageReceipt(preflightAcceptance.receipt,
+      prepared.acceptanceCriteriaContract, prepared.phaseVExecutionVerification);
+  if (preflightAcceptance.decision !== "contract_approved" ||
+      preflightAcceptance.receipt === null || preflightCoverage === null ||
+      !preflightCoverage.downstreamEligible ||
+      preflightAcceptance.receipt.receiptHash !==
+        prepared.acceptanceEvaluation?.receipt?.receiptHash ||
+      session.snapshot.currentState !== "validation_completed" &&
+        session.snapshot.acceptanceEvaluationReceiptHash !==
+          preflightAcceptance.receipt.receiptHash) {
+    return durableFailure({}, "bounded_task_recovery_acceptance_evidence_invalid",
+      "Original acceptance evaluation is not current during recovery.");
+  }
   const recovery = await executeControlledTransactionRecovery(prepared.recoveryInput);
   if (["controlled_transaction_recovery_rolled_back",
       "controlled_transaction_recovery_closed_prewrite"].includes(recovery.decision)) {
@@ -919,9 +1366,34 @@ async function resumeGovernedState(session: BoundedTaskStateSession): Promise<Ru
   if (validation?.decision !== "controlled_post_apply_validation_finalized" ||
       validation.finalReceipt?.outcome !== "validated") return durableFailure({},
     "bounded_task_resumed_validation_not_finalized", "Resumed validation did not finalize successfully.");
-  const pre = session.getArtifact<any>("preapply-runtime");
-  if (!pre?.plannerResult || !pre?.verifierResult) return durableFailure({},
-    "bounded_task_preapply_artifact_missing", "Pre-apply task evidence is missing.");
+  const finalExecutionEvidence = rebuildFinalExecutionEvidence(validation);
+  if (finalExecutionEvidence === null) return durableFailure({},
+    "bounded_task_resumed_acceptance_evidence_missing",
+    "Resumed validation did not preserve trustworthy execution evidence.");
+  const finalAcceptance = evaluateAcceptanceCriteria({
+    contract: prepared.acceptanceCriteriaContract,
+    executionSpecification: prepared.phaseVExecutionSpecification,
+    executionEvidence: finalExecutionEvidence,
+    humanReviewEvidence: prepared.humanReviewEvidence
+  });
+  const finalCoverage = finalAcceptance.receipt === null ? null :
+    verifyAcceptanceCriteriaCoverageReceipt(finalAcceptance.receipt,
+      prepared.acceptanceCriteriaContract, finalExecutionEvidence);
+  if (finalAcceptance.decision !== "contract_approved" || finalAcceptance.receipt === null ||
+      finalCoverage === null || !finalCoverage.downstreamEligible) return durableFailure({},
+    "bounded_task_resumed_acceptance_not_approved",
+    "Resumed validation did not satisfy the original acceptance criteria.");
+  const finalValidationEvidence = buildValidationEvidence({
+    profile: pre.validationProfile ?? "structural_draft", structuralPassed: true,
+    specification: prepared.phaseVExecutionSpecification,
+    executionEvidence: finalExecutionEvidence
+  });
+  if (!finalValidationEvidence.profileSatisfied) return durableFailure({},
+    "bounded_task_resumed_validation_profile_incomplete",
+    "Resumed validation did not satisfy the original validation profile.");
+  session.advance("validation_completed", {
+    acceptanceEvaluationReceiptHash: finalAcceptance.receipt.receiptHash
+  });
   const applyResult: BoundedTaskApplyExecutorResult = { decision: "apply_completed",
     route: "contract_approved", receiptHash: validation.finalReceipt.receiptHash };
   const stages: BoundedTaskStageReceipt[] = [...pre.stages,
@@ -934,6 +1406,10 @@ async function resumeGovernedState(session: BoundedTaskStateSession): Promise<Ru
     plannerExecutionBindingHash: pre.plannerExecutionBindingHash,
     coderMutationHash: pre.coderMutationHash, verifierFindingHash: pre.verifierFindingHash,
     compiledPolicyHash: session.snapshot.compiledPolicyHash,
+    acceptanceContractHash: session.snapshot.acceptanceCriteriaContractHash,
+    acceptanceEvaluationReceiptHash: finalAcceptance.receipt.receiptHash,
+    validationSpecificationHash: finalAcceptance.receipt.validationSpecificationHash,
+    validationEvidence: finalValidationEvidence,
     applyReceiptHash: validation.finalReceipt.receiptHash, stages });
   return deepFreeze({ decision: "bounded_task_completed", route: "contract_approved",
     failure: null, receipt, plannerResult: pre.plannerResult, verifierResult: pre.verifierResult,
@@ -951,15 +1427,40 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     session = new BoundedTaskStateSession(input.durableTask, { taskId: input.taskId,
       repositoryPath: repository,
       repositoryIdentityHash: canonicalPolicyRepositoryIdentity(repository),
-      baselineSnapshotHash: policy.repositorySnapshotHash,
+      baselineSnapshotHash: binding.repositorySnapshot.snapshotHash,
       baselineHeadHash: repositoryHeadHash(repository),
       compiledPolicyHash: policy.compiledPolicyHash,
+      acceptanceCriteriaContractHash: input.acceptanceCriteriaContract.contractHash,
       taskInputHash: binding.taskInputHash });
     const terminal = session.terminalResult<RunBoundedTaskResult>();
     if (terminal !== null) {
       if (terminal.receipt !== null && !verifyBoundedTaskReceipt(terminal.receipt)) throw new BoundedTaskStateError(
         "bounded_task_terminal_receipt_invalid", "Stored terminal receipt is invalid.");
-      return deepFreeze(terminal);
+      if (terminal.receipt === null) return deepFreeze(terminal);
+      const expected = session.terminalRepositorySnapshot<TerminalRepositoryStateSnapshot>();
+      if (expected === null || !verifyTerminalRepositoryState(expected)) throw new BoundedTaskStateError(
+        "bounded_task_terminal_repository_snapshot_invalid",
+        "Stored terminal success has no trustworthy expected repository snapshot.");
+      const current = terminalRepositoryState(repository);
+      const cacheValidation: TerminalCacheValidation = {
+        validationVersion: "bounded-task-terminal-cache-validation/v1",
+        status: current.stateHash === expected.stateHash ? "current" : "repository_drift",
+        expectedRepositorySnapshotHash: expected.contentSnapshot.snapshotHash,
+        currentRepositorySnapshotHash: current.contentSnapshot.snapshotHash,
+        expectedHeadHash: expected.headHash,
+        currentHeadHash: current.headHash
+      };
+      if (cacheValidation.status === "current") return deepFreeze({ ...terminal,
+        historicalReceipt: terminal.receipt, terminalCacheValidation: cacheValidation });
+      return deepFreeze({ decision: "bounded_task_stopped", route: "recovery_required",
+        failure: runtimeFailure("validation", "recovery_required", "bounded_task_terminal_repository_drift",
+          "Historical success is preserved, but the repository no longer matches its expected final snapshot.",
+          { expectedRepositorySnapshotHash: expected.contentSnapshot.snapshotHash,
+            currentRepositorySnapshotHash: current.contentSnapshot.snapshotHash }),
+        receipt: null, historicalReceipt: terminal.receipt, terminalCacheValidation: cacheValidation,
+        plannerResult: null, verifierResult: null, applyResult: null,
+        summary: { plannerCalled: false, coderCalled: false, verifierCalled: false,
+          applyCalled: false, stageReceiptCount: 0 } });
     }
     session.assertProviderResumeSafe();
     const applyStartedIndex = ["governed_apply_started", "x4_committed", "validation_started",
@@ -967,7 +1468,9 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     if (applyStartedIndex >= 0) {
       const recovered = await resumeGovernedState(session);
       if (recovered.decision === "bounded_task_completed" || recovered.route !== "recovery_required") {
-        session.finalize(terminalStateFor(recovered), recovered);
+        session.finalize(terminalStateFor(recovered), recovered,
+          recovered.decision === "bounded_task_completed" ?
+            terminalRepositoryState(repository) : undefined);
       }
       return recovered;
     }
@@ -976,7 +1479,9 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
       coderProvider: async (context, control) => input.coderProvider(context, control),
       contextRequestProvider: (context, control) => input.contextRequestProvider(context, control) };
     const result = await runBoundedTaskOnce(durableInput, session);
-    session.finalize(terminalStateFor(result), result);
+    session.finalize(terminalStateFor(result), result,
+      result.decision === "bounded_task_completed" ?
+        terminalRepositoryState(repository) : undefined);
     return result;
   } catch (error) {
     if (error instanceof BoundedTaskStateError) return durableFailure(input, error.code, error.message);

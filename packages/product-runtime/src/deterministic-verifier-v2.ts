@@ -12,6 +12,8 @@ import {
   type WorkspaceMutation
 } from "./workspace-mutation.js";
 import { hashCanonicalJson } from "./agent-event-ledger.js";
+import { buildValidationEvidence } from "./temporary-workspace-execution-verifier.js";
+import type { ValidationEvidence } from "./runtime-contract-foundation.js";
 
 export const DETERMINISTIC_VERIFIER_V2_VERSION = "deterministic-verifier/v2" as const;
 
@@ -65,12 +67,15 @@ export type VerifyPatchDraftMutationV2Input = Readonly<{
 
 export type DeterministicVerifierV2Result = Readonly<{
   version: typeof DETERMINISTIC_VERIFIER_V2_VERSION;
+  /** Compatibility field: true means structural verifier approval only. */
   ok: boolean;
+  structuralOk: boolean;
   decision: "approve" | "needs_review" | "reject";
   issues: readonly VerifierV2Issue[];
   canonicalTouchedFiles: readonly string[];
   canonicalClaimFiles: readonly string[];
   policyHash: string;
+  validationEvidence: ValidationEvidence;
   finding: WorkspaceMutation;
 }>;
 
@@ -112,13 +117,18 @@ function buildFinding(
   mutation: WorkspaceMutation,
   decision: DeterministicVerifierV2Result["decision"],
   issues: readonly VerifierV2Issue[],
-  policyHash: string
+  policyHash: string,
+  validationEvidence: ValidationEvidence
 ): WorkspaceMutation {
   return createWorkspaceMutation({
     role: "verifier",
     target: "verifierFinding",
-    summary: decision === "approve" ? "Deterministic verifier v2 approved coder patchDraft." : `Deterministic verifier v2 returned ${decision}.`,
-    claims: [{ type: "deterministic_verifier_v2_finding", version: DETERMINISTIC_VERIFIER_V2_VERSION, decision, issues, policyHash }],
+    summary: decision === "approve"
+      ? "Deterministic verifier v2 structurally approved coder patchDraft; executable checks are reported separately."
+      : `Deterministic verifier v2 returned ${decision}.`,
+    claims: [{ type: "deterministic_verifier_v2_finding", version: DETERMINISTIC_VERIFIER_V2_VERSION,
+      decision, issues, policyHash,
+      structuralValidationEvidenceHash: validationEvidence.evidenceHash }],
     touchedFiles: [...mutation.touchedFiles],
     confidence: 1
   });
@@ -236,22 +246,28 @@ export async function verifyPatchDraftMutationV2(
   if (issues.some((entry) => entry.disposition === "reject")) decision = "reject";
   else if (issues.length > 0) decision = "needs_review";
 
-  let finding = buildFinding(input.mutation, decision, issues, policyHash);
+  let validationEvidence = buildValidationEvidence({ profile: "structural_draft",
+    structuralPassed: decision === "approve" });
+  let finding = buildFinding(input.mutation, decision, issues, policyHash, validationEvidence);
   if (!validateWorkspaceMutationContract(finding).ok) {
     const fallback = issue(VERIFIER_V2_RULES.patchClaimInvalid, "Generated verifier finding failed contract validation.", { field: "finding" });
     issues.push(fallback);
     decision = "reject";
-    finding = buildFinding(input.mutation, decision, issues, policyHash);
+    validationEvidence = buildValidationEvidence({ profile: "structural_draft",
+      structuralPassed: false });
+    finding = buildFinding(input.mutation, decision, issues, policyHash, validationEvidence);
   }
 
   return Object.freeze({
     version: DETERMINISTIC_VERIFIER_V2_VERSION,
     ok: decision === "approve",
+    structuralOk: decision === "approve",
     decision,
     issues: Object.freeze([...issues]),
     canonicalTouchedFiles: Object.freeze(touched),
     canonicalClaimFiles: Object.freeze(canonicalClaimFiles),
     policyHash,
+    validationEvidence,
     finding
   });
 }

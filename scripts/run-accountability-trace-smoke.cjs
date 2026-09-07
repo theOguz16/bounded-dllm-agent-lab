@@ -43,12 +43,14 @@ function assertDeepFrozen(value, seen = new Set()) {
     "planner",
     "coder",
     "deterministic_verifier",
+    "deterministic_transformer",
     "masker",
     "repairer",
     "repair_verifier",
     "patch_dry_run",
     "temp_workspace_apply",
     "execution_verifier",
+    "deterministic_risk_assessor",
     "shadow_observer",
     "deterministic_governor",
     "admin_invocation_policy",
@@ -125,7 +127,9 @@ function assertDeepFrozen(value, seen = new Set()) {
     assert.equal(completed.summary.traceHashValid, true);
     assert.equal(completed.trace.phaseVExecutionObserved, true);
     assert.equal(completed.trace.phaseVExecutionCompleted, true);
-    assert.deepEqual(completed.trace.rolesCalled, roleOrder.slice(0, 9));
+    assert.deepEqual(completed.trace.rolesCalled, ["planner", "coder", "deterministic_verifier",
+      "masker", "repairer", "repair_verifier", "patch_dry_run", "temp_workspace_apply",
+      "execution_verifier"]);
     assert.deepEqual(completed.trace.files.plannedFiles, ["a.ts", "b.ts"]);
     assert.deepEqual(completed.trace.files.allProposedFiles, ["a.ts", "b.ts"]);
     assert.deepEqual(completed.trace.files.temporaryAppliedFiles, ["a.ts", "b.ts"]);
@@ -413,7 +417,9 @@ function assertDeepFrozen(value, seen = new Set()) {
       { actor: "execution_verifier", decision: "temp_validation_passed" },
       { actor: "planner" },
       { actor: "coder" },
-      { actor: "deterministic_verifier" }
+      { actor: "deterministic_verifier" },
+      { actor: "deterministic_transformer" },
+      { actor: "deterministic_risk_assessor" }
     ];
     const result = traceFor(specs);
     assert.deepEqual(result.trace.roleActivity.map((entry) => entry.actor), roleOrder);
@@ -424,7 +430,14 @@ function assertDeepFrozen(value, seen = new Set()) {
     assert.equal(unused.lastSequence, null);
     assert.deepEqual(unused.decisions, []);
     assert.deepEqual(unused.actions, []);
-    assert.deepEqual(result.trace.rolesCalled, ["planner", "coder", "deterministic_verifier", "execution_verifier"]);
+    assert.deepEqual(result.trace.rolesCalled, ["planner", "coder", "deterministic_verifier",
+      "deterministic_transformer", "execution_verifier", "deterministic_risk_assessor"]);
+    for (const actor of ["deterministic_transformer", "deterministic_risk_assessor"]) {
+      const activity = result.trace.roleActivity.find((entry) => entry.actor === actor);
+      assert.equal(activity.callCount, 1);
+      assert.equal(activity.eventsWithTokenUsage, 0);
+      assert.equal(activity.totalTokens, 0);
+    }
   });
 
   check("trace hash includes every trace field except itself", () => {

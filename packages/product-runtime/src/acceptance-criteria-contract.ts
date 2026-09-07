@@ -315,6 +315,30 @@ export function createAcceptanceCriteriaContract(input: AcceptanceCriteriaContra
   return deepFreeze({ ...core, contractHash: hashCanonicalJson(core) });
 }
 
+export function verifyAcceptanceCriteriaContract(
+  contract: AcceptanceCriteriaContract,
+  expected?: Readonly<{ taskId: string; objectiveHash: string }>
+): boolean {
+  try {
+    const record = requirePlainObject(contract, "Acceptance criteria contract");
+    requireExactFields(record,
+      ["contractVersion", "taskId", "objectiveHash", "criteria", "contractHash"],
+      ["contractVersion", "taskId", "objectiveHash", "criteria", "contractHash"],
+      "Acceptance criteria contract");
+    if (record.contractVersion !== ACCEPTANCE_CRITERIA_CONTRACT_VERSION) return false;
+    const normalized = createAcceptanceCriteriaContract({
+      taskId: record.taskId as string,
+      objectiveHash: record.objectiveHash as string,
+      criteria: record.criteria as readonly AcceptanceCriterion[]
+    });
+    return normalized.contractHash === record.contractHash &&
+      (expected === undefined ||
+        normalized.taskId === expected.taskId && normalized.objectiveHash === expected.objectiveHash);
+  } catch {
+    return false;
+  }
+}
+
 export function createHumanReviewAcceptanceEvidence(
   input: HumanReviewAcceptanceEvidenceInput
 ): HumanReviewAcceptanceEvidence {

@@ -179,12 +179,14 @@ const AGENT_ROLE_ORDER: readonly AgentRole[] = Object.freeze([
   "planner",
   "coder",
   "deterministic_verifier",
+  "deterministic_transformer",
   "masker",
   "repairer",
   "repair_verifier",
   "patch_dry_run",
   "temp_workspace_apply",
   "execution_verifier",
+  "deterministic_risk_assessor",
   "shadow_observer",
   "deterministic_governor",
   "admin_invocation_policy",
@@ -193,6 +195,7 @@ const AGENT_ROLE_ORDER: readonly AgentRole[] = Object.freeze([
 ]);
 
 const GOVERNANCE_ROLES = new Set<AgentRole>([
+  "deterministic_risk_assessor",
   "shadow_observer",
   "deterministic_governor",
   "admin_invocation_policy",
@@ -544,7 +547,8 @@ export function buildRunAccountabilityTrace(
     );
   const plannedFiles = proposedFor("planner");
   const coderProposedFiles = proposedFor("coder");
-  const repairProposedFiles = proposedFor("repairer");
+  const repairProposedFiles = sortedUnique([
+    ...proposedFor("repairer"), ...proposedFor("deterministic_transformer")]);
   const allProposedFiles = sortedUnique([...coderProposedFiles, ...repairProposedFiles]);
   const temporaryAppliedFiles = proposedFor("temp_workspace_apply");
   const executionReadFiles = sortedUnique(
@@ -686,7 +690,8 @@ export function buildRunAccountabilityTrace(
   const proposedEventIds = events
     .filter(
       (event) =>
-        (event.actor === "coder" || event.actor === "repairer") &&
+        (event.actor === "coder" || event.actor === "repairer" ||
+          event.actor === "deterministic_transformer") &&
         event.filesProposed.length > 0
     )
     .map((event) => event.eventId);
@@ -694,7 +699,8 @@ export function buildRunAccountabilityTrace(
   const unplannedEventIds = events
     .filter(
       (event) =>
-        (event.actor === "coder" || event.actor === "repairer") &&
+        (event.actor === "coder" || event.actor === "repairer" ||
+          event.actor === "deterministic_transformer") &&
         event.filesProposed.some((path) => unplannedFileSet.has(path))
     )
     .map((event) => event.eventId);

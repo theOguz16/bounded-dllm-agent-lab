@@ -1,8 +1,75 @@
 import path from "node:path";
+import { hashCanonicalJson } from "./agent-event-ledger.js";
 
 export const RUNTIME_CONTRACT_VERSION = "runtime-contract/v1" as const;
 export const RUNTIME_FAILURE_VERSION = "runtime-failure/v1" as const;
 export const CANONICAL_PATH_VERSION = "canonical-repository-path/v1" as const;
+export const VALIDATION_EVIDENCE_VERSION = "validation-evidence/v1" as const;
+
+export const VALIDATION_CHECK_KINDS = [
+  "structural", "syntax", "typecheck", "behavior_test"
+] as const;
+export type ValidationCheckKind = (typeof VALIDATION_CHECK_KINDS)[number];
+export type ValidationCheckStatus = "passed" | "failed" | "not_run";
+
+export const VALIDATION_PROFILES = Object.freeze({
+  structural_draft: Object.freeze({ requiredChecks: Object.freeze(["structural"] as const) }),
+  existing_function_bug_fix: Object.freeze({ requiredChecks: Object.freeze(
+    ["structural", "syntax", "typecheck", "behavior_test"] as const) }),
+  bounded_behavior_change: Object.freeze({ requiredChecks: Object.freeze(
+    ["structural", "syntax", "typecheck", "behavior_test"] as const) }),
+  regression_test_addition: Object.freeze({ requiredChecks: Object.freeze(
+    ["structural", "syntax", "typecheck", "behavior_test"] as const) })
+});
+export type ValidationProfileId = keyof typeof VALIDATION_PROFILES;
+
+export type ValidationCheckEvidence = Readonly<{
+  kind: ValidationCheckKind;
+  required: boolean;
+  status: ValidationCheckStatus;
+  commandIds: readonly string[];
+  evidenceHashes: readonly string[];
+  reasonCodes: readonly string[];
+}>;
+
+export type ValidationEvidence = Readonly<{
+  evidenceVersion: typeof VALIDATION_EVIDENCE_VERSION;
+  profile: ValidationProfileId;
+  validationSpecificationHash: string | null;
+  checks: readonly ValidationCheckEvidence[];
+  profileSatisfied: boolean;
+  evidenceHash: string;
+}>;
+
+export function verifyValidationEvidence(value: ValidationEvidence): boolean {
+  try {
+    if (value.evidenceVersion !== VALIDATION_EVIDENCE_VERSION ||
+        !(value.profile in VALIDATION_PROFILES) || !Array.isArray(value.checks) ||
+        value.checks.length !== VALIDATION_CHECK_KINDS.length) return false;
+    if (value.validationSpecificationHash !== null &&
+        !/^sha256:[0-9a-f]{64}$/.test(value.validationSpecificationHash)) return false;
+    const required = new Set<ValidationCheckKind>(VALIDATION_PROFILES[value.profile].requiredChecks);
+    for (let index = 0; index < VALIDATION_CHECK_KINDS.length; index += 1) {
+      const check = value.checks[index];
+      if (check.kind !== VALIDATION_CHECK_KINDS[index] || check.required !== required.has(check.kind) ||
+          !["passed", "failed", "not_run"].includes(check.status) ||
+          !Array.isArray(check.commandIds) || !Array.isArray(check.evidenceHashes) ||
+          !Array.isArray(check.reasonCodes) ||
+          check.commandIds.some((id: unknown) => typeof id !== "string" || id.length === 0) ||
+          check.reasonCodes.some((code: unknown) => typeof code !== "string" || code.length === 0) ||
+          check.evidenceHashes.some((hash: unknown) =>
+            typeof hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(hash))) return false;
+      if (check.kind !== "structural" && check.status === "passed" &&
+          (check.commandIds.length === 0 ||
+            check.evidenceHashes.length !== check.commandIds.length)) return false;
+    }
+    const satisfied = value.checks.every((check) => !check.required || check.status === "passed");
+    if (value.profileSatisfied !== satisfied) return false;
+    const { evidenceHash, ...core } = value;
+    return /^sha256:[0-9a-f]{64}$/.test(evidenceHash) &&
+      hashCanonicalJson(core) === evidenceHash;
+  } catch { return false; }
+}
 
 export const RUNTIME_STAGES = [
   "repository_intelligence",

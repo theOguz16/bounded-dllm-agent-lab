@@ -6,6 +6,8 @@ export type AgentRole =
   | "planner"
   | "coder"
   | "deterministic_verifier"
+  | "deterministic_transformer"
+  | "deterministic_risk_assessor"
   | "masker"
   | "repairer"
   | "repair_verifier"
@@ -72,6 +74,8 @@ const AGENT_ROLES = new Set<AgentRole>([
   "planner",
   "coder",
   "deterministic_verifier",
+  "deterministic_transformer",
+  "deterministic_risk_assessor",
   "masker",
   "repairer",
   "repair_verifier",
@@ -83,6 +87,11 @@ const AGENT_ROLES = new Set<AgentRole>([
   "admin_invocation_policy",
   "admin_agent",
   "approval_router"
+]);
+
+const NON_MODEL_ROLES = new Set<AgentRole>([
+  "deterministic_transformer",
+  "deterministic_risk_assessor"
 ]);
 
 const HASH_PATTERN = /^sha256:[0-9a-f]{64}$/;
@@ -451,6 +460,11 @@ export function appendAgentEvent(
   const decision = normalizeDecision(draft.decision);
   const reasonCodes = normalizeReasonCodes(draft.reasonCodes);
   const tokenUsage = normalizeTokenUsage(draft.tokenUsage);
+  if (tokenUsage !== undefined && NON_MODEL_ROLES.has(draft.actor)) {
+    throw new TypeError(
+      `${draft.actor} is deterministic and cannot report model token usage.`
+    );
+  }
 
   const previousEvent = ledger.events.at(-1);
   const sequence = previousEvent === undefined ? 1 : previousEvent.sequence + 1;

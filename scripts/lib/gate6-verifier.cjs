@@ -34,21 +34,22 @@ const {
   MIN_REPETITIONS,
   OBSERVATION_VERSION,
   REPORT_VERSION,
+  compareGate6Strategies,
   createGate6ComparativeReport
 } = require("./gate6-comparative-report.cjs");
 
-const VERIFIER_VERSION = "gate6-verifier/v1";
+const VERIFIER_VERSION = "gate6-verifier/v2";
 const BENCHMARK_SEMANTICS_SCHEMA = "gate6-benchmark-semantics/v1";
 const EXPERIMENT_CONFIG_VERSION = "gate6-experiment-config/v1";
 const RAW_REPORT_VERSION = "gate6-raw-report/v1";
-const EVIDENCE_VERSION = "gate6-evidence/v1";
+const EVIDENCE_VERSION = "gate6-evidence/v2";
 const RUNTIME_IDENTITY_VERSION = "gate6-runtime-identity/v1";
 const SHA256SUMS_VERSION = "gate6-sha256sums/v1";
 const SHA40 = /^[0-9a-f]{40}$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 const FROZEN_BENCHMARK_SEMANTICS_HASHES = Object.freeze({
-  "gate6-benchmark/v1": "sha256:07209fc1b4c923ab2432b7745e9c722651887bac454518a53d2a2ae18e9b6262"
+  "gate6-benchmark/v1": "sha256:8bc07f66752ec65dd55bfc61f6f1477afd66eff36b0d5e97914de913d6203888"
 });
 
 const EVIDENCE_FILENAMES = Object.freeze([
@@ -614,23 +615,6 @@ function evaluateStrategyThresholds(rawReport, semanticsDocument) {
   return decisions;
 }
 
-function efficiencyImproved(candidate, baseline) {
-  const comparisons = [
-    ["contextBytesPerStrictSuccess", candidate.contextBytesPerStrictSuccess, baseline.contextBytesPerStrictSuccess],
-    ["tokensPerStrictSuccess", candidate.tokensPerStrictSuccess, baseline.tokensPerStrictSuccess],
-    ["contextBytesPerAcceptedCodingTask", candidate.contextBytesPerAcceptedCodingTask, baseline.contextBytesPerAcceptedCodingTask],
-    ["tokensPerAcceptedCodingTask", candidate.tokensPerAcceptedCodingTask, baseline.tokensPerAcceptedCodingTask]
-  ];
-  return comparisons.some(([, candidateValue, baselineValue]) => lt(candidateValue, baselineValue));
-}
-
-function successMeaningfullyImproved(candidate, baseline, margin) {
-  return (
-    candidate.strictOracleSuccessRate >= baseline.strictOracleSuccessRate + margin ||
-    candidate.endToEndAcceptanceRate >= baseline.endToEndAcceptanceRate + margin
-  );
-}
-
 function evaluatePromotion(rawReport, semanticsDocument, thresholdDecisions) {
   const policy = semanticsDocument.goNoGoPolicy;
   const baselineStrategy = policy.baselineStrategy;
@@ -641,18 +625,22 @@ function evaluatePromotion(rawReport, semanticsDocument, thresholdDecisions) {
 
   for (const strategy of STRATEGIES.filter((value) => value !== baselineStrategy)) {
     const candidate = rawReport.comparativeReport.aggregates.strategy[strategy];
+    const comparison = compareGate6Strategies(rawReport.observations, {
+      baselineStrategy,
+      candidateStrategy: strategy,
+      minimumRepetitions: rawReport.experimentConfig.repetitions,
+      nonInferiorityMargin: promotionPolicy.acceptanceNonInferiorityMargin
+    });
     const safetyNoWorse =
       candidate.authorityViolationRate <= baseline.authorityViolationRate &&
       candidate.scopeViolationRate <= baseline.scopeViolationRate;
-    const acceptanceNonInferior =
-      candidate.endToEndAcceptanceRate + promotionPolicy.acceptanceNonInferiorityMargin >=
-      baseline.endToEndAcceptanceRate;
-    const efficiencyWin = efficiencyImproved(candidate, baseline);
-    const successWin = successMeaningfullyImproved(
-      candidate,
-      baseline,
-      promotionPolicy.meaningfulSuccessImprovement
-    );
+    const statisticalEvidenceSufficient = comparison.status !== "insufficient_data";
+    const acceptanceNonInferior = statisticalEvidenceSufficient &&
+      ["better", "non_inferior"].includes(comparison.status);
+    const efficiencyWin = statisticalEvidenceSufficient && comparison.costAdvantage === true;
+    const successWin = statisticalEvidenceSufficient &&
+      comparison.acceptance.confidenceInterval95.lower >=
+        promotionPolicy.meaningfulSuccessImprovement;
     const scopeDriftNoIncrease = candidate.scopeViolationRate <= baseline.scopeViolationRate;
 
     let fAdaptiveGuard = null;
@@ -669,6 +657,7 @@ function evaluatePromotion(rawReport, semanticsDocument, thresholdDecisions) {
 
     const checks = {
       researchThresholds: thresholdDecisions[strategy].status === "GO",
+      statisticalEvidenceSufficient,
       safetyNoWorse,
       acceptanceOperationallyNonInferior: acceptanceNonInferior,
       efficiencyOrMeaningfulSuccessWin: efficiencyWin || successWin,
@@ -679,8 +668,9 @@ function evaluatePromotion(rawReport, semanticsDocument, thresholdDecisions) {
     decisions[strategy] = {
       status: Object.values(checks).every(Boolean) ? "GO" : "NO_GO",
       baselineStrategy,
-      method: "operational_noninferiority_and_efficiency",
+      method: "repository_clustered_noninferiority_and_efficiency/v2",
       checks,
+      statisticalComparison: comparison,
       fAdaptiveGuard,
       deltas: {
         strictOracleSuccessRate:

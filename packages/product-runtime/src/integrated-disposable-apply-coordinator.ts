@@ -25,6 +25,7 @@ import type {
 } from "./controlled-apply-execution-gate.js";
 import {
   executeControlledPostApplyValidation,
+  validateControlledPostApplyExecutionSpecification,
   verifyControlledPostApplyFinalReceipt,
   type ControlledPostApplyFinalReceipt,
   type ControlledPostApplyFinalReceiptVerificationResult,
@@ -409,6 +410,24 @@ async function preflightIntegratedValidation(
   input: RunIntegratedDisposableApplyInput
 ): Promise<IntegratedValidationPreflightResult> {
   try {
+    // X.5 must accept the exact same command schema before X.4 is allowed to
+    // mutate the repository. This prevents post-apply schema discovery from
+    // bypassing the rollback path.
+    try {
+      validateControlledPostApplyExecutionSpecification(
+        input.phaseVExecutionSpecification
+      );
+    } catch {
+      return {
+        kind: "invalid",
+        issues: [issue(
+          "integrated_validation_specification_invalid",
+          "Phase V execution specification is not accepted by post-apply validation.",
+          "error",
+          { field: "phaseVExecutionSpecification" }
+        )]
+      };
+    }
     const configuredParent =
       input.validationWorkspaceParentPath;
 
@@ -788,7 +807,7 @@ function preflightStop(
   };
 }
 
-function rebuildFinalExecutionEvidence(
+export function rebuildFinalExecutionEvidence(
   result: ControlledPostApplyValidationResult
 ): TemporaryWorkspaceExecutionVerificationEvidence | null {
   const record = result.validationRecord;

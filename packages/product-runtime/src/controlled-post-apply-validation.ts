@@ -716,7 +716,9 @@ async function existingTransactionFailure(paths: ValidationPaths): Promise<Valid
   );
 }
 
-function validateSpecification(value: unknown): TemporaryWorkspaceExecutionSpecification {
+export function validateControlledPostApplyExecutionSpecification(
+  value: unknown
+): TemporaryWorkspaceExecutionSpecification {
   const record = exactObject(value, [
     "commands", "allowedExecutables", "maxCommands", "defaultTimeoutMs", "maxTimeoutMs",
     "maxOutputChars", "environment"
@@ -734,7 +736,7 @@ function validateSpecification(value: unknown): TemporaryWorkspaceExecutionSpeci
   ]);
   for (const commandValue of record.commands) {
     const command = exactObject(commandValue, [
-      "id", "executable", "args", "timeoutMs", "expectedExitCodes"
+      "id", "checkKind", "executable", "args", "timeoutMs", "expectedExitCodes"
     ], "Phase V execution command", ["id", "executable", "args"]);
     if (typeof command.id !== "string" || command.id.length === 0 ||
         typeof command.executable !== "string" || command.executable.length === 0 ||
@@ -744,6 +746,8 @@ function validateSpecification(value: unknown): TemporaryWorkspaceExecutionSpeci
         !Array.isArray(command.args) ||
         !(command.args as unknown[]).every((entry) =>
           typeof entry === "string" && !entry.includes("\0")) ||
+        (command.checkKind !== undefined &&
+          !["syntax", "typecheck", "behavior_test"].includes(command.checkKind as string)) ||
         (command.timeoutMs !== undefined && (!Number.isSafeInteger(command.timeoutMs) ||
           (command.timeoutMs as number) <= 0)) ||
         (command.expectedExitCodes !== undefined &&
@@ -1287,7 +1291,9 @@ export async function executeControlledPostApplyValidation(
     const maxValidationOutputBytes = numeric(
       top, "maxValidationOutputBytes", DEFAULT_OUTPUT_BYTES, MAX_OUTPUT_BYTES
     );
-    specification = validateSpecification(top.phaseVExecutionSpecification);
+    specification = validateControlledPostApplyExecutionSpecification(
+      top.phaseVExecutionSpecification
+    );
     const specificationHash = computeTemporaryWorkspaceExecutionSpecificationHash(specification);
     phaseEvidence = validateExecutionEvidence(top.phaseVExecutionVerification, specificationHash);
     applyReceipt = top.applyReceipt as ControlledRepositoryApplyReceipt;

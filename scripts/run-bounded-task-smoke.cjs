@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
-const { createHash } = require("node:crypto");
+const { createHash, generateKeyPairSync } = require("node:crypto");
 const fsSync = require("node:fs");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -27,7 +27,10 @@ async function main() {
 
   const roots = [];
   const checks = [];
+  const smokeFilter = process.env.BOUNDED_TASK_SMOKE_FILTER
+    ? new RegExp(process.env.BOUNDED_TASK_SMOKE_FILTER, "i") : null;
   const check = async (name, fn) => {
+    if (smokeFilter && !smokeFilter.test(name)) return;
     process.stdout.write(`[run] ${name}\n`);
     await fn();
     checks.push(name);
@@ -66,7 +69,8 @@ async function main() {
       await fs.access(path.join(root, "package.json")).then(() => true, () => false);
     if (!reuseWorkerRepository) for (const [file, content] of Object.entries(files)) await write(root, file, content);
 
-    if (["governed", "governed_failure", "no_change"].includes(mode)) {
+    if (["git_draft", "governed", "governed_failure", "governed_irrelevant",
+      "governed_missing_human_review", "no_change"].includes(mode)) {
       if (!reuseWorkerRepository) {
         execFileSync("git", ["init", "--quiet"], { cwd: root });
         execFileSync("git", ["config", "user.email", "runtime@example.invalid"], { cwd: root });
@@ -88,7 +92,12 @@ async function main() {
         description: "The service test remains required.",
         required: true,
         evidence: { kind: "test", commandId: "test.service" }
-      }]
+      }, ...(mode === "governed_missing_human_review" ? [{
+        id: "behavior_review",
+        description: "The behavior requires explicit human approval.",
+        required: true,
+        evidence: { kind: "human_review", reviewKey: "behavior.review" }
+      }] : [])]
     });
     const minimalityPolicy = createPreventiveMinimalityPolicy({
       policyVersion: "1",
@@ -157,7 +166,7 @@ async function main() {
         schemaVersion: "1", allowed_paths: ["src/**"], forbidden_paths: ["package.json"],
         paired_files: [], sensitive_patterns: [], sensitive_paths: [], ownership_rules: []
       } },
-      taskContext: { task: objectiveText },
+      taskContext: { task: process.env.BOUNDED_TASK_WORKER_TASK_CONTEXT ?? objectiveText },
       initialEvidence,
       authorityPresent: true,
       policyPresent: true,
@@ -190,7 +199,7 @@ async function main() {
             role: "coder",
             target: "patchDraft",
             summary: "Update compute implementation.",
-            claims: [{ type: "patch_draft", claimVersion: "text-file-update/v1", operation: "update", file: "src/service.ts", expectedContentHash: contentHash(files["src/service.ts"]), description: "Adjust compute behavior.", newContent: mode === "no_change" ? files["src/service.ts"] : "export function compute(value: number): number { return value * 3; }" }],
+            claims: [{ type: "patch_draft", claimVersion: "text-file-update/v1", operation: "update", file: "src/service.ts", expectedContentHash: contentHash(files["src/service.ts"]), description: "Adjust compute behavior.", newContent: mode === "no_change" || mode === "no_change_draft" ? files["src/service.ts"] : mode === "invalid_syntax" ? "export function compute(value: number): number { return value * ; }" : "export function compute(value: number): number { return value * 3; }" }],
             touchedFiles: ["src/service.ts"],
             confidence: 0.9
           }
@@ -203,7 +212,8 @@ async function main() {
         receiptHash: hashCanonicalJson({ apply: "approved" })
       });
     }
-    if (["governed", "governed_failure", "no_change"].includes(mode)) {
+    if (["governed", "governed_failure", "governed_irrelevant",
+      "governed_missing_human_review", "no_change"].includes(mode)) {
       const workerBase = process.env.BOUNDED_TASK_STATE_WORKER === "1"
         ? path.dirname(process.env.BOUNDED_TASK_WORKER_REGISTRY) : null;
       const makeRuntimeDirectory = async (name, prefix) => workerBase
@@ -222,9 +232,12 @@ async function main() {
           allowedExecutables: ["node"],
           maxOutputChars: 20_000,
           commands: [{
-            id: "service.acceptance",
+            id: mode === "governed_irrelevant" ? "irrelevant.success" : "test.service",
+            checkKind: "behavior_test",
             executable: "node",
-            args: ["-e", (process.env.BOUNDED_TASK_WORKER_VALIDATION_PREFIX ?? "") + (mode === "no_change"
+            args: ["-e", (process.env.BOUNDED_TASK_WORKER_VALIDATION_PREFIX ?? "") + (mode === "governed_irrelevant"
+              ? "process.exit(0)"
+              : mode === "no_change"
               ? "const fs=require('fs');const value=fs.readFileSync('src/service.ts','utf8');if(!value.includes('value * 2'))process.exit(1)"
               : mode === "governed_failure"
                 ? "const fs=require('fs');setTimeout(()=>{const value=fs.readFileSync('src/service.ts','utf8');if(!value.includes('value * 3'))process.exit(1)},1000)"
@@ -239,6 +252,13 @@ async function main() {
 
   if (process.env.BOUNDED_TASK_STATE_WORKER === "1") {
     const input = await fixture(process.env.BOUNDED_TASK_WORKER_MODE ?? "approved");
+    if (process.env.BOUNDED_TASK_WORKER_PRE_CANCEL === "1") {
+      const controller = new AbortController(); controller.abort(); input.signal = controller.signal;
+    }
+    if (process.env.BOUNDED_TASK_WORKER_EXPIRED_DEADLINE === "1") input.deadlineAt = Date.now() - 1;
+    if (process.env.BOUNDED_TASK_WORKER_FORCE_RECOVERY === "1") input.applyExecutor = async () => ({
+      decision: "apply_recovery_required", route: "recovery_required", receiptHash: null
+    });
     const counter = process.env.BOUNDED_TASK_WORKER_COUNTER;
     const count = async (kind) => { if (counter) await fs.appendFile(counter, `${kind}\n`); };
     const planner = input.plannerMinimalityProvider; const coder = input.coderProvider;
@@ -246,7 +266,12 @@ async function main() {
       await count("planner");
       if (args[1]?.providerIdempotencyKey) await count(`planner-key:${args[1].providerIdempotencyKey}`);
       if (process.env.BOUNDED_TASK_WORKER_FORBID_PLANNER === "1") throw new Error("planner replayed");
-      return planner(...args);
+      const value = await planner(...args);
+      if (process.env.BOUNDED_TASK_WORKER_PROVIDER_USAGE === "observed") {
+        args[1]?.reportUsage?.({ status: "observed", inputTokens: 13, outputTokens: 4,
+          totalTokens: 17, providerResponseHash: hashCanonicalJson({ worker: "planner-response" }) });
+      }
+      return value;
     };
     input.coderProvider = async (...args) => {
       await count("coder");
@@ -260,6 +285,16 @@ async function main() {
       resume: process.env.BOUNDED_TASK_WORKER_RESUME === "1",
       providerIdempotencySupport: process.env.BOUNDED_TASK_WORKER_IDEMPOTENT === "1"
         ? { planner: true, coder: true, context: true } : undefined,
+      onLeaseCheckpoint: (event) => {
+        if (event.phase === process.env.BOUNDED_TASK_WORKER_CRASH_LEASE) {
+          process.kill(process.pid, "SIGKILL");
+        }
+      },
+      onArtifactCheckpoint: (event) => {
+        if (event.name === process.env.BOUNDED_TASK_WORKER_CRASH_ARTIFACT) {
+          process.kill(process.pid, "SIGKILL");
+        }
+      },
       onProviderCheckpoint: (event) => {
         if (`${event.providerKind}:${event.phase}` === process.env.BOUNDED_TASK_WORKER_CRASH_PROVIDER) {
           process.kill(process.pid, "SIGKILL");
@@ -270,6 +305,11 @@ async function main() {
           process.kill(process.pid, "SIGKILL");
         }
       } };
+    if (process.env.BOUNDED_TASK_WORKER_COST_MAX_CALLS) input.costBudget = {
+      maxProviderCalls: Number(process.env.BOUNDED_TASK_WORKER_COST_MAX_CALLS),
+      maxEstimatedTokens: 100_000, providerId: "cross-process-fixture",
+      modelId: "fixture-model", reservedOutputTokens: 100
+    };
     const result = process.env.BOUNDED_TASK_WORKER_RESUME === "1"
       ? await runtime.resumeBoundedTask(input) : await runBoundedTask(input);
     if (process.env.BOUNDED_TASK_WORKER_OUTPUT) await fs.writeFile(
@@ -283,17 +323,140 @@ async function main() {
       assert.equal(typeof verifyBoundedTaskReceipt, "function");
     });
 
-    await check("verified draft flow completes through verifier v2 with hash-linked receipt", async () => {
+    await check("task-wide provider budget blocks the next call before it starts", async () => {
+      const input = await fixture();
+      let coderCalls = 0;
+      input.costBudget = { maxProviderCalls: 1, maxEstimatedTokens: 50_000,
+        providerId: "fixture-provider", modelId: "fixture-model", reservedOutputTokens: 0 };
+      input.coderProvider = async (...args) => { coderCalls++; return (await fixture()).coderProvider(...args); };
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_stopped", JSON.stringify(result));
+      assert.equal(result.route, "replan_required");
+      assert.equal(result.failure.code, "task_cost_budget_exhausted");
+      assert.equal(coderCalls, 0);
+      assert.equal(result.summary.plannerCalled, true);
+      assert.equal(result.summary.costBudget.reservedProviderCalls, 1);
+      assert.equal(result.summary.costBudget.remainingProviderCalls, 0);
+      assert.equal(result.summary.costBudget.reservations[0].estimatorId,
+        "canonical-json-utf8-bytes-div-4/v1");
+      assert.ok(result.summary.costBudget.reservations[0].requestByteLength > 64,
+        "reservation must measure serialized context, not the fixed-length hash");
+      assert.equal(result.summary.costBudget.reconciliations[0].usage.status, "unavailable");
+      assert.equal(result.summary.costBudget.accountedTokens,
+        result.summary.costBudget.reservations[0].estimatedTokens,
+        "missing provider usage must retain the estimate instead of becoming zero");
+    });
+
+    await check("large planner context is rejected using serialized request bytes before provider call", async () => {
+      const input = await fixture(); let plannerCalls = 0;
+      input.taskContext = { task: "x".repeat(61_342) };
+      input.hardTotalBudgetTokens = 100_000;
+      input.costBudget = { maxProviderCalls: 2, maxEstimatedTokens: 36,
+        providerId: "fixture-provider", modelId: "fixture-model", reservedOutputTokens: 0 };
+      const planner = input.plannerMinimalityProvider;
+      input.plannerMinimalityProvider = async (...args) => { plannerCalls++; return planner(...args); };
+      const result = await runBoundedTask(input);
+      assert.notEqual(result.decision, "bounded_task_completed", JSON.stringify(result));
+      assert.equal(plannerCalls, 0, "insufficient reservation must prevent provider execution");
+      assert.match(result.failure.code, /budget|provider/);
+    });
+
+    await check("provider-reported usage is reconciled separately from byte estimate", async () => {
+      const input = await fixture();
+      input.costBudget = { maxProviderCalls: 2, maxEstimatedTokens: 50_000,
+        providerId: "fixture-provider", modelId: "fixture-model", reservedOutputTokens: 100 };
+      const planner = input.plannerMinimalityProvider; const coder = input.coderProvider;
+      input.plannerMinimalityProvider = async (context, control) => {
+        const value = await planner(context, control);
+        control.reportUsage({ status: "observed", inputTokens: 101, outputTokens: 11,
+          totalTokens: 112, providerResponseHash: hashCanonicalJson({ response: "planner" }) });
+        return value;
+      };
+      input.coderProvider = async (context, control) => {
+        const value = await coder(context, control);
+        control.reportUsage({ status: "observed", inputTokens: 202, outputTokens: 22,
+          totalTokens: 224, providerResponseHash: hashCanonicalJson({ response: "coder" }) });
+        return value;
+      };
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
+      assert.equal(result.summary.costBudget.reconciliations.length, 2);
+      assert.equal(result.summary.costBudget.reconciliations.every((item) =>
+        item.usage.status === "observed"), true);
+      assert.equal(result.summary.costBudget.accountedTokens, 336);
+    });
+
+    await check("structural draft flow reports executable checks as not run", async () => {
       const result = await runBoundedTask(await fixture("approved"));
       assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
-      assert.equal(result.route, "verified_draft_ready");
+      assert.equal(result.route, "structurally_verified_draft");
       assert.equal(result.summary.verifierCalled, true);
       assert.equal(result.verifierResult.version, "deterministic-verifier/v2");
       assert.equal(result.summary.applyCalled, false);
       assert.equal(verifyBoundedTaskReceipt(result.receipt), true);
       assert.match(result.receipt.compiledPolicyHash, /^sha256:[0-9a-f]{64}$/);
+      assert.match(result.receipt.acceptanceContractHash, /^sha256:[0-9a-f]{64}$/);
+      assert.equal(result.receipt.acceptanceEvaluationReceiptHash, null);
+      assert.equal(result.receipt.validationSpecificationHash, null);
+      assert.equal(result.receipt.validationEvidence.profile, "structural_draft");
+      assert.equal(result.receipt.validationEvidence.profileSatisfied, true);
+      assert.equal(result.receipt.validationEvidence.checks.find((check) =>
+        check.kind === "syntax").status, "not_run");
       assert.equal(result.plannerResult.executionBinding.policyHash,
         result.receipt.compiledPolicyHash);
+    });
+
+    await check("legacy v1 bounded-task receipts remain verifiable without new semantics", async () => {
+      const result = await runBoundedTask(await fixture("approved"));
+      const { acceptanceContractHash: _contract, acceptanceEvaluationReceiptHash: _evaluation,
+        validationSpecificationHash: _specification, validationEvidence: _validation,
+        receiptHash: _receiptHash,
+        ...currentCore } = result.receipt;
+      const legacyCore = { ...currentCore, outcome: "verified_draft_ready",
+        receiptVersion: "bounded-task-receipt/v1" };
+      const legacy = { ...legacyCore, receiptHash: hashCanonicalJson(legacyCore) };
+      assert.equal(verifyBoundedTaskReceipt(legacy), true);
+      assert.equal(verifyBoundedTaskReceipt({ ...legacy,
+        acceptanceContractHash: result.receipt.acceptanceContractHash }), false);
+      const { validationEvidence: _v3Evidence, receiptHash: _v3Hash, ...v3Core } = result.receipt;
+      const v2Core = { ...v3Core, outcome: "verified_draft_ready",
+        receiptVersion: "bounded-task-receipt/v2" };
+      assert.equal(verifyBoundedTaskReceipt({ ...v2Core,
+        receiptHash: hashCanonicalJson(v2Core) }), true);
+    });
+
+    await check("invalid TypeScript draft is not presented as syntax validated", async () => {
+      const input = await fixture("invalid_syntax");
+      const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
+      assert.equal(result.route, "structurally_verified_draft");
+      assert.equal(result.receipt.outcome, "structurally_verified_draft");
+      assert.equal(result.verifierResult.validationEvidence.checks.find((check) =>
+        check.kind === "syntax").status, "not_run");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), baseline);
+    });
+
+    await check("missing required validation runtime is not silently treated as passing", async () => {
+      const input = await fixture("approved");
+      const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
+      input.validationProfile = "existing_function_bug_fix";
+      input.draftValidation = { containerOptions: { runtime: "missing-container-runtime" },
+        executionSpecification: { allowedExecutables: ["node"], commands: [
+          { id: "syntax", checkKind: "syntax", executable: "node",
+            args: ["--check", "src/service.ts"] },
+          { id: "types", checkKind: "typecheck", executable: "node",
+            args: ["--version"] },
+          { id: "test.service", checkKind: "behavior_test", executable: "node",
+            args: ["tests/service.test.ts"] }
+        ] } };
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_stopped", JSON.stringify(result));
+      assert.equal(result.failure.code, "bounded_task_required_validation_not_run");
+      assert.equal(result.verifierResult.validationEvidence.profileSatisfied, false);
+      assert.equal(result.verifierResult.validationEvidence.checks.find((check) =>
+        check.kind === "syntax").status, "not_run");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), baseline);
     });
 
     await check("caller scope cannot widen canonical policy", async () => {
@@ -321,6 +484,18 @@ async function main() {
       const result = await runBoundedTask(input);
       assert.equal(result.failure.code, "canonical_policy_source_required");
       assert.equal(plannerCalls, 0); assert.equal(applyCalls, 0);
+    });
+
+    await check("missing paired target fails before providers and cannot assume file creation", async () => {
+      const input = await fixture("approved"); let plannerCalls = 0; let coderCalls = 0;
+      input.canonicalPolicy.policyDocument.paired_files = [{ source: "src/service.ts",
+        requires: "tests/missing.test.ts" }];
+      input.plannerMinimalityProvider = async () => { plannerCalls++; throw new Error("planner called"); };
+      input.coderProvider = async () => { coderCalls++; throw new Error("coder called"); };
+      const result = await runBoundedTask(input);
+      assert.equal(result.failure.code, "canonical_policy_paired_required_file_missing");
+      assert.equal(result.decision, "bounded_task_invalid");
+      assert.equal(plannerCalls, 0); assert.equal(coderCalls, 0);
     });
 
     await check("policy snapshot drift after verification blocks governed apply", async () => {
@@ -389,13 +564,76 @@ async function main() {
           allowed_paths: ["src/**", "tests/**"], forbidden_paths: [],
           paired_files: [], sensitive_patterns: [], sensitive_paths: [], ownership_rules: [],
           ...extra } };
-        let applyCalls = 0;
+        let plannerCalls = 0; let coderCalls = 0; let applyCalls = 0;
+        const planner = input.plannerMinimalityProvider; const coder = input.coderProvider;
+        input.plannerMinimalityProvider = async (...args) => { plannerCalls++; return planner(...args); };
+        input.coderProvider = async (...args) => { coderCalls++; return coder(...args); };
         input.applyExecutor = async () => { applyCalls++; throw new Error("Unexpected apply"); };
         const result = await runBoundedTask(input);
         assert.equal(result.failure.code, code, JSON.stringify(result));
         assert.equal(result.route, route);
+        assert.equal(plannerCalls, 0); assert.equal(coderCalls, 0);
         assert.equal(applyCalls, 0);
       }
+    });
+
+    await check("paired-file omission remains rejected after provider preflight", async () => {
+      const input = await fixture("approved");
+      input.allowedChangeFiles = ["src/service.ts", "tests/service.test.ts"];
+      input.canonicalPolicy = { policyDocument: { schemaVersion: "1",
+        allowed_paths: ["src/**", "tests/**"], forbidden_paths: [],
+        paired_files: [{ source: "src/service.ts", requires: "tests/service.test.ts" }],
+        sensitive_patterns: [], sensitive_paths: [], ownership_rules: [] } };
+      let plannerCalls = 0; let coderCalls = 0; let applyCalls = 0;
+      const planner = input.plannerMinimalityProvider; const coder = input.coderProvider;
+      input.plannerMinimalityProvider = async (...args) => { plannerCalls++; return planner(...args); };
+      input.coderProvider = async (...args) => { coderCalls++; return coder(...args); };
+      input.applyExecutor = async () => { applyCalls++; throw new Error("Unexpected apply"); };
+      const result = await runBoundedTask(input);
+      assert.equal(result.failure.code, "canonical_policy_paired_file_missing", JSON.stringify(result));
+      assert.equal(result.route, "replan_required");
+      assert.equal(plannerCalls, 1); assert.equal(coderCalls, 1); assert.equal(applyCalls, 0);
+    });
+
+    await check("verified ownership authority passes preflight and normal draft execution", async () => {
+      const input = await fixture("approved");
+      const keys = generateKeyPairSync("ed25519");
+      const publicKey = keys.publicKey.export({ type: "spki", format: "pem" });
+      const privateKey = keys.privateKey.export({ type: "pkcs8", format: "pem" });
+      const policyDocument = { schemaVersion: "1", allowed_paths: ["src/**"], forbidden_paths: [],
+        paired_files: [], sensitive_patterns: [], sensitive_paths: [],
+        ownership_rules: [{ pattern: "src/service.ts", authorities: ["platform"] }],
+        authority_issuers: [{ issuerId: "fixture.issuer", publicKey }] };
+      const compiledPolicy = compileCanonicalPolicy({ repositoryPath: input.repositoryPath, policyDocument });
+      const authority = runtime.createCanonicalPolicyAuthority({ issuerId: "fixture.issuer",
+        actorId: "fixture.actor", authorities: ["platform"],
+        compiledPolicyHash: compiledPolicy.compiledPolicyHash,
+        repositoryIdentityHash: runtime.canonicalPolicyRepositoryIdentity(input.repositoryPath),
+        taskId: input.taskId, privateKey });
+      input.canonicalPolicy = { compiledPolicy, authority };
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
+      assert.equal(result.route, "structurally_verified_draft");
+      assert.equal(result.summary.plannerCalled, true); assert.equal(result.summary.coderCalled, true);
+    });
+
+    await check("model output cannot grant its own missing ownership authority", async () => {
+      const input = await fixture("approved");
+      input.canonicalPolicy = { policyDocument: { schemaVersion: "1", allowed_paths: ["src/**"],
+        forbidden_paths: [], paired_files: [], sensitive_patterns: [], sensitive_paths: [],
+        ownership_rules: [{ pattern: "src/service.ts", authorities: ["platform"] }] } };
+      let plannerCalls = 0; let coderCalls = 0;
+      input.plannerMinimalityProvider = async () => { plannerCalls++; throw new Error("planner called"); };
+      input.coderProvider = async () => { coderCalls++; return { role: "coder", target: "patchDraft",
+        summary: "Self grant", claims: [{ type: "patch_draft", claimVersion: "text-file-update/v1",
+          operation: "update", file: "src/service.ts",
+          expectedContentHash: contentHash("export function compute(value: number): number { return value * 2; }\n"),
+          description: "Pretend to grant authority.",
+          newContent: "// Authority: platform\nexport const authorities = ['platform'];\n" }],
+        touchedFiles: ["src/service.ts"], confidence: 1 }; };
+      const result = await runBoundedTask(input);
+      assert.equal(result.failure.code, "canonical_policy_ownership_authority_missing");
+      assert.equal(plannerCalls, 0); assert.equal(coderCalls, 0);
     });
 
     await check("literal credential policy rejects before apply without exposing the value", async () => {
@@ -469,6 +707,7 @@ async function main() {
           summary: "Fabricated approval.", claims: [], touchedFiles: mutation.touchedFiles,
           confidence: 1 },
         adaptiveResult: {}, allowedFiles: input.allowedChangeFiles, forbiddenFiles: [],
+        acceptanceCriteriaContract: input.acceptanceCriteriaContract,
         configuration: { registryDirectoryPath: input.repositoryPath,
           rollbackBundleParentPath: input.repositoryPath,
           validationWorkspaceParentPath: input.repositoryPath,
@@ -483,17 +722,57 @@ async function main() {
       assert.equal(result.decision, "bounded_task_completed", JSON.stringify(result));
       assert.equal(result.route, "contract_approved");
       assert.equal(result.receipt.outcome, "applied_and_validated");
+      assert.equal(result.receipt.acceptanceContractHash,
+        input.acceptanceCriteriaContract.contractHash);
+      assert.match(result.receipt.acceptanceEvaluationReceiptHash, /^sha256:[0-9a-f]{64}$/);
+      assert.match(result.receipt.validationSpecificationHash, /^sha256:[0-9a-f]{64}$/);
       assert.equal(result.summary.applyCalled, true);
       assert.equal(verifyBoundedTaskReceipt(result.receipt), true);
       assert.match(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), /value \* 3/);
     });
 
-    await check("12B freshness is derived from verified receipts and rejects artifact drift", async () => {
+    await check("deterministic medium-risk evidence requires human review before repository apply", async () => {
+      const input = await fixture("governed");
+      const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
+      const provider = input.plannerMinimalityProvider;
+      input.plannerMinimalityProvider = async (...args) => {
+        const response = await provider(...args);
+        return { ...response, minimalityPlan: { ...response.minimalityPlan, riskClass: "medium" } };
+      };
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_stopped", JSON.stringify(result));
+      assert.equal(result.route, "human_review_required");
+      assert.equal(result.failure.code, "canonical_governance_receipt_failed");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), baseline);
+      assert.equal(execFileSync("git", ["status", "--porcelain"], {
+        cwd: input.repositoryPath, encoding: "utf8" }), "");
+    });
+
+    await check("unrelated successful command cannot replace the required test", async () => {
+      const input = await fixture("governed_irrelevant");
+      const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_stopped", JSON.stringify(result));
+      assert.equal(result.route, "human_review_required");
+      assert.equal(result.failure.code, "canonical_acceptance_contract_invalid");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), baseline);
+    });
+
+    await check("missing required human review blocks repository apply", async () => {
+      const input = await fixture("governed_missing_human_review");
+      const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
+      const result = await runBoundedTask(input);
+      assert.equal(result.decision, "bounded_task_stopped", JSON.stringify(result));
+      assert.equal(result.route, "human_review_required");
+      assert.equal(result.failure.code, "canonical_acceptance_human_review_required");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), baseline);
+    });
+
+    await check("reusing a command id with changed content invalidates prepared evidence", async () => {
       const input = await fixture("governed");
       const configuration = input.governedExecution;
       const { governedExecution: _, ...draftInput } = input;
       const draft = await runBoundedTask(draftInput);
-      assert.equal(draft.route, "verified_draft_ready", JSON.stringify(draft));
       const plannerResult = draft.plannerResult;
       const adaptiveResult = plannerResult.taskSeedResult.repoResult.adaptiveResult;
       const coderResult = adaptiveResult.coderResult;
@@ -505,8 +784,55 @@ async function main() {
         compiledPolicyHash: draft.receipt.compiledPolicyHash,
         coderMutation: coderResult.providerOutput,
         verifierFinding: draft.verifierResult.finding,
-        adaptiveResult, allowedFiles: input.allowedChangeFiles,
-        forbiddenFiles: input.forbiddenFiles, configuration };
+        adaptiveResult, declaredRiskClass: "low", allowedFiles: input.allowedChangeFiles,
+        forbiddenFiles: input.forbiddenFiles,
+        acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+        configuration };
+      const prepared = await prepareCanonicalGovernedMutation(canonicalInput);
+      const governanceEvents = prepared.governanceReceipts.finalLedger.events;
+      assert.equal(governanceEvents.some((event) => ["repairer", "repair_verifier", "shadow_observer"]
+        .includes(event.actor)), false);
+      assert.equal(governanceEvents.some((event) => event.actor === "deterministic_transformer" &&
+        event.action === "deterministic_transformer.text_file_update_conversion" &&
+        event.tokenUsage === undefined), true);
+      assert.equal(governanceEvents.some((event) => event.actor === "deterministic_risk_assessor" &&
+        event.action === "deterministic_risk_assessor.evaluate" &&
+        event.tokenUsage === undefined), true);
+      assert.equal(prepared.governanceReceipts.deterministicRiskAssessment.riskClass, "low");
+      assert.ok(prepared.governanceReceipts.deterministicRiskAssessment.reasonCodes.length > 0);
+      assert.equal(prepared.governanceReceipts.deterministicRiskAssessment.evidenceHashes.length, 4);
+      const changedSpecification = { ...configuration.phaseVExecutionSpecification,
+        commands: configuration.phaseVExecutionSpecification.commands.map((command) => ({
+          ...command, args: ["-e", "process.exit(0)"]
+        })) };
+      await assert.rejects(() => executePreparedCanonicalGovernedMutation({
+        ...canonicalInput,
+        configuration: { ...configuration,
+          phaseVExecutionSpecification: changedSpecification }
+      }, prepared), (error) => error?.code === "canonical_prepared_mutation_binding_invalid");
+    });
+
+    await check("12B freshness is derived from verified receipts and rejects artifact drift", async () => {
+      const input = await fixture("governed");
+      const configuration = input.governedExecution;
+      const { governedExecution: _, ...draftInput } = input;
+      const draft = await runBoundedTask(draftInput);
+      assert.equal(draft.route, "structurally_verified_draft", JSON.stringify(draft));
+      const plannerResult = draft.plannerResult;
+      const adaptiveResult = plannerResult.taskSeedResult.repoResult.adaptiveResult;
+      const coderResult = adaptiveResult.coderResult;
+      const canonicalInput = { taskId: input.taskId,
+        objectiveHash: input.objectiveHash, repositoryPath: input.repositoryPath,
+        planHash: plannerResult.minimalityResult.plan.planHash,
+        contextBindingHash: hashCanonicalJson(coderResult.context),
+        plannerExecutionBindingHash: plannerResult.executionBinding.bindingHash,
+        compiledPolicyHash: draft.receipt.compiledPolicyHash,
+        coderMutation: coderResult.providerOutput,
+        verifierFinding: draft.verifierResult.finding,
+        adaptiveResult, declaredRiskClass: "low", allowedFiles: input.allowedChangeFiles,
+        forbiddenFiles: input.forbiddenFiles,
+        acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+        configuration };
       const prepared = await prepareCanonicalGovernedMutation(canonicalInput);
       const wrongPolicyFinding = structuredClone(canonicalInput.verifierFinding);
       wrongPolicyFinding.claims[0].policyHash = hashCanonicalJson({ policy: "wrong-verifier-policy" });
@@ -561,8 +887,10 @@ async function main() {
         compiledPolicyHash: draft.receipt.compiledPolicyHash,
         coderMutation: coderResult.providerOutput,
         verifierFinding: draft.verifierResult.finding,
-        adaptiveResult, allowedFiles: input.allowedChangeFiles,
-        forbiddenFiles: input.forbiddenFiles, configuration };
+        adaptiveResult, declaredRiskClass: "low", allowedFiles: input.allowedChangeFiles,
+        forbiddenFiles: input.forbiddenFiles,
+        acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+        configuration };
       const prepared = await prepareCanonicalGovernedMutation(canonicalInput);
       const baseline = await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8");
       const fakeHash = hashCanonicalJson({ forged: "governance-receipt" });
@@ -599,8 +927,10 @@ async function main() {
         const timer = setInterval(async () => {
           try {
             const workspaces = await fs.readdir(validationParent);
-            const candidate = workspaces.length === 0 ? null
-              : path.join(validationParent, workspaces[0], "src/service.ts");
+            const postApplyWorkspace = workspaces.find((name) =>
+              name.startsWith("controlled-post-apply-"));
+            const candidate = postApplyWorkspace === undefined ? null
+              : path.join(validationParent, postApplyWorkspace, "src/service.ts");
             const value = candidate === null ? "" : await fs.readFile(candidate, "utf8");
             if (candidate !== null && value.includes("value * 3")) {
               clearInterval(timer);
@@ -725,7 +1055,7 @@ async function main() {
       const output = { ...await input.coderProvider(), confidence: undefined };
       const result = await runBoundedTask({ ...input, coderProvider: async () => output });
       assert.equal(result.decision, "bounded_task_completed");
-      assert.equal(result.route, "verified_draft_ready");
+      assert.equal(result.route, "structurally_verified_draft");
       assert.equal(verifyBoundedTaskReceipt(result.receipt), true);
       const { confidence, ...cleaned } = output;
       assert.equal(result.receipt.coderMutationHash, hashCanonicalJson(cleaned));
@@ -1002,8 +1332,65 @@ async function main() {
         throw new Error("planner replayed"); }, coderProvider: async () => {
         throw new Error("coder replayed"); } });
       assert.equal(first.decision, "bounded_task_completed");
+      assert.equal(Object.hasOwn(first.summary, "costBudget"), false,
+        "budgetless durable results must omit the optional field instead of serializing undefined");
+      assert.equal(Object.hasOwn(replay.summary, "costBudget"), false);
       assert.equal(replay.receipt.receiptHash, first.receipt.receiptHash);
+      assert.equal(replay.terminalCacheValidation.status, "current");
+      assert.equal(replay.historicalReceipt.receiptHash, first.receipt.receiptHash);
       assert.equal(plannerCalls, 1); assert.equal(coderCalls, 1);
+    });
+
+    await check("durable resume normalizes omitted prices and preserves usage without double counting", async () => {
+      const input = await fixture();
+      const registryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-task-state-"));
+      roots.push(registryRoot); let plannerCalls = 0; let coderCalls = 0;
+      const planner = input.plannerMinimalityProvider; const coder = input.coderProvider;
+      input.costBudget = { maxProviderCalls: 2, maxEstimatedTokens: 50_000,
+        maxCostNanoUsd: undefined, providerId: "fixture-provider", modelId: "fixture-model",
+        inputNanoUsdPerToken: undefined, outputNanoUsdPerToken: undefined,
+        reservedOutputTokens: 100 };
+      input.plannerMinimalityProvider = async (context, control) => { plannerCalls++;
+        const value = await planner(context, control); control.reportUsage({ status: "observed",
+          inputTokens: 100, outputTokens: 10, totalTokens: 110,
+          providerResponseHash: hashCanonicalJson({ durable: "planner" }) }); return value; };
+      input.coderProvider = async (context, control) => { coderCalls++;
+        const value = await coder(context, control); control.reportUsage({ status: "observed",
+          inputTokens: 200, outputTokens: 20, totalTokens: 220,
+          providerResponseHash: hashCanonicalJson({ durable: "coder" }) }); return value; };
+      input.durableTask = { registryRoot, idempotencyKey: "terminal.cost.replay" };
+      const first = await runBoundedTask(input);
+      const replay = await resumeBoundedTask(input);
+      assert.equal(first.decision, "bounded_task_completed", JSON.stringify(first));
+      assert.equal(replay.decision, "bounded_task_completed", JSON.stringify(replay));
+      assert.equal(first.summary.costBudget.reservations.length, 2);
+      assert.equal(first.summary.costBudget.reconciliations.length, 2);
+      assert.equal(replay.summary.costBudget.reservations.length, 2);
+      assert.equal(replay.summary.costBudget.reconciliations.length, 2);
+      assert.equal(replay.summary.costBudget.accountedTokens, 330);
+      assert.equal(replay.summary.costBudget.budget.maxCostNanoUsd, null);
+      assert.equal(replay.summary.costBudget.budget.inputNanoUsdPerToken, null);
+      assert.equal(replay.summary.costBudget.budget.outputNanoUsdPerToken, null);
+      assert.equal(plannerCalls, 1); assert.equal(coderCalls, 1);
+    });
+
+    await check("durable terminal replay detects content drift without overwriting it", async () => {
+      const input = await fixture();
+      const registryRoot = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-task-state-"));
+      roots.push(registryRoot); input.durableTask = { registryRoot, idempotencyKey: "terminal.drift" };
+      const first = await runBoundedTask(input);
+      const changed = "export function compute(value: number): number { return value * 99; }\n";
+      await fs.writeFile(path.join(input.repositoryPath, "src/service.ts"), changed, "utf8");
+      const replay = await resumeBoundedTask({ ...input, plannerMinimalityProvider: async () => {
+        throw new Error("planner replayed"); }, coderProvider: async () => {
+        throw new Error("coder replayed"); } });
+      assert.equal(first.decision, "bounded_task_completed");
+      assert.equal(replay.decision, "bounded_task_stopped");
+      assert.equal(replay.failure.code, "bounded_task_terminal_repository_drift");
+      assert.equal(replay.receipt, null);
+      assert.equal(replay.historicalReceipt.receiptHash, first.receipt.receiptHash);
+      assert.equal(replay.terminalCacheValidation.status, "repository_drift");
+      assert.equal(await fs.readFile(path.join(input.repositoryPath, "src/service.ts"), "utf8"), changed);
     });
 
     await check("concurrent durable call returns already-running without a second provider", async () => {

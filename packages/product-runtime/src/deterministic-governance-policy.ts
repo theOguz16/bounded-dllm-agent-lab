@@ -18,6 +18,71 @@ import type {
  */
 
 export const DETERMINISTIC_GOVERNANCE_VERSION = "1" as const;
+export const DETERMINISTIC_RISK_ASSESSMENT_VERSION = "deterministic-risk-assessment/v1" as const;
+
+export type DeterministicRiskAssessment = Readonly<{
+  assessmentVersion: typeof DETERMINISTIC_RISK_ASSESSMENT_VERSION;
+  riskClass: "low" | "medium" | "high" | "critical" | "unknown";
+  riskScore: number;
+  confidenceScore: number;
+  recommendation: "continue" | "escalate" | "terminate";
+  changedFiles: readonly string[];
+  evidenceHashes: readonly string[];
+  reasonCodes: readonly string[];
+  assessmentHash: string;
+}>;
+
+export function assessDeterministicChangeRisk(input: Readonly<{
+  changedFiles: readonly string[];
+  allowedFiles: readonly string[];
+  forbiddenFiles: readonly string[];
+  declaredRiskClass?: "low" | "medium" | "high" | "critical";
+  mutationHash?: string;
+  authorizationHash?: string;
+  validationEvidenceHash?: string;
+  acceptanceEvidenceHash?: string;
+}>): DeterministicRiskAssessment {
+  const changedFiles = [...new Set(input.changedFiles)].sort();
+  const allowed = new Set(input.allowedFiles);
+  const forbidden = new Set(input.forbiddenFiles);
+  const evidenceHashes = [input.mutationHash, input.authorizationHash,
+    input.validationEvidenceHash, input.acceptanceEvidenceHash]
+    .filter((value): value is string => typeof value === "string" && HASH_PATTERN.test(value)).sort();
+  const completeEvidence = changedFiles.length > 0 && evidenceHashes.length === 4 &&
+    input.declaredRiskClass !== undefined;
+  const outsideAuthority = changedFiles.some((file) => !allowed.has(file) || forbidden.has(file));
+  const elevatedPath = changedFiles.some((file) => /(^|\/)(?:package(?:-lock)?\.json|[^/]*lock[^/]*|\.github\/|auth|security|permissions?)(\/|$)/i.test(file));
+  const unknownPath = changedFiles.some((file) =>
+    !/\.(?:[cm]?[jt]sx?|json|md|ya?ml)$/i.test(file));
+  let riskClass: DeterministicRiskAssessment["riskClass"];
+  const reasons: string[] = [];
+  if (!completeEvidence || unknownPath) {
+    riskClass = "unknown";
+    reasons.push(!completeEvidence ? "deterministic_risk_evidence_incomplete" :
+      "deterministic_risk_file_kind_unknown");
+  } else if (outsideAuthority) {
+    riskClass = "critical"; reasons.push("deterministic_risk_scope_unauthorized");
+  } else if (elevatedPath || input.declaredRiskClass === "high" ||
+      input.declaredRiskClass === "critical") {
+    riskClass = input.declaredRiskClass === "critical" ? "critical" : "high";
+    reasons.push(elevatedPath ? "deterministic_risk_sensitive_path" : "deterministic_risk_declared_high");
+  } else if (input.declaredRiskClass === "medium" || changedFiles.length > 3) {
+    riskClass = "medium";
+    reasons.push(input.declaredRiskClass === "medium" ? "deterministic_risk_declared_medium" :
+      "deterministic_risk_wide_change_scope");
+  } else {
+    riskClass = "low"; reasons.push("deterministic_risk_bounded_authorized_change");
+  }
+  const riskScore = riskClass === "low" ? Math.min(24, 8 + changedFiles.length * 3) :
+    riskClass === "medium" ? 35 : riskClass === "high" || riskClass === "unknown" ? 60 : 85;
+  const confidenceScore = completeEvidence && !unknownPath ? 90 : 0;
+  const recommendation = riskClass === "low" ? "continue" :
+    riskClass === "critical" ? "terminate" : "escalate";
+  const material = { assessmentVersion: DETERMINISTIC_RISK_ASSESSMENT_VERSION,
+    riskClass, riskScore, confidenceScore, recommendation, changedFiles,
+    evidenceHashes, reasonCodes: reasons.sort() };
+  return deepFreeze({ ...material, assessmentHash: hashCanonicalJson(material) }) as DeterministicRiskAssessment;
+}
 
 export type DeterministicGovernanceDecision =
   | "governance_passed"

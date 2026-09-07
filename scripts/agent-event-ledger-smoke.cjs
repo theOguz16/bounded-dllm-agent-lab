@@ -324,6 +324,23 @@ function rejects(fn, pattern) {
     );
   });
 
+  check("deterministic governance roles cannot report model token usage", () => {
+    for (const actor of ["deterministic_transformer", "deterministic_risk_assessor"]) {
+      const event = appendAgentEvent(emptyLedger, {
+        ...baseDraft,
+        actor,
+        action: `${actor}.evaluate`,
+        tokenUsage: undefined
+      }).events[0];
+      assert.equal(event.actor, actor);
+      assert.equal("tokenUsage" in event, false);
+      rejects(
+        () => appendAgentEvent(emptyLedger, { ...baseDraft, actor }),
+        /deterministic and cannot report model token usage/
+      );
+    }
+  });
+
   check("the 1001st event is rejected", () => {
     let boundedLedger = emptyLedger;
     const boundedDraft = {

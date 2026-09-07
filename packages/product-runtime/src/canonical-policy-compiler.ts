@@ -7,11 +7,33 @@ import { hashCanonicalJson } from "./agent-event-ledger.js";
 import { canonicalizeRepositoryRelativePath } from "./runtime-contract-foundation.js";
 
 export const CANONICAL_POLICY_SCHEMA_VERSION = "1" as const;
-export const CANONICAL_POLICY_COMPILER_VERSION = "canonical-policy-compiler/v1" as const;
+export const CANONICAL_POLICY_COMPILER_VERSION = "canonical-policy-compiler/v2" as const;
+export const CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_VERSION =
+  "canonical-repository-content-snapshot/v1" as const;
+export const CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS = Object.freeze({
+  maximumFiles: 20_000,
+  maximumFileBytes: 16 * 1024 * 1024,
+  maximumTotalBytes: 256 * 1024 * 1024
+});
+export const CANONICAL_REPOSITORY_TRAVERSAL_LIMITS = Object.freeze({
+  maximumDepth: 64,
+  maximumTraversalMs: 30_000
+});
+export const CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_IGNORED_DIRECTORIES = Object.freeze([
+  ".git", ".cache", ".next", ".turbo", "build", "coverage", "dist", "node_modules"
+] as const);
 
 export type CanonicalPolicyDisposition = "deny" | "human_review";
 export type CanonicalPolicyPair = Readonly<{ source: string; requires: string; reason: string;
   changedWhenContains: readonly string[] }>;
+export type CanonicalPolicyPairRule = Readonly<{
+  sourcePattern: string;
+  requiresPattern: string;
+  matchedSources: readonly string[];
+  matchedRequiredFiles: readonly string[];
+  reason: string;
+  changedWhenContains: readonly string[];
+}>;
 export type CanonicalSensitiveRule = Readonly<{
   pattern: string; matchedPaths: readonly string[]; disposition: CanonicalPolicyDisposition;
 }>;
@@ -24,6 +46,7 @@ export type CanonicalCompiledPolicy = Readonly<{
   compilerVersion: typeof CANONICAL_POLICY_COMPILER_VERSION;
   allowedPaths: readonly string[];
   forbiddenPaths: readonly string[];
+  pairedFileRules: readonly CanonicalPolicyPairRule[];
   pairedFiles: readonly CanonicalPolicyPair[];
   sensitiveContentPatterns: readonly string[];
   sensitiveRules: readonly CanonicalSensitiveRule[];
@@ -51,6 +74,25 @@ export type CanonicalPolicyEvaluation = Readonly<{
   reasonCodes: readonly string[];
   files: readonly string[];
   evaluationHash: string;
+}>;
+export type CanonicalRepositoryContentSnapshotRecord = Readonly<{
+  path: string;
+  kind: "file" | "symlink";
+  mode: number;
+  byteLength: number;
+  contentHash: string;
+}>;
+export type CanonicalRepositoryContentSnapshot = Readonly<{
+  snapshotVersion: typeof CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_VERSION;
+  scope: Readonly<{
+    ignoredDirectories: readonly string[];
+    maximumFiles: number;
+    maximumFileBytes: number;
+    maximumTotalBytes: number;
+  }>;
+  records: readonly CanonicalRepositoryContentSnapshotRecord[];
+  totalBytes: number;
+  snapshotHash: string;
 }>;
 export type CanonicalScopeViolation = Readonly<{
   file: string;
@@ -150,13 +192,20 @@ function inventory(repositoryPath: string): { paths: string[]; snapshotHash: str
   if (!fs.statSync(root).isDirectory()) throw new CanonicalPolicyError(
     "canonical_policy_repository_invalid", "Policy repository must be a directory.");
   const records: Array<{ path: string; kind: "file" | "symlink"; mode: number; targetHash: string | null }> = [];
-  const walk = (directory: string, relative: string): void => {
+  const startedAt = Date.now();
+  const walk = (directory: string, relative: string, depth: number): void => {
+    if (depth > CANONICAL_REPOSITORY_TRAVERSAL_LIMITS.maximumDepth ||
+        Date.now() - startedAt > CANONICAL_REPOSITORY_TRAVERSAL_LIMITS.maximumTraversalMs ||
+        records.length >= CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumFiles) {
+      throw new CanonicalPolicyError("canonical_policy_inventory_limit_exceeded",
+        "Repository policy inventory exceeded traversal limits.");
+    }
     for (const name of fs.readdirSync(directory).sort((a, b) => a.localeCompare(b, "en"))) {
       if (relative === "" && name === ".git") continue;
       const absolute = path.join(directory, name);
       const child = relative === "" ? name : `${relative}/${name}`;
       const stat = fs.lstatSync(absolute);
-      if (stat.isDirectory() && !stat.isSymbolicLink()) { walk(absolute, child); continue; }
+      if (stat.isDirectory() && !stat.isSymbolicLink()) { walk(absolute, child, depth + 1); continue; }
       const canonical = canonicalizeRepositoryRelativePath(child.normalize("NFC").replaceAll("\\", "/"));
       if (stat.isSymbolicLink()) {
         let target: string;
@@ -171,10 +220,111 @@ function inventory(repositoryPath: string): { paths: string[]; snapshotHash: str
       }
     }
   };
-  walk(root, "");
+  walk(root, "", 0);
   records.sort((a, b) => a.path.localeCompare(b.path, "en"));
   return { paths: records.filter((entry) => entry.kind === "file").map((entry) => entry.path),
     snapshotHash: hashCanonicalJson(records) };
+}
+
+/**
+ * Captures repository currentness independently from Git HEAD. The scope is all
+ * regular files and symlinks except fixed VCS, dependency, cache, build, and
+ * coverage directories. Limits fail closed instead of silently dropping files.
+ */
+export function createCanonicalRepositoryContentSnapshot(
+  repositoryPath: string
+): CanonicalRepositoryContentSnapshot {
+  const root = fs.realpathSync(repositoryPath);
+  if (!fs.statSync(root).isDirectory()) throw new CanonicalPolicyError(
+    "canonical_repository_snapshot_repository_invalid", "Snapshot repository must be a directory.");
+  const ignored = new Set<string>(CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_IGNORED_DIRECTORIES);
+  const records: CanonicalRepositoryContentSnapshotRecord[] = [];
+  const startedAt = Date.now();
+  let totalBytes = 0;
+  const add = (record: CanonicalRepositoryContentSnapshotRecord): void => {
+    if (records.length >= CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumFiles) {
+      throw new CanonicalPolicyError("canonical_repository_snapshot_limit_exceeded",
+        "Repository snapshot exceeds the maximum file count.");
+    }
+    totalBytes += record.byteLength;
+    if (totalBytes > CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumTotalBytes) {
+      throw new CanonicalPolicyError("canonical_repository_snapshot_limit_exceeded",
+        "Repository snapshot exceeds the maximum total byte count.");
+    }
+    records.push(record);
+  };
+  const walk = (directory: string, relative: string, depth: number): void => {
+    if (depth > CANONICAL_REPOSITORY_TRAVERSAL_LIMITS.maximumDepth ||
+        Date.now() - startedAt > CANONICAL_REPOSITORY_TRAVERSAL_LIMITS.maximumTraversalMs) {
+      throw new CanonicalPolicyError("canonical_repository_snapshot_limit_exceeded",
+        "Repository snapshot exceeded traversal limits.");
+    }
+    for (const name of fs.readdirSync(directory).sort((a, b) => a.localeCompare(b, "en"))) {
+      if (ignored.has(name)) continue;
+      const absolute = path.join(directory, name);
+      const child = relative === "" ? name : `${relative}/${name}`;
+      const stat = fs.lstatSync(absolute);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) { walk(absolute, child, depth + 1); continue; }
+      const canonical = canonicalizeRepositoryRelativePath(child.normalize("NFC").replaceAll("\\", "/"));
+      if (stat.isSymbolicLink()) {
+        let target: string;
+        try { target = fs.realpathSync(absolute); }
+        catch { throw new CanonicalPolicyError("canonical_repository_snapshot_symlink_unresolved",
+          `Repository snapshot symlink is unresolved: ${canonical}`); }
+        if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new CanonicalPolicyError(
+          "canonical_repository_snapshot_symlink_escape",
+          `Repository snapshot symlink escapes the repository: ${canonical}`);
+        const link = Buffer.from(fs.readlinkSync(absolute), "utf8");
+        add({ path: canonical, kind: "symlink", mode: stat.mode & 0o777, byteLength: link.length,
+          contentHash: `sha256:${createHash("sha256").update(link).digest("hex")}` });
+      } else if (stat.isFile()) {
+        if (stat.size > CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumFileBytes) {
+          throw new CanonicalPolicyError("canonical_repository_snapshot_limit_exceeded",
+            `Repository snapshot file is too large: ${canonical}`);
+        }
+        const bytes = fs.readFileSync(absolute);
+        add({ path: canonical, kind: "file", mode: stat.mode & 0o777, byteLength: bytes.length,
+          contentHash: `sha256:${createHash("sha256").update(bytes).digest("hex")}` });
+      }
+    }
+  };
+  walk(root, "", 0);
+  records.sort((a, b) => a.path.localeCompare(b.path, "en"));
+  const scope = { ignoredDirectories: [...CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_IGNORED_DIRECTORIES],
+    ...CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS };
+  const core = { snapshotVersion: CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_VERSION,
+    scope, records, totalBytes };
+  return deepFreeze({ ...core, snapshotHash: hashCanonicalJson(core) });
+}
+
+export function verifyCanonicalRepositoryContentSnapshot(
+  snapshot: CanonicalRepositoryContentSnapshot
+): boolean {
+  try {
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot) ||
+        !snapshot.scope || typeof snapshot.scope !== "object" || Array.isArray(snapshot.scope) ||
+        !Array.isArray(snapshot.scope.ignoredDirectories) || !Array.isArray(snapshot.records) ||
+        snapshot.snapshotVersion !== CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_VERSION ||
+        snapshot.scope.maximumFiles !== CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumFiles ||
+        snapshot.scope.maximumFileBytes !== CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumFileBytes ||
+        snapshot.scope.maximumTotalBytes !== CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_LIMITS.maximumTotalBytes ||
+        hashCanonicalJson(snapshot.scope.ignoredDirectories) !==
+          hashCanonicalJson(CANONICAL_REPOSITORY_CONTENT_SNAPSHOT_IGNORED_DIRECTORIES) ||
+        snapshot.records.length > snapshot.scope.maximumFiles || !Number.isSafeInteger(snapshot.totalBytes) ||
+        snapshot.totalBytes < 0 || snapshot.records.some((record, index) => {
+          if (!record || typeof record !== "object" || Array.isArray(record) ||
+              !["file", "symlink"].includes(record.kind) || !Number.isSafeInteger(record.mode) ||
+              record.mode < 0 || record.mode > 0o777 || !Number.isSafeInteger(record.byteLength) ||
+              !HASH.test(record.contentHash) || record.byteLength < 0 ||
+              record.byteLength > snapshot.scope.maximumFileBytes) return true;
+          try { if (canonicalizeRepositoryRelativePath(record.path) !== record.path) return true; }
+          catch { return true; }
+          return index > 0 && snapshot.records[index - 1].path.localeCompare(record.path, "en") >= 0;
+        }) ||
+        snapshot.totalBytes !== snapshot.records.reduce((sum, record) => sum + record.byteLength, 0)) return false;
+    const { snapshotHash, ...core } = snapshot;
+    return HASH.test(snapshotHash) && hashCanonicalJson(core) === snapshotHash;
+  } catch { return false; }
 }
 
 function matches(files: readonly string[], patterns: readonly string[]): string[] {
@@ -263,6 +413,7 @@ export function compileCanonicalPolicy(input: CompileCanonicalPolicyInput): Cano
   const forbiddenSet = new Set(forbidden);
   const finalAllowed = allowed.filter((file) => !forbiddenSet.has(file)).sort();
 
+  const pairRules: CanonicalPolicyPairRule[] = [];
   const pairs: CanonicalPolicyPair[] = [];
   for (const [index, raw] of optionalArray(document.paired_files, "paired_files").entries()) {
     const rule = plain(raw, `paired_files[${index}]`);
@@ -270,13 +421,22 @@ export function compileCanonicalPolicy(input: CompileCanonicalPolicyInput): Cano
         typeof rule.source !== "string" || typeof rule.requires !== "string" ||
         (rule.reason !== undefined && typeof rule.reason !== "string")) throw new CanonicalPolicyError(
       "canonical_policy_pair_invalid", `paired_files[${index}] is invalid.`);
-    const sources = matches(repo.paths, [normalizePattern(rule.source, `paired_files[${index}].source`)]);
-    const required = matches(repo.paths, [normalizePattern(rule.requires, `paired_files[${index}].requires`)]);
+    const sourcePattern = normalizePattern(rule.source, `paired_files[${index}].source`);
+    const requiresPattern = normalizePattern(rule.requires, `paired_files[${index}].requires`);
+    const sources = matches(repo.paths, [sourcePattern]);
+    const required = matches(repo.paths, [requiresPattern]);
+    const reason = typeof rule.reason === "string" ? rule.reason : "Paired file required.";
+    const changedWhenContains = conditionList(
+      rule.changed_when_contains, `paired_files[${index}].changed_when_contains`);
+    pairRules.push({ sourcePattern, requiresPattern, matchedSources: sources,
+      matchedRequiredFiles: required, reason, changedWhenContains });
+    if (required.length === 0) throw new CanonicalPolicyError(
+      "canonical_policy_paired_required_file_missing",
+      `paired_files[${index}].requires does not match an existing file; file creation is unsupported.`);
     for (const source of sources) for (const requires of required) {
       if (source === requires) throw new CanonicalPolicyError(
         "canonical_policy_rule_conflict", "A paired-file rule cannot require itself.");
-      pairs.push({ source, requires, reason: typeof rule.reason === "string" ? rule.reason : "Paired file required.",
-        changedWhenContains: conditionList(rule.changed_when_contains, `paired_files[${index}].changed_when_contains`) });
+      pairs.push({ source, requires, reason, changedWhenContains });
     }
   }
 
@@ -356,6 +516,9 @@ export function compileCanonicalPolicy(input: CompileCanonicalPolicyInput): Cano
     compilerVersion: CANONICAL_POLICY_COMPILER_VERSION,
     allowedPaths: finalAllowed,
     forbiddenPaths: forbidden.sort(),
+    pairedFileRules: pairRules.sort((a, b) =>
+      `${a.sourcePattern}\0${a.requiresPattern}`.localeCompare(
+        `${b.sourcePattern}\0${b.requiresPattern}`, "en")),
     pairedFiles: [...pairMap.values()].sort((a, b) =>
       `${a.source}\0${a.requires}`.localeCompare(`${b.source}\0${b.requires}`, "en")),
     sensitiveContentPatterns,
@@ -535,6 +698,65 @@ export function evaluateCanonicalMutationPolicyRules(input: Readonly<{
       code: reason, disposition: "deny", file, relatedFile: null });
   }
   return deepFreeze(findings);
+}
+
+/** Evaluates only facts known before any planner/coder provider call. */
+export function evaluateCanonicalPolicyPreflight(input: Readonly<{
+  policy: CanonicalCompiledPolicy;
+  requestedChangeFiles: readonly string[];
+  authority?: CanonicalPolicyAuthority;
+  repositoryIdentityHash?: string;
+  taskId?: string;
+}>): CanonicalPolicyEvaluation {
+  const requested = [...new Set(input.requestedChangeFiles.map(
+    canonicalizeRepositoryRelativePath))].sort();
+  const authorities = verifiedAuthorities(input.authority, {
+    compiledPolicyHash: input.policy.compiledPolicyHash,
+    ...(input.repositoryIdentityHash === undefined ? {} :
+      { repositoryIdentityHash: input.repositoryIdentityHash }),
+    ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
+    authorityIssuers: input.policy.authorityIssuers
+  });
+  const requestedSet = new Set(requested);
+  const candidateResults = requested.map((candidate) => {
+    const bundle = new Set([candidate]);
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const pair of input.policy.pairedFiles) {
+        if (pair.changedWhenContains.length > 0 || !bundle.has(pair.source) || bundle.has(pair.requires) ||
+            !requestedSet.has(pair.requires)) continue;
+        bundle.add(pair.requires); expanded = true;
+      }
+    }
+    const changed = [...bundle].sort();
+    const findings: Array<{ code: string; disposition: "deny" | "human_review";
+      file: string; relatedFile: string | null }> = [
+      ...evaluateCanonicalScopePatterns({ changedFiles: changed,
+        allowedPatterns: input.policy.allowedPaths, forbiddenPatterns: input.policy.forbiddenPaths }).map(
+        (violation) => ({ code: violation.code, disposition: "deny" as const,
+          file: violation.file, relatedFile: null })),
+      ...evaluateCanonicalMutationPolicyRules({ changedFiles: changed,
+        pairedFiles: input.policy.pairedFiles.filter((pair) => pair.changedWhenContains.length === 0),
+        sensitiveContentPatterns: [], sensitiveRules: input.policy.sensitiveRules,
+        ownershipRules: input.policy.ownershipRules, grantedAuthorities: authorities })
+    ];
+    return { candidate, changed, findings };
+  });
+  const feasible = candidateResults.some((result) => result.findings.length === 0);
+  const reasons = new Set(candidateResults.flatMap((result) =>
+    result.findings.map((finding) => finding.code)));
+  const hasDeny = candidateResults.some((result) =>
+    result.findings.some((finding) => finding.disposition === "deny"));
+  const decision: CanonicalPolicyEvaluation["decision"] = feasible ? "allow" :
+    hasDeny ? "deny" : "human_review";
+  if (feasible) reasons.clear();
+  const core = { decision, reasonCodes: [...reasons].sort(), files: requested,
+    compiledPolicyHash: input.policy.compiledPolicyHash,
+    authorityHash: input.authority?.authorityHash ?? null,
+    evaluationKind: "static_preflight" };
+  return deepFreeze({ decision, reasonCodes: core.reasonCodes, files: requested,
+    evaluationHash: hashCanonicalJson(core) });
 }
 
 export function evaluateCanonicalPolicy(input: Readonly<{

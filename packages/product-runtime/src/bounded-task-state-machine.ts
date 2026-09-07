@@ -3,8 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { hashCanonicalJson } from "./agent-event-ledger.js";
 
-export const BOUNDED_TASK_STATE_SCHEMA_VERSION = "2" as const;
-export const BOUNDED_TASK_INPUT_VERSION = "canonical-task-input/v1" as const;
+export const BOUNDED_TASK_STATE_SCHEMA_VERSION = "4" as const;
+export const BOUNDED_TASK_INPUT_VERSION = "canonical-task-input/v4" as const;
 export const BOUNDED_TASK_STATE_MAX_BYTES = 1024 * 1024;
 export const BOUNDED_TASK_ARTIFACT_MAX_BYTES = 8 * 1024 * 1024;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -13,6 +13,7 @@ const NONCE = /^[0-9a-f]{48}$/;
 
 export type BoundedTaskStateName = "received" | "planning_started" | "planning_completed" |
   "context_authorized" | "coding_started" | "coding_completed" | "mutation_verified" |
+  "phase_v_prepared" | "phase_v_started" | "phase_v_completed" |
   "governed_apply_prepared" | "governed_apply_started" | "x4_committed" |
   "validation_started" | "validation_completed" | "finalized" | "failed" |
   "replan_required" | "human_review_required" | "recovery_required";
@@ -24,17 +25,22 @@ export type DurableProviderIntent = Readonly<{ providerKind: string; requestHash
 export type DurableLeaseOwnerBinding = Readonly<{ runId: string; ownerNonceHash: string;
   pid: number; processIdentityHash: string; acquiredAt: string; heartbeatAt: string }>;
 export type DurableBoundedTaskState = Readonly<{
-  schemaVersion: "2"; taskInputVersion: typeof BOUNDED_TASK_INPUT_VERSION;
+  schemaVersion: "4"; taskInputVersion: typeof BOUNDED_TASK_INPUT_VERSION;
   taskInputHash: string; taskId: string; runId: string; idempotencyKey: string;
   currentState: BoundedTaskStateName; transitionSequence: number;
   attempts: readonly Readonly<{ runId: string; startedAt: string; resume: boolean }>[];
   repositoryIdentityHash: string; baselineSnapshotHash: string; baselineHeadHash: string;
-  compiledPolicyHash: string; planHash: string | null; contextEvidenceHash: string | null;
+  compiledPolicyHash: string; acceptanceCriteriaContractHash: string;
+  acceptanceEvaluationReceiptHash: string | null;
+  planHash: string | null; contextEvidenceHash: string | null;
   providerRequestHash: string | null; providerResponseHash: string | null;
   mutationArtifactHash: string | null; verifiedMutationHash: string | null;
   x4Reference: BoundedTaskArtifactReference | null; x5IntentReference: BoundedTaskArtifactReference | null;
   x5ReceiptReference: BoundedTaskArtifactReference | null; terminalResultReference: BoundedTaskArtifactReference | null;
-  terminalResultHash: string | null; artifacts: Readonly<Record<string, BoundedTaskArtifactReference>>;
+  terminalResultHash: string | null;
+  terminalRepositorySnapshotReference: BoundedTaskArtifactReference | null;
+  terminalRepositorySnapshotHash: string | null;
+  artifacts: Readonly<Record<string, BoundedTaskArtifactReference>>;
   leaseOwner: DurableLeaseOwnerBinding; providerIntent: DurableProviderIntent | null;
   createdAt: string; updatedAt: string; previousStateHash: string | null; stateHash: string;
 }>;
@@ -44,14 +50,20 @@ export type DurableBoundedTaskConfiguration = Readonly<{ registryRoot: string;
   onCheckpoint?: (state: DurableBoundedTaskState) => void;
   onProviderCheckpoint?: (event: Readonly<{ providerKind: string;
     phase: "prepared" | "started" | "response_received" | "completed";
-    providerIdempotencyKey: string; attempt: number }>) => void }>;
+    providerIdempotencyKey: string; attempt: number }>) => void;
+  onLeaseCheckpoint?: (event: Readonly<{ phase: "takeover_acquired" |
+    "stale_lease_quarantined" | "replacement_installed"; runId: string }>) => void;
+  onArtifactCheckpoint?: (event: Readonly<{ name: string; contentHash: string }>) => void }>;
 
 type LeaseOwnerRecord = Readonly<{ leaseVersion: "1"; runId: string; ownerNonce: string;
   pid: number; processIdentityHash: string; acquiredAt: string; heartbeatAt: string }>;
-const ORDER: readonly BoundedTaskStateName[] = ["received", "planning_started", "planning_completed",
+export const BOUNDED_TASK_DURABLE_TRANSITION_ORDER: readonly BoundedTaskStateName[] = Object.freeze(
+  ["received", "planning_started", "planning_completed",
   "context_authorized", "coding_started", "coding_completed", "mutation_verified",
+  "phase_v_prepared", "phase_v_started", "phase_v_completed",
   "governed_apply_prepared", "governed_apply_started", "x4_committed", "validation_started",
-  "validation_completed", "finalized"];
+  "validation_completed", "finalized"]);
+const ORDER = BOUNDED_TASK_DURABLE_TRANSITION_ORDER;
 const TERMINAL = new Set<BoundedTaskStateName>(["finalized", "failed", "replan_required",
   "human_review_required", "recovery_required"]);
 
@@ -123,23 +135,33 @@ function validateState(value: unknown): DurableBoundedTaskState {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new BoundedTaskStateError(
     "bounded_task_state_corrupt", "Durable task state is corrupt.");
   const state = value as DurableBoundedTaskState;
-  const refs = [state.x4Reference, state.x5IntentReference, state.x5ReceiptReference, state.terminalResultReference];
+  if (state.schemaVersion !== BOUNDED_TASK_STATE_SCHEMA_VERSION ||
+      state.taskInputVersion !== BOUNDED_TASK_INPUT_VERSION) throw new BoundedTaskStateError(
+    "bounded_task_state_version_unsupported",
+    "Durable task state uses an unsupported schema and must not be reinterpreted.");
+  const refs = [state.x4Reference, state.x5IntentReference, state.x5ReceiptReference,
+    state.terminalResultReference, state.terminalRepositorySnapshotReference];
   const artifactsValid = state.artifacts && typeof state.artifacts === "object" && !Array.isArray(state.artifacts) &&
     Object.entries(state.artifacts).every(([name, ref]) => name === ref.name && validRef(ref));
   const attemptsValid = Array.isArray(state.attempts) && state.attempts.length > 0 && state.attempts.length <= 10_000 &&
     state.attempts.every((attempt) => attempt && ID.test(attempt.runId) && isIso(attempt.startedAt) &&
       typeof attempt.resume === "boolean");
-  if (state.schemaVersion !== BOUNDED_TASK_STATE_SCHEMA_VERSION ||
-      state.taskInputVersion !== BOUNDED_TASK_INPUT_VERSION || !HASH.test(state.taskInputHash) ||
+  if (!HASH.test(state.taskInputHash) ||
       !ID.test(state.taskId) || !ID.test(state.idempotencyKey) || !ID.test(state.runId) ||
       !ORDER.includes(state.currentState) && !TERMINAL.has(state.currentState) ||
       !Number.isSafeInteger(state.transitionSequence) || state.transitionSequence < 0 || !attemptsValid ||
       !HASH.test(state.repositoryIdentityHash) || !HASH.test(state.baselineSnapshotHash) ||
       !HASH.test(state.baselineHeadHash) || !HASH.test(state.compiledPolicyHash) ||
+      !HASH.test(state.acceptanceCriteriaContractHash) ||
+      !nullableHash(state.acceptanceEvaluationReceiptHash) ||
       !nullableHash(state.planHash) || !nullableHash(state.contextEvidenceHash) ||
       !nullableHash(state.providerRequestHash) || !nullableHash(state.providerResponseHash) ||
       !nullableHash(state.mutationArtifactHash) || !nullableHash(state.verifiedMutationHash) ||
-      !nullableHash(state.terminalResultHash) || refs.some((ref) => ref !== null && !validRef(ref)) ||
+      !nullableHash(state.terminalResultHash) || !nullableHash(state.terminalRepositorySnapshotHash) ||
+      refs.some((ref) => ref !== null && !validRef(ref)) ||
+      (state.terminalRepositorySnapshotReference === null) !== (state.terminalRepositorySnapshotHash === null) ||
+      state.terminalRepositorySnapshotReference !== null &&
+        state.terminalRepositorySnapshotReference.contentHash !== state.terminalRepositorySnapshotHash ||
       !artifactsValid || !validLeaseBinding(state.leaseOwner) ||
       state.providerIntent !== null && !validProviderIntent(state.providerIntent) ||
       !isIso(state.createdAt) || !isIso(state.updatedAt) || !nullableHash(state.previousStateHash) ||
@@ -189,7 +211,8 @@ export class BoundedTaskStateSession {
   private released = false; private leaseLost = false;
   constructor(readonly config: DurableBoundedTaskConfiguration, identity: { taskId: string;
     repositoryPath: string; repositoryIdentityHash: string; baselineSnapshotHash: string;
-    baselineHeadHash: string; compiledPolicyHash: string; taskInputHash: string }) {
+    baselineHeadHash: string; compiledPolicyHash: string; acceptanceCriteriaContractHash: string;
+    taskInputHash: string }) {
     if (!ID.test(identity.taskId) || !ID.test(config.idempotencyKey) || !HASH.test(identity.taskInputHash))
       throw new BoundedTaskStateError("bounded_task_state_identity_invalid", "Task durable identity is invalid.");
     const root = ensurePrivateDirectory(config.registryRoot); const repository = fs.realpathSync(identity.repositoryPath);
@@ -212,11 +235,16 @@ export class BoundedTaskStateSession {
       const now = new Date().toISOString(); const binding = this.ownerBinding();
       if (fs.existsSync(this.stateFile)) {
         const loaded = validateState(readJson(this.stateFile, BOUNDED_TASK_STATE_MAX_BYTES));
+        const baselineChanged = loaded.baselineSnapshotHash !== identity.baselineSnapshotHash ||
+          loaded.baselineHeadHash !== identity.baselineHeadHash ||
+          loaded.compiledPolicyHash !== identity.compiledPolicyHash;
+        const baselineBindingRequired = !TERMINAL.has(loaded.currentState) &&
+          ORDER.indexOf(loaded.currentState) < ORDER.indexOf("governed_apply_started");
         if (loaded.taskId !== identity.taskId || loaded.idempotencyKey !== config.idempotencyKey ||
             loaded.taskInputHash !== identity.taskInputHash ||
             loaded.repositoryIdentityHash !== identity.repositoryIdentityHash ||
-            loaded.baselineSnapshotHash !== identity.baselineSnapshotHash || loaded.baselineHeadHash !== identity.baselineHeadHash ||
-            loaded.compiledPolicyHash !== identity.compiledPolicyHash) throw new BoundedTaskStateError(
+            (baselineBindingRequired && baselineChanged) ||
+            loaded.acceptanceCriteriaContractHash !== identity.acceptanceCriteriaContractHash) throw new BoundedTaskStateError(
           "bounded_task_state_resume_binding_mismatch", "Durable task input bindings changed.");
         this.state = loaded;
         if (!TERMINAL.has(loaded.currentState)) { const { stateHash: _, ...core } = loaded;
@@ -231,9 +259,12 @@ export class BoundedTaskStateSession {
           attempts: [{ runId: this.runId, startedAt: now, resume: Boolean(config.resume) }],
           repositoryIdentityHash: identity.repositoryIdentityHash, baselineSnapshotHash: identity.baselineSnapshotHash,
           baselineHeadHash: identity.baselineHeadHash, compiledPolicyHash: identity.compiledPolicyHash,
+          acceptanceCriteriaContractHash: identity.acceptanceCriteriaContractHash,
+          acceptanceEvaluationReceiptHash: null,
           planHash: null, contextEvidenceHash: null, providerRequestHash: null, providerResponseHash: null,
           mutationArtifactHash: null, verifiedMutationHash: null, x4Reference: null, x5IntentReference: null,
-          x5ReceiptReference: null, terminalResultReference: null, terminalResultHash: null, artifacts: {},
+          x5ReceiptReference: null, terminalResultReference: null, terminalResultHash: null,
+          terminalRepositorySnapshotReference: null, terminalRepositorySnapshotHash: null, artifacts: {},
           leaseOwner: binding, providerIntent: null, createdAt: now, updatedAt: now, previousStateHash: null };
         this.state = { ...base, stateHash: hashCanonicalJson(base) }; atomicWrite(this.stateFile, canonicalBytes(this.state));
       }
@@ -259,18 +290,42 @@ export class BoundedTaskStateSession {
     fs.mkdirSync(this.leaseDirectory, { mode: 0o700 }); const owner = this.newOwner();
     atomicWrite(path.join(this.leaseDirectory, "owner.json"), canonicalBytes(owner)); return owner;
   }
-  private acquireLease(timeout: number): LeaseOwnerRecord {
-    try { return this.installOwner(); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  private acquireTakeover(timeout: number): LeaseOwnerRecord {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        fs.mkdirSync(this.takeoverDirectory, { mode: 0o700 });
+        const owner = this.newOwner();
+        atomicWrite(path.join(this.takeoverDirectory, "owner.json"), canonicalBytes(owner));
+        return owner;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        let live = false; let fresh = true;
+        try {
+          const metadata = fs.lstatSync(this.takeoverDirectory);
+          if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new BoundedTaskStateError(
+            "bounded_task_state_lease_unsafe", "Durable task takeover lease is unsafe.");
+          fresh = Date.now() - metadata.mtimeMs <= timeout;
+          const owner = validateLeaseOwner(readJson(path.join(this.takeoverDirectory, "owner.json"), 4096));
+          live = ownerIsLive(owner);
+          fresh = fresh || Date.now() - Date.parse(owner.heartbeatAt) <= timeout;
+        } catch (inspectionError) {
+          if (inspectionError instanceof BoundedTaskStateError &&
+              inspectionError.code === "bounded_task_state_lease_unsafe") throw inspectionError;
+        }
+        if (live || fresh) throw new BoundedTaskStateError(
+          "bounded_task_already_running", "Another process is acquiring the durable task lease.");
+        fs.rmSync(this.takeoverDirectory, { recursive: true, force: true });
+      }
     }
+    throw new BoundedTaskStateError("bounded_task_already_running",
+      "Another process is acquiring the durable task lease.");
+  }
+  private acquireLease(timeout: number): LeaseOwnerRecord {
     let takeoverHeld = false;
     try {
-      try { fs.mkdirSync(this.takeoverDirectory, { mode: 0o700 }); takeoverHeld = true; }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new BoundedTaskStateError(
-          "bounded_task_already_running", "Another process is acquiring the durable task lease.");
-        throw error;
-      }
+      this.acquireTakeover(timeout); takeoverHeld = true;
+      if (!fs.existsSync(this.leaseDirectory)) return this.installOwner();
+      this.config.onLeaseCheckpoint?.({ phase: "takeover_acquired", runId: this.runId });
       const stat = fs.lstatSync(this.leaseDirectory);
       if (!stat.isDirectory() || stat.isSymbolicLink()) throw new BoundedTaskStateError(
         "bounded_task_state_lease_unsafe", "Durable task lease is unsafe.");
@@ -282,7 +337,10 @@ export class BoundedTaskStateSession {
       validateState(readJson(this.stateFile, BOUNDED_TASK_STATE_MAX_BYTES));
       const quarantine = `${this.leaseDirectory}.stale-${randomBytes(12).toString("hex")}`;
       fs.renameSync(this.leaseDirectory, quarantine);
-      try { const owner = this.installOwner(); fs.rmSync(quarantine, { recursive: true, force: true }); return owner; }
+      this.config.onLeaseCheckpoint?.({ phase: "stale_lease_quarantined", runId: this.runId });
+      try { const owner = this.installOwner();
+        this.config.onLeaseCheckpoint?.({ phase: "replacement_installed", runId: this.runId });
+        fs.rmSync(quarantine, { recursive: true, force: true }); return owner; }
       catch (error) { try { if (!fs.existsSync(this.leaseDirectory)) fs.renameSync(quarantine, this.leaseDirectory); } catch {} throw error; }
     } finally { if (takeoverHeld) fs.rmSync(this.takeoverDirectory, { recursive: true, force: true }); }
   }
@@ -346,7 +404,8 @@ export class BoundedTaskStateSession {
     const { stateHash: _, ...current } = this.state; this.write({ ...current,
       artifacts: { ...this.state.artifacts, [name]: ref }, leaseOwner: this.ownerBinding(),
       transitionSequence: current.transitionSequence + 1, previousStateHash: this.state.stateHash,
-      updatedAt: new Date().toISOString() }); return ref;
+      updatedAt: new Date().toISOString() });
+    this.config.onArtifactCheckpoint?.({ name, contentHash }); return ref;
   }
   readArtifact<T>(ref: BoundedTaskArtifactReference): T {
     const file = path.resolve(this.taskDirectory, ref.relativePath);
@@ -410,12 +469,19 @@ export class BoundedTaskStateSession {
     return { value, called: true };
   }
   finalize(state: Extract<BoundedTaskStateName, "finalized" | "failed" | "replan_required" |
-    "human_review_required" | "recovery_required">, result: unknown): void {
+    "human_review_required" | "recovery_required">, result: unknown,
+    terminalRepositorySnapshot?: unknown): void {
+    const snapshotRef = terminalRepositorySnapshot === undefined ? null :
+      this.writeArtifact("terminal-repository-snapshot", terminalRepositorySnapshot);
     const ref = this.writeArtifact("terminal-result", result); this.transition(state,
-      { terminalResultReference: ref, terminalResultHash: ref.contentHash });
+      { terminalResultReference: ref, terminalResultHash: ref.contentHash,
+        terminalRepositorySnapshotReference: snapshotRef,
+        terminalRepositorySnapshotHash: snapshotRef?.contentHash ?? null });
   }
   terminalResult<T>(): T | null { return this.state.terminalResultReference ?
     this.readArtifact<T>(this.state.terminalResultReference) : null; }
+  terminalRepositorySnapshot<T>(): T | null { return this.state.terminalRepositorySnapshotReference ?
+    this.readArtifact<T>(this.state.terminalRepositorySnapshotReference) : null; }
   release(): void {
     if (this.released) return; clearInterval(this.heartbeatTimer); this.released = true;
     try { const owner = validateLeaseOwner(readJson(path.join(this.leaseDirectory, "owner.json"), 4096));
@@ -434,4 +500,226 @@ export function readDurableBoundedTaskState(input: { registryRoot: string; taskI
     if (error instanceof BoundedTaskStateError) throw error;
     throw new BoundedTaskStateError("bounded_task_state_missing", "Durable task state is missing.");
   }
+}
+
+/**
+ * Operational views intentionally contain hashes and lifecycle metadata only.
+ * Prompt, source, provider response, and credential material stays in artifacts
+ * and is never included in the default operator view.
+ */
+export type DurableBoundedTaskOperationalSummary = Readonly<{
+  taskId: string;
+  idempotencyKey: string;
+  state: BoundedTaskStateName;
+  stopReason: "in_progress" | "completed" | "failed" | "replan_required" | "human_review_required" | "recovery_required";
+  operatorNextStep: string;
+  updatedAt: string;
+  transitionSequence: number;
+  lease: Readonly<{ present: boolean; pid: number | null; runId: string | null; heartbeatAt: string | null }>;
+  cost: Readonly<{ status: "available" | "unavailable"; source: "terminal_result" | "not_persisted"; snapshot: unknown | null }>;
+  protected: boolean;
+}>;
+
+function operationalStopReason(state: BoundedTaskStateName): DurableBoundedTaskOperationalSummary["stopReason"] {
+  if (state === "finalized") return "completed";
+  if (state === "failed") return "failed";
+  if (state === "replan_required") return "replan_required";
+  if (state === "human_review_required") return "human_review_required";
+  if (state === "recovery_required") return "recovery_required";
+  return "in_progress";
+}
+
+function operationalNextStep(reason: DurableBoundedTaskOperationalSummary["stopReason"]): string {
+  if (reason === "completed") return "Inspect the receipt and user changes; no automatic action is required.";
+  if (reason === "failed") return "Inspect the failure evidence, then retry only after correcting the reported cause.";
+  if (reason === "replan_required") return "Revise the declared scope or plan and run resume explicitly.";
+  if (reason === "human_review_required") return "Obtain and record the required human decision before resuming.";
+  if (reason === "recovery_required") return "Inspect repository drift and durable recovery evidence, then run the supported recovery path.";
+  return "Wait for the active run or inspect its latest checkpoint; do not edit durable state manually.";
+}
+
+function taskDirectoryFor(root: string, taskId: string, idempotencyKey: string): string {
+  const key = hashCanonicalJson({ taskId, idempotencyKey }).slice(7);
+  return path.join(root, "tasks", key);
+}
+
+function readLeaseSummary(directory: string): DurableBoundedTaskOperationalSummary["lease"] {
+  const leaseDirectory = path.join(directory, "lease"); const file = path.join(leaseDirectory, "owner.json");
+  try {
+    const directoryStat = fs.lstatSync(leaseDirectory);
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return { present: true, pid: null, runId: null, heartbeatAt: null };
+    const owner = validateLeaseOwner(readJson(file, 4096));
+    return { present: true, pid: owner.pid, runId: owner.runId, heartbeatAt: owner.heartbeatAt };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { present: false, pid: null, runId: null, heartbeatAt: null };
+    return { present: true, pid: null, runId: null, heartbeatAt: null };
+  }
+}
+
+function stateIsProtected(state: DurableBoundedTaskState, directory: string): boolean {
+  if (!TERMINAL.has(state.currentState)) return true;
+  const lease = readLeaseSummary(directory);
+  if (lease.present) {
+    if (lease.pid === null) return true;
+    try { if (ownerIsLive(validateLeaseOwner(readJson(path.join(directory, "lease", "owner.json"), 4096)))) return true; } catch { return true; }
+  }
+  // Governed apply/validation references may point at rollback bundles or
+  // unresolved incidents outside this task directory; retain them until an
+  // explicit operator workflow closes the transaction.
+  if (state.x4Reference !== null || state.x5IntentReference !== null || state.x5ReceiptReference !== null) return true;
+  const names = Object.keys(state.artifacts);
+  if (names.some((name) => /rollback|recovery|incident/i.test(name))) return true;
+  return false;
+}
+
+function terminalCostSnapshot(state: DurableBoundedTaskState, directory: string): DurableBoundedTaskOperationalSummary["cost"] {
+  if (!state.terminalResultReference) return { status: "unavailable", source: "not_persisted", snapshot: null };
+  try {
+    const result = readJson(path.join(directory, state.terminalResultReference.relativePath), BOUNDED_TASK_ARTIFACT_MAX_BYTES) as Record<string, unknown>;
+    const summary = result.summary;
+    const cost = summary && typeof summary === "object" ? (summary as Record<string, unknown>).costBudget : undefined;
+    return cost === undefined ? { status: "unavailable", source: "not_persisted", snapshot: null } :
+      { status: "available", source: "terminal_result", snapshot: cost };
+  } catch { return { status: "unavailable", source: "not_persisted", snapshot: null }; }
+}
+
+export function summarizeDurableBoundedTask(input: { registryRoot: string; taskId: string; idempotencyKey: string }): DurableBoundedTaskOperationalSummary {
+  const root = fs.realpathSync(input.registryRoot);
+  const directory = taskDirectoryFor(root, input.taskId, input.idempotencyKey);
+  const state = readDurableBoundedTaskState(input);
+  const lease = readLeaseSummary(directory);
+  const stopReason = operationalStopReason(state.currentState);
+  return Object.freeze({ taskId: state.taskId, idempotencyKey: state.idempotencyKey, state: state.currentState,
+    stopReason, operatorNextStep: operationalNextStep(stopReason), updatedAt: state.updatedAt,
+    transitionSequence: state.transitionSequence, lease, cost: terminalCostSnapshot(state, directory),
+    protected: stateIsProtected(state, directory) });
+}
+
+export type DurableBoundedTaskGarbageCollectionCandidate = Readonly<{
+  taskId: string; idempotencyKey: string; directory: string; updatedAt: string;
+  stateHash: string; reason: "retention_expired";
+}>;
+export type DurableBoundedTaskGarbageCollectionPlan = Readonly<{
+  planVersion: "2"; dryRun: true; registryRoot: string; retentionMs: number; generatedAt: string;
+  candidates: readonly DurableBoundedTaskGarbageCollectionCandidate[];
+  protectedTasks: readonly Readonly<{ taskId: string; idempotencyKey: string; state: string; reason: string }>[];
+  invalidEntries: readonly Readonly<{ name: string; reason: string }>[]; planHash: string;
+}>;
+
+function finalizeGarbageCollectionPlan(
+  material: Omit<DurableBoundedTaskGarbageCollectionPlan, "planHash">
+): DurableBoundedTaskGarbageCollectionPlan {
+  return Object.freeze({ ...material, planHash: hashCanonicalJson(material) });
+}
+
+function verifyGarbageCollectionPlan(
+  plan: DurableBoundedTaskGarbageCollectionPlan,
+  confirmation: { planHash: string }
+): void {
+  if (!plan || typeof plan !== "object" || Array.isArray(plan) ||
+      !confirmation || typeof confirmation !== "object" || Array.isArray(confirmation) ||
+      !HASH.test(plan.planHash) || !HASH.test(confirmation.planHash)) throw new BoundedTaskStateError(
+    "bounded_task_retention_plan_mismatch", "Retention plan confirmation does not match.");
+  if (plan.planVersion !== "2" || plan.dryRun !== true) throw new BoundedTaskStateError(
+    "bounded_task_retention_plan_version_unsupported",
+    "Retention plan uses an unsupported version; create and review a new dry-run plan.");
+  const { planHash, ...material } = plan;
+  let computed: string;
+  try { computed = hashCanonicalJson(material); }
+  catch { throw new BoundedTaskStateError(
+    "bounded_task_retention_plan_mismatch", "Retention plan content is not canonical or serializable."); }
+  if (planHash !== computed || planHash !== confirmation.planHash) throw new BoundedTaskStateError(
+    "bounded_task_retention_plan_mismatch", "Retention plan content or confirmation does not match.");
+}
+
+/**
+ * Shares the runtime's takeover namespace. Once this mkdir succeeds, a new task
+ * session cannot acquire its lease until GC either skips the candidate or
+ * removes the directory. An already-owned lease is still detected below.
+ */
+function acquireGarbageCollectionTakeover(directory: string): (() => void) | null {
+  const takeoverDirectory = path.join(directory, "lease-takeover");
+  try { fs.mkdirSync(takeoverDirectory, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST" ||
+        (error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const identity = processIdentity(process.pid);
+  if (identity === null) {
+    fs.rmSync(takeoverDirectory, { recursive: true, force: true });
+    return null;
+  }
+  const now = new Date().toISOString();
+  const owner: LeaseOwnerRecord = { leaseVersion: "1",
+    runId: `gc-${randomBytes(16).toString("hex")}`,
+    ownerNonce: randomBytes(24).toString("hex"), pid: process.pid,
+    processIdentityHash: identity, acquiredAt: now, heartbeatAt: now };
+  try { atomicWrite(path.join(takeoverDirectory, "owner.json"), canonicalBytes(owner)); }
+  catch (error) {
+    fs.rmSync(takeoverDirectory, { recursive: true, force: true });
+    throw error;
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    try {
+      const current = validateLeaseOwner(readJson(path.join(takeoverDirectory, "owner.json"), 4096));
+      if (current.runId === owner.runId && current.ownerNonce === owner.ownerNonce)
+        fs.rmSync(takeoverDirectory, { recursive: true, force: true });
+    } catch {}
+  };
+}
+
+/** Build a dry-run-only plan. Active, non-terminal, leased, rollback, and incident tasks are protected. */
+export function planDurableBoundedTaskGarbageCollection(input: { registryRoot: string; retentionMs: number; now?: number; maxTasks?: number }): DurableBoundedTaskGarbageCollectionPlan {
+  if (!Number.isSafeInteger(input.retentionMs) || input.retentionMs < 0) throw new BoundedTaskStateError(
+    "bounded_task_retention_invalid", "Retention must be a non-negative safe integer.");
+  const root = ensurePrivateDirectory(input.registryRoot); const tasksRoot = path.join(root, "tasks");
+  if (!fs.existsSync(tasksRoot)) return finalizeGarbageCollectionPlan({ planVersion: "2", dryRun: true,
+    registryRoot: root, retentionMs: input.retentionMs,
+    generatedAt: new Date(input.now ?? Date.now()).toISOString(), candidates: [], protectedTasks: [], invalidEntries: [] });
+  const stat = fs.lstatSync(tasksRoot); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new BoundedTaskStateError(
+    "bounded_task_registry_unsafe", "Durable task registry is unsafe.");
+  const names = fs.readdirSync(tasksRoot, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  const maxTasks = input.maxTasks ?? 10_000; if (!Number.isSafeInteger(maxTasks) || maxTasks < 1 || maxTasks > 100_000) throw new BoundedTaskStateError(
+    "bounded_task_retention_invalid", "maxTasks is invalid.");
+  if (names.length > maxTasks) throw new BoundedTaskStateError("bounded_task_registry_limit_exceeded", "Durable task count exceeds the retention scan limit.");
+  const cutoff = (input.now ?? Date.now()) - input.retentionMs; const candidates: DurableBoundedTaskGarbageCollectionCandidate[] = [];
+  const protectedTasks: Array<{ taskId: string; idempotencyKey: string; state: string; reason: string }> = []; const invalidEntries: Array<{ name: string; reason: string }> = [];
+  for (const entry of names) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) { invalidEntries.push({ name: entry.name, reason: "not_a_directory" }); continue; }
+    const directory = path.join(tasksRoot, entry.name); let state: DurableBoundedTaskState;
+    try { state = validateState(readJson(path.join(directory, "state.json"), BOUNDED_TASK_STATE_MAX_BYTES)); }
+    catch (error) { invalidEntries.push({ name: entry.name, reason: error instanceof BoundedTaskStateError ? error.code : "state_unreadable" }); continue; }
+    if (stateIsProtected(state, directory)) { protectedTasks.push({ taskId: state.taskId, idempotencyKey: state.idempotencyKey, state: state.currentState, reason: "active_or_recovery_or_rollback_artifact" }); continue; }
+    if (Date.parse(state.updatedAt) <= cutoff) candidates.push({ taskId: state.taskId, idempotencyKey: state.idempotencyKey,
+      directory, updatedAt: state.updatedAt, stateHash: state.stateHash, reason: "retention_expired" });
+  }
+  const base = { planVersion: "2" as const, dryRun: true as const, registryRoot: root, retentionMs: input.retentionMs,
+    generatedAt: new Date(input.now ?? Date.now()).toISOString(), candidates, protectedTasks, invalidEntries };
+  return finalizeGarbageCollectionPlan(base);
+}
+
+/** Apply only an exact plan; callers must produce and review the dry-run first. */
+export function applyDurableBoundedTaskGarbageCollection(plan: DurableBoundedTaskGarbageCollectionPlan, confirmation: { planHash: string }): Readonly<{ deleted: readonly string[]; skipped: readonly string[] }> {
+  verifyGarbageCollectionPlan(plan, confirmation);
+  const deleted: string[] = []; const skipped: string[] = [];
+  for (const candidate of plan.candidates) {
+    const root = path.resolve(plan.registryRoot); const directory = path.resolve(candidate.directory);
+    const expectedDirectory = taskDirectoryFor(root, candidate.taskId, candidate.idempotencyKey);
+    if (directory !== expectedDirectory) { skipped.push(candidate.taskId); continue; }
+    const releaseTakeover = acquireGarbageCollectionTakeover(directory);
+    if (releaseTakeover === null) { skipped.push(candidate.taskId); continue; }
+    try {
+      const current = validateState(readJson(path.join(directory, "state.json"), BOUNDED_TASK_STATE_MAX_BYTES));
+      if (current.taskId !== candidate.taskId || current.idempotencyKey !== candidate.idempotencyKey ||
+          current.stateHash !== candidate.stateHash || stateIsProtected(current, directory) ||
+          current.updatedAt !== candidate.updatedAt) { skipped.push(candidate.taskId); continue; }
+      fs.rmSync(directory, { recursive: true, force: false }); deleted.push(candidate.taskId);
+    } catch { skipped.push(candidate.taskId); }
+    finally { releaseTakeover(); }
+  }
+  return Object.freeze({ deleted, skipped });
 }

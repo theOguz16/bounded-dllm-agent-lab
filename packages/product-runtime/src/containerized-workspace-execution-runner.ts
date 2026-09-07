@@ -8,6 +8,7 @@ import type {
   TemporaryWorkspaceExecutionContext,
   TemporaryWorkspaceExecutionResult
 } from "./temporary-workspace-execution-verifier.js";
+import { VALIDATION_CHECK_KINDS } from "./runtime-contract-foundation.js";
 
 export const CONTAINERIZED_VALIDATION_RUNNER_VERSION = "1" as const;
 export const DEFAULT_VALIDATION_CONTAINER_IMAGE =
@@ -39,6 +40,11 @@ export type ContainerizedWorkspaceExecutionOptions = {
   tmpfsBytes?: number;
   validationOutputBytes?: number;
   containerIdentity?: ValidationContainerIdentity;
+  onLifecycleCheckpoint?: (event: Readonly<{
+    phase: "container_create_intent" | "container_created" | "container_cleanup_completed";
+    commandId: string; identity: ValidationContainerIdentity; containerId: string | null;
+    cleanupDecision: ValidationContainerRecoveryResult["decision"] | null;
+  }>) => void | Promise<void>;
 };
 
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -46,14 +52,17 @@ const CONTAINER_NAME = /^bounded-validation-[0-9a-f]{24}$/;
 
 export function createValidationContainerIdentity(
   transactionBindingHash: string,
-  image: string = DEFAULT_VALIDATION_CONTAINER_IMAGE
+  image: string = DEFAULT_VALIDATION_CONTAINER_IMAGE,
+  stableContainerName?: string
 ): ValidationContainerIdentity {
   if (!HASH.test(transactionBindingHash) ||
       !/^\S+@sha256:[0-9a-f]{64}$/.test(image)) {
     throw new TypeError("Validation container identity binding is invalid.");
   }
+  const containerName = stableContainerName ?? `bounded-validation-${randomBytes(12).toString("hex")}`;
+  if (!CONTAINER_NAME.test(containerName)) throw new TypeError("Validation container name is invalid.");
   return Object.freeze({
-    containerName: `bounded-validation-${randomBytes(12).toString("hex")}`,
+    containerName,
     labelKey: VALIDATION_CONTAINER_BINDING_LABEL,
     labelValue: transactionBindingHash,
     imageDigest: image.slice(image.lastIndexOf("@") + 1),
@@ -256,6 +265,9 @@ export async function runContainerizedWorkspaceExecution(
 
   for (const command of context.commands) {
     if (!context.allowedExecutables.includes(command.executable) || !safeRuntime(command.executable) ||
+        (command.checkKind as string | undefined) === "structural" ||
+        command.checkKind !== undefined &&
+          !VALIDATION_CHECK_KINDS.includes(command.checkKind as (typeof VALIDATION_CHECK_KINDS)[number]) ||
         !Array.isArray(command.args) || command.args.some((entry) => typeof entry !== "string" || entry.includes("\0"))) {
       issues.push({ code: "validation_container_command_invalid",
         message: "Container validation command is not allowlisted or is unsafe.",
@@ -307,12 +319,19 @@ export async function runContainerizedWorkspaceExecution(
     let commandPassed = false;
     let lifecycleStage: "container_start" | "command" = "container_start";
     try {
+      await options.onLifecycleCheckpoint?.({ phase: "container_create_intent",
+        commandId: command.id, identity, containerId: null, cleanupDecision: null });
       const container = spawnSync(runtime, args, { shell: false, encoding: "utf8", timeout: 10_000,
         killSignal: "SIGKILL", maxBuffer: 64 * 1024,
         stdio: ["ignore", "pipe", "pipe"] });
       if (container.error !== undefined || container.status !== 0) {
         throw container.error ?? new Error("Validation container could not be created.");
       }
+      const containerId = (container.stdout ?? "").trim();
+      if (!/^[0-9a-f]{12,64}$/.test(containerId)) throw new Error(
+        "Validation runtime returned an invalid container identity.");
+      await options.onLifecycleCheckpoint?.({ phase: "container_created",
+        commandId: command.id, identity, containerId, cleanupDecision: null });
       lifecycleStage = "command";
       const execution = spawnSync(runtime, ["exec", name, command.executable, ...command.args],
         { shell: false, encoding: "utf8", timeout,
@@ -369,6 +388,14 @@ export async function runContainerizedWorkspaceExecution(
       commandPassed = false;
     } finally {
       const cleanup = recoverValidationContainer(identity, { runtime, image });
+      try { await options.onLifecycleCheckpoint?.({ phase: "container_cleanup_completed",
+        commandId: command.id, identity, containerId: cleanup.containerId,
+        cleanupDecision: cleanup.decision }); } catch {
+        issues.push({ code: "validation_container_lifecycle_checkpoint_failed",
+          message: "Container lifecycle cleanup could not be durably checkpointed.",
+          severity: "failure", commandId: command.id });
+        commandPassed = false;
+      }
       if (!new Set(["validation_container_removed", "validation_container_absent"])
         .has(cleanup.decision)) {
         issues.push({ code: "validation_container_cleanup_recovery_required",

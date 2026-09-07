@@ -356,6 +356,8 @@ function operationAllowedForActor(
     planner: ["planner", "expansion"],
     coder: ["coder"],
     deterministic_verifier: [],
+    deterministic_transformer: [],
+    deterministic_risk_assessor: [],
     masker: ["remask"],
     repairer: ["repair"],
     repair_verifier: ["verifier"],

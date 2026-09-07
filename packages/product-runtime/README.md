@@ -11,6 +11,12 @@ npm install @bounded-dllm-agent-lab/product-runtime
 import { runBoundedTask } from "@bounded-dllm-agent-lab/product-runtime";
 ```
 
+The package root (`.`) is the only supported public export and maps to the
+canonical runtime entrypoint. Deep imports into `dist` or source files are
+internal and unsupported. Existing root exports remain available in this
+version; removing or renaming one requires a new package/API compatibility
+decision rather than silently changing its meaning.
+
 The package includes compiled JavaScript and TypeScript declarations. No
 TypeScript loader is needed to import it from Node.js.
 
@@ -91,6 +97,12 @@ Post-apply validation protects the isolated candidate workspace with a content
 manifest before and after all test and acceptance commands. Changes to source,
 tests, or other candidate files fail validation and trigger the existing rollback
 flow. Both manifest hashes are included in the durable validation record.
+
+Repository policy inventory and content snapshots fail closed at 20,000 files,
+16 MiB per regular file, 256 MiB total, 64 directory levels, or 30 seconds of
+traversal. Symlinks must resolve inside the repository. Phase V validates the
+source tree before and after materialization; an incomplete copy is not treated
+as a valid validation workspace.
 
 Generated reports must be written under `.validation-output/` in the isolated
 workspace (`CONTROLLED_VALIDATION_OUTPUT_DIRECTORY`). This reserved directory

@@ -6,6 +6,21 @@ export type TaskProviderControl = Readonly<{
   deadlineAt: number;
   /** Stable durable retry key when the provider declares idempotency support. */
   providerIdempotencyKey?: string;
+  /** Provider-reported usage for reconciliation; absence is never interpreted as zero. */
+  reportUsage?: (usage: TaskProviderUsageReport) => void;
+}>;
+
+export type TaskProviderUsageReport = Readonly<{
+  status: "observed";
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  providerResponseHash: string;
+  providerRequestId?: string | null;
+} | {
+  status: "unavailable";
+  reason: "provider_usage_missing" | "provider_usage_unsupported" | "provider_call_failed";
+  providerResponseHash?: string | null;
 }>;
 
 export class TaskProviderInterruption extends Error {

@@ -7,6 +7,7 @@ const {
   OBSERVATION_VERSION,
   REPORT_VERSION,
   STRATEGIES,
+  compareGate6Strategies,
   createGate6ComparativeReport
 } = require("../../scripts/lib/gate6-comparative-report.cjs");
 
@@ -188,6 +189,58 @@ async function main() {
       escalation: { escalated: false, incrementalContextBytes: 1, incrementalTokens: 0, incrementalLatencyMs: 0 }
     };
     assert.throws(() => createGate6ComparativeReport(rows), /GATE6_METRICS_NON_ESCALATED_COST_NONZERO/);
+  });
+
+  await test("strategy comparison requires aligned task and repetition pairs", () => {
+    const rows = matrixForTask({ taskId: "task.easy.paired" });
+    const missing = rows.filter((row) => !(row.strategy === "F_adaptive_compressed_boundary" && row.repetition === 2));
+    assert.throws(() => compareGate6Strategies(missing), /GATE6_COMPARISON_PAIR_MISSING/);
+    const insufficient = compareGate6Strategies(rows, { minimumTasks: 3 });
+    assert.equal(insufficient.status, "insufficient_data");
+    assert.equal(insufficient.denominator.totalPairs, 3);
+    assert.equal(insufficient.uncertainty.method, "repository_cluster_bootstrap_percentile");
+  });
+
+  await test("comparison reports clustered confidence intervals and deterministic seed", () => {
+    const rows = [
+      ...matrixForTask({ taskId: "task.easy.a", repositoryId: "repo/a" }, (row) =>
+        row.strategy === "F_adaptive_compressed_boundary" ? { ...row, tokens: 100, endToEndAccepted: true } : row.strategy === "E_bounded_workspace_boundary" ? { ...row, tokens: 200, endToEndAccepted: false } : row),
+      ...matrixForTask({ taskId: "task.easy.b", repositoryId: "repo/b" }, (row) =>
+        row.strategy === "F_adaptive_compressed_boundary" ? { ...row, tokens: 110, endToEndAccepted: true } : row.strategy === "E_bounded_workspace_boundary" ? { ...row, tokens: 220, endToEndAccepted: false } : row),
+      ...matrixForTask({ taskId: "task.easy.c", repositoryId: "repo/c" }, (row) =>
+        row.strategy === "F_adaptive_compressed_boundary" ? { ...row, tokens: 120, endToEndAccepted: true } : row.strategy === "E_bounded_workspace_boundary" ? { ...row, tokens: 240, endToEndAccepted: false } : row)
+    ];
+    const first = compareGate6Strategies(rows, { seed: 42, bootstrapIterations: 200 });
+    const second = compareGate6Strategies(rows, { seed: 42, bootstrapIterations: 200 });
+    assert.deepEqual(first, second);
+    assert.equal(first.status, "better");
+    assert.equal(first.costAdvantage, true);
+    assert.equal(first.denominator.totalPairs, 9);
+    assert.equal(first.denominator.candidateFailed, 0);
+    assert.equal(typeof first.acceptance.confidenceInterval95.lower, "number");
+    assert.equal(first.uncertainty.seed, 42);
+  });
+
+  await test("comparison rejects one-repository and one-repetition pseudo-replication", () => {
+    const oneRepository = ["a", "b", "c"].flatMap((suffix) =>
+      matrixForTask({ taskId: `task.easy.${suffix}`, repositoryId: "repo/shared" })
+        .filter((row) => row.repetition === 1)
+    );
+    const clustered = compareGate6Strategies(oneRepository);
+    assert.equal(clustered.status, "insufficient_data");
+    assert.equal(clustered.reason, "independent_repository_count_below_minimum");
+    assert.equal(clustered.independentRepositoryCount, 1);
+    assert.equal(clustered.costAdvantage, false);
+    assert.equal(clustered.acceptance, null);
+
+    const oneRepetition = ["a", "b", "c"].flatMap((suffix) =>
+      matrixForTask({ taskId: `task.easy.${suffix}`, repositoryId: `repo/${suffix}` })
+        .filter((row) => row.repetition === 1)
+    );
+    const repeated = compareGate6Strategies(oneRepetition);
+    assert.equal(repeated.status, "insufficient_data");
+    assert.equal(repeated.reason, "paired_repetition_count_below_minimum");
+    assert.equal(repeated.costAdvantage, false);
   });
 
   process.stdout.write("Gate 6 comparative report PASS\n");

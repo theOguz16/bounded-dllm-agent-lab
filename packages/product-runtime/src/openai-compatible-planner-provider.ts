@@ -908,6 +908,36 @@ function retryableHttp(status: number): boolean {
   return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
 }
 
+async function readBoundedResponse(response: Response, maxBytes: number,
+  controller: AbortController, onBytes: (bytes: number) => void): Promise<string> {
+  const tooLarge = () => new PlannerAdapterError("planner_adapter_response_too_large",
+    "Planner provider response exceeds the configured byte limit.", false, response.status);
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > maxBytes) {
+    controller.abort(); void response.body?.cancel().catch(() => {}); throw tooLarge();
+  }
+  if (response.body === null) return "";
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); const parts: string[] = [];
+  let bytes = 0; let abortRead: () => void = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortRead = () => { reject(new PlannerAdapterError("planner_adapter_timeout",
+      "Planner provider response read timed out.", true, response.status)); void reader.cancel().catch(() => {}); };
+  });
+  controller.signal.addEventListener("abort", abortRead, { once: true });
+  try {
+    while (true) {
+      if (controller.signal.aborted) abortRead();
+      const chunk = await Promise.race([reader.read(), aborted]);
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength; onBytes(bytes);
+      if (bytes > maxBytes) { controller.signal.removeEventListener("abort", abortRead);
+        controller.abort(); void reader.cancel().catch(() => {}); throw tooLarge(); }
+      parts.push(decoder.decode(chunk.value, { stream: true }));
+    }
+    parts.push(decoder.decode()); onBytes(bytes); return parts.join("");
+  } finally { controller.signal.removeEventListener("abort", abortRead); reader.releaseLock(); }
+}
+
 export function createOpenAICompatiblePlannerProvider(
   inputConfig: OpenAICompatiblePlannerProviderConfig
 ): OpenAICompatiblePlannerProviderAdapter {
@@ -982,18 +1012,9 @@ export function createOpenAICompatiblePlannerProvider(
             response.status
           );
         }
-        const text = await response.text();
-        const measuredResponseBytes = new TextEncoder().encode(text).byteLength;
-        responseBytes = measuredResponseBytes;
+        const text = await readBoundedResponse(response, config.maxResponseBytes, controller,
+          (bytes) => { responseBytes = bytes; });
         responseHash = hashCanonicalJson({ responseText: text });
-        if (measuredResponseBytes > config.maxResponseBytes) {
-          throw new PlannerAdapterError(
-            "planner_adapter_response_too_large",
-            "Planner provider response exceeds the configured byte limit.",
-            false,
-            response.status
-          );
-        }
         if (!response.ok) {
           const retryable = retryableHttp(response.status);
           throw new PlannerAdapterError(
@@ -1017,6 +1038,12 @@ export function createOpenAICompatiblePlannerProvider(
           );
         }
         parsed = parseProviderEnvelope(envelope);
+        if (parsed.finishReason !== "stop") {
+          throw new PlannerAdapterError(
+            "planner_adapter_response_content_invalid",
+            "Planner generation did not complete normally.", false, response.status
+          );
+        }
         const draft = normalizeDraft(parseContentJson(parsed.content), context.limits);
         const proposal = finalizeProposal(draft, context);
         attempts.push(finalizeAttempt({

@@ -69,6 +69,11 @@ runs:
     - name: Run bounded review
       id: review
       shell: bash
+      env:
+        BOUNDED_TASK_INPUT: ${{ inputs.task }}
+        BOUNDED_DIFF_INPUT: ${{ inputs.diff }}
+        BOUNDED_POLICY_INPUT: ${{ inputs.policy }}
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
       run: |
         resolve_path() {
           case "$1" in
@@ -76,10 +81,10 @@ runs:
             *) printf '%s/%s\n' "${{ github.workspace }}" "$1" ;;
           esac
         }
-        TASK_PATH="$(resolve_path "${{ inputs.task }}")"
-        DIFF_PATH="$(resolve_path "${{ inputs.diff }}")"
-        POLICY_PATH="$(resolve_path "${{ inputs.policy }}")"
-        OUTPUT_DIR="$(resolve_path "${{ inputs.output-dir }}")"
+        TASK_PATH="$(resolve_path "$BOUNDED_TASK_INPUT")"
+        DIFF_PATH="$(resolve_path "$BOUNDED_DIFF_INPUT")"
+        POLICY_PATH="$(resolve_path "$BOUNDED_POLICY_INPUT")"
+        OUTPUT_DIR="$(resolve_path "$BOUNDED_OUTPUT_INPUT")"
         mkdir -p "$OUTPUT_DIR"
         node "${{ github.action_path }}/dist/apps/cli/src/product-review.js" \
           --task "$TASK_PATH" \
@@ -91,10 +96,13 @@ runs:
         cat "$OUTPUT_DIR/summary.json"
     - name: Generate bounded review comment artifact
       shell: bash
+      env:
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
+        BOUNDED_COMMENT_MARKER: ${{ inputs.comment-marker }}
       run: |
-        case "${{ inputs.output-dir }}" in
-          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
-          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        case "$BOUNDED_OUTPUT_INPUT" in
+          /*) OUTPUT_DIR="$BOUNDED_OUTPUT_INPUT" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/$BOUNDED_OUTPUT_INPUT" ;;
         esac
         SUMMARY_PATH="$OUTPUT_DIR/summary.json"
         REVIEW_JSON="$(node -e '
@@ -105,23 +113,27 @@ runs:
         node "${{ github.action_path }}/dist/apps/cli/src/product-comment.js" \
           --review "$REVIEW_JSON" \
           --out "$OUTPUT_DIR/pr-comment.md" \
-          --marker "${{ inputs.comment-marker }}"
+          --marker "$BOUNDED_COMMENT_MARKER"
     - name: Generate bounded review report index
       shell: bash
+      env:
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
       run: |
-        case "${{ inputs.output-dir }}" in
-          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
-          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        case "$BOUNDED_OUTPUT_INPUT" in
+          /*) OUTPUT_DIR="$BOUNDED_OUTPUT_INPUT" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/$BOUNDED_OUTPUT_INPUT" ;;
         esac
         node "${{ github.action_path }}/dist/apps/cli/src/product-report-index.js" \
           --dir "$OUTPUT_DIR" \
           --out-dir "$OUTPUT_DIR"
     - name: Generate bounded review team metrics and viewer
       shell: bash
+      env:
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
       run: |
-        case "${{ inputs.output-dir }}" in
-          /*) OUTPUT_DIR="${{ inputs.output-dir }}" ;;
-          *) OUTPUT_DIR="${{ github.workspace }}/${{ inputs.output-dir }}" ;;
+        case "$BOUNDED_OUTPUT_INPUT" in
+          /*) OUTPUT_DIR="$BOUNDED_OUTPUT_INPUT" ;;
+          *) OUTPUT_DIR="${{ github.workspace }}/$BOUNDED_OUTPUT_INPUT" ;;
         esac
         node "${{ github.action_path }}/dist/apps/cli/src/product-team-metrics.js" \
           --dir "$OUTPUT_DIR" \
@@ -133,10 +145,12 @@ runs:
     - name: Export outputs
       id: outputs
       shell: bash
+      env:
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
       run: |
-        case "${{ inputs.output-dir }}" in
-          /*) SUMMARY_PATH="${{ inputs.output-dir }}/summary.json" ;;
-          *) SUMMARY_PATH="${{ github.workspace }}/${{ inputs.output-dir }}/summary.json" ;;
+        case "$BOUNDED_OUTPUT_INPUT" in
+          /*) SUMMARY_PATH="$BOUNDED_OUTPUT_INPUT/summary.json" ;;
+          *) SUMMARY_PATH="${{ github.workspace }}/$BOUNDED_OUTPUT_INPUT/summary.json" ;;
         esac
         node -e '
           const fs = require("node:fs");
@@ -155,10 +169,13 @@ runs:
         ' "$SUMMARY_PATH" "$(dirname "$SUMMARY_PATH")"
     - name: Apply fail threshold
       shell: bash
+      env:
+        BOUNDED_OUTPUT_INPUT: ${{ inputs.output-dir }}
+        BOUNDED_FAIL_ON: ${{ inputs.fail-on }}
       run: |
-        case "${{ inputs.output-dir }}" in
-          /*) SUMMARY_PATH="${{ inputs.output-dir }}/summary.json" ;;
-          *) SUMMARY_PATH="${{ github.workspace }}/${{ inputs.output-dir }}/summary.json" ;;
+        case "$BOUNDED_OUTPUT_INPUT" in
+          /*) SUMMARY_PATH="$BOUNDED_OUTPUT_INPUT/summary.json" ;;
+          *) SUMMARY_PATH="${{ github.workspace }}/$BOUNDED_OUTPUT_INPUT/summary.json" ;;
         esac
         node -e '
           const fs = require("node:fs");
@@ -174,4 +191,4 @@ runs:
             console.error(`Bounded review failed because risk=${risk} and fail-on=${failOn}.`);
             process.exit(1);
           }
-        ' "$SUMMARY_PATH" "${{ inputs.fail-on }}"
+        ' "$SUMMARY_PATH" "$BOUNDED_FAIL_ON"

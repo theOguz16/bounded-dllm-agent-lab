@@ -12,6 +12,7 @@ async function main() {
     DETERMINISTIC_VERIFIER_V2_VERSION,
     VERIFIER_V2_RULES,
     verifyPatchDraftMutationV2: verify,
+    buildValidationEvidence,
     hashCanonicalJson
   } = runtime;
 
@@ -65,9 +66,71 @@ async function main() {
       });
       assert.equal(result.decision, "approve", JSON.stringify(result));
       assert.equal(result.ok, true);
+      assert.equal(result.structuralOk, true);
       assert.deepEqual(result.canonicalTouchedFiles, ["src/service.ts"]);
       assert.equal(result.policyHash, policyHash);
       assert.equal(result.finding.claims[0].policyHash, policyHash);
+      assert.equal(result.validationEvidence.profile, "structural_draft");
+      assert.equal(result.validationEvidence.checks.find((check) =>
+        check.kind === "structural").status, "passed");
+      for (const kind of ["syntax", "typecheck", "behavior_test"]) {
+        assert.equal(result.validationEvidence.checks.find((check) => check.kind === kind).status,
+          "not_run");
+      }
+    });
+
+    await check("invalid TypeScript is only structurally approved and never claims syntax evidence", async () => {
+      const result = await verifyPatchDraftMutationV2({
+        repositoryPath: root,
+        mutation: mutation("src/service.ts", "export const value: = ;"),
+        allowedFiles: ["src/service.ts"]
+      });
+      assert.equal(result.decision, "approve", JSON.stringify(result));
+      assert.equal(result.validationEvidence.profileSatisfied, true);
+      assert.equal(result.validationEvidence.checks.find((check) => check.kind === "syntax").status,
+        "not_run");
+      assert.match(result.finding.summary, /structurally approved coder patchDraft/);
+    });
+
+    await check("required failed and unexecuted checks remain distinct", async () => {
+      const specification = { allowedExecutables: ["node"], commands: [
+        { id: "syntax", checkKind: "syntax", executable: "node", args: ["--check", "src/service.ts"] },
+        { id: "types", checkKind: "typecheck", executable: "node", args: ["typecheck.js"] },
+        { id: "behavior", checkKind: "behavior_test", executable: "node", args: ["test.js"] }
+      ] };
+      const evidence = buildValidationEvidence({ profile: "existing_function_bug_fix",
+        structuralPassed: true, specification, executionResult: {
+          decision: "temp_validation_failed", issues: [], commandResults: [{
+            id: "syntax", executable: "node", args: ["--check", "src/service.ts"],
+            startedAt: new Date(0).toISOString(), finishedAt: new Date(0).toISOString(),
+            durationMs: 0, exitCode: 0, signal: null, timedOut: false, stdout: "",
+            stderr: "", stdoutTruncated: false, stderrTruncated: false, passed: true
+          }, {
+            id: "types", executable: "node", args: ["typecheck.js"],
+            startedAt: new Date(0).toISOString(), finishedAt: new Date(0).toISOString(),
+            durationMs: 0, exitCode: 1, signal: null, timedOut: false, stdout: "",
+            stderr: "type error", stdoutTruncated: false, stderrTruncated: false, passed: false
+          }], summary: { totalCommands: 1, passedCommands: 0, failedCommands: 1,
+            timedOutCommands: 0, truncatedOutputs: 0, durationMs: 0 }
+        } });
+      assert.equal(evidence.profileSatisfied, false);
+      assert.equal(evidence.checks.find((check) => check.kind === "syntax").status, "passed");
+      assert.equal(evidence.checks.find((check) => check.kind === "typecheck").status, "failed");
+      assert.equal(evidence.checks.find((check) => check.kind === "behavior_test").status, "not_run");
+      const behaviorFailed = buildValidationEvidence({ profile: "bounded_behavior_change",
+        structuralPassed: true, specification, executionResult: {
+          decision: "temp_validation_failed", issues: [], commandResults: specification.commands.map(
+            (command) => ({ id: command.id, executable: command.executable, args: command.args,
+              startedAt: new Date(0).toISOString(), finishedAt: new Date(0).toISOString(),
+              durationMs: 0, exitCode: command.id === "behavior" ? 1 : 0, signal: null,
+              timedOut: false, stdout: "", stderr: "", stdoutTruncated: false,
+              stderrTruncated: false, passed: command.id !== "behavior" })),
+          summary: { totalCommands: 3, passedCommands: 2, failedCommands: 1,
+            timedOutCommands: 0, truncatedOutputs: 0, durationMs: 0 }
+        } });
+      assert.equal(behaviorFailed.profileSatisfied, false);
+      assert.equal(behaviorFailed.checks.find((check) =>
+        check.kind === "behavior_test").status, "failed");
     });
 
     await check("malformed policy hash is rejected and bound into the finding", async () => {

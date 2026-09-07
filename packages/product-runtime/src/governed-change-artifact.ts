@@ -958,14 +958,15 @@ export function buildGovernedChangeArtifact(
     }
     summary.routerAssessmentVerified = true;
 
-    const sourceActor = change.changeKind === "coder_patch_draft" ? "coder" : "repairer";
-    const sourceAction = change.changeKind === "coder_patch_draft"
-      ? "coder.patch_draft"
-      : "repairer.repair_draft";
-    const sourceCandidates = matchingEvents(ledger, sourceActor, sourceAction)
+    const sourcePairs = change.changeKind === "coder_patch_draft"
+      ? [["coder", "coder.patch_draft"]] as const
+      : [["deterministic_transformer", "deterministic_transformer.text_file_update_conversion"],
+        ["repairer", "repairer.repair_draft"]] as const;
+    const sourceCandidates = sourcePairs.flatMap(([actor, action]) =>
+      matchingEvents(ledger, actor, action))
       .filter((event) => contains(event.outputArtifactHashes, change.mutationHash));
     if (sourceCandidates.length === 0) {
-      const actorEvents = matchingEvents(ledger, sourceActor, sourceAction);
+      const actorEvents = sourcePairs.flatMap(([actor, action]) => matchingEvents(ledger, actor, action));
       return fail(
         actorEvents.length > 0
           ? "governed_change_mutation_hash_mismatch"
@@ -1085,7 +1086,10 @@ export function buildGovernedChangeArtifact(
       );
     }
 
-    const shadowEvents = matchingEvents(ledger, "shadow_observer", "shadow_observer.observe");
+    const shadowEvents = [
+      ...matchingEvents(ledger, "deterministic_risk_assessor", "deterministic_risk_assessor.evaluate"),
+      ...matchingEvents(ledger, "shadow_observer", "shadow_observer.observe")
+    ];
     let shadowEvent: AgentEvent | null = null;
     if (observation !== null) {
       const candidates = shadowEvents.filter((event) =>

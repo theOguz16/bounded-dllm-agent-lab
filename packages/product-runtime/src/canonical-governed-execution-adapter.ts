@@ -1,22 +1,32 @@
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { appendAgentEvent, createAgentEventLedger, hashCanonicalJson,
   type AgentEventDraft, type AgentEventLedger } from "./agent-event-ledger.js";
-import { createAcceptanceCriteriaContract } from "./acceptance-criteria-contract.js";
+import {
+  evaluateAcceptanceCriteria,
+  verifyAcceptanceCriteriaContract,
+  verifyAcceptanceCriteriaCoverageReceipt,
+  type AcceptanceCriteriaContract,
+  type AcceptanceCriteriaEvaluationResult,
+  type HumanReviewAcceptanceEvidence
+} from "./acceptance-criteria-contract.js";
 import { authorizeContextSufficientPatch } from "./context-sufficiency-authorization.js";
 import { buildContextToApplyBinding } from "./context-to-apply-binding.js";
 import { buildControlledApplyHandoff, computeGovernedMutationHash } from "./controlled-apply-handoff.js";
 import { evaluateControlledApplyExecutionGate } from "./controlled-apply-execution-gate.js";
 import { inspectControlledRepository } from "./controlled-repository-inspection.js";
 import { materializeControlledRollbackBundle } from "./controlled-rollback-bundle.js";
-import { runContainerizedWorkspaceExecution } from "./containerized-workspace-execution-runner.js";
+import { createValidationContainerIdentity, recoverValidationContainer,
+  runContainerizedWorkspaceExecution } from "./containerized-workspace-execution-runner.js";
 import { runIntegratedDisposableApply, type IntegratedDisposableApplyResult } from "./integrated-disposable-apply-coordinator.js";
 import { buildRunAccountabilityTrace, type RunAccountabilityTrace } from "./run-accountability-trace.js";
 import { validateShadowObservation, type ShadowObservation } from "./shadow-observer-contract.js";
 import { DEFAULT_DETERMINISTIC_GOVERNANCE_POLICY,
+  assessDeterministicChangeRisk,
   evaluateDeterministicGovernance,
-  type DeterministicGovernanceAssessment } from "./deterministic-governance-policy.js";
+  type DeterministicGovernanceAssessment,
+  type DeterministicRiskAssessment } from "./deterministic-governance-policy.js";
 import { DEFAULT_ADMIN_INVOCATION_POLICY,
   evaluateAdminInvocationPolicy,
   type AdminInvocationAssessment } from "./admin-invocation-policy.js";
@@ -32,10 +42,14 @@ import { applyToTemporaryWorkspace,
 import { parseTextFileUpdates } from "./text-file-update-contract.js";
 import {
   buildTemporaryWorkspaceExecutionVerificationEvidence,
+  buildValidationEvidence,
+  computeTemporaryWorkspaceExecutionSpecificationHash,
   type TemporaryWorkspaceExecutionVerificationEvidence,
   type TemporaryWorkspaceExecutionSpecification
 } from "./temporary-workspace-execution-verifier.js";
+import type { ValidationEvidence, ValidationProfileId } from "./runtime-contract-foundation.js";
 import type { WorkspaceMutation } from "./workspace-mutation.js";
+import { createCanonicalRepositoryContentSnapshot } from "./canonical-policy-compiler.js";
 
 export const CANONICAL_GOVERNED_ADAPTER_VERSION = "canonical-governed-adapter/v1" as const;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -88,8 +102,12 @@ export type CanonicalGovernedExecutionInput = Readonly<{
   adaptiveResult: unknown;
   allowedFiles: readonly string[];
   forbiddenFiles: readonly string[];
+  acceptanceCriteriaContract: AcceptanceCriteriaContract;
+  humanReviewEvidence?: readonly HumanReviewAcceptanceEvidence[];
+  declaredRiskClass?: "low" | "medium" | "high" | "critical";
   configuration: CanonicalGovernedExecutionConfiguration;
-  durableCheckpoint?: (state: "governed_apply_prepared" | "governed_apply_started" |
+  durableCheckpoint?: (state: "phase_v_prepared" | "phase_v_started" | "phase_v_completed" |
+    "governed_apply_prepared" | "governed_apply_started" |
     "x4_committed" | "validation_started" | "validation_completed", artifact: unknown) => void | Promise<void>;
 }>;
 
@@ -104,6 +122,7 @@ export type CanonicalPreparedGovernedMutation = Readonly<{
   adapterReceipt: CanonicalGovernedAdapterReceipt;
   repairMutation: WorkspaceMutation;
   governanceReceipts: CanonicalGovernanceReceipts;
+  acceptanceEvaluation: AcceptanceCriteriaEvaluationResult;
 }>;
 
 export type CanonicalGovernanceReceipts = Readonly<{
@@ -112,6 +131,8 @@ export type CanonicalGovernanceReceipts = Readonly<{
   patchDryRun: PatchApplicationDryRunResult;
   temporaryApply: TemporaryWorkspaceApplyResult;
   phaseVExecutionVerification: TemporaryWorkspaceExecutionVerificationEvidence;
+  phaseVAcceptanceEvaluation: AcceptanceCriteriaEvaluationResult;
+  deterministicRiskAssessment: DeterministicRiskAssessment;
   finalLedger: AgentEventLedger;
   preShadowTrace: RunAccountabilityTrace;
   shadowObservation: ShadowObservation;
@@ -123,6 +144,11 @@ export type CanonicalGovernanceReceipts = Readonly<{
 
 export type CanonicalNoChangeAcceptanceResult = Readonly<{
   decision: "no_change_accepted" | "no_change_rejected";
+  route: "contract_approved" | "replan_required" | "human_review_required";
+  acceptanceContractHash: string;
+  acceptanceEvaluationReceiptHash: string | null;
+  validationSpecificationHash: string;
+  validationEvidence: ValidationEvidence;
   executionVerificationHash: string | null;
   beforeInspectionHash: string | null;
   afterInspectionHash: string | null;
@@ -261,7 +287,9 @@ function appendLedgerEvent(ledger: AgentEventLedger, actor: AgentEventDraft["act
 }
 
 function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
-  adapter: CanonicalGovernedAdapterReceipt, phase: CanonicalPhaseVReceipts): CanonicalGovernanceReceipts {
+  adapter: CanonicalGovernedAdapterReceipt, phase: CanonicalPhaseVReceipts,
+  acceptanceEvaluation: AcceptanceCriteriaEvaluationResult,
+  contextAuthorizationHash: string): CanonicalGovernanceReceipts {
   const files = [...phase.changedFiles];
   const runId = `canonical:${adapter.receiptHash.slice(7, 39)}`;
   let ledger = createAgentEventLedger({ runId, objectiveHash: input.objectiveHash });
@@ -277,14 +305,15 @@ function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
   add("deterministic_verifier", "deterministic_verifier.evaluate", {
     inputArtifactHashes: [adapter.coderMutationHash],
     outputArtifactHashes: [adapter.verifierFindingHash], filesRead: files, decision: "approve" });
-  add("masker", "masker.remask", { inputArtifactHashes: [adapter.coderMutationHash],
-    outputArtifactHashes: [adapter.receiptHash], filesRead: files, decision: "remask_ready" });
-  add("repairer", "repairer.repair_draft", { inputArtifactHashes: [adapter.receiptHash],
+  add("deterministic_transformer", "deterministic_transformer.text_file_update_conversion", {
+    inputArtifactHashes: [adapter.coderMutationHash, adapter.receiptHash],
     outputArtifactHashes: [adapter.repairMutationHash], filesRead: files,
-    filesProposed: files, decision: "repair_draft_ready" });
-  add("repair_verifier", "repair_verifier.evaluate", {
+    filesProposed: files, decision: "deterministic_conversion_completed",
+    reasonCodes: ["no_model_call"] });
+  add("deterministic_verifier", "deterministic_verifier.repair_format", {
     inputArtifactHashes: [adapter.repairMutationHash],
-    outputArtifactHashes: [phase.repairVerifierReceiptHash], filesRead: files, decision: "approve" });
+    outputArtifactHashes: [phase.repairVerifierReceiptHash], filesRead: files, decision: "approve",
+    reasonCodes: ["deterministic_check_no_model_call"] });
   add("patch_dry_run", "patch_dry_run.evaluate", {
     inputArtifactHashes: [adapter.repairMutationHash],
     outputArtifactHashes: [phase.patchDryRunReceiptHash], filesRead: files,
@@ -295,7 +324,8 @@ function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
     filesProposed: files, decision: "temp_apply_ready" });
   add("execution_verifier", "execution_verifier.validate", {
     inputArtifactHashes: [phase.temporaryApplyReceiptHash],
-    outputArtifactHashes: [phase.verification.verificationResultHash], filesRead: files,
+    outputArtifactHashes: [phase.verification.verificationResultHash,
+      acceptanceEvaluation.receipt!.receiptHash], filesRead: files,
     decision: phase.verification.decision,
     reasonCodes: ["temp_workspace_cleanup_performed"] });
   const preLedger = ledger;
@@ -307,15 +337,29 @@ function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
       "Real Phase V receipts did not produce a valid accountability trace.", "human_review_required");
   }
   const trace = traceResult.trace;
+  const riskAssessment = assessDeterministicChangeRisk({ changedFiles: files,
+    allowedFiles: input.allowedFiles, forbiddenFiles: input.forbiddenFiles,
+    declaredRiskClass: input.declaredRiskClass,
+    mutationHash: adapter.repairMutationHash, authorizationHash: contextAuthorizationHash,
+    validationEvidenceHash: phase.verification.verificationResultHash,
+    acceptanceEvidenceHash: acceptanceEvaluation.receipt?.receiptHash });
+  const observedRisk = riskAssessment.riskClass === "unknown" ? "high" : riskAssessment.riskClass;
+  const riskSeverity = observedRisk === "low" ? "info" : observedRisk === "medium" ? "warning" :
+    observedRisk === "high" ? "high" : "critical";
   const shadowResult = validateShadowObservation(trace, { observationVersion: "1", runId,
-    traceHash: trace.traceHash, riskLevel: "low", riskScore: 10, confidenceScore: 100,
-    findings: [], observedScopeDrift: false, observedPlanPatchMismatch: false,
+    traceHash: trace.traceHash, riskLevel: observedRisk, riskScore: riskAssessment.riskScore,
+    confidenceScore: riskAssessment.confidenceScore,
+    findings: [{ code: riskAssessment.reasonCodes[0]!, severity: riskSeverity,
+      message: "Deterministic policy assessed change risk from bound scope and validation evidence.",
+      evidenceEventIds: trace.events.map((event) => event.eventId),
+      evidenceFilePaths: files, evidenceTraceFindingCodes: [] }],
+    observedScopeDrift: false, observedPlanPatchMismatch: false,
     observedRepairLoop: false, observedSuspiciousRoleBehavior: false,
-    observedEvidenceConflict: false, recommendation: "continue",
-    rationaleCodes: ["canonical_receipts_verified"] });
+    observedEvidenceConflict: false, recommendation: riskAssessment.recommendation,
+    rationaleCodes: [...riskAssessment.reasonCodes] });
   if (shadowResult.decision !== "shadow_observation_valid" || !shadowResult.observation) {
     throw new CanonicalGovernedExecutionError("canonical_shadow_receipt_failed",
-      "Real Phase V trace could not be independently observed.", "human_review_required");
+      "Deterministic risk evidence could not be bound to the Phase V trace.", "human_review_required");
   }
   const observation = shadowResult.observation;
   const governanceResult = evaluateDeterministicGovernance(trace, observation,
@@ -345,9 +389,11 @@ function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
       "Real route receipt did not permit automatic continuation.", "human_review_required");
   }
   const router = routerResult.assessment;
-  add("shadow_observer", "shadow_observer.observe", { inputArtifactHashes: [trace.traceHash],
-    outputArtifactHashes: [observation.observationHash], filesRead: files,
-    decision: "shadow_observer_completed" });
+  add("deterministic_risk_assessor", "deterministic_risk_assessor.evaluate", {
+    inputArtifactHashes: [trace.traceHash, ...riskAssessment.evidenceHashes],
+    outputArtifactHashes: [riskAssessment.assessmentHash, observation.observationHash], filesRead: files,
+    decision: "deterministic_risk_assessment_completed",
+    reasonCodes: [...riskAssessment.reasonCodes] });
   add("deterministic_governor", "deterministic_governor.evaluate", {
     inputArtifactHashes: [trace.traceHash, governance.policyHash, observation.observationHash],
     outputArtifactHashes: [governance.governanceHash], filesRead: files,
@@ -380,15 +426,58 @@ function buildRealGovernanceReceipts(input: CanonicalGovernedExecutionInput,
     repairVerifierFinding: phase.repairVerifierFinding,
     patchDryRun: phase.patchDryRun, temporaryApply: phase.temporaryApply,
     phaseVExecutionVerification: phase.verification,
+    phaseVAcceptanceEvaluation: acceptanceEvaluation,
+    deterministicRiskAssessment: riskAssessment,
     finalLedger: ledger, preShadowTrace: trace, shadowObservation: observation,
     governanceAssessment: governance, adminInvocationAssessment: invocation,
     approvalRouteAssessment: router, governedArtifact: built.artifact });
 }
 
+function approvedAcceptanceEvaluation(contract: AcceptanceCriteriaContract,
+  specification: TemporaryWorkspaceExecutionSpecification,
+  evidence: TemporaryWorkspaceExecutionVerificationEvidence,
+  humanReviewEvidence?: readonly HumanReviewAcceptanceEvidence[],
+  expected?: Readonly<{ taskId: string; objectiveHash: string }>): AcceptanceCriteriaEvaluationResult {
+  if (!verifyAcceptanceCriteriaContract(contract, expected)) {
+    throw new CanonicalGovernedExecutionError("canonical_acceptance_contract_invalid",
+      "Original acceptance criteria contract is corrupt or bound to another task.",
+      "human_review_required");
+  }
+  const evaluation = evaluateAcceptanceCriteria({
+    contract,
+    executionSpecification: specification,
+    executionEvidence: evidence,
+    humanReviewEvidence
+  });
+  const verification = evaluation.receipt === null ? null :
+    verifyAcceptanceCriteriaCoverageReceipt(evaluation.receipt,
+      contract, evidence);
+  if (evaluation.decision !== "contract_approved" || evaluation.receipt === null ||
+      verification === null || !verification.downstreamEligible) {
+    const route = evaluation.decision === "contract_failed"
+      ? "replan_required" as const : "human_review_required" as const;
+    throw new CanonicalGovernedExecutionError(
+      evaluation.decision === "contract_needs_review"
+        ? "canonical_acceptance_human_review_required"
+        : evaluation.decision === "contract_failed"
+          ? "canonical_acceptance_contract_failed"
+          : "canonical_acceptance_contract_invalid",
+      evaluation.issues[0]?.message ??
+        "Original acceptance criteria are not satisfied by the trusted Phase V evidence.",
+      route);
+  }
+  return evaluation;
+}
+
 async function phaseVEvidence(repository: string, mutation: WorkspaceMutation,
   specification: TemporaryWorkspaceExecutionSpecification,
-  allowedFiles: readonly string[], forbiddenFiles: readonly string[]) {
+  allowedFiles: readonly string[], forbiddenFiles: readonly string[],
+  lifecycle?: Readonly<{ bindingHash: string; workspaceParentPath: string;
+    checkpoint?: CanonicalGovernedExecutionInput["durableCheckpoint"] }>) {
   const claims = parseTextFileUpdates(mutation);
+  // Validate the complete source tree before copying it.  The copy operation
+  // must never proceed from a silently truncated inventory.
+  createCanonicalRepositoryContentSnapshot(repository);
   const fileContents: Record<string, string> = {};
   for (const claim of claims) fileContents[claim.file] =
     await readFile(path.join(repository, claim.file), "utf8");
@@ -423,26 +512,76 @@ async function phaseVEvidence(repository: string, mutation: WorkspaceMutation,
       await rm(temporaryApply.tempWorkspacePath!, { recursive: true, force: true });
     }
   })();
-  const root = await mkdtemp(path.join(os.tmpdir(), "canonical-phase-v-"));
+  const phaseBindingHash = lifecycle?.bindingHash ?? hashCanonicalJson({
+    artifactType: "canonical_phase_v_ephemeral", mutation: hashCanonicalJson(mutation),
+    specification: computeTemporaryWorkspaceExecutionSpecificationHash(specification)
+  });
+  const workspaceParent = lifecycle?.workspaceParentPath ?? os.tmpdir();
+  const root = lifecycle ? path.join(workspaceParent,
+    `canonical-phase-v-${phaseBindingHash.slice(7, 31)}.partial`) :
+    await mkdtemp(path.join(workspaceParent, "canonical-phase-v-"));
+  const markerPath = path.join(root, ".bounded-phase-v-owner.json");
+  const containerIdentity = createValidationContainerIdentity(hashCanonicalJson({
+    artifactType: "canonical_phase_v_container_binding", phaseBindingHash,
+    validationSpecificationHash: computeTemporaryWorkspaceExecutionSpecificationHash(specification)
+  }), undefined, lifecycle ? `bounded-validation-${phaseBindingHash.slice(7, 31)}` : undefined);
+  const intent = { lifecycleVersion: "canonical-phase-v-lifecycle/v1", phaseBindingHash,
+    workspacePath: root, containerIdentity };
+  await lifecycle?.checkpoint?.("phase_v_prepared", intent);
+  if (lifecycle) {
+    const exists = await lstat(root).then(() => true, (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    });
+    if (exists) {
+      let owner: unknown = null;
+      try { owner = JSON.parse(await readFile(markerPath, "utf8")); } catch {}
+      if (hashCanonicalJson(owner) !== hashCanonicalJson({ lifecycleVersion: intent.lifecycleVersion,
+          phaseBindingHash })) throw new CanonicalGovernedExecutionError(
+        "canonical_phase_v_workspace_ownership_ambiguous",
+        "An existing Phase V workspace has no matching durable ownership marker.", "recovery_required");
+      const recovered = recoverValidationContainer(containerIdentity);
+      if (!new Set(["validation_container_removed", "validation_container_absent"]).has(recovered.decision))
+        throw new CanonicalGovernedExecutionError("canonical_phase_v_container_recovery_required",
+          "The recorded Phase V container could not be safely reconciled.", "recovery_required");
+      await rm(root, { recursive: true, force: true });
+    }
+    await mkdir(root, { mode: 0o700 });
+    await writeFile(markerPath, JSON.stringify({ lifecycleVersion: intent.lifecycleVersion,
+      phaseBindingHash }), { encoding: "utf8", flag: "wx", mode: 0o600 });
+  }
+  let completed: Awaited<ReturnType<typeof buildTemporaryWorkspaceExecutionVerificationEvidence>> | null = null;
+  let phaseResult: any = null;
   try {
     await cp(repository, root, { recursive: true, filter: (source) => path.basename(source) !== ".git" });
+    createCanonicalRepositoryContentSnapshot(root);
     for (const claim of parseTextFileUpdates(mutation)) {
       await mkdir(path.dirname(path.join(root, claim.file)), { recursive: true });
       await writeFile(path.join(root, claim.file), claim.newContent, "utf8");
     }
     await mkdir(path.join(root, ".validation-output"));
+    await lifecycle?.checkpoint?.("phase_v_started", intent);
     const execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
-      tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false, ...specification }, async () => null);
+      tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false, ...specification }, async () => null,
+      { containerIdentity, onLifecycleCheckpoint: lifecycle?.checkpoint === undefined ? undefined :
+        async (containerLifecycle) => lifecycle.checkpoint!("phase_v_started",
+          { ...intent, containerLifecycle }) });
     if (execution.decision !== "temp_validation_passed") {
       throw new CanonicalGovernedExecutionError("canonical_phase_v_validation_failed",
         "Phase V candidate validation failed.", "replan_required");
     }
-    return { verification: buildTemporaryWorkspaceExecutionVerificationEvidence(
-      specification, execution, true), repairVerifierFinding: repairVerification.finding,
+    completed = buildTemporaryWorkspaceExecutionVerificationEvidence(
+      specification, execution, true);
+    phaseResult = { verification: completed,
+      repairVerifierFinding: repairVerification.finding,
     patchDryRun: dryRun, temporaryApply,
     ...phaseReceipts,
-    changedFiles: claims.map((claim) => claim.file) };
+      changedFiles: claims.map((claim) => claim.file) };
   } finally { await rm(root, { recursive: true, force: true }); }
+  await lifecycle?.checkpoint?.("phase_v_completed", {
+    phaseBindingHash, verificationResultHash: completed!.verificationResultHash,
+    workspaceCleanedUp: true, containerIdentity });
+  return phaseResult;
 }
 
 export async function verifyCanonicalNoChangeAcceptance(input: {
@@ -451,46 +590,94 @@ export async function verifyCanonicalNoChangeAcceptance(input: {
   repositoryPath: string;
   touchedFiles: readonly string[];
   specification: TemporaryWorkspaceExecutionSpecification;
+  acceptanceCriteriaContract: AcceptanceCriteriaContract;
+  humanReviewEvidence?: readonly HumanReviewAcceptanceEvidence[];
+  validationProfile?: ValidationProfileId;
 }): Promise<CanonicalNoChangeAcceptanceResult> {
+  const specificationHash = computeTemporaryWorkspaceExecutionSpecificationHash(input.specification);
+  const rejected = (route: "replan_required" | "human_review_required",
+    values: Partial<CanonicalNoChangeAcceptanceResult> = {}): CanonicalNoChangeAcceptanceResult => ({
+    decision: "no_change_rejected", route,
+    acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+    acceptanceEvaluationReceiptHash: null,
+    validationSpecificationHash: specificationHash,
+    validationEvidence: buildValidationEvidence({
+      profile: input.validationProfile ?? "structural_draft", structuralPassed: true,
+      specification: input.specification
+    }),
+    executionVerificationHash: null, beforeInspectionHash: null,
+    afterInspectionHash: null, receiptHash: null, ...values
+  });
   const before = await inspectControlledRepository({ repositoryPath: input.repositoryPath,
     changedFiles: input.touchedFiles });
   if (before.decision !== "repository_inspection_ready" || !before.inspection) {
-    return { decision: "no_change_rejected", executionVerificationHash: null,
-      beforeInspectionHash: null, afterInspectionHash: null, receiptHash: null };
+    return rejected("replan_required");
   }
   const root = await mkdtemp(path.join(os.tmpdir(), "canonical-no-change-"));
   let verificationHash: string | null = null;
   try {
+    createCanonicalRepositoryContentSnapshot(input.repositoryPath);
     await cp(input.repositoryPath, root, { recursive: true,
       filter: (source) => path.basename(source) !== ".git" });
+    createCanonicalRepositoryContentSnapshot(root);
     await mkdir(path.join(root, ".validation-output"));
     const execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
       tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false,
       ...input.specification }, async () => null);
-    if (execution.decision !== "temp_validation_passed") return {
-      decision: "no_change_rejected", executionVerificationHash: null,
+    if (execution.decision !== "temp_validation_passed") return rejected("replan_required", {
       beforeInspectionHash: before.inspection.inspectionHash, afterInspectionHash: null,
       receiptHash: null
-    };
-    verificationHash = buildTemporaryWorkspaceExecutionVerificationEvidence(
-      input.specification, execution, true).verificationResultHash;
+    });
+    const verification = buildTemporaryWorkspaceExecutionVerificationEvidence(
+      input.specification, execution, true);
+    const validationEvidence = buildValidationEvidence({
+      profile: input.validationProfile ?? "structural_draft", structuralPassed: true,
+      specification: input.specification, executionResult: execution
+    });
+    if (!validationEvidence.profileSatisfied) return rejected("replan_required", {
+      executionVerificationHash: verification.verificationResultHash,
+      beforeInspectionHash: before.inspection.inspectionHash,
+      validationEvidence
+    });
+    verificationHash = verification.verificationResultHash;
+    let evaluation: AcceptanceCriteriaEvaluationResult;
+    try { evaluation = approvedAcceptanceEvaluation(input.acceptanceCriteriaContract,
+      input.specification, verification, input.humanReviewEvidence,
+      { taskId: input.taskId, objectiveHash: input.objectiveHash }); }
+    catch (error) {
+      const route = error instanceof CanonicalGovernedExecutionError &&
+        error.route === "replan_required" ? "replan_required" : "human_review_required";
+      return rejected(route, { executionVerificationHash: verificationHash,
+        beforeInspectionHash: before.inspection.inspectionHash });
+    }
+    const evaluationReceiptHash = evaluation.receipt!.receiptHash;
+    const after = await inspectControlledRepository({ repositoryPath: input.repositoryPath,
+      changedFiles: input.touchedFiles });
+    if (after.decision !== "repository_inspection_ready" || !after.inspection ||
+        after.inspection.inspectionHash !== before.inspection.inspectionHash) return rejected(
+      "replan_required", { executionVerificationHash: verificationHash,
+        acceptanceEvaluationReceiptHash: evaluationReceiptHash,
+        beforeInspectionHash: before.inspection.inspectionHash,
+        afterInspectionHash: after.inspection?.inspectionHash ?? null });
+    const core = { artifactType: "canonical_no_change_acceptance", taskId: input.taskId,
+      objectiveHash: input.objectiveHash,
+      acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+      acceptanceEvaluationReceiptHash: evaluationReceiptHash,
+      validationSpecificationHash: verification.validationSpecificationHash,
+      validationEvidence,
+      executionVerificationHash: verificationHash,
+      beforeInspectionHash: before.inspection.inspectionHash,
+      afterInspectionHash: after.inspection.inspectionHash };
+    return { decision: "no_change_accepted", route: "contract_approved",
+      acceptanceContractHash: input.acceptanceCriteriaContract.contractHash,
+      acceptanceEvaluationReceiptHash: evaluationReceiptHash,
+      validationSpecificationHash: verification.validationSpecificationHash,
+      validationEvidence,
+      executionVerificationHash: verificationHash,
+      beforeInspectionHash: before.inspection.inspectionHash,
+      afterInspectionHash: after.inspection.inspectionHash,
+      receiptHash: hashCanonicalJson(core) };
   } finally { await rm(root, { recursive: true, force: true }); }
-  const after = await inspectControlledRepository({ repositoryPath: input.repositoryPath,
-    changedFiles: input.touchedFiles });
-  if (after.decision !== "repository_inspection_ready" || !after.inspection ||
-      after.inspection.inspectionHash !== before.inspection.inspectionHash) return {
-    decision: "no_change_rejected", executionVerificationHash: verificationHash,
-    beforeInspectionHash: before.inspection.inspectionHash,
-    afterInspectionHash: after.inspection?.inspectionHash ?? null, receiptHash: null
-  };
-  const core = { artifactType: "canonical_no_change_acceptance", taskId: input.taskId,
-    objectiveHash: input.objectiveHash, executionVerificationHash: verificationHash,
-    beforeInspectionHash: before.inspection.inspectionHash,
-    afterInspectionHash: after.inspection.inspectionHash };
-  return { decision: "no_change_accepted", executionVerificationHash: verificationHash,
-    beforeInspectionHash: before.inspection.inspectionHash,
-    afterInspectionHash: after.inspection.inspectionHash,
-    receiptHash: hashCanonicalJson(core) };
 }
 
 export async function prepareCanonicalGovernedMutation(
@@ -507,10 +694,25 @@ export async function prepareCanonicalGovernedMutation(
     verifierFindingHash: hashCanonicalJson(input.verifierFinding) });
   const specification = input.configuration.phaseVExecutionSpecification;
   const evidence = await phaseVEvidence(input.repositoryPath, adapted.repairMutation,
-    specification, input.allowedFiles, input.forbiddenFiles);
-  const governanceReceipts = buildRealGovernanceReceipts(input, adapted.receipt, evidence);
+    specification, input.allowedFiles, input.forbiddenFiles, {
+      bindingHash: adapted.receipt.receiptHash,
+      workspaceParentPath: input.configuration.validationWorkspaceParentPath,
+      checkpoint: input.durableCheckpoint
+    });
+  const acceptanceEvaluation = approvedAcceptanceEvaluation(input.acceptanceCriteriaContract,
+    specification, evidence.verification, input.humanReviewEvidence,
+    { taskId: input.taskId, objectiveHash: input.objectiveHash });
+  const contextAuthorization = authorizeContextSufficientPatch({ adaptiveResult: input.adaptiveResult as any,
+    allowedFiles: input.allowedFiles, forbiddenFiles: input.forbiddenFiles,
+    policyHash: input.compiledPolicyHash });
+  if (contextAuthorization.decision !== "context_authorization_ready" ||
+      !contextAuthorization.authorization) throw new CanonicalGovernedExecutionError(
+    "canonical_context_authorization_failed",
+    "Bound context did not authorize deterministic governance risk evaluation.", "replan_required");
+  const governanceReceipts = buildRealGovernanceReceipts(input, adapted.receipt, evidence,
+    acceptanceEvaluation, contextAuthorization.authorization.authorizationHash);
   return Object.freeze({ adapterReceipt: adapted.receipt,
-    repairMutation: adapted.repairMutation, governanceReceipts });
+    repairMutation: adapted.repairMutation, governanceReceipts, acceptanceEvaluation });
 }
 
 function assertPreparedMutationBoundToInput(input: CanonicalGovernedExecutionInput,
@@ -524,8 +726,26 @@ function assertPreparedMutationBoundToInput(input: CanonicalGovernedExecutionInp
     compiledPolicyHash: input.compiledPolicyHash,
     coderMutation: input.coderMutation,
     verifierFindingHash: hashCanonicalJson(input.verifierFinding) });
+  let currentAcceptanceReceiptHash: string | null = null;
+  try {
+    currentAcceptanceReceiptHash = approvedAcceptanceEvaluation(input.acceptanceCriteriaContract,
+      input.configuration.phaseVExecutionSpecification,
+      prepared.governanceReceipts.phaseVExecutionVerification,
+      input.humanReviewEvidence,
+      { taskId: input.taskId, objectiveHash: input.objectiveHash }).receipt?.receiptHash ?? null;
+  } catch {
+    // A changed contract/specification/evidence tuple invalidates the prepared mutation binding.
+  }
   if (prepared.adapterReceipt.receiptHash !== expected.receipt.receiptHash ||
-      hashCanonicalJson(prepared.repairMutation) !== hashCanonicalJson(expected.repairMutation)) {
+      hashCanonicalJson(prepared.repairMutation) !== hashCanonicalJson(expected.repairMutation) ||
+      prepared.acceptanceEvaluation.receipt === null ||
+      prepared.acceptanceEvaluation.receipt.contractHash !== input.acceptanceCriteriaContract.contractHash ||
+      prepared.acceptanceEvaluation.receipt.validationSpecificationHash !==
+        prepared.governanceReceipts.phaseVExecutionVerification.validationSpecificationHash ||
+      prepared.governanceReceipts.phaseVAcceptanceEvaluation.receipt?.receiptHash !==
+        currentAcceptanceReceiptHash ||
+      prepared.acceptanceEvaluation.receipt.receiptHash !==
+        currentAcceptanceReceiptHash) {
     throw new CanonicalGovernedExecutionError("canonical_prepared_mutation_binding_invalid",
       "Prepared governance receipts are not bound to this canonical task input.",
       "human_review_required");
@@ -592,21 +812,21 @@ export async function executePreparedCanonicalGovernedMutation(
     throw new CanonicalGovernedExecutionError("canonical_context_apply_binding_failed",
       "Context-to-apply binding failed.", "human_review_required");
   }
-  const acceptanceContract = createAcceptanceCriteriaContract({ taskId: input.taskId,
-    objectiveHash: input.objectiveHash, criteria: specification.commands.map((command) => ({
-      id: `command-${command.id}`, description: `Validation command ${command.id} must pass.`,
-      required: true, evidence: { kind: "test" as const, commandId: command.id }
-    })) });
   const recoveryInput = { repositoryPath: await realpath(input.repositoryPath), bundleDirectoryPath,
     registryDirectoryPath: input.configuration.registryDirectoryPath,
     validationWorkspaceParentPath: input.configuration.validationWorkspaceParentPath,
     authorization: gate.authorization, gateInput, consumptionKey: gate.authorization.consumptionKey };
   await input.durableCheckpoint?.("governed_apply_prepared", { recoveryInput,
+    acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+    humanReviewEvidence: input.humanReviewEvidence ?? [],
+    acceptanceEvaluation: prepared.acceptanceEvaluation,
     phaseVExecutionSpecification: specification,
     phaseVExecutionVerification: governanceReceipts.phaseVExecutionVerification });
   await input.durableCheckpoint?.("governed_apply_started", { recoveryInput });
   const integratedResult = await runIntegratedDisposableApply({ bindingReceipt: binding.receipt,
-    bindingInput, acceptanceContract, registryDirectoryPath: input.configuration.registryDirectoryPath,
+    bindingInput, acceptanceContract: input.acceptanceCriteriaContract,
+    humanReviewEvidence: input.humanReviewEvidence,
+    registryDirectoryPath: input.configuration.registryDirectoryPath,
     validationWorkspaceParentPath: input.configuration.validationWorkspaceParentPath,
     phaseVExecutionSpecification: specification,
     phaseVExecutionVerification: governanceReceipts.phaseVExecutionVerification,

@@ -20,6 +20,8 @@ sourceTargetBlobHash: e3b973ff81543207de4ba5953818f076f9a55951
 ## Runtime provenance
 
 ```text
+experimentId: controlled-coding-pilot-v1-runpod-live-help
+providerId: runpod
 modelId: qwen2.5-coder-7b
 llamaBuild: 9754
 llamaCommit: 52b3df002
@@ -60,6 +62,7 @@ live pilot report
 pilotDefinitionHash: sha256:27272d8f3194319e06e233e0da240dcde3fef6d4192e2aa4c9a846a7cc4b4118
 reportHash: sha256:e74190ba3414945709f58c3e47086f6822ebbf5c64df7b8a0efc347880b01b2e
 evidenceHash: sha256:ef8061acd86f60e6bea5ee387c0b0388426f45806d14d079a443e1cf90b5bbc9
+contentHash: sha256:aa56afd683ff5f2b04011b573d34c8fa1911a462e134b6605ff222806b962660
 acceptanceHash: sha256:cc7a383608f0d57e775f4971bf9fd50a45ba39a326eb6633c466769be57f29ff
 archiveSha256: 2bad2499d515941fbc6218d45d4052febdd2c6c3321645e31ebd4d00a2dda588
 ```

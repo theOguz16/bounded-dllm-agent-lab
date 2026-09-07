@@ -35,9 +35,30 @@ const path = require("node:path");
   const compile = () => canonical.compileCanonicalPolicy({ repositoryPath: root, policyDocument });
   const first = compile(); const second = compile();
   check("deterministic immutable compilation and sorting", () => {
+    assert.equal(first.compilerVersion, "canonical-policy-compiler/v2");
     assert.equal(first.compiledPolicyHash, second.compiledPolicyHash);
     assert.deepEqual(first.allowedPaths, [...first.allowedPaths].sort());
     assert.equal(Object.isFrozen(first), true); assert.equal(Object.isFrozen(first.allowedPaths), true);
+  });
+  check("v1 compiled policy artifacts are rejected instead of reinterpreted", () => {
+    const { compiledPolicyHash: ignored, ...core } = { ...first,
+      compilerVersion: "canonical-policy-compiler/v1" };
+    const legacy = { ...core, compiledPolicyHash: canonical.hashCanonicalJson(core) };
+    assert.equal(canonical.verifyCanonicalCompiledPolicy(legacy, root), false);
+  });
+  check("repository currentness snapshot binds content and mode while honoring fixed ignores", () => {
+    const file = path.join(root, "src/a.ts"); const original = fs.readFileSync(file);
+    const mode = fs.statSync(file).mode & 0o777;
+    const before = canonical.createCanonicalRepositoryContentSnapshot(root);
+    fs.writeFileSync(file, "changed without changing HEAD or path\n"); fs.chmodSync(file, mode);
+    const after = canonical.createCanonicalRepositoryContentSnapshot(root);
+    assert.notEqual(after.snapshotHash, before.snapshotHash);
+    assert.equal(canonical.verifyCanonicalRepositoryContentSnapshot(after), true);
+    fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+    fs.writeFileSync(path.join(root, "dist/generated.js"), "ignored\n");
+    assert.equal(canonical.createCanonicalRepositoryContentSnapshot(root).snapshotHash, after.snapshotHash);
+    fs.rmSync(path.join(root, "dist"), { recursive: true, force: true });
+    fs.writeFileSync(file, original); fs.chmodSync(file, mode);
   });
   check("allow glob resolves repository files", () => {
     assert.equal(canonical.evaluateCanonicalPolicy({ policy: first,
@@ -49,10 +70,18 @@ const path = require("node:path");
     assert(result.reasonCodes.includes("canonical_policy_forbidden_path"));
   });
   check("paired file is mandatory and succeeds together", () => {
+    assert.deepEqual(first.pairedFileRules[0].matchedRequiredFiles, ["package-lock.json"]);
+    assert.equal(first.pairedFileRules[0].requiresPattern, "package-lock.json");
     assert(canonical.evaluateCanonicalPolicy({ policy: first, changedFiles: ["package.json"] })
       .reasonCodes.includes("canonical_policy_paired_file_missing"));
     assert.equal(canonical.evaluateCanonicalPolicy({ policy: first,
       changedFiles: ["package-lock.json", "package.json"] }).decision, "allow");
+  });
+  check("missing required paired file fails compilation instead of dropping the rule", () => {
+    assert.throws(() => canonical.compileCanonicalPolicy({ repositoryPath: root,
+      policyDocument: { ...policyDocument, paired_files: [{ source: "src/a.ts",
+        requires: "tests/missing.test.ts", reason: "required regression" }] } }),
+    (error) => error.code === "canonical_policy_paired_required_file_missing");
   });
   check("conditional pair applies only when configured content changes", () => {
     const conditional = canonical.compileCanonicalPolicy({ repositoryPath: root,
@@ -86,6 +115,17 @@ const path = require("node:path");
       .reasonCodes.includes("canonical_policy_ownership_mismatch"));
     assert(canonical.evaluateCanonicalPolicy({ policy: first, changedFiles: ["config/owned.yml"] })
       .reasonCodes.includes("canonical_policy_ownership_authority_missing"));
+  });
+  check("static preflight rejects only scopes with no authorized mutation candidate", () => {
+    assert.equal(canonical.evaluateCanonicalPolicyPreflight({ policy: first,
+      requestedChangeFiles: ["config/owned.yml"] }).decision, "deny");
+    assert.equal(canonical.evaluateCanonicalPolicyPreflight({ policy: first,
+      requestedChangeFiles: ["config/owned.yml", "src/a.ts"] }).decision, "allow");
+    assert.equal(canonical.evaluateCanonicalPolicyPreflight({ policy: first,
+      requestedChangeFiles: ["package.json"] }).reasonCodes.includes(
+        "canonical_policy_paired_file_missing"), true);
+    assert.equal(canonical.evaluateCanonicalPolicyPreflight({ policy: first,
+      requestedChangeFiles: ["package.json", "package-lock.json"] }).decision, "allow");
   });
   check("self-hashed or mutated authority cannot grant platform ownership", () => {
     const selfGranted = { actorId: "caller", authorities: ["platform"],
@@ -211,9 +251,27 @@ const path = require("node:path");
   });
 
   let plannerCalls = 0; let applyCalls = 0;
+  const invalidObjectiveHash = canonical.hashCanonicalJson({ task: "policy" });
+  const invalidAcceptance = canonical.createAcceptanceCriteriaContract({
+    taskId: "policy.invalid", objectiveHash: invalidObjectiveHash,
+    criteria: [{ id: "policy_check", description: "Policy must be valid.", required: true,
+      evidence: { kind: "test", commandId: "test.policy" } }]
+  });
+  const invalidMinimality = canonical.createPreventiveMinimalityPolicy({ policyVersion: "1",
+    policyId: "policy.invalid", preferExistingCode: true, preferStandardLibrary: true,
+    preferNativePlatform: true, preferInstalledDependencies: true,
+    newDependencyRequiresJustification: true, newDependencyRequiresAlternatives: true,
+    newAbstractionRequiresJustification: true, newAbstractionMinReuseSites: 2,
+    unrequestedDependencyBehavior: "human_review", unrequestedAbstractionBehavior: "human_review",
+    unrequestedRefactorBehavior: "replan", highRiskBehavior: "disabled", maxPlannedFiles: 1,
+    maxNewDependencies: 0, maxNewAbstractions: 0 });
   const invalidRuntime = await canonical.runBoundedTask({ repositoryPath: root, taskId: "policy.invalid",
-    objectiveHash: canonical.hashCanonicalJson({ task: "policy" }), authorityHash: canonical.hashCanonicalJson({ authority: "x" }),
+    objectiveHash: invalidObjectiveHash, acceptanceCriteriaContract: invalidAcceptance,
+    authorityHash: canonical.hashCanonicalJson({ authority: "x" }),
     policyHash: canonical.hashCanonicalJson({ legacy: true }), allowedChangeFiles: ["src/a.ts"], forbiddenFiles: [],
+    proposalLimits: { maxSeedFiles: 1, maxRequiredSymbols: 1, maxRequiredTests: 1,
+      maxExpansionAttempts: 1 }, minimalityPolicy: invalidMinimality, taskContext: { task: "policy" },
+    authorityPresent: true, policyPresent: true, hardTotalBudgetTokens: 2_000,
     plannerMinimalityProvider: async () => { plannerCalls++; return {}; }, coderProvider: async () => ({}),
     contextRequestProvider: async () => ({}), applyExecutor: async () => { applyCalls++; return null; },
     canonicalPolicy: { policyDocument: { ...policyDocument, schemaVersion: "999" } }
@@ -222,6 +280,19 @@ const path = require("node:path");
     assert.equal(invalidRuntime.failure.code, "canonical_policy_schema_version_unsupported");
     assert.equal(plannerCalls, 0); assert.equal(applyCalls, 0);
   });
+
+  const deepRoot = path.join(root, [...Array(66)].map((_, index) => `d${index}`).join(path.sep));
+  fs.mkdirSync(deepRoot, { recursive: true }); fs.writeFileSync(path.join(deepRoot, "deep.ts"), "x\n");
+  check("deep repository traversal fails closed", () => assert.throws(
+    () => canonical.createCanonicalRepositoryContentSnapshot(root),
+    (error) => error.code === "canonical_repository_snapshot_limit_exceeded"));
+  fs.rmSync(path.join(root, "d0"), { recursive: true, force: true });
+  const largePath = path.join(root, "src/too-large.bin");
+  const descriptor = fs.openSync(largePath, "w"); fs.ftruncateSync(descriptor, 16 * 1024 * 1024 + 1); fs.closeSync(descriptor);
+  check("oversized repository file fails closed", () => assert.throws(
+    () => canonical.createCanonicalRepositoryContentSnapshot(root),
+    (error) => error.code === "canonical_repository_snapshot_limit_exceeded"));
+  fs.rmSync(largePath, { force: true });
 
   console.log(`canonical policy compiler smoke passed (${checks} checks)`);
   for (const item of roots.reverse()) fs.rmSync(item, { recursive: true, force: true });

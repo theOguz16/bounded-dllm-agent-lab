@@ -59,6 +59,8 @@ async function main() {
   const {
     DEFAULT_DETERMINISTIC_GOVERNANCE_POLICY,
     DETERMINISTIC_GOVERNANCE_VERSION,
+    DETERMINISTIC_RISK_ASSESSMENT_VERSION,
+    assessDeterministicChangeRisk,
     appendAgentEvent,
     buildRunAccountabilityTrace,
     createAgentEventLedger,
@@ -69,6 +71,27 @@ async function main() {
 
   const objectiveHash = hashCanonicalJson({ objective: "governance-smoke" });
   const artifactHash = hashCanonicalJson({ artifact: "bounded" });
+
+  check("deterministic risk assessment differentiates bounded, elevated, and unknown evidence", () => {
+    const evidence = {
+      mutationHash: hashCanonicalJson({ mutation: "risk" }),
+      authorizationHash: hashCanonicalJson({ authorization: "risk" }),
+      validationEvidenceHash: hashCanonicalJson({ validation: "risk" }),
+      acceptanceEvidenceHash: hashCanonicalJson({ acceptance: "risk" })
+    };
+    const low = assessDeterministicChangeRisk({ changedFiles: ["src/service.ts"],
+      allowedFiles: ["src/service.ts"], forbiddenFiles: [], declaredRiskClass: "low", ...evidence });
+    const high = assessDeterministicChangeRisk({ changedFiles: ["package.json"],
+      allowedFiles: ["package.json"], forbiddenFiles: [], declaredRiskClass: "low", ...evidence });
+    const unknown = assessDeterministicChangeRisk({ changedFiles: ["src/service.ts"],
+      allowedFiles: ["src/service.ts"], forbiddenFiles: [], ...evidence });
+    assert.equal(low.riskClass, "low"); assert.equal(low.recommendation, "continue");
+    assert.equal(low.confidenceScore, 90); assert.ok(low.evidenceHashes.length === 4);
+    assert.equal(high.riskClass, "high"); assert.equal(high.recommendation, "escalate");
+    assert.equal(unknown.riskClass, "unknown"); assert.equal(unknown.confidenceScore, 0);
+    assert.equal(unknown.recommendation, "escalate");
+    assert.notEqual(low.assessmentHash, high.assessmentHash);
+  });
 
   function makeTrace(executionDecision = "temp_validation_passed") {
     let ledger = createAgentEventLedger({
@@ -730,6 +753,8 @@ async function main() {
 
   check("runtime index exports the complete W.7 value API", () => {
     assert.equal(DETERMINISTIC_GOVERNANCE_VERSION, "1");
+    assert.equal(DETERMINISTIC_RISK_ASSESSMENT_VERSION, "deterministic-risk-assessment/v1");
+    assert.equal(typeof assessDeterministicChangeRisk, "function");
     assert.equal(DEFAULT_DETERMINISTIC_GOVERNANCE_POLICY.policyVersion, "1");
     assert.equal(typeof evaluateDeterministicGovernance, "function");
   });

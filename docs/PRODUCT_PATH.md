@@ -1,23 +1,23 @@
 # Product Path
 
-This project starts as research. If the results are strong, it can become a product.
+The current V1 direction is defined in
+[`PRODUCT_SCOPE_V1.md`](./PRODUCT_SCOPE_V1.md). It replaces the earlier broad
+“general coding agent” and patch/PR-review positioning with one testable product
+hypothesis:
 
-## Research Artifact
+> **Untested product hypothesis:** a developer supervising a single local
+> JavaScript or TypeScript repository benefits from a tool that plans, verifies,
+> and controllably applies small updates to existing files.
 
-The first version proves whether the architecture is worth pursuing.
+This is not a validated market claim. Repository evidence establishes contract
+and fixture behavior, not demand, productivity improvement, semantic
+correctness, or production readiness.
 
-It includes:
+## Research artifact
 
-- schemas,
-- fixtures,
-- evaluators,
-- reports,
-- mock engines,
-- model adapters.
-
-## Developer Tool
-
-The second version can become a CLI for testing agent behavior under bounded context.
+Schemas, fixtures, evaluators, reports, mock engines, model adapters, and
+benchmark commands test whether the architecture is worth pursuing and how
+agent behavior changes under bounded context.
 
 Example:
 
@@ -26,58 +26,45 @@ bounded-agent eval --suite scope-drift
 bounded-agent run --case correction-001
 ```
 
-## Coding Runtime
+They do not define the product runtime and mock/fixture results are not live
+product evidence. Experiment status remains owned by `evidence/index.json`.
 
-The third version can become an agent runtime that coding tools use internally.
+## Canonical product runtime
 
-It would provide:
+The canonical runtime is the post-v0.1 surface exported by
+`packages/product-runtime/src/canonical-runtime.ts`, with canonical repository
+intelligence and integration packages.
 
-- context packet compilation,
-- scope gates,
-- shared workspace state,
-- conflict-aware refinement,
-- verifier integration.
+It currently provides contracts and paths for:
 
-## Enterprise Product
+- bounded repository context and planning,
+- versioned existing-text-file mutation claims,
+- deterministic scope/policy/verification gates,
+- controlled apply and validation,
+- explicit replan, human-review, and recovery routes, and
+- versioned receipts and evidence bindings.
 
-The product version would target software teams that need safe agentic coding.
+The runtime is a prototype. The presence of these paths does not establish
+automatic repair, independent review, or production readiness.
 
-Possible positioning:
+## Legacy review pipeline
 
-```text
-Bounded-context shared-workspace agent orchestration runtime for software teams.
-```
+Earlier `apps/cli` review, PR calibration, comment, artifact, and pilot commands
+remain compatibility/evaluation surfaces. They are not the canonical runtime,
+and a legacy review decision does not independently certify a V1 task.
 
-The product would help teams:
+## V1 supervised tool
 
-- keep agents inside module boundaries,
-- reduce unwanted edits,
-- audit why a change happened,
-- compare model and context strategies,
-- enforce sensitive data boundaries,
-- measure agent reliability.
+The first product is not a full IDE, Cursor replacement, autonomous software
+engineer, or generic PR reviewer. It supports three bounded scenarios:
 
-## Phase 2 Product Thesis
+1. fix a bug in an existing function;
+2. make a limited behavior change in existing files; and
+3. add a regression assertion to an existing test file.
 
-The first product should not be a full IDE or a Cursor replacement.
-
-It also should not be positioned as only a PR reviewer. The narrow first surface
-should be:
-
-```text
-AI patch/PR validation surface for a bounded agent orchestration runtime.
-```
-
-That surface reviews patches produced by AI coding agents and answers:
-
-- Is this patch inside the requested module scope?
-- Did it infer a missing product, platform, compliance, or owner decision?
-- Did it touch forbidden files or modules?
-- Did it create sensitive logging or secret exposure risk?
-- Did it skip required tests, metadata, or paired files?
-- Should the patch be approved, refused, or remasked?
-
-The product should be model-agnostic:
+Each scenario has measurable inputs, allowed changes, mandatory controls,
+behavioral proof, and delivery artifacts in `PRODUCT_SCOPE_V1.md`. The product
+remains model-agnostic:
 
 ```text
 Bring your own coder model.
@@ -88,7 +75,7 @@ trace, remask and merge-decision control.
 This keeps the product realistic. The research may continue testing dLLM-style
 verifier/remask workers, but the MVP should not depend on dLLM maturity.
 
-## Remask Product Rule
+## Repair and remask boundary
 
 Remask should not be a default second pass for every AI patch.
 
@@ -103,15 +90,14 @@ partial failure:
 | Patch is in scope but misses a required paired file, type, schema, test, or metadata region | Remask |
 | Patch output contract is invalid | Retry or fail closed, depending on policy |
 
-The first product surface loop is:
+The canonical product loop is:
 
 ```text
-task + patch + policy -> shared workspace -> verifier -> approve | refuse | reject | remask failed region
+task + policy + bounded context -> plan -> candidate update -> deterministic verification -> controlled validation -> deliver | replan | human review | recovery
 ```
 
-This matters for cost and quality. Always-on remask increases latency and model
-spend. Verifier-triggered remask targets the expensive second pass only at cases
-where it can repair a specific failed region.
+Remask remains conditional research/runtime machinery, not a promise that the
+tool automatically repairs every failed candidate.
 
 ## What The MVP Should Not Do First
 
@@ -124,15 +110,17 @@ The MVP should not try to:
 - require a specific model provider,
 - solve every security or compliance problem.
 
-The MVP surface should do one thing well:
+The V1 surface should do one thing well:
 
 ```text
-Detect and explain risky AI patch behavior before it reaches merge.
+Prepare and verify a small, authorized existing-file change for developer review.
 ```
 
-The product core behind that surface should do a broader job: manage what each
-agent can see, what it can write, which shared state it updates, when verifier
-feedback opens local remask, and how the final merge decision is traced.
+Success requires two distinct results: required controls passed, and the user's
+requested behavior was demonstrated. A green build without scenario-specific
+evidence is not product success. A validated no-change result, human-review
+route, replan route, or recovery route is a truthful product outcome, not a
+failed attempt to disguise as success.
 
 ## Why This Could Matter
 

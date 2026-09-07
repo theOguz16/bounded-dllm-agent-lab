@@ -97,6 +97,24 @@ function main() {
   test("missing required symbol plus exactSymbolSuccess true is rejected after valid rehash", () => { const fixture = fixtureBundle(); const observations = fixture.rawReport.observations.map((row) => ({ ...row })); const receipts = fixture.rawReport.sampleReceipts.map((r) => structuredClone(r)); const target = receipts.find((receipt) => receipt.selectionEvidence.selectedSymbols.length > 0); assert(target); const observation = matchingObservation(observations, target); target.selectionEvidence.selectedSymbols = target.selectionEvidence.selectedSymbols.slice(1); target.oracleVerification = { ...target.oracleVerification, exactSymbolSuccess: true, strictOracleSuccess: true }; observation.exactSymbolSuccess = true; observation.strictOracleSuccess = true; rehashReceipt(target); expectReject(() => rebuild(fixture, observations, receipts), "GATE6_VERIFY_ORACLE_SCORE_RECOMPUTE_MISMATCH"); });
   test("research thresholds enforce meaningful medium success", () => { const fixture = fixtureBundle({ selectionOverride: ({ task, oracle, strategy }) => strategy === "F_adaptive_compressed_boundary" && task.difficulty === "medium" && oracle.requiredSymbols.length > 0 ? { selectedSymbols: oracle.requiredSymbols.slice(1) } : {}, observationOverride: ({ task, strategy }) => strategy === "F_adaptive_compressed_boundary" && task.difficulty === "medium" ? { endToEndAccepted: false } : {}, receiptOverride: ({ task, strategy }) => strategy === "F_adaptive_compressed_boundary" && task.difficulty === "medium" ? { status: "rejected", failureCode: "ACCEPTANCE_FAILURE", failureDomain: "verification", metrics: { acceptancePassed: false } } : {} }); const decisions = evaluateStrategyThresholds(fixture.rawReport, fixture.frozen.semantics.document); assert.equal(decisions.F_adaptive_compressed_boundary.status, "NO_GO"); });
   test("F cannot promote unless strict success is non-inferior context cost is lower and scope does not drift", () => { const expensive = fixtureBundle({ cost: { F_adaptive_compressed_boundary: { contextBytes: 1400, tokens: 350, latencyMs: 24 } } }); const thresholds = evaluateStrategyThresholds(expensive.rawReport, expensive.frozen.semantics.document); const promotion = evaluatePromotion(expensive.rawReport, expensive.frozen.semantics.document, thresholds); assert.equal(promotion.decisions.F_adaptive_compressed_boundary.status, "NO_GO"); });
+  test("promotion uses clustered uncertainty and rejects insufficient independent samples", () => {
+    const fixture = fixtureBundle();
+    const firstRepository = fixture.rawReport.observations[0].repositoryId;
+    const undersampled = {
+      ...fixture.rawReport,
+      observations: fixture.rawReport.observations.filter(
+        (row) => row.repositoryId === firstRepository && row.repetition === 1
+      )
+    };
+    const thresholds = evaluateStrategyThresholds(fixture.rawReport, fixture.frozen.semantics.document);
+    const promotion = evaluatePromotion(undersampled, fixture.frozen.semantics.document, thresholds);
+    const decision = promotion.decisions.F_adaptive_compressed_boundary;
+    assert.equal(decision.status, "NO_GO");
+    assert.equal(decision.checks.statisticalEvidenceSufficient, false);
+    assert.equal(decision.statisticalComparison.status, "insufficient_data");
+    assert.equal(decision.statisticalComparison.costAdvantage, false);
+    assert.equal(decision.method, "repository_clustered_noninferiority_and_efficiency/v2");
+  });
   test("source SHA mismatch rejects otherwise valid evidence", () => { const fixture = fixtureBundle(); withTempDir((parent) => { const outputDir = path.join(parent, "run"); writeEvidencePackage({ rootPath: ROOT, outputDir, rawReport: fixture.rawReport, runtimeIdentity: fixture.runtimeIdentity, preflight: fixture.preflight }); expectReject(() => verifyEvidenceDirectory({ rootPath: ROOT, evidenceDir: outputDir, expectedSourceSha: "f".repeat(40) }), "GATE6_VERIFY_SOURCE_SHA_MISMATCH"); }); });
   process.stdout.write("Gate 6 verifier receipt + oracle score provenance offline fixture PASS\n");
 }

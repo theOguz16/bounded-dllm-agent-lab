@@ -2,7 +2,76 @@
 
 This document explains the architecture as if you are learning the system from the beginning.
 
-## The Problem
+The repository contains multiple generations of architecture. The canonical
+product boundary is `packages/product-runtime/src/canonical-runtime.ts`; the
+shared-workspace and dLLM material below explains the historical research model,
+not an additional production runtime. See
+[`PRODUCT_SCOPE_V1.md`](./PRODUCT_SCOPE_V1.md) for the supported V1 product
+scenarios and truthful capability limits.
+
+## Architectural surfaces
+
+### Canonical runtime
+
+The current product path is a single-machine governed flow:
+
+```text
+repository intelligence
+  -> bounded planner and minimality gate
+  -> coder mutation (`text-file-update/v1`)
+  -> deterministic verifier
+  -> controlled/disposable apply and validation
+  -> governance and delivery
+  -> versioned receipts and durable evidence
+```
+
+The mutation boundary updates existing regular UTF-8 text files guarded by
+source hashes. It does not create, delete, or rename files. `runBoundedTask()`
+coordinates the canonical stages and exposes explicit completion, replan,
+human-review, and recovery routes. This architecture constrains execution; it
+does not guarantee semantic correctness, automatic repair, independent review,
+or production readiness.
+
+Durable task identity binds the task context, original acceptance contract,
+policy, validation specifications, validation profile, scope, authority,
+planner/minimality limits, and relevant execution configuration. Repository
+currentness is a separate content snapshot: it hashes path, kind, mode, byte
+length, and content for every regular file and in-repository symlink, independent
+of Git HEAD. The fixed excluded directory names are `.git`, `node_modules`,
+`dist`, `build`, `coverage`, `.cache`, `.next`, and `.turbo`; `.gitignore` is not
+dynamically interpreted. Snapshotting fails closed above 20,000 files, 16 MiB
+for one file, or 256 MiB total rather than silently omitting extra content.
+
+The durable record keeps the starting snapshot and a distinct expected terminal
+snapshot. Before replaying a successful terminal result, the runtime recomputes
+the same scope. A match permits cache replay without model or apply calls. Drift
+returns `recovery_required`, retains the immutable historical receipt separately,
+and performs neither automatic reapply nor rollback, so user changes remain in
+place.
+
+Canonical policy compiler v2 preserves paired-file rule definitions separately
+from their repository matches and rejects a required pattern that matches no
+existing file; `text-file-update/v1` cannot satisfy that rule by creating a
+file. Before provider execution, the runtime checks the caller/policy scope,
+unconditional paired-file feasibility, sensitive paths, and externally verified
+ownership authority. Conditional or generated-content checks run again against
+the actual mutation before apply; model output is never an authority source.
+
+### Legacy review pipeline
+
+Earlier `apps/cli` product-review, PR calibration, comment, artifact, and pilot
+flows evaluate patches and retained fixtures. They are compatibility and
+evaluation surfaces, not a second canonical runtime and not an independent
+review authority for canonical execution.
+
+### Research and benchmark pipeline
+
+The shared semantic workspace, masking roles, dLLM/remask workers, model
+comparisons, fixtures, ablations, and benchmark reports are research machinery.
+They may inform a later evidence-backed promotion, but fixture/mock results do
+not become product guarantees. `evidence/index.json` owns research status.
+
+## Historical research problem
 
 Most current coding agents use a linear model:
 
@@ -18,7 +87,7 @@ This works for many tasks, but it has three weaknesses:
 
 The architecture in this repo is designed around those three weaknesses.
 
-## The Main Idea
+## Historical shared-workspace idea
 
 The system does not send a huge prompt directly to a model.
 
@@ -231,12 +300,18 @@ It checks:
 
 This makes the project a research artifact rather than a demo.
 
-## Future Product Shape
+## V1 product shape
 
-If the research succeeds, it can become a product layer for coding tools:
+The current V1 hypothesis is a developer-supervised local tool for three narrow
+JavaScript/TypeScript scenarios: an existing-function bug fix, a bounded
+behavior change in existing files, and a regression assertion in an existing
+test file.
 
 ```text
-scope-safe agent runtime for software teams
+bounded existing-file change tool for supervised repository work
 ```
 
-The product would not only write code. It would manage safe software changes under context, ownership, memory, and verification constraints.
+For every scenario, control results and behavioral acceptance are separate. A
+green verifier/build/test result does not by itself establish that the requested
+behavior was achieved. Detailed measurable acceptance and unsupported work are
+defined in `PRODUCT_SCOPE_V1.md`.

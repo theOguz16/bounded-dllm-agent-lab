@@ -2,6 +2,164 @@ import { hashCanonicalJson } from "./agent-event-ledger.js";
 
 export const RUN_COST_LEDGER_VERSION = "1" as const;
 export const RUN_COST_BENCHMARK_VERSION = "1" as const;
+export const TASK_COST_BUDGET_VERSION = "task-cost-budget/v1" as const;
+
+export type TaskCostBudget = Readonly<{
+  budgetVersion: typeof TASK_COST_BUDGET_VERSION;
+  maxProviderCalls: number;
+  maxEstimatedTokens: number;
+  maxCostNanoUsd: number | null;
+  providerId: string;
+  modelId: string;
+  inputNanoUsdPerToken: number | null;
+  outputNanoUsdPerToken: number | null;
+}>;
+
+export type TaskCostBudgetReservation = Readonly<{
+  invocationId: string;
+  operation: CostOperation;
+  attempt: number;
+  requestHash: string;
+  estimatedInputTokens: number;
+  requestByteLength: number;
+  estimatorId: "canonical-json-utf8-bytes-div-4/v1";
+  reservedOutputTokens: number;
+  estimatedTokens: number;
+  estimatedCostNanoUsd: number | null;
+}>;
+
+export type TaskCostBudgetReconciliation = Readonly<{
+  invocationId: string;
+  usage: TokenUsageEvidence;
+  accountedTokens: number;
+  accountedCostNanoUsd: number | null;
+}>;
+
+export type TaskCostBudgetSnapshot = Readonly<{
+  budget: TaskCostBudget;
+  reservations: readonly TaskCostBudgetReservation[];
+  reconciliations: readonly TaskCostBudgetReconciliation[];
+  reservedProviderCalls: number;
+  reservedEstimatedTokens: number;
+  accountedTokens: number;
+  reservedCostNanoUsd: number | null;
+  remainingProviderCalls: number;
+  remainingEstimatedTokens: number;
+  remainingCostNanoUsd: number | null;
+}>;
+
+export class TaskCostBudgetError extends Error {
+  constructor(readonly code: "task_cost_budget_exhausted" | "task_cost_budget_invalid", message: string) {
+    super(message);
+  }
+}
+
+export function createTaskCostBudget(input: Readonly<{
+  maxProviderCalls: number;
+  maxEstimatedTokens: number;
+  maxCostNanoUsd?: number | null;
+  providerId: string;
+  modelId: string;
+  inputNanoUsdPerToken?: number | null;
+  outputNanoUsdPerToken?: number | null;
+}>): TaskCostBudget {
+  const positive = (value: number, field: string) => {
+    if (!Number.isSafeInteger(value) || value < 0) throw new TaskCostBudgetError("task_cost_budget_invalid", `${field} must be a non-negative safe integer.`);
+    return value;
+  };
+  const price = (value: number | null | undefined, field: string) => {
+    if (value === undefined || value === null) return null;
+    if (!Number.isSafeInteger(value) || value < 0) throw new TaskCostBudgetError("task_cost_budget_invalid", `${field} must be a non-negative safe integer.`);
+    return value;
+  };
+  if (typeof input.providerId !== "string" || input.providerId.length === 0 || typeof input.modelId !== "string" || input.modelId.length === 0) {
+    throw new TaskCostBudgetError("task_cost_budget_invalid", "providerId and modelId are required.");
+  }
+  const budget = { budgetVersion: TASK_COST_BUDGET_VERSION, maxProviderCalls: positive(input.maxProviderCalls, "maxProviderCalls"),
+    maxEstimatedTokens: positive(input.maxEstimatedTokens, "maxEstimatedTokens"),
+    maxCostNanoUsd: input.maxCostNanoUsd === undefined || input.maxCostNanoUsd === null ? null : positive(input.maxCostNanoUsd, "maxCostNanoUsd"),
+    providerId: input.providerId, modelId: input.modelId,
+    inputNanoUsdPerToken: price(input.inputNanoUsdPerToken, "inputNanoUsdPerToken"),
+    outputNanoUsdPerToken: price(input.outputNanoUsdPerToken, "outputNanoUsdPerToken") } as TaskCostBudget;
+  return Object.freeze(budget);
+}
+
+export function createTaskCostBudgetController(budget: TaskCostBudget,
+  existing: readonly TaskCostBudgetReservation[] = [],
+  existingReconciliations: readonly TaskCostBudgetReconciliation[] = []) {
+  if (budget.budgetVersion !== TASK_COST_BUDGET_VERSION || existing.some((item) => existing.filter((other) => other.invocationId === item.invocationId).length > 1)) {
+    throw new TaskCostBudgetError("task_cost_budget_invalid", "Task cost budget or reservation identities are invalid.");
+  }
+  const reservations = new Map(existing.map((item) => [item.invocationId, item]));
+  const reconciliations = new Map(existingReconciliations.map((item) => [item.invocationId, item]));
+  if (existingReconciliations.some((item) => !reservations.has(item.invocationId) ||
+      existingReconciliations.filter((other) => other.invocationId === item.invocationId).length > 1)) {
+    throw new TaskCostBudgetError("task_cost_budget_invalid", "Task cost reconciliation identities are invalid.");
+  }
+  const totals = () => {
+    let tokens = 0; let cost: number | null = 0;
+    for (const item of reservations.values()) {
+      const reconciled = reconciliations.get(item.invocationId);
+      tokens += reconciled?.accountedTokens ?? item.estimatedTokens;
+      const itemCost = reconciled?.accountedCostNanoUsd ?? item.estimatedCostNanoUsd;
+      if (itemCost === null) cost = null;
+      else if (cost !== null) cost += itemCost;
+    }
+    return { tokens, cost };
+  };
+  const snapshot = (): TaskCostBudgetSnapshot => {
+    const total = totals();
+    const reservedEstimatedTokens = [...reservations.values()].reduce((sum, item) => sum + item.estimatedTokens, 0);
+    return Object.freeze({ budget, reservations: Object.freeze([...reservations.values()]),
+      reconciliations: Object.freeze([...reconciliations.values()]),
+      reservedProviderCalls: reservations.size, reservedEstimatedTokens,
+      accountedTokens: total.tokens,
+      reservedCostNanoUsd: total.cost, remainingProviderCalls: budget.maxProviderCalls - reservations.size,
+      remainingEstimatedTokens: budget.maxEstimatedTokens - total.tokens,
+      remainingCostNanoUsd: budget.maxCostNanoUsd === null || total.cost === null ? null : budget.maxCostNanoUsd - total.cost });
+  };
+  const reserve = (input: Readonly<{ invocationId: string; operation: CostOperation; attempt: number;
+    requestHash: string; estimatedInputTokens: number; requestByteLength: number;
+    estimatorId: "canonical-json-utf8-bytes-div-4/v1"; reservedOutputTokens: number }>): TaskCostBudgetReservation => {
+    if (typeof input.invocationId !== "string" || input.invocationId.length === 0 ||
+        !Number.isSafeInteger(input.attempt) || input.attempt < 1 ||
+        !Number.isSafeInteger(input.estimatedInputTokens) || input.estimatedInputTokens < 0 ||
+        !Number.isSafeInteger(input.requestByteLength) || input.requestByteLength < 0 ||
+        input.estimatorId !== "canonical-json-utf8-bytes-div-4/v1" ||
+        !Number.isSafeInteger(input.reservedOutputTokens) || input.reservedOutputTokens < 0) {
+      throw new TaskCostBudgetError("task_cost_budget_invalid", "Provider reservation values are invalid.");
+    }
+    const prior = reservations.get(input.invocationId); if (prior) return prior;
+    const estimatedTokens = input.estimatedInputTokens + input.reservedOutputTokens;
+    const estimatedCostNanoUsd = budget.inputNanoUsdPerToken === null || budget.outputNanoUsdPerToken === null ? null :
+      input.estimatedInputTokens * budget.inputNanoUsdPerToken + input.reservedOutputTokens * budget.outputNanoUsdPerToken;
+    if (reservations.size >= budget.maxProviderCalls || totals().tokens + estimatedTokens > budget.maxEstimatedTokens ||
+        (budget.maxCostNanoUsd !== null && (estimatedCostNanoUsd === null || (totals().cost ?? Infinity) + estimatedCostNanoUsd > budget.maxCostNanoUsd))) {
+      throw new TaskCostBudgetError("task_cost_budget_exhausted", "Task provider budget is insufficient for this invocation.");
+    }
+    const reservation = Object.freeze({ ...input, estimatedTokens, estimatedCostNanoUsd });
+    reservations.set(input.invocationId, reservation); return reservation;
+  };
+  const reconcile = (invocationId: string, usage: TokenUsageEvidence): TaskCostBudgetReconciliation => {
+    const reservation = reservations.get(invocationId);
+    if (!reservation) throw new TaskCostBudgetError("task_cost_budget_invalid", "Cannot reconcile an unknown provider invocation.");
+    const prior = reconciliations.get(invocationId); if (prior) return prior;
+    let accountedTokens = reservation.estimatedTokens;
+    let accountedCostNanoUsd = reservation.estimatedCostNanoUsd;
+    if (usage.status === "observed") {
+      if (!Number.isSafeInteger(usage.inputTokens) || usage.inputTokens < 0 ||
+          !Number.isSafeInteger(usage.outputTokens) || usage.outputTokens < 0 ||
+          usage.totalTokens !== usage.inputTokens + usage.outputTokens) throw new TaskCostBudgetError(
+        "task_cost_budget_invalid", "Observed provider usage is invalid.");
+      accountedTokens = usage.totalTokens;
+      accountedCostNanoUsd = budget.inputNanoUsdPerToken === null || budget.outputNanoUsdPerToken === null ? null :
+        usage.inputTokens * budget.inputNanoUsdPerToken + usage.outputTokens * budget.outputNanoUsdPerToken;
+    }
+    const value = Object.freeze({ invocationId, usage, accountedTokens, accountedCostNanoUsd });
+    reconciliations.set(invocationId, value); return value;
+  };
+  return Object.freeze({ reserve, reconcile, snapshot });
+}
 
 export type CostStrategy =
   | "direct_large_context"

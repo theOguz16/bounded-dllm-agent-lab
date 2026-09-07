@@ -267,7 +267,13 @@ function aggregateBase(rows) {
     tokensPerStrictSuccess: safeRatio(totalTokens, strictSuccessCount),
     contextBytesPerStrictSuccess: safeRatio(totalContextBytes, strictSuccessCount),
     tokensPerAcceptedCodingTask: safeRatio(totalTokens, acceptedCount),
-    contextBytesPerAcceptedCodingTask: safeRatio(totalContextBytes, acceptedCount)
+    contextBytesPerAcceptedCodingTask: safeRatio(totalContextBytes, acceptedCount),
+    outcomeDenominator: {
+      total: rows.length,
+      accepted: acceptedCount,
+      failed: rows.filter((row) => !row.endToEndAccepted && !row.humanIntervention).length,
+      interrupted: rows.filter((row) => row.humanIntervention).length
+    }
   };
 }
 
@@ -443,6 +449,118 @@ function createGate6ComparativeReport(observations, options = {}) {
   });
 }
 
+function seededRandom(seed) {
+  let state = (seed >>> 0) || 1;
+  return () => {
+    state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+    return (state >>> 0) / 0x100000000;
+  };
+}
+
+function percentile(values, fraction) {
+  if (values.length === 0) return null;
+  const ordered = [...values].sort((left, right) => left - right);
+  const position = (ordered.length - 1) * fraction;
+  const lower = Math.floor(position); const upper = Math.ceil(position);
+  return lower === upper ? ordered[lower] : ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower);
+}
+
+function clusterBootstrap(clusters, selector, seed, iterations) {
+  const pointValues = clusters.flatMap((cluster) => cluster.map(selector));
+  const point = pointValues.reduce((total, value) => total + value, 0) / pointValues.length;
+  const random = seededRandom(seed);
+  const samples = [];
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const values = [];
+    for (let draw = 0; draw < clusters.length; draw += 1) {
+      const cluster = clusters[Math.floor(random() * clusters.length)];
+      values.push(...cluster.map(selector));
+    }
+    samples.push(values.reduce((total, value) => total + value, 0) / values.length);
+  }
+  return { estimate: point, confidenceInterval95: { lower: percentile(samples, 0.025), upper: percentile(samples, 0.975) } };
+}
+
+function compareGate6Strategies(observations, options = {}) {
+  if (!Array.isArray(observations) || observations.length === 0) fail("GATE6_COMPARISON_OBSERVATIONS_INVALID");
+  const baselineStrategy = options.baselineStrategy ?? "E_bounded_workspace_boundary";
+  const candidateStrategy = options.candidateStrategy ?? "F_adaptive_compressed_boundary";
+  if (!STRATEGIES.includes(baselineStrategy) || !STRATEGIES.includes(candidateStrategy) || baselineStrategy === candidateStrategy) {
+    fail("GATE6_COMPARISON_STRATEGY_INVALID");
+  }
+  const rows = observations.map(validateObservation);
+  const byKey = new Map();
+  for (const row of rows) {
+    const key = `${row.taskId}\0${row.repetition}\0${row.strategy}`;
+    if (byKey.has(key)) fail("GATE6_COMPARISON_DUPLICATE_PAIR", key);
+    byKey.set(key, row);
+  }
+  const baseline = rows.filter((row) => row.strategy === baselineStrategy);
+  const candidate = rows.filter((row) => row.strategy === candidateStrategy);
+  const pairs = [];
+  for (const base of baseline) {
+    const key = `${base.taskId}\0${base.repetition}\0${candidateStrategy}`;
+    const contender = byKey.get(key);
+    if (!contender) fail("GATE6_COMPARISON_PAIR_MISSING", key);
+    if (contender.repositoryId !== base.repositoryId || contender.taskClass !== base.taskClass || contender.difficulty !== base.difficulty) {
+      fail("GATE6_COMPARISON_PAIR_METADATA_MISMATCH", key);
+    }
+    pairs.push({ base, contender });
+  }
+  for (const row of candidate) {
+    const key = `${row.taskId}\0${row.repetition}\0${baselineStrategy}`;
+    if (!byKey.has(key)) fail("GATE6_COMPARISON_PAIR_MISSING", key);
+  }
+  const taskCount = new Set(pairs.map((pair) => pair.base.taskId)).size;
+  const repositoryCount = new Set(pairs.map((pair) => pair.base.repositoryId)).size;
+  const minimumTasks = options.minimumTasks ?? 3;
+  const minimumRepositories = options.minimumRepositories ?? 3;
+  const minimumRepetitions = options.minimumRepetitions ?? MIN_REPETITIONS;
+  const seed = options.seed ?? 20260906;
+  const iterations = options.bootstrapIterations ?? 2000;
+  if (!Number.isSafeInteger(minimumTasks) || minimumTasks < 1 ||
+      !Number.isSafeInteger(minimumRepositories) || minimumRepositories < 2 ||
+      !Number.isSafeInteger(minimumRepetitions) || minimumRepetitions < 2 ||
+      !Number.isSafeInteger(seed) ||
+      !Number.isSafeInteger(iterations) || iterations < 100) fail("GATE6_COMPARISON_OPTIONS_INVALID");
+  const repetitionsByTask = groupBy(pairs, (pair) => pair.base.taskId);
+  const tasksBelowMinimumRepetitions = [...repetitionsByTask.entries()]
+    .filter(([, taskPairs]) => new Set(taskPairs.map((pair) => pair.base.repetition)).size < minimumRepetitions)
+    .map(([taskId]) => taskId)
+    .sort();
+  const common = { baselineStrategy, candidateStrategy, pairedTaskCount: taskCount,
+    independentRepositoryCount: repositoryCount, pairedSampleCount: pairs.length,
+    denominator: { totalPairs: pairs.length,
+      baselineAccepted: pairs.filter(({ base }) => base.endToEndAccepted).length,
+      candidateAccepted: pairs.filter(({ contender }) => contender.endToEndAccepted).length,
+      baselineFailed: pairs.filter(({ base }) => !base.endToEndAccepted && !base.humanIntervention).length,
+      candidateFailed: pairs.filter(({ contender }) => !contender.endToEndAccepted && !contender.humanIntervention).length,
+      baselineInterrupted: pairs.filter(({ base }) => base.humanIntervention).length,
+      candidateInterrupted: pairs.filter(({ contender }) => contender.humanIntervention).length },
+    uncertainty: { method: "repository_cluster_bootstrap_percentile", clusterUnit: "repositoryId",
+      confidenceLevel: 0.95, seed, iterations } };
+  if (taskCount < minimumTasks) return deepFreeze({ ...common, status: "insufficient_data",
+    reason: "paired_task_count_below_minimum", minimumTasks, minimumRepositories, minimumRepetitions,
+    acceptance: null, tokenCostSavings: null, costAdvantage: false });
+  if (repositoryCount < minimumRepositories) return deepFreeze({ ...common, status: "insufficient_data",
+    reason: "independent_repository_count_below_minimum", minimumTasks, minimumRepositories,
+    minimumRepetitions, acceptance: null, tokenCostSavings: null, costAdvantage: false });
+  if (tasksBelowMinimumRepetitions.length > 0) return deepFreeze({ ...common, status: "insufficient_data",
+    reason: "paired_repetition_count_below_minimum", minimumTasks, minimumRepositories,
+    minimumRepetitions, tasksBelowMinimumRepetitions, acceptance: null, tokenCostSavings: null,
+    costAdvantage: false });
+  const clusters = [...groupBy(pairs, (pair) => pair.base.repositoryId).values()];
+  const acceptance = clusterBootstrap(clusters, (pair) => (pair.contender.endToEndAccepted ? 1 : 0) - (pair.base.endToEndAccepted ? 1 : 0), seed, iterations);
+  const tokenCostSavings = clusterBootstrap(clusters, (pair) => pair.base.tokens - pair.contender.tokens, seed ^ 0x9e3779b9, iterations);
+  const margin = options.nonInferiorityMargin ?? 0.02;
+  if (typeof margin !== "number" || !Number.isFinite(margin) || margin < 0 || margin > 1) fail("GATE6_COMPARISON_MARGIN_INVALID");
+  return deepFreeze({ ...common, status: acceptance.confidenceInterval95.lower > margin ? "better" :
+    acceptance.confidenceInterval95.lower >= -margin ? "non_inferior" : "not_non_inferior", minimumTasks,
+    minimumRepositories, minimumRepetitions,
+    nonInferiorityMargin: margin, acceptance, tokenCostSavings,
+    costAdvantage: tokenCostSavings.confidenceInterval95.lower > 0 && acceptance.confidenceInterval95.lower >= -margin });
+}
+
 module.exports = {
   DIFFICULTIES,
   MIN_REPETITIONS,
@@ -450,6 +568,7 @@ module.exports = {
   REPORT_VERSION,
   STRATEGIES,
   Gate6ComparativeReportError,
+  compareGate6Strategies,
   createGate6ComparativeReport,
   validateObservation
 };

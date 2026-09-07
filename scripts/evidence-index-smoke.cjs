@@ -59,6 +59,44 @@ assert.throws(
   (error) => error.code === "EVIDENCE_INDEX_HASH_MISMATCH"
 );
 
+const tamperedArtifact = structuredClone(index);
+const observedReport = tamperedArtifact.experiments.find((entry) => entry.artifactHashKind === "json_field:reportHash");
+const reportPath = require("node:path").resolve(root, observedReport.artifactPath);
+const originalReport = require("node:fs").readFileSync(reportPath, "utf8");
+const parsedReport = JSON.parse(originalReport);
+parsedReport.__tamperedEvidence = true;
+const tamperedArtifactRoot = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "evidence-index-tamper-"));
+require("node:fs").mkdirSync(require("node:path").dirname(require("node:path").resolve(tamperedArtifactRoot, observedReport.artifactPath)), { recursive: true });
+require("node:fs").writeFileSync(require("node:path").resolve(tamperedArtifactRoot, observedReport.artifactPath), JSON.stringify(parsedReport));
+require("node:fs").mkdirSync(require("node:path").resolve(tamperedArtifactRoot, "evidence"), { recursive: true });
+require("node:fs").writeFileSync(require("node:path").resolve(tamperedArtifactRoot, "evidence/index.json"), JSON.stringify(rehash(tamperedArtifact)));
+assert.throws(
+  () => verifyIndex(JSON.parse(require("node:fs").readFileSync(require("node:path").resolve(tamperedArtifactRoot, "evidence/index.json"))), tamperedArtifactRoot),
+  (error) => error.code === "EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH"
+);
+require("node:fs").rmSync(tamperedArtifactRoot, { recursive: true, force: true });
+
+const tamperedTextRoot = require("node:fs").mkdtempSync(
+  require("node:path").join(require("node:os").tmpdir(), "evidence-index-text-tamper-")
+);
+for (const record of index.experiments.filter((entry) => entry.status === "observed")) {
+  const source = require("node:path").resolve(root, record.artifactPath);
+  const target = require("node:path").resolve(tamperedTextRoot, record.artifactPath);
+  require("node:fs").mkdirSync(require("node:path").dirname(target), { recursive: true });
+  require("node:fs").copyFileSync(source, target);
+}
+const observedText = index.experiments.find(
+  (entry) => entry.artifactHashKind === "text_field:contentHash_placeholder_v1"
+);
+const textPath = require("node:path").resolve(tamperedTextRoot, observedText.artifactPath);
+const textContent = require("node:fs").readFileSync(textPath, "utf8");
+require("node:fs").writeFileSync(textPath, textContent.replace("Decision: GO", "Decision: NO_GO"));
+assert.throws(
+  () => verifyIndex(index, tamperedTextRoot),
+  (error) => error.code === "EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH"
+);
+require("node:fs").rmSync(tamperedTextRoot, { recursive: true, force: true });
+
 const promotedWithoutArtifact = structuredClone(index);
 const pendingV2 = promotedWithoutArtifact.experiments.find(
   (entry) => entry.experimentId === "controlled-coding-pilot-v2-suite"

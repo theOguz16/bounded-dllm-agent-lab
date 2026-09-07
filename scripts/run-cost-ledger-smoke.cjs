@@ -18,6 +18,8 @@ async function main() {
     buildRunCostBenchmark,
     buildRunCostLedger,
     buildRunCostLedgerFromAgentEvents,
+    createTaskCostBudget,
+    createTaskCostBudgetController,
     createAgentEventLedger,
     hashCanonicalJson,
     normalizeOpenAiCompatibleUsage,
@@ -214,6 +216,31 @@ async function main() {
     console.log(`[ok] ${name}`);
   };
   const clone = (value) => structuredClone(value);
+
+  check(
+    "task-wide budget reserves once by invocation identity and fails closed",
+    () => {
+      const budget = createTaskCostBudget({ maxProviderCalls: 1, maxEstimatedTokens: 100,
+        providerId: "openai-compatible", modelId: "qwen-coder", inputNanoUsdPerToken: 2,
+        outputNanoUsdPerToken: 4, maxCostNanoUsd: 200 });
+      const controller = createTaskCostBudgetController(budget);
+      const reservation = controller.reserve({ invocationId: "task:invocation:1", operation: "planner",
+        attempt: 1, requestHash: hash("request"), estimatedInputTokens: 20,
+        requestByteLength: 80, estimatorId: "canonical-json-utf8-bytes-div-4/v1", reservedOutputTokens: 10 });
+      assert.equal(controller.reserve({ ...reservation, reservedOutputTokens: 999 }).invocationId,
+        reservation.invocationId);
+      assert.equal(controller.snapshot().reservedProviderCalls, 1);
+      assert.equal(controller.snapshot().reservedEstimatedTokens, 30);
+      controller.reconcile(reservation.invocationId, { status: "observed", inputTokens: 24,
+        outputTokens: 8, totalTokens: 32, providerResponseHash: hash("response"), providerRequestId: "request-1" });
+      assert.equal(controller.snapshot().reconciliations[0].usage.status, "observed");
+      assert.equal(controller.snapshot().accountedTokens, 32);
+      assert.throws(() => controller.reserve({ invocationId: "task:invocation:2", operation: "coder",
+        attempt: 1, requestHash: hash("request-2"), estimatedInputTokens: 1,
+        requestByteLength: 4, estimatorId: "canonical-json-utf8-bytes-div-4/v1", reservedOutputTokens: 1 }),
+        /insufficient/);
+    }
+  );
 
   check(
     "OpenAI-compatible snake-case usage is provider-observed",

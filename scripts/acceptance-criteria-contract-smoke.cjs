@@ -24,6 +24,7 @@ async function check(name, fn) {
     createHumanReviewAcceptanceEvidence,
     evaluateAcceptanceCriteria,
     hashCanonicalJson,
+    verifyAcceptanceCriteriaContract,
     verifyAcceptanceCriteriaCoverageReceipt
   } = runtime;
 
@@ -448,6 +449,62 @@ async function check(name, fn) {
   );
 
   await check(
+    "same command id with changed command content is invalid",
+    async () => {
+      const evidence = executionEvidence([true, true]);
+      const changedSpecification = {
+        ...specification,
+        commands: [{
+          ...specification.commands[0],
+          args: ["-e", "process.exit(0)"]
+        }, specification.commands[1]]
+      };
+      const result = evaluateAcceptanceCriteria({
+        contract: contract(),
+        executionSpecification: changedSpecification,
+        executionEvidence: evidence,
+        humanReviewEvidence: [approvedReview()]
+      });
+      assert.equal(result.decision, "contract_invalid");
+      assert.ok(result.issues.some((entry) =>
+        entry.code === "validation_specification_hash_mismatch"));
+    }
+  );
+
+  await check(
+    "required criterion deletion is rejected",
+    async () => {
+      const original = contract();
+      const tampered = { ...original, criteria: original.criteria.slice(1) };
+      assert.equal(verifyAcceptanceCriteriaContract(tampered), false);
+      assert.equal(evaluateAcceptanceCriteria({
+        contract: tampered,
+        executionSpecification: specification,
+        executionEvidence: executionEvidence([true, true]),
+        humanReviewEvidence: [approvedReview()]
+      }).decision, "contract_invalid");
+    }
+  );
+
+  await check(
+    "required criterion change is rejected",
+    async () => {
+      const original = contract();
+      const tampered = { ...original, criteria: [{
+        ...original.criteria[0],
+        evidence: { kind: "test", commandId: "static-check" }
+      }, ...original.criteria.slice(1)] };
+      assert.equal(verifyAcceptanceCriteriaContract(tampered), false);
+      assert.equal(evaluateAcceptanceCriteria({
+        contract: tampered,
+        executionSpecification: specification,
+        executionEvidence: executionEvidence([true, true]),
+        humanReviewEvidence: [approvedReview()]
+      }).decision, "contract_invalid");
+    }
+  );
+
+  await check(
     "duplicate criterion ids are rejected",
     async () => {
       assert.throws(() =>
@@ -678,7 +735,7 @@ async function check(name, fn) {
   );
 
   console.log(
-    "acceptance criteria contract smoke passed (13 checks)"
+    "acceptance criteria contract smoke passed (16 checks)"
   );
 })().catch((error) => {
   console.error(
