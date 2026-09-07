@@ -15,7 +15,7 @@ const { validateProposal } = require("./lib/gate6-simulated-coding-harness.cjs")
 const checkpoint = require("./lib/gate6-live-checkpoint.cjs");
 
 const STRUCTURED_OUTPUT_MODE = "json_object_local_strict_validation";
-const LIVE_PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v2";
+const LIVE_PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v3";
 const LIVE_EXPERIMENT_CONFIG_VERSION = "gate6-live-experiment-config/v1";
 const PROVIDER_TRACE_SCHEMA_VERSION = "gate6-provider-trace/v2";
 const LOCAL_VALIDATION_FAILURE_CODES = Object.freeze({
@@ -82,6 +82,17 @@ function providerContractRules() {
     "For edits, oldText/newText must contain only the minimal replacement span required for the patch.",
     "For action=patch, edits must contain the required patch edits; for action=no_change, edits must be empty.",
     "Selection must contain only candidates justified by the public task and resolved context.",
+    "candidateFiles means implementation/source files only.",
+    "candidateTestFiles means regression/test files only.",
+    "candidateFiles and candidateTestFiles MUST be disjoint.",
+    "Never place the same path in both arrays.",
+    "Do not use candidateFiles as an umbrella list containing every selected file.",
+    "If a selected path is a test file, put it only in candidateTestFiles.",
+    "If a selected path is an implementation/source file, put it only in candidateFiles.",
+    "Both arrays must contain only paths from the public candidate universe.",
+    "candidateSymbols should identify implementation symbols relevant to candidateFiles.",
+    "candidateTestAnchors should identify test anchors relevant to candidateTestFiles.",
+    "Use public resolved-context file-kind evidence when deciding whether a path belongs in candidateFiles or candidateTestFiles.",
     "Proposal edits must stay inside the public authority and candidate universe.",
     "Do not invent hidden acceptance criteria or hidden oracle data.",
     "The structuralExample demonstrates shape only; output values must satisfy outputContract and the task."
