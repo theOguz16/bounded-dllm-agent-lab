@@ -16,6 +16,7 @@ on:
       - 'tests/gate6/live-runner-selection-diagnostics.test.cjs'
       - 'tests/gate6/live-runner-checkpoint.test.cjs'
       - 'tests/gate6/live-runner-provider-contract.test.cjs'
+      - 'tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -49,6 +50,7 @@ jobs:
           node --check tests/gate6/live-runner-selection-diagnostics.test.cjs
           node --check tests/gate6/live-runner-checkpoint.test.cjs
           node --check tests/gate6/live-runner-provider-contract.test.cjs
+          node --check tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
       - name: Gate 6 llama.cpp structured-output compatibility regressions
@@ -59,7 +61,9 @@ jobs:
         run: node tests/gate6/live-runner-selection-diagnostics.test.cjs
       - name: Gate 6 crash-safe checkpoint and resume regressions
         run: node tests/gate6/live-runner-checkpoint.test.cjs
-      - name: Gate 6 explicit provider output contract v2 regressions
+      - name: Gate 6 explicit provider output contract v3 regressions
         run: node tests/gate6/live-runner-provider-contract.test.cjs
+      - name: Gate 6 Step 18 provider selection semantics v3 regressions
+        run: node tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
