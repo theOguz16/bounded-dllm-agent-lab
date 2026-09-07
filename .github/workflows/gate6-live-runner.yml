@@ -21,6 +21,7 @@ on:
       - 'tests/gate6/live-runner-provider-contract.test.cjs'
       - 'tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs'
       - 'tests/gate6/live-runner-contract-hardening-v1.test.cjs'
+      - 'tests/gate6/live-provider-contract-hash-pin.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -59,6 +60,7 @@ jobs:
           node --check tests/gate6/live-runner-provider-contract.test.cjs
           node --check tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
           node --check tests/gate6/live-runner-contract-hardening-v1.test.cjs
+          node --check tests/gate6/live-provider-contract-hash-pin.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
       - name: Gate 6 llama.cpp structured-output compatibility regressions
@@ -75,5 +77,7 @@ jobs:
         run: node tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
       - name: Gate 6 Live Contract Hardening v1 regressions
         run: node tests/gate6/live-runner-contract-hardening-v1.test.cjs
+      - name: Gate 6 canonical provider contract hash pin
+        run: node tests/gate6/live-provider-contract-hash-pin.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
