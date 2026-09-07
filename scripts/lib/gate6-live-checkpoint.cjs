@@ -4,8 +4,10 @@ const { readFileSync } = require("node:fs");
 const base = require("./gate6-live-checkpoint-v1.cjs");
 const verifier = require("./gate6-verifier-provenance.cjs");
 
-const CURRENT_PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v2";
+const CURRENT_PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v3";
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
+let configuredProviderContractVersion = null;
+let configuredProviderContractHash = null;
 const CHECKPOINT_FIELDS = Object.freeze([
   "schemaVersion",
   "researchStatus",
@@ -26,6 +28,8 @@ const IDENTITY_FIELDS = Object.freeze([
   "endpointClass",
   "structuredOutputMode",
   "providerPromptVersion",
+  "providerContractVersion",
+  "providerContractHash",
   "temperature",
   "maxCompletionTokens",
   "repetitions",
@@ -62,11 +66,23 @@ function checkpointCore(checkpoint) {
   return core;
 }
 
-function normalizeConstructedIdentity(identity) {
-  if (isPlainObject(identity) && !Object.hasOwn(identity, "providerPromptVersion")) {
-    return { ...identity, providerPromptVersion: CURRENT_PROVIDER_PROMPT_VERSION };
+function configureProviderContractIdentity(version, hash) {
+  if (typeof version !== "string" || version.length === 0 || !SHA256.test(hash)) {
+    fail("GATE6_CHECKPOINT_PROVIDER_CONTRACT_IDENTITY_INVALID");
   }
-  return identity;
+  configuredProviderContractVersion = version;
+  configuredProviderContractHash = hash;
+  return true;
+}
+
+function currentProviderContractIdentity() {
+  if (configuredProviderContractVersion === null || configuredProviderContractHash === null) {
+    fail("GATE6_CHECKPOINT_PROVIDER_CONTRACT_IDENTITY_UNCONFIGURED");
+  }
+  return {
+    providerContractVersion: configuredProviderContractVersion,
+    providerContractHash: configuredProviderContractHash
+  };
 }
 
 function createCheckpointIdentity({
@@ -74,9 +90,14 @@ function createCheckpointIdentity({
   experimentConfigHash,
   samplePlanHash,
   structuredOutputMode,
-  providerPromptVersion
+  providerPromptVersion,
+  providerContractVersion,
+  providerContractHash
 }) {
   const promptVersion = providerPromptVersion ?? reportIdentity?.providerPromptVersion;
+  const configured = (providerContractVersion && providerContractHash)
+    ? { providerContractVersion, providerContractHash }
+    : currentProviderContractIdentity();
   const identity = {
     sourceCommit: reportIdentity.sourceCommit,
     tasksetVersion: reportIdentity.tasksetVersion,
@@ -88,6 +109,8 @@ function createCheckpointIdentity({
     endpointClass: reportIdentity.endpointClass,
     structuredOutputMode,
     providerPromptVersion: promptVersion,
+    providerContractVersion: configured.providerContractVersion,
+    providerContractHash: configured.providerContractHash,
     temperature: reportIdentity.temperature,
     maxCompletionTokens: reportIdentity.maxCompletionTokens,
     repetitions: reportIdentity.repetitions,
@@ -95,7 +118,10 @@ function createCheckpointIdentity({
     experimentConfigHash,
     samplePlanHash
   };
-  if (!sameKeys(identity, IDENTITY_FIELDS) || typeof identity.providerPromptVersion !== "string" || identity.providerPromptVersion.length === 0) {
+  if (!sameKeys(identity, IDENTITY_FIELDS) ||
+      typeof identity.providerPromptVersion !== "string" || identity.providerPromptVersion.length === 0 ||
+      typeof identity.providerContractVersion !== "string" || identity.providerContractVersion.length === 0 ||
+      !SHA256.test(identity.providerContractHash)) {
     fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   }
   if (!SHA256.test(identity.experimentConfigHash) || !SHA256.test(identity.samplePlanHash)) {
@@ -105,8 +131,7 @@ function createCheckpointIdentity({
 }
 
 function createCheckpoint({ identity, completedSamples, checkpointResumeCount = 0 }) {
-  const normalizedIdentity = normalizeConstructedIdentity(identity);
-  if (!sameKeys(normalizedIdentity, IDENTITY_FIELDS)) fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
+  if (!sameKeys(identity, IDENTITY_FIELDS)) fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   if (!Array.isArray(completedSamples)) fail("GATE6_CHECKPOINT_SAMPLES_INVALID");
   if (!Number.isSafeInteger(checkpointResumeCount) || checkpointResumeCount < 0) {
     fail("GATE6_CHECKPOINT_RESUME_COUNT_INVALID");
@@ -115,7 +140,7 @@ function createCheckpoint({ identity, completedSamples, checkpointResumeCount = 
     schemaVersion: base.CHECKPOINT_SCHEMA_VERSION,
     researchStatus: base.CHECKPOINT_STATUS,
     promotionEligible: false,
-    identity: structuredClone(normalizedIdentity),
+    identity: structuredClone(identity),
     completedSamples: completedSamples.map((sample) => structuredClone(sample)),
     checkpointResumeCount
   };
@@ -129,7 +154,10 @@ function validateCheckpointShape(checkpoint) {
   if (checkpoint.researchStatus !== base.CHECKPOINT_STATUS || checkpoint.promotionEligible !== false) {
     fail("GATE6_CHECKPOINT_PROMOTION_STATE_INVALID");
   }
-  if (!sameKeys(checkpoint.identity, IDENTITY_FIELDS) || typeof checkpoint.identity.providerPromptVersion !== "string" || checkpoint.identity.providerPromptVersion.length === 0) {
+  if (!sameKeys(checkpoint.identity, IDENTITY_FIELDS) ||
+      typeof checkpoint.identity.providerPromptVersion !== "string" || checkpoint.identity.providerPromptVersion.length === 0 ||
+      typeof checkpoint.identity.providerContractVersion !== "string" || checkpoint.identity.providerContractVersion.length === 0 ||
+      !SHA256.test(checkpoint.identity.providerContractHash)) {
     fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   }
   if (!Array.isArray(checkpoint.completedSamples)) fail("GATE6_CHECKPOINT_SAMPLES_INVALID");
@@ -155,7 +183,7 @@ function assertIdentityMatch(actual, expected) {
 }
 
 function projectIdentity(identity) {
-  const { providerPromptVersion, ...projected } = identity;
+  const { providerPromptVersion, providerContractVersion, providerContractHash, ...projected } = identity;
   return projected;
 }
 
@@ -194,6 +222,7 @@ module.exports = {
   CURRENT_PROVIDER_PROMPT_VERSION,
   IDENTITY_FIELDS,
   assertIdentityMatch,
+  configureProviderContractIdentity,
   createCheckpoint,
   createCheckpointIdentity,
   readCheckpoint,
