@@ -14,7 +14,7 @@ const task = Object.freeze({
   schemaVersion: "gate6-task/v1", taskId: "fixture.adversarial-provider-contract", repositoryId: "fixture/repo",
   commitSha: COMMIT, taskClass: "bugfix_with_regression", difficulty: "medium",
   objective: "Exercise adversarial provider contract cases.",
-  candidateFiles: Object.freeze(["src/a.js", "test/a.test.js", "forbidden/x.js", "other/x.js"]),
+  candidateFiles: Object.freeze(["src/a.js", "test/a.test.js", "other/x.js"]),
   authority: Object.freeze({
     allowedInspectionPaths: Object.freeze(["src/**", "test/**", "forbidden/**", "other/**"]),
     forbiddenInspectionPaths: Object.freeze(["forbidden/**"]),
