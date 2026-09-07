@@ -14,6 +14,11 @@ const PROPOSAL_VALIDATION_FAILURE_CODES = Object.freeze({
   PROPOSAL_ACTION_INVALID: "PROPOSAL_ACTION_INVALID",
   PROPOSAL_SUMMARY_INVALID: "PROPOSAL_SUMMARY_INVALID",
   PROPOSAL_EDITS_INVALID: "PROPOSAL_EDITS_INVALID",
+  PROPOSAL_ACTION_EDITS_MISMATCH: "PROPOSAL_NO_CHANGE_INVALID",
+  PROPOSAL_EDIT_SHAPE_INVALID: "PROPOSAL_EDIT_INVALID",
+  PROPOSAL_EDIT_PATH_INVALID: "PROPOSAL_PATH_INVALID",
+  PROPOSAL_EDIT_HASH_INVALID: "PROPOSAL_HASH_INVALID",
+  PROPOSAL_EDIT_TEXT_INVALID: "PROPOSAL_EDIT_INVALID",
   PROPOSAL_EDIT_INVALID: "PROPOSAL_EDIT_INVALID",
   PROPOSAL_HASH_INVALID: "PROPOSAL_HASH_INVALID",
   PROPOSAL_PATH_INVALID: "PROPOSAL_PATH_INVALID",
@@ -63,6 +68,7 @@ function result(code, telemetry = {}, extra = {}) {
   return Object.freeze({
     proposalValidationFailureCode: code,
     editCount: telemetry.editCount ?? null,
+    proposalEditCount: telemetry.editCount ?? null,
     outsideUniverseCount: telemetry.outsideUniverseCount ?? 0,
     authorityViolationCount: telemetry.authorityViolationCount ?? 0,
     forbiddenPathCount: telemetry.forbiddenPathCount ?? 0,
@@ -71,7 +77,9 @@ function result(code, telemetry = {}, extra = {}) {
     invalidHashCount: telemetry.invalidHashCount ?? 0,
     invalidPathCount: telemetry.invalidPathCount ?? 0,
     proposalSchemaVersionValid: extra.proposalSchemaVersionValid ?? false,
-    proposalAction: extra.proposalAction ?? null
+    proposalAction: extra.proposalAction ?? null,
+    proposalSummaryLength: extra.proposalSummaryLength ?? null,
+    invalidEditIndex: extra.invalidEditIndex ?? null
   });
 }
 
@@ -138,7 +146,9 @@ function classifyProposalDiagnostic(value, task = null, repositorySnapshot = nul
   }
   const extra = {
     proposalSchemaVersionValid: true,
-    proposalAction: typeof value.action === "string" ? value.action : null
+    proposalAction: typeof value.action === "string" ? value.action : null,
+    proposalSummaryLength: typeof value.summary === "string" ? value.summary.length : null,
+    invalidEditIndex: null
   };
   if (value.action !== "patch" && value.action !== "no_change") {
     return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_ACTION_INVALID, baseTelemetry, extra);
@@ -154,20 +164,22 @@ function classifyProposalDiagnostic(value, task = null, repositorySnapshot = nul
       (value.action === "patch" && value.edits.length === 0)) {
     return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_NO_CHANGE_INVALID, baseTelemetry, extra);
   }
-  for (const edit of value.edits) {
-    if (!sameKeys(edit, EDIT_FIELDS)) return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_EDIT_INVALID, baseTelemetry, extra);
+  for (let index = 0; index < value.edits.length; index += 1) {
+    const edit = value.edits[index];
+    const indexed = { ...extra, invalidEditIndex: index };
+    if (!sameKeys(edit, EDIT_FIELDS)) return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_EDIT_INVALID, baseTelemetry, indexed);
     if (!safeRelativePath(edit.path)) {
       baseTelemetry.invalidPathCount += 1;
-      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_PATH_INVALID, baseTelemetry, extra);
+      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_PATH_INVALID, baseTelemetry, indexed);
     }
     if (typeof edit.expectedContentHash !== "string" || !SHA256.test(edit.expectedContentHash)) {
       baseTelemetry.invalidHashCount += 1;
-      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_HASH_INVALID, baseTelemetry, extra);
+      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_HASH_INVALID, baseTelemetry, indexed);
     }
     if (typeof edit.oldText !== "string" || typeof edit.newText !== "string" ||
         edit.oldText.length === 0 || edit.oldText === edit.newText ||
         edit.oldText.includes("\0") || edit.newText.includes("\0")) {
-      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_EDIT_INVALID, baseTelemetry, extra);
+      return result(PROPOSAL_VALIDATION_FAILURE_CODES.PROPOSAL_EDIT_INVALID, baseTelemetry, indexed);
     }
   }
   const normalized = validateProposal(value);
