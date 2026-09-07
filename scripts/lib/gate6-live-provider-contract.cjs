@@ -2,7 +2,11 @@
 
 const verifier = require("./gate6-verifier-provenance.cjs");
 const baseRunner = require("../gate6-live-runner-v3.cjs");
-const { PROVIDER_FACING_RULE_IDS } = require("./gate6-live-validator-contract.cjs");
+const {
+  PROVIDER_FACING_RULE_IDS,
+  VALIDATOR_CONTRACT_HASH,
+  VALIDATOR_CONTRACT_VERSION
+} = require("./gate6-live-validator-contract.cjs");
 
 const PROVIDER_CONTRACT_VERSION = "gate6-live-provider-contract/v1";
 const PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v3";
@@ -74,6 +78,8 @@ function providerContractDescriptor() {
   return Object.freeze({
     providerContractVersion: PROVIDER_CONTRACT_VERSION,
     providerPromptVersion: PROVIDER_PROMPT_VERSION,
+    validatorContractVersion: VALIDATOR_CONTRACT_VERSION,
+    validatorContractHash: VALIDATOR_CONTRACT_HASH,
     structuredOutputTransport: Object.freeze({ type: "json_object" }),
     ruleManifest: Object.freeze([...PROVIDER_FACING_RULE_IDS]),
     outputContract: structuredClone(baseRunner.liveOutputJsonSchema().schema),
