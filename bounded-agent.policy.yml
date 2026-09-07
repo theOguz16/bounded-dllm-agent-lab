@@ -37,6 +37,7 @@ allowed_paths:
   - scripts/lib/gate6-live-checkpoint.cjs
   - scripts/lib/gate6-live-checkpoint-v1.cjs
   - scripts/lib/gate6-live-provider-contract.cjs
+  - scripts/lib/gate6-live-validator-contract.cjs
   - scripts/lib/gate6-proposal-validation-diagnostics.cjs
   - scripts/gate6-precondition-runner.cjs
   - scripts/gate6-freeze-preconditions.cjs
