@@ -85,6 +85,17 @@ function currentProviderContractIdentity() {
   };
 }
 
+function normalizeConstructedIdentity(identity) {
+  if (!isPlainObject(identity)) return identity;
+  const contract = currentProviderContractIdentity();
+  return {
+    ...identity,
+    providerPromptVersion: identity.providerPromptVersion ?? CURRENT_PROVIDER_PROMPT_VERSION,
+    providerContractVersion: identity.providerContractVersion ?? contract.providerContractVersion,
+    providerContractHash: identity.providerContractHash ?? contract.providerContractHash
+  };
+}
+
 function createCheckpointIdentity({
   reportIdentity,
   experimentConfigHash,
@@ -94,7 +105,7 @@ function createCheckpointIdentity({
   providerContractVersion,
   providerContractHash
 }) {
-  const promptVersion = providerPromptVersion ?? reportIdentity?.providerPromptVersion;
+  const promptVersion = providerPromptVersion ?? reportIdentity?.providerPromptVersion ?? CURRENT_PROVIDER_PROMPT_VERSION;
   const configured = (providerContractVersion && providerContractHash)
     ? { providerContractVersion, providerContractHash }
     : currentProviderContractIdentity();
@@ -131,7 +142,8 @@ function createCheckpointIdentity({
 }
 
 function createCheckpoint({ identity, completedSamples, checkpointResumeCount = 0 }) {
-  if (!sameKeys(identity, IDENTITY_FIELDS)) fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
+  const normalizedIdentity = normalizeConstructedIdentity(identity);
+  if (!sameKeys(normalizedIdentity, IDENTITY_FIELDS)) fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   if (!Array.isArray(completedSamples)) fail("GATE6_CHECKPOINT_SAMPLES_INVALID");
   if (!Number.isSafeInteger(checkpointResumeCount) || checkpointResumeCount < 0) {
     fail("GATE6_CHECKPOINT_RESUME_COUNT_INVALID");
@@ -140,7 +152,7 @@ function createCheckpoint({ identity, completedSamples, checkpointResumeCount = 
     schemaVersion: base.CHECKPOINT_SCHEMA_VERSION,
     researchStatus: base.CHECKPOINT_STATUS,
     promotionEligible: false,
-    identity: structuredClone(identity),
+    identity: structuredClone(normalizedIdentity),
     completedSamples: completedSamples.map((sample) => structuredClone(sample)),
     checkpointResumeCount
   };
