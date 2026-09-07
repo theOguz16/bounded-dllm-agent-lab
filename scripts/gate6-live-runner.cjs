@@ -14,6 +14,12 @@ const {
   providerStructuralExample
 } = require("./lib/gate6-live-provider-contract.cjs");
 const {
+  VALIDATOR_CONTRACT_HASH,
+  VALIDATOR_CONTRACT_VERSION,
+  assertProviderValidatorContractCompatibility: assertContractsCompatible,
+  validatorContractDescriptor
+} = require("./lib/gate6-live-validator-contract.cjs");
+const {
   PROPOSAL_VALIDATION_FAILURE_CODES,
   classifyProposalDiagnostic
 } = require("./lib/gate6-proposal-validation-diagnostics.cjs");
@@ -22,21 +28,38 @@ const STRUCTURED_OUTPUT_MODE = base.STRUCTURED_OUTPUT_MODE;
 const LIVE_PROVIDER_PROMPT_VERSION = PROVIDER_PROMPT_VERSION;
 const LIVE_PROVIDER_CONTRACT_VERSION = PROVIDER_CONTRACT_VERSION;
 const LIVE_PROVIDER_CONTRACT_HASH = PROVIDER_CONTRACT_HASH;
+const LIVE_VALIDATOR_CONTRACT_VERSION = VALIDATOR_CONTRACT_VERSION;
+const LIVE_VALIDATOR_CONTRACT_HASH = VALIDATOR_CONTRACT_HASH;
 const PROPOSAL_DIAGNOSTIC_FIELDS = Object.freeze([
   "proposalValidationFailureCode",
+  "editCount",
+  "proposalEditCount",
+  "outsideUniverseCount",
+  "authorityViolationCount",
+  "forbiddenPathCount",
+  "duplicateEditCount",
+  "overlappingEditCount",
+  "invalidHashCount",
+  "invalidPathCount",
   "proposalSchemaVersionValid",
   "proposalAction",
-  "proposalEditCount",
   "proposalSummaryLength",
   "invalidEditIndex"
 ]);
 
 base.checkpoint.configureProviderContractIdentity(
   LIVE_PROVIDER_CONTRACT_VERSION,
-  LIVE_PROVIDER_CONTRACT_HASH
+  LIVE_PROVIDER_CONTRACT_HASH,
+  LIVE_VALIDATOR_CONTRACT_VERSION,
+  LIVE_VALIDATOR_CONTRACT_HASH
 );
 
+function assertProviderValidatorContractCompatibility() {
+  return assertContractsCompatible(providerContractDescriptor(), validatorContractDescriptor());
+}
+
 function withCanonicalProviderContract(request) {
+  assertProviderValidatorContractCompatibility();
   const messages = Array.isArray(request?.body?.messages) ? request.body.messages : [];
   const userIndex = messages.findIndex((message) => message?.role === "user" && typeof message?.content === "string");
   if (userIndex < 0) throw new base.Gate6LiveRunnerError("GATE6_LIVE_PROVIDER_PROMPT_USER_MESSAGE_MISSING");
@@ -49,7 +72,10 @@ function withCanonicalProviderContract(request) {
     providerPromptVersion: LIVE_PROVIDER_PROMPT_VERSION,
     providerContractVersion: LIVE_PROVIDER_CONTRACT_VERSION,
     providerContractHash: LIVE_PROVIDER_CONTRACT_HASH,
+    validatorContractVersion: LIVE_VALIDATOR_CONTRACT_VERSION,
+    validatorContractHash: LIVE_VALIDATOR_CONTRACT_HASH,
     phase: priorInstruction.phase,
+    ruleManifest: structuredClone(descriptor.ruleManifest),
     rules: structuredClone(descriptor.rules),
     outputContract: structuredClone(descriptor.outputContract),
     structuralExample: structuredClone(descriptor.structuralExample),
@@ -73,18 +99,56 @@ function buildProviderRequest(input) {
   return withCanonicalProviderContract(base.buildProviderRequest(input));
 }
 
-function proposalDiagnosticForResult(result) {
-  if (result?.kind !== "ok" || !result.output || typeof result.output !== "object" || Array.isArray(result.output)) {
-    return Object.freeze({
-      proposalValidationFailureCode: null,
-      proposalSchemaVersionValid: false,
-      proposalAction: null,
-      proposalEditCount: null,
-      proposalSummaryLength: null,
-      invalidEditIndex: null
-    });
+function emptyProposalDiagnostic() {
+  return Object.freeze({
+    proposalValidationFailureCode: null,
+    editCount: null,
+    proposalEditCount: null,
+    outsideUniverseCount: 0,
+    authorityViolationCount: 0,
+    forbiddenPathCount: 0,
+    duplicateEditCount: 0,
+    overlappingEditCount: 0,
+    invalidHashCount: 0,
+    invalidPathCount: 0,
+    proposalSchemaVersionValid: false,
+    proposalAction: null,
+    proposalSummaryLength: null,
+    invalidEditIndex: null
+  });
+}
+
+function collectResolvedSources(value, byPath) {
+  if (Array.isArray(value)) {
+    for (const child of value) collectResolvedSources(child, byPath);
+    return;
   }
-  return classifyProposalDiagnostic(result.output.proposal);
+  if (!value || typeof value !== "object") return;
+  if (typeof value.path === "string" && typeof value.content === "string" && !byPath.has(value.path)) {
+    byPath.set(value.path, value.content);
+  }
+  for (const child of Object.values(value)) collectResolvedSources(child, byPath);
+}
+
+function repositorySnapshotFromRequest(request) {
+  const messages = Array.isArray(request?.body?.messages) ? request.body.messages : [];
+  const user = messages.find((message) => message?.role === "user" && typeof message?.content === "string");
+  if (!user) return null;
+  let instruction;
+  try { instruction = JSON.parse(user.content); } catch { return null; }
+  const byPath = new Map();
+  collectResolvedSources(instruction.resolvedContext, byPath);
+  if (byPath.size === 0) return null;
+  return Object.freeze({
+    files: Object.freeze([...byPath.entries()].map(([filePath, content]) => Object.freeze({ path: filePath, content })))
+  });
+}
+
+function proposalDiagnosticForResult(result, task = null, request = null) {
+  if (result?.kind !== "ok" || !result.output || typeof result.output !== "object" || Array.isArray(result.output)) {
+    return emptyProposalDiagnostic();
+  }
+  return classifyProposalDiagnostic(result.output.proposal, task, repositorySnapshotFromRequest(request));
 }
 
 function wrapProviderWithCanonicalContract(provider, records = []) {
@@ -97,7 +161,7 @@ function wrapProviderWithCanonicalContract(provider, records = []) {
         strategy: input.contextResult?.strategy ?? input.strategy,
         responseHash: result?.responseHash ?? null,
         providerRequestId: result?.providerRequestId ?? null,
-        diagnostic: proposalDiagnosticForResult(result)
+        diagnostic: proposalDiagnosticForResult(result, input.task, request)
       }));
       return result;
     }
@@ -141,7 +205,9 @@ function createLiveExperimentConfig(
   structuredOutputMode = STRUCTURED_OUTPUT_MODE,
   providerPromptVersion = LIVE_PROVIDER_PROMPT_VERSION,
   providerContractVersion = LIVE_PROVIDER_CONTRACT_VERSION,
-  providerContractHash = LIVE_PROVIDER_CONTRACT_HASH
+  providerContractHash = LIVE_PROVIDER_CONTRACT_HASH,
+  validatorContractVersion = LIVE_VALIDATOR_CONTRACT_VERSION,
+  validatorContractHash = LIVE_VALIDATOR_CONTRACT_HASH
 ) {
   const prior = base.createLiveExperimentConfig(report, structuredOutputMode, providerPromptVersion);
   if (typeof providerContractVersion !== "string" || providerContractVersion.length === 0) {
@@ -150,10 +216,18 @@ function createLiveExperimentConfig(
   if (!/^sha256:[0-9a-f]{64}$/.test(providerContractHash)) {
     throw new base.Gate6LiveRunnerError("GATE6_LIVE_PROVIDER_CONTRACT_HASH_INVALID");
   }
+  if (typeof validatorContractVersion !== "string" || validatorContractVersion.length === 0) {
+    throw new base.Gate6LiveRunnerError("GATE6_LIVE_VALIDATOR_CONTRACT_VERSION_INVALID");
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(validatorContractHash)) {
+    throw new base.Gate6LiveRunnerError("GATE6_LIVE_VALIDATOR_CONTRACT_HASH_INVALID");
+  }
   return Object.freeze({
     ...structuredClone(prior),
     providerContractVersion,
-    providerContractHash
+    providerContractHash,
+    validatorContractVersion,
+    validatorContractHash
   });
 }
 
@@ -168,12 +242,16 @@ function hardenReport(report, proposalDiagnostics) {
     diagnosed.structuredOutputMode,
     diagnosed.providerPromptVersion,
     LIVE_PROVIDER_CONTRACT_VERSION,
-    LIVE_PROVIDER_CONTRACT_HASH
+    LIVE_PROVIDER_CONTRACT_HASH,
+    LIVE_VALIDATOR_CONTRACT_VERSION,
+    LIVE_VALIDATOR_CONTRACT_HASH
   );
   const core = {
     ...diagnosed,
     providerContractVersion: LIVE_PROVIDER_CONTRACT_VERSION,
     providerContractHash: LIVE_PROVIDER_CONTRACT_HASH,
+    validatorContractVersion: LIVE_VALIDATOR_CONTRACT_VERSION,
+    validatorContractHash: LIVE_VALIDATOR_CONTRACT_HASH,
     experimentConfig,
     experimentConfigHash: hashLiveExperimentConfig(experimentConfig)
   };
@@ -197,6 +275,7 @@ function stableProjection(report) {
 }
 
 async function runGate6LiveBenchmark(options = {}, dependencies = {}) {
+  assertProviderValidatorContractCompatibility();
   const providerConfig = dependencies.providerConfig ?? base.validateProviderConfig(options.environment ?? process.env);
   const proposalDiagnostics = [];
   const underlyingProvider = dependencies.provider ?? base.createObservedOpenAICompatibleProvider(
@@ -230,7 +309,9 @@ async function runCli(argv = process.argv, dependencies = {}) {
       `Provider prompt: ${LIVE_PROVIDER_PROMPT_VERSION}`,
       `Provider contract: ${LIVE_PROVIDER_CONTRACT_VERSION}`,
       `Provider contract hash: ${LIVE_PROVIDER_CONTRACT_HASH}`,
-      "Provider transport uses response_format.type=json_object; the canonical versioned provider contract is enforced locally with no repair, sanitizer, or retry fallback."
+      `Validator contract: ${LIVE_VALIDATOR_CONTRACT_VERSION}`,
+      `Validator contract hash: ${LIVE_VALIDATOR_CONTRACT_HASH}`,
+      "Provider transport uses response_format.type=json_object; provider and validator contracts are compatibility-checked before live execution; invalid output is never repaired, sanitized, or retried."
     ].join("\n") + "\n");
     return null;
   }
@@ -243,6 +324,8 @@ async function runCli(argv = process.argv, dependencies = {}) {
     providerPromptVersion: report.providerPromptVersion,
     providerContractVersion: report.providerContractVersion,
     providerContractHash: report.providerContractHash,
+    validatorContractVersion: report.validatorContractVersion,
+    validatorContractHash: report.validatorContractHash,
     experimentConfigHash: report.experimentConfigHash,
     sampleCount: report.sampleCount,
     resumedFromCheckpoint: report.resumedFromCheckpoint ?? false,
@@ -258,8 +341,11 @@ module.exports = {
   LIVE_PROVIDER_CONTRACT_HASH,
   LIVE_PROVIDER_CONTRACT_VERSION,
   LIVE_PROVIDER_PROMPT_VERSION,
+  LIVE_VALIDATOR_CONTRACT_HASH,
+  LIVE_VALIDATOR_CONTRACT_VERSION,
   PROPOSAL_VALIDATION_FAILURE_CODES,
   STRUCTURED_OUTPUT_MODE,
+  assertProviderValidatorContractCompatibility,
   attachProposalDiagnostics,
   augmentReport,
   buildProviderRequest,
@@ -271,9 +357,11 @@ module.exports = {
   providerContractDescriptor,
   providerContractRules,
   providerStructuralExample,
+  repositorySnapshotFromRequest,
   runCli,
   runGate6LiveBenchmark,
   stableProjection,
+  validatorContractDescriptor,
   withCanonicalProviderContract,
   wrapProviderWithCanonicalContract
 };

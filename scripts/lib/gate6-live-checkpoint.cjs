@@ -8,6 +8,8 @@ const CURRENT_PROVIDER_PROMPT_VERSION = "gate6-live-provider-prompt/v3";
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 let configuredProviderContractVersion = null;
 let configuredProviderContractHash = null;
+let configuredValidatorContractVersion = null;
+let configuredValidatorContractHash = null;
 const CHECKPOINT_FIELDS = Object.freeze([
   "schemaVersion",
   "researchStatus",
@@ -30,6 +32,8 @@ const IDENTITY_FIELDS = Object.freeze([
   "providerPromptVersion",
   "providerContractVersion",
   "providerContractHash",
+  "validatorContractVersion",
+  "validatorContractHash",
   "temperature",
   "maxCompletionTokens",
   "repetitions",
@@ -66,22 +70,28 @@ function checkpointCore(checkpoint) {
   return core;
 }
 
-function configureProviderContractIdentity(version, hash) {
-  if (typeof version !== "string" || version.length === 0 || !SHA256.test(hash)) {
+function configureProviderContractIdentity(version, hash, validatorVersion, validatorHash) {
+  if (typeof version !== "string" || version.length === 0 || !SHA256.test(hash) ||
+      typeof validatorVersion !== "string" || validatorVersion.length === 0 || !SHA256.test(validatorHash)) {
     fail("GATE6_CHECKPOINT_PROVIDER_CONTRACT_IDENTITY_INVALID");
   }
   configuredProviderContractVersion = version;
   configuredProviderContractHash = hash;
+  configuredValidatorContractVersion = validatorVersion;
+  configuredValidatorContractHash = validatorHash;
   return true;
 }
 
 function currentProviderContractIdentity() {
-  if (configuredProviderContractVersion === null || configuredProviderContractHash === null) {
+  if (configuredProviderContractVersion === null || configuredProviderContractHash === null ||
+      configuredValidatorContractVersion === null || configuredValidatorContractHash === null) {
     fail("GATE6_CHECKPOINT_PROVIDER_CONTRACT_IDENTITY_UNCONFIGURED");
   }
   return {
     providerContractVersion: configuredProviderContractVersion,
-    providerContractHash: configuredProviderContractHash
+    providerContractHash: configuredProviderContractHash,
+    validatorContractVersion: configuredValidatorContractVersion,
+    validatorContractHash: configuredValidatorContractHash
   };
 }
 
@@ -92,7 +102,9 @@ function normalizeConstructedIdentity(identity) {
     ...identity,
     providerPromptVersion: identity.providerPromptVersion ?? CURRENT_PROVIDER_PROMPT_VERSION,
     providerContractVersion: identity.providerContractVersion ?? contract.providerContractVersion,
-    providerContractHash: identity.providerContractHash ?? contract.providerContractHash
+    providerContractHash: identity.providerContractHash ?? contract.providerContractHash,
+    validatorContractVersion: identity.validatorContractVersion ?? contract.validatorContractVersion,
+    validatorContractHash: identity.validatorContractHash ?? contract.validatorContractHash
   };
 }
 
@@ -103,11 +115,13 @@ function createCheckpointIdentity({
   structuredOutputMode,
   providerPromptVersion,
   providerContractVersion,
-  providerContractHash
+  providerContractHash,
+  validatorContractVersion,
+  validatorContractHash
 }) {
   const promptVersion = providerPromptVersion ?? reportIdentity?.providerPromptVersion ?? CURRENT_PROVIDER_PROMPT_VERSION;
-  const configured = (providerContractVersion && providerContractHash)
-    ? { providerContractVersion, providerContractHash }
+  const configured = (providerContractVersion && providerContractHash && validatorContractVersion && validatorContractHash)
+    ? { providerContractVersion, providerContractHash, validatorContractVersion, validatorContractHash }
     : currentProviderContractIdentity();
   const identity = {
     sourceCommit: reportIdentity.sourceCommit,
@@ -122,6 +136,8 @@ function createCheckpointIdentity({
     providerPromptVersion: promptVersion,
     providerContractVersion: configured.providerContractVersion,
     providerContractHash: configured.providerContractHash,
+    validatorContractVersion: configured.validatorContractVersion,
+    validatorContractHash: configured.validatorContractHash,
     temperature: reportIdentity.temperature,
     maxCompletionTokens: reportIdentity.maxCompletionTokens,
     repetitions: reportIdentity.repetitions,
@@ -132,7 +148,9 @@ function createCheckpointIdentity({
   if (!sameKeys(identity, IDENTITY_FIELDS) ||
       typeof identity.providerPromptVersion !== "string" || identity.providerPromptVersion.length === 0 ||
       typeof identity.providerContractVersion !== "string" || identity.providerContractVersion.length === 0 ||
-      !SHA256.test(identity.providerContractHash)) {
+      !SHA256.test(identity.providerContractHash) ||
+      typeof identity.validatorContractVersion !== "string" || identity.validatorContractVersion.length === 0 ||
+      !SHA256.test(identity.validatorContractHash)) {
     fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   }
   if (!SHA256.test(identity.experimentConfigHash) || !SHA256.test(identity.samplePlanHash)) {
@@ -169,7 +187,9 @@ function validateCheckpointShape(checkpoint) {
   if (!sameKeys(checkpoint.identity, IDENTITY_FIELDS) ||
       typeof checkpoint.identity.providerPromptVersion !== "string" || checkpoint.identity.providerPromptVersion.length === 0 ||
       typeof checkpoint.identity.providerContractVersion !== "string" || checkpoint.identity.providerContractVersion.length === 0 ||
-      !SHA256.test(checkpoint.identity.providerContractHash)) {
+      !SHA256.test(checkpoint.identity.providerContractHash) ||
+      typeof checkpoint.identity.validatorContractVersion !== "string" || checkpoint.identity.validatorContractVersion.length === 0 ||
+      !SHA256.test(checkpoint.identity.validatorContractHash)) {
     fail("GATE6_CHECKPOINT_IDENTITY_INVALID");
   }
   if (!Array.isArray(checkpoint.completedSamples)) fail("GATE6_CHECKPOINT_SAMPLES_INVALID");
@@ -195,7 +215,14 @@ function assertIdentityMatch(actual, expected) {
 }
 
 function projectIdentity(identity) {
-  const { providerPromptVersion, providerContractVersion, providerContractHash, ...projected } = identity;
+  const {
+    providerPromptVersion,
+    providerContractVersion,
+    providerContractHash,
+    validatorContractVersion,
+    validatorContractHash,
+    ...projected
+  } = identity;
   return projected;
 }
 

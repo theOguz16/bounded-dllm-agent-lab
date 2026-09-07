@@ -9,6 +9,7 @@ on:
       - 'scripts/gate6-live-runner-v1.cjs'
       - 'scripts/gate6-live-runner-core.cjs'
       - 'scripts/lib/gate6-live-provider-contract.cjs'
+      - 'scripts/lib/gate6-live-validator-contract.cjs'
       - 'scripts/lib/gate6-proposal-validation-diagnostics.cjs'
       - 'scripts/lib/gate6-live-checkpoint.cjs'
       - 'scripts/lib/gate6-live-checkpoint-v1.cjs'
@@ -22,6 +23,11 @@ on:
       - 'tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs'
       - 'tests/gate6/live-runner-contract-hardening-v1.test.cjs'
       - 'tests/gate6/live-provider-contract-hash-pin.test.cjs'
+      - 'tests/gate6/live-validator-contract-hash-pin.test.cjs'
+      - 'tests/gate6/proposal-validation-diagnostics.test.cjs'
+      - 'tests/gate6/provider-validator-contract-drift.test.cjs'
+      - 'tests/gate6/adversarial-provider-contract-matrix.test.cjs'
+      - 'tests/gate6/contract-identity-checkpoint-binding.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -48,6 +54,7 @@ jobs:
           node --check scripts/gate6-live-runner-v1.cjs
           node --check scripts/gate6-live-runner-core.cjs
           node --check scripts/lib/gate6-live-provider-contract.cjs
+          node --check scripts/lib/gate6-live-validator-contract.cjs
           node --check scripts/lib/gate6-proposal-validation-diagnostics.cjs
           node --check scripts/lib/gate6-live-checkpoint.cjs
           node --check scripts/lib/gate6-live-checkpoint-v1.cjs
@@ -61,6 +68,11 @@ jobs:
           node --check tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
           node --check tests/gate6/live-runner-contract-hardening-v1.test.cjs
           node --check tests/gate6/live-provider-contract-hash-pin.test.cjs
+          node --check tests/gate6/live-validator-contract-hash-pin.test.cjs
+          node --check tests/gate6/proposal-validation-diagnostics.test.cjs
+          node --check tests/gate6/provider-validator-contract-drift.test.cjs
+          node --check tests/gate6/adversarial-provider-contract-matrix.test.cjs
+          node --check tests/gate6/contract-identity-checkpoint-binding.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
       - name: Gate 6 llama.cpp structured-output compatibility regressions
@@ -77,7 +89,17 @@ jobs:
         run: node tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
       - name: Gate 6 Live Contract Hardening v1 regressions
         run: node tests/gate6/live-runner-contract-hardening-v1.test.cjs
+      - name: Gate 6 Step 19 proposal validation diagnostics
+        run: node tests/gate6/proposal-validation-diagnostics.test.cjs
+      - name: Gate 6 Step 19 provider validator contract drift
+        run: node tests/gate6/provider-validator-contract-drift.test.cjs
+      - name: Gate 6 Step 19 adversarial provider contract matrix
+        run: node tests/gate6/adversarial-provider-contract-matrix.test.cjs
+      - name: Gate 6 Step 19 contract identity checkpoint binding
+        run: node tests/gate6/contract-identity-checkpoint-binding.test.cjs
       - name: Gate 6 canonical provider contract hash pin
         run: node tests/gate6/live-provider-contract-hash-pin.test.cjs
+      - name: Gate 6 canonical validator contract hash pin
+        run: node tests/gate6/live-validator-contract-hash-pin.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
