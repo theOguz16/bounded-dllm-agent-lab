@@ -95,6 +95,8 @@ function wrapProviderWithCanonicalContract(provider, records = []) {
       records.push(Object.freeze({
         phase: input.phase,
         strategy: input.contextResult?.strategy ?? input.strategy,
+        responseHash: result?.responseHash ?? null,
+        providerRequestId: result?.providerRequestId ?? null,
         diagnostic: proposalDiagnosticForResult(result)
       }));
       return result;
@@ -106,25 +108,30 @@ function createOpenAICompatibleProvider(config, options = {}) {
   return wrapProviderWithCanonicalContract(base.createOpenAICompatibleProvider(config, options), []);
 }
 
+function traceMatchesRecord(trace, record) {
+  if (record.providerRequestId !== null && trace.providerRequestId !== null) {
+    return record.providerRequestId === trace.providerRequestId;
+  }
+  return record.responseHash !== null &&
+    record.responseHash === trace.responseHash &&
+    record.phase === trace.phase &&
+    record.strategy === trace.strategy;
+}
+
 function attachProposalDiagnostics(report, records) {
   const copy = structuredClone(report);
-  let index = 0;
+  const used = new Set();
   for (const outcome of copy.sampleOutcomes ?? []) {
     outcome.providerTrace = (outcome.providerTrace ?? []).map((trace) => {
-      const record = records[index];
-      if (!record) return trace;
-      if (record.phase !== trace.phase || record.strategy !== trace.strategy) {
-        throw new base.Gate6LiveRunnerError(
-          "GATE6_LIVE_PROPOSAL_DIAGNOSTIC_ORDER_MISMATCH",
-          `${index}:${record.phase}:${trace.phase}:${record.strategy}:${trace.strategy}`
-        );
-      }
-      index += 1;
-      return { ...trace, ...record.diagnostic };
+      const index = records.findIndex((record, candidateIndex) =>
+        !used.has(candidateIndex) && traceMatchesRecord(trace, record));
+      if (index < 0) return trace;
+      used.add(index);
+      return { ...trace, ...records[index].diagnostic };
     });
   }
-  if (index !== records.length) {
-    throw new base.Gate6LiveRunnerError("GATE6_LIVE_PROPOSAL_DIAGNOSTIC_UNUSED", `${index}:${records.length}`);
+  if (used.size !== records.length) {
+    throw new base.Gate6LiveRunnerError("GATE6_LIVE_PROPOSAL_DIAGNOSTIC_UNUSED", `${used.size}:${records.length}`);
   }
   return copy;
 }
