@@ -313,7 +313,7 @@ async function main() {
     const bad = modelDiagnostic(badSelection);
     const a = runner.augmentReport(rawReport(tracesA), runner.STRUCTURED_OUTPUT_MODE, [record(phase, strategy, good)]);
     const b = runner.augmentReport(rawReport(tracesB), runner.STRUCTURED_OUTPUT_MODE, [record(phase, strategy, bad)]);
-    assert.equal(a.providerPromptVersion, "gate6-live-provider-prompt/v2");
+    assert.equal(a.providerPromptVersion, runner.LIVE_PROVIDER_PROMPT_VERSION);
     assert.equal(a.experimentConfigHash, b.experimentConfigHash);
     assert.notEqual(a.reportHash, b.reportHash);
   });
