@@ -5,8 +5,11 @@ on:
     branches: [main]
     paths:
       - 'scripts/gate6-live-runner.cjs'
+      - 'scripts/gate6-live-runner-v3.cjs'
       - 'scripts/gate6-live-runner-v1.cjs'
       - 'scripts/gate6-live-runner-core.cjs'
+      - 'scripts/lib/gate6-live-provider-contract.cjs'
+      - 'scripts/lib/gate6-proposal-validation-diagnostics.cjs'
       - 'scripts/lib/gate6-live-checkpoint.cjs'
       - 'scripts/lib/gate6-live-checkpoint-v1.cjs'
       - 'scripts/lib/gate6-selection-validation-diagnostics.cjs'
@@ -17,6 +20,8 @@ on:
       - 'tests/gate6/live-runner-checkpoint.test.cjs'
       - 'tests/gate6/live-runner-provider-contract.test.cjs'
       - 'tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs'
+      - 'tests/gate6/live-runner-contract-hardening-v1.test.cjs'
+      - 'tests/gate6/live-provider-contract-hash-pin.test.cjs'
       - 'bounded-agent.policy.yml'
       - '.github/workflows/gate6-live-runner.yml'
   workflow_dispatch:
@@ -39,8 +44,11 @@ jobs:
       - name: Validate live runner syntax
         run: |
           node --check scripts/gate6-live-runner.cjs
+          node --check scripts/gate6-live-runner-v3.cjs
           node --check scripts/gate6-live-runner-v1.cjs
           node --check scripts/gate6-live-runner-core.cjs
+          node --check scripts/lib/gate6-live-provider-contract.cjs
+          node --check scripts/lib/gate6-proposal-validation-diagnostics.cjs
           node --check scripts/lib/gate6-live-checkpoint.cjs
           node --check scripts/lib/gate6-live-checkpoint-v1.cjs
           node --check scripts/lib/gate6-selection-validation-diagnostics.cjs
@@ -51,6 +59,8 @@ jobs:
           node --check tests/gate6/live-runner-checkpoint.test.cjs
           node --check tests/gate6/live-runner-provider-contract.test.cjs
           node --check tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
+          node --check tests/gate6/live-runner-contract-hardening-v1.test.cjs
+          node --check tests/gate6/live-provider-contract-hash-pin.test.cjs
       - name: Gate 6 live runner fake-provider smoke
         run: node tests/gate6/live-runner.test.cjs
       - name: Gate 6 llama.cpp structured-output compatibility regressions
@@ -65,5 +75,9 @@ jobs:
         run: node tests/gate6/live-runner-provider-contract.test.cjs
       - name: Gate 6 Step 18 provider selection semantics v3 regressions
         run: node tests/gate6/live-runner-provider-selection-semantics-v3.test.cjs
+      - name: Gate 6 Live Contract Hardening v1 regressions
+        run: node tests/gate6/live-runner-contract-hardening-v1.test.cjs
+      - name: Gate 6 canonical provider contract hash pin
+        run: node tests/gate6/live-provider-contract-hash-pin.test.cjs
       - name: Gate 6 frozen verifier remains green
         run: node scripts/gate6-verify.cjs
