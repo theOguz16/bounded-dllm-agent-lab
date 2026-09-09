@@ -10,6 +10,7 @@ const {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -50,7 +51,7 @@ function listTree(root) {
   return output.sort();
 }
 
-function hashRegularFiles(root) {
+function snapshotSourceTree(root) {
   const result = {};
   function visit(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -58,11 +59,11 @@ function hashRegularFiles(root) {
       const rel = relative(root, absolute).split("\\").join("/");
       const stat = lstatSync(absolute);
       if (stat.isSymbolicLink()) {
-        result[rel] = `symlink:${readFileSync(absolute, { encoding: "utf8", flag: "r" })}`;
+        result[rel] = `symlink:${readlinkSync(absolute)}`;
       } else if (stat.isDirectory()) {
         visit(absolute);
       } else if (stat.isFile()) {
-        result[rel] = sha256(readFileSync(absolute));
+        result[rel] = `file:${stat.mode & 0o777}:${sha256(readFileSync(absolute))}`;
       }
     }
   }
@@ -138,7 +139,7 @@ async function main() {
 
   try {
     initFixtureRepo(fixtureRoot);
-    const sourceBefore = hashRegularFiles(fixtureRoot);
+    const sourceBefore = snapshotSourceTree(fixtureRoot);
     const sourceSnapshotHash = sha256(
       execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixtureRoot })
     );
@@ -192,7 +193,7 @@ async function main() {
     writeFileSync(join(bounded.workspacePath, "src/allowed.txt"), "agent destroyed this\n");
     writeFileSync(join(bounded.workspacePath, "src/context.txt"), "agent changed context\n");
     assert.deepEqual(
-      hashRegularFiles(fixtureRoot),
+      snapshotSourceTree(fixtureRoot),
       sourceBefore,
       "mutating disposable workspace must leave source repo byte-for-byte unchanged"
     );
