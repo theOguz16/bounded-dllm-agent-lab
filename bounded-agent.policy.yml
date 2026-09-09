@@ -100,13 +100,7 @@ paired_files:
   - source: package.json
     requires: package-lock.json
     reason: npm package metadata changes must keep the lockfile in sync
-    changed_when_contains:
-      - '"version"'
-      - '"dependencies"'
-      - '"devDependencies"'
-      - '"optionalDependencies"'
-      - '"peerDependencies"'
-      - '"workspaces"'
+    changed_when_contains: "version, dependencies, devDependencies, optionalDependencies, peerDependencies, workspaces"
   - source: action.yml
     requires: docs/MVP_USAGE.md
     reason: GitHub Action behavior changes must be documented for users
