@@ -78,7 +78,11 @@ type SourceInspection =
     }>;
 
 const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
-const MAX_GIT_LS_FILES_BUFFER = 32 * 1024 * 1024;
+const MAX_GIT_BUFFER = 32 * 1024 * 1024;
+const WORKSPACE_BASELINE_COMMIT_MESSAGE = "bounded agent workspace baseline";
+const WORKSPACE_BASELINE_IDENTITY_NAME = "Bounded Agent Workspace";
+const WORKSPACE_BASELINE_IDENTITY_EMAIL = "bounded-agent@localhost.invalid";
+const WORKSPACE_BASELINE_DATE = "2000-01-01T00:00:00Z";
 
 function sha256(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
@@ -221,6 +225,77 @@ function isText(bytes: Buffer): boolean {
   }
 }
 
+function isolatedGitEnvironment(homePath: string): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  const hostHomeKeys = new Set([
+    "HOME",
+    "XDG_CONFIG_HOME",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH"
+  ]);
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    const upperKey = key.toUpperCase();
+    if (upperKey.startsWith("GIT_") || hostHomeKeys.has(upperKey)) continue;
+    environment[key] = value;
+  }
+
+  environment.HOME = homePath;
+  environment.XDG_CONFIG_HOME = homePath;
+  environment.USERPROFILE = homePath;
+  environment.GIT_CONFIG_NOSYSTEM = "1";
+  environment.GIT_TERMINAL_PROMPT = "0";
+  environment.GIT_OPTIONAL_LOCKS = "0";
+  environment.GIT_AUTHOR_DATE = WORKSPACE_BASELINE_DATE;
+  environment.GIT_COMMITTER_DATE = WORKSPACE_BASELINE_DATE;
+  environment.LC_ALL = "C";
+
+  return environment;
+}
+
+function runGit(
+  cwd: string,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv
+): Promise<string> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "git",
+      ["-C", cwd, ...args],
+      {
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: MAX_GIT_BUFFER,
+        windowsHide: true
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          rejectPromise(
+            new DisposableAgentWorkspaceError(
+              `Git command failed (${args.join(" ")}): ${stderr.trim() || error.message}`
+            )
+          );
+          return;
+        }
+        resolvePromise(stdout);
+      }
+    );
+  });
+}
+
+async function withIsolatedGitHome<T>(
+  action: (environment: NodeJS.ProcessEnv) => Promise<T>
+): Promise<T> {
+  const gitHome = await mkdtemp(join(tmpdir(), "bounded-agent-git-home-"));
+  try {
+    return await action(isolatedGitEnvironment(gitHome));
+  } finally {
+    await rm(gitHome, { recursive: true, force: true });
+  }
+}
+
 async function inspectSourceFile(
   repositoryRealPath: string,
   path: string
@@ -266,34 +341,111 @@ async function inspectSourceFile(
   };
 }
 
-function listTrackedFiles(repositoryRealPath: string): Promise<string[]> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    execFile(
-      "git",
-      ["-C", repositoryRealPath, "ls-files", "-z", "--cached"],
-      {
-        encoding: "utf8",
-        maxBuffer: MAX_GIT_LS_FILES_BUFFER,
-        windowsHide: true
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          rejectPromise(
-            new DisposableAgentWorkspaceError(
-              `Unable to enumerate tracked repository files: ${stderr.trim() || error.message}`
-            )
-          );
-          return;
-        }
-
-        resolvePromise(
-          stdout
-            .split("\0")
-            .filter((value) => value.length > 0)
-            .sort((left, right) => left.localeCompare(right, "en"))
-        );
-      }
+async function listTrackedFiles(repositoryRealPath: string): Promise<string[]> {
+  return withIsolatedGitHome(async (environment) => {
+    const stdout = await runGit(
+      repositoryRealPath,
+      ["ls-files", "-z", "--cached"],
+      environment
     );
+
+    return stdout
+      .split("\0")
+      .filter((value) => value.length > 0)
+      .sort((left, right) => left.localeCompare(right, "en"));
+  });
+}
+
+async function assertNoGitAlternates(gitDirRealPath: string): Promise<void> {
+  const alternatesPath = join(gitDirRealPath, "objects", "info", "alternates");
+  try {
+    const alternates = await readFile(alternatesPath, "utf8");
+    if (alternates.trim().length > 0) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace Git baseline must not use alternate object directories."
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+}
+
+async function initializeIndependentGitBaseline(workspaceRealPath: string): Promise<void> {
+  await withIsolatedGitHome(async (environment) => {
+    await runGit(workspaceRealPath, ["init", "-q"], environment);
+    await runGit(workspaceRealPath, ["add", "-f", "-A", "--", "."], environment);
+    await runGit(
+      workspaceRealPath,
+      [
+        "-c",
+        `user.name=${WORKSPACE_BASELINE_IDENTITY_NAME}`,
+        "-c",
+        `user.email=${WORKSPACE_BASELINE_IDENTITY_EMAIL}`,
+        "-c",
+        "commit.gpgSign=false",
+        "commit",
+        "--allow-empty",
+        "--no-gpg-sign",
+        "--no-verify",
+        "-qm",
+        WORKSPACE_BASELINE_COMMIT_MESSAGE
+      ],
+      environment
+    );
+
+    const gitDirOutput = (
+      await runGit(workspaceRealPath, ["rev-parse", "--absolute-git-dir"], environment)
+    ).trim();
+    const gitDirRealPath = await realpath(gitDirOutput);
+    const expectedGitDirRealPath = await realpath(join(workspaceRealPath, ".git"));
+    if (gitDirRealPath !== expectedGitDirRealPath) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace Git directory must be owned by the disposable workspace."
+      );
+    }
+
+    const gitDirStat = await lstat(gitDirRealPath);
+    if (!gitDirStat.isDirectory() || gitDirStat.isSymbolicLink()) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace .git must be a regular directory, not a symlink."
+      );
+    }
+
+    const commonDirOutput = (
+      await runGit(workspaceRealPath, ["rev-parse", "--git-common-dir"], environment)
+    ).trim();
+    const commonDirPath = isAbsolute(commonDirOutput)
+      ? commonDirOutput
+      : resolve(workspaceRealPath, commonDirOutput);
+    const commonDirRealPath = await realpath(commonDirPath);
+    if (commonDirRealPath !== gitDirRealPath) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace Git common directory must not point outside its own .git directory."
+      );
+    }
+
+    const remotes = (await runGit(workspaceRealPath, ["remote"], environment)).trim();
+    if (remotes.length > 0) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace Git baseline must not configure remotes."
+      );
+    }
+
+    await assertNoGitAlternates(gitDirRealPath);
+
+    const status = (
+      await runGit(
+        workspaceRealPath,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+        environment
+      )
+    ).trim();
+    if (status.length > 0) {
+      throw new DisposableAgentWorkspaceError(
+        "Disposable workspace Git baseline must be clean immediately after initialization."
+      );
+    }
   });
 }
 
@@ -445,6 +597,8 @@ export async function createDisposableAgentWorkspace(
       await writeFile(destinationPath, entry.bytes, { flag: "wx" });
       await chmod(destinationPath, entry.mode);
     }
+
+    await initializeIndependentGitBaseline(workspaceRealPath);
 
     const files = selected.map<DisposableAgentWorkspaceManifestFile>((entry) =>
       Object.freeze({
