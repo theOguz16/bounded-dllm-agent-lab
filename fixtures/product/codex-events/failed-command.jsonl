@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread-2"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"cmd-2","type":"command_execution","command":"npm test","aggregated_output":"tests failed\n","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"msg-2","type":"agent_message","text":"The test command failed."}}
+{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":20,"output_tokens":10}}
