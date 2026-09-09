@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"thread-5"}
+{"type":"turn.started"}
+{"type":"future.experimental_event","payload":{"value":1}}
+{"type":"item.completed","item":{"id":"msg-5","type":"agent_message","text":"Future-compatible."}}
+{"type":"turn.completed","usage":{"input_tokens":20,"output_tokens":5}}

@@ -18,6 +18,10 @@ const childStages = [
     script: "scripts/smoke/agent-telemetry-smoke.cjs"
   },
   {
+    name: "Codex event parser smoke",
+    script: "scripts/smoke/codex-event-parser-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -28,10 +32,14 @@ const childStages = [
 ];
 
 const forbiddenLiveCommand = /(?:runpod|openai|claude|codex|provider-live|live:)/i;
+const deterministicProviderParserSmokes = new Set([
+  "scripts/smoke/codex-event-parser-smoke.cjs"
+]);
 
 for (const stage of childStages) {
   assert.equal(
-    forbiddenLiveCommand.test(stage.script),
+    forbiddenLiveCommand.test(stage.script) &&
+      !deterministicProviderParserSmokes.has(stage.script),
     false,
     `product v1 CI must not invoke a live/provider script: ${stage.script}`
   );
