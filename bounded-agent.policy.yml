@@ -89,6 +89,7 @@ allowed_paths:
   - scripts/smoke/codex-event-parser-smoke.cjs
   - scripts/smoke/codex-agent-adapter-smoke.cjs
   - scripts/smoke/disposable-agent-workspace-smoke.cjs
+  - scripts/smoke/agent-mutation-capture-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
