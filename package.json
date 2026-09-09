@@ -13,6 +13,7 @@
     "test:bounded-task-operations": "npm run build && node scripts/bounded-task-operations-smoke.cjs",
     "test:bounded-task-cross-process-recovery": "npm run build && node scripts/smoke/bounded-task-cross-process-recovery-suite.cjs",
     "build": "tsc -p tsconfig.json",
+    "product:v1-check": "npm run typecheck && npm run build && node scripts/product/product-v1-smoke.cjs",
     "canonical": "node dist/apps/cli/src/index.js",
     "test:canonical-cli": "npm run build && node scripts/canonical-cli-smoke.cjs",
     "test:smoke": "node dist/tests/smoke/contracts.js && node scripts/smoke/integrations-public-api-smoke.cjs",
