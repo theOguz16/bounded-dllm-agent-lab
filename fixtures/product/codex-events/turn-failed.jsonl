@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thread-3"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"msg-3","type":"agent_message","text":"I could not complete the task."}}
+{"type":"turn.failed","error":{"message":"model turn failed"}}
