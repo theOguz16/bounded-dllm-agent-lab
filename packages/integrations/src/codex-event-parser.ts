@@ -15,7 +15,7 @@ export type CodexEventParserStatus =
 export type CodexNormalizedCommandEvent = Readonly<{
   id: string;
   command: string;
-  aggregatedOutput: string;
+  aggregatedOutput: string | null;
   exitCode: number | null;
   status: "in_progress" | "completed" | "failed";
 }>;
@@ -24,7 +24,7 @@ export type CodexNormalizedFileChangeEvent = Readonly<{
   id: string;
   path: string;
   operation: "create" | "modify" | "delete";
-  status: "completed" | "failed";
+  status: "in_progress" | "completed" | "failed";
 }>;
 
 export type CodexNormalizedAgentMessage = Readonly<{
@@ -76,6 +76,18 @@ const KNOWN_EVENTS = new Set([
   "error"
 ]);
 
+class CodexProtocolError extends Error {
+  readonly code = "agent_protocol_invalid" as const;
+
+  constructor(
+    message: string,
+    readonly line: number,
+    readonly eventType: string | null
+  ) {
+    super(message);
+  }
+}
+
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -91,19 +103,23 @@ function diagnostic(
   return Object.freeze({ code, severity, message, retryable, line, eventType });
 }
 
+function protocolDiagnostic(error: CodexProtocolError): CodexEventParserDiagnostic {
+  return diagnostic(
+    error.code,
+    "error",
+    error.message,
+    error.line,
+    error.eventType,
+    false
+  );
+}
+
 function protocolError(
   message: string,
   line: number,
   eventType: string | null
-): CodexEventParserDiagnostic {
-  return diagnostic(
-    "agent_protocol_invalid",
-    "error",
-    message,
-    line,
-    eventType,
-    false
-  );
+): CodexProtocolError {
+  return new CodexProtocolError(message, line, eventType);
 }
 
 function nonNegativeInteger(
@@ -123,10 +139,7 @@ function nonNegativeInteger(
   return value as number;
 }
 
-function parseUsage(
-  value: unknown,
-  line: number
-): ParsedUsage {
+function parseUsage(value: unknown, line: number): ParsedUsage {
   if (value === undefined || value === null) {
     return {
       inputTokens: null,
@@ -212,17 +225,10 @@ function requireString(
 function normalizeCommandItem(
   item: JsonObject,
   line: number,
-  eventType: string
+  eventType: "item.started" | "item.updated" | "item.completed"
 ): CodexNormalizedCommandEvent {
   const id = requireString(item, "id", line, eventType);
   const command = requireString(item, "command", line, eventType);
-  if (typeof item.aggregated_output !== "string") {
-    throw protocolError(
-      `${eventType}.item.aggregated_output must be a string for command_execution.`,
-      line,
-      eventType
-    );
-  }
   if (
     item.status !== "in_progress" &&
     item.status !== "completed" &&
@@ -234,23 +240,55 @@ function normalizeCommandItem(
       eventType
     );
   }
-  const exitCode =
-    item.exit_code === undefined || item.exit_code === null
-      ? null
-      : Number.isSafeInteger(item.exit_code)
-        ? (item.exit_code as number)
-        : null;
-  if (item.exit_code !== undefined && item.exit_code !== null && exitCode === null) {
+  if (eventType === "item.started" && item.status !== "in_progress") {
     throw protocolError(
-      `${eventType}.item.exit_code must be an integer when present.`,
+      "item.started command_execution must have status=in_progress.",
       line,
       eventType
     );
   }
+  if (eventType === "item.completed" && item.status === "in_progress") {
+    throw protocolError(
+      "item.completed command_execution cannot have status=in_progress.",
+      line,
+      eventType
+    );
+  }
+
+  let aggregatedOutput: string | null = null;
+  if (item.aggregated_output !== undefined && item.aggregated_output !== null) {
+    if (typeof item.aggregated_output !== "string") {
+      throw protocolError(
+        `${eventType}.item.aggregated_output must be a string when present.`,
+        line,
+        eventType
+      );
+    }
+    aggregatedOutput = item.aggregated_output;
+  } else if (eventType === "item.completed") {
+    throw protocolError(
+      "item.completed command_execution must include aggregated_output.",
+      line,
+      eventType
+    );
+  }
+
+  let exitCode: number | null = null;
+  if (item.exit_code !== undefined && item.exit_code !== null) {
+    if (!Number.isSafeInteger(item.exit_code)) {
+      throw protocolError(
+        `${eventType}.item.exit_code must be an integer when present.`,
+        line,
+        eventType
+      );
+    }
+    exitCode = item.exit_code as number;
+  }
+
   return Object.freeze({
     id,
     command,
-    aggregatedOutput: item.aggregated_output,
+    aggregatedOutput,
     exitCode,
     status: item.status
   });
@@ -259,15 +297,18 @@ function normalizeCommandItem(
 function normalizeFileChangeItem(
   item: JsonObject,
   line: number,
-  eventType: string
-): readonly CodexNormalizedFileChangeEvent[] {
+  eventType: "item.started" | "item.updated" | "item.completed"
+): readonly CodexNormalizedFileChangeEvent[] | null {
   const id = requireString(item, "id", line, eventType);
-  if (item.status !== "completed" && item.status !== "failed") {
-    throw protocolError(
-      `${eventType}.item.status is invalid for file_change.`,
-      line,
-      eventType
-    );
+  if (item.changes === undefined || item.changes === null) {
+    if (eventType === "item.completed") {
+      throw protocolError(
+        "item.completed file_change must include changes.",
+        line,
+        eventType
+      );
+    }
+    return null;
   }
   if (!Array.isArray(item.changes)) {
     throw protocolError(
@@ -276,6 +317,25 @@ function normalizeFileChangeItem(
       eventType
     );
   }
+  if (
+    item.status !== "in_progress" &&
+    item.status !== "completed" &&
+    item.status !== "failed"
+  ) {
+    throw protocolError(
+      `${eventType}.item.status is invalid for file_change.`,
+      line,
+      eventType
+    );
+  }
+  if (eventType === "item.completed" && item.status === "in_progress") {
+    throw protocolError(
+      "item.completed file_change cannot have status=in_progress.",
+      line,
+      eventType
+    );
+  }
+
   return item.changes.map((change, index) => {
     if (!isObject(change)) {
       throw protocolError(
@@ -307,9 +367,19 @@ function normalizeFileChangeItem(
 function normalizeAgentMessage(
   item: JsonObject,
   line: number,
-  eventType: string
-): CodexNormalizedAgentMessage {
+  eventType: "item.started" | "item.updated" | "item.completed"
+): CodexNormalizedAgentMessage | null {
   const id = requireString(item, "id", line, eventType);
+  if (item.text === undefined || item.text === null) {
+    if (eventType === "item.completed") {
+      throw protocolError(
+        "item.completed agent_message must include text.",
+        line,
+        eventType
+      );
+    }
+    return null;
+  }
   if (typeof item.text !== "string") {
     throw protocolError(
       `${eventType}.item.text must be a string for agent_message.`,
@@ -330,6 +400,7 @@ export function parseCodexJsonl(
   const agentMessages = new Map<string, CodexNormalizedAgentMessage>();
 
   let threadId: string | null = null;
+  let finalMessage = "";
   let turnCompleted = false;
   let turnFailed = false;
   let streamFailed = false;
@@ -354,7 +425,13 @@ export function parseCodexJsonl(
       parsed = JSON.parse(rawLine);
     } catch {
       diagnostics.push(
-        protocolError("Codex JSONL line is not valid JSON.", line, null)
+        diagnostic(
+          "agent_protocol_invalid",
+          "error",
+          "Codex JSONL line is not valid JSON.",
+          line,
+          null
+        )
       );
       protocolInvalid = true;
       break;
@@ -362,7 +439,9 @@ export function parseCodexJsonl(
 
     if (!isObject(parsed) || typeof parsed.type !== "string") {
       diagnostics.push(
-        protocolError(
+        diagnostic(
+          "agent_protocol_invalid",
+          "error",
           "Codex JSONL event must be an object with a string type.",
           line,
           null
@@ -463,25 +542,50 @@ export function parseCodexJsonl(
           if (itemType === "command_execution") {
             commands.set(id, normalizeCommandItem(item, line, eventType));
           } else if (itemType === "file_change") {
-            for (const change of normalizeFileChangeItem(item, line, eventType)) {
-              fileChanges.set(`${change.id}:${change.path}`, change);
+            const normalized = normalizeFileChangeItem(item, line, eventType);
+            if (normalized === null) {
+              diagnostics.push(
+                diagnostic(
+                  "codex_item_pending_details",
+                  "info",
+                  "file_change item has not reported changes yet.",
+                  line,
+                  eventType
+                )
+              );
+            } else {
+              for (const change of normalized) {
+                fileChanges.set(`${change.id}:${change.path}`, change);
+              }
             }
           } else if (itemType === "agent_message") {
-            agentMessages.set(id, normalizeAgentMessage(item, line, eventType));
+            const normalized = normalizeAgentMessage(item, line, eventType);
+            if (normalized !== null) {
+              agentMessages.set(id, normalized);
+              finalMessage = normalized.text;
+            }
+          } else {
+            diagnostics.push(
+              diagnostic(
+                "codex_item_ignored",
+                "info",
+                `Ignoring unsupported Codex item type: ${itemType}.`,
+                line,
+                eventType
+              )
+            );
           }
           break;
         }
       }
     } catch (error) {
-      if (
-        isObject(error) &&
-        error.code === "agent_protocol_invalid" &&
-        typeof error.message === "string"
-      ) {
-        diagnostics.push(error as CodexEventParserDiagnostic);
+      if (error instanceof CodexProtocolError) {
+        diagnostics.push(protocolDiagnostic(error));
       } else {
         diagnostics.push(
-          protocolError(
+          diagnostic(
+            "agent_protocol_invalid",
+            "error",
             error instanceof Error ? error.message : "Codex event validation failed.",
             line,
             eventType
@@ -516,7 +620,15 @@ export function parseCodexJsonl(
     });
   } catch (error) {
     if (error instanceof AgentTelemetryValidationError) {
-      diagnostics.push(protocolError(error.message, lines.length, "turn.completed"));
+      diagnostics.push(
+        diagnostic(
+          "agent_protocol_invalid",
+          "error",
+          error.message,
+          lines.length,
+          "turn.completed"
+        )
+      );
       protocolInvalid = true;
       telemetry = createAgentRunTelemetry({
         usageStatus: "unavailable",
@@ -543,7 +655,7 @@ export function parseCodexJsonl(
   return Object.freeze({
     status,
     threadId,
-    finalMessage: messageValues.at(-1)?.text ?? "",
+    finalMessage,
     telemetry,
     commands: Object.freeze(commandValues),
     fileChanges: Object.freeze(fileChangeValues),
