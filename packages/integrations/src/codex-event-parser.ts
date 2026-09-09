@@ -55,6 +55,8 @@ export type CodexEventParserResult = Readonly<{
 }>;
 
 type JsonObject = Record<string, unknown>;
+type ItemEventType = "item.started" | "item.updated" | "item.completed";
+type ItemStatus = "in_progress" | "completed" | "failed";
 
 type ParsedUsage = Readonly<{
   inputTokens: number | null;
@@ -103,23 +105,46 @@ function diagnostic(
   return Object.freeze({ code, severity, message, retryable, line, eventType });
 }
 
-function protocolDiagnostic(error: CodexProtocolError): CodexEventParserDiagnostic {
-  return diagnostic(
-    error.code,
-    "error",
-    error.message,
-    error.line,
-    error.eventType,
-    false
-  );
-}
-
 function protocolError(
   message: string,
   line: number,
   eventType: string | null
 ): CodexProtocolError {
   return new CodexProtocolError(message, line, eventType);
+}
+
+function requireString(
+  object: JsonObject,
+  field: string,
+  line: number,
+  eventType: string
+): string {
+  const value = object[field];
+  if (typeof value !== "string" || value.length === 0) {
+    throw protocolError(
+      `${eventType}.${field} must be a non-empty string.`,
+      line,
+      eventType
+    );
+  }
+  return value;
+}
+
+function itemStatus(
+  item: JsonObject,
+  line: number,
+  eventType: ItemEventType,
+  itemType: string
+): ItemStatus {
+  const value = item.status;
+  if (value !== "in_progress" && value !== "completed" && value !== "failed") {
+    throw protocolError(
+      `${eventType}.item.status is invalid for ${itemType}.`,
+      line,
+      eventType
+    );
+  }
+  return value;
 }
 
 function nonNegativeInteger(
@@ -201,53 +226,27 @@ function parseUsage(value: unknown, line: number): ParsedUsage {
       cacheWriteInputTokens,
       outputTokens,
       reasoningOutputTokens
-    ].some((tokenCount) => tokenCount !== null)
+    ].some((value) => value !== null)
   };
-}
-
-function requireString(
-  object: JsonObject,
-  field: string,
-  line: number,
-  eventType: string
-): string {
-  const value = object[field];
-  if (typeof value !== "string" || value.length === 0) {
-    throw protocolError(
-      `${eventType}.${field} must be a non-empty string.`,
-      line,
-      eventType
-    );
-  }
-  return value;
 }
 
 function normalizeCommandItem(
   item: JsonObject,
   line: number,
-  eventType: "item.started" | "item.updated" | "item.completed"
+  eventType: ItemEventType
 ): CodexNormalizedCommandEvent {
   const id = requireString(item, "id", line, eventType);
   const command = requireString(item, "command", line, eventType);
-  if (
-    item.status !== "in_progress" &&
-    item.status !== "completed" &&
-    item.status !== "failed"
-  ) {
-    throw protocolError(
-      `${eventType}.item.status is invalid for command_execution.`,
-      line,
-      eventType
-    );
-  }
-  if (eventType === "item.started" && item.status !== "in_progress") {
+  const status = itemStatus(item, line, eventType, "command_execution");
+
+  if (eventType === "item.started" && status !== "in_progress") {
     throw protocolError(
       "item.started command_execution must have status=in_progress.",
       line,
       eventType
     );
   }
-  if (eventType === "item.completed" && item.status === "in_progress") {
+  if (eventType === "item.completed" && status === "in_progress") {
     throw protocolError(
       "item.completed command_execution cannot have status=in_progress.",
       line,
@@ -285,21 +284,16 @@ function normalizeCommandItem(
     exitCode = item.exit_code as number;
   }
 
-  return Object.freeze({
-    id,
-    command,
-    aggregatedOutput,
-    exitCode,
-    status: item.status
-  });
+  return Object.freeze({ id, command, aggregatedOutput, exitCode, status });
 }
 
 function normalizeFileChangeItem(
   item: JsonObject,
   line: number,
-  eventType: "item.started" | "item.updated" | "item.completed"
+  eventType: ItemEventType
 ): readonly CodexNormalizedFileChangeEvent[] | null {
   const id = requireString(item, "id", line, eventType);
+
   if (item.changes === undefined || item.changes === null) {
     if (eventType === "item.completed") {
       throw protocolError(
@@ -317,18 +311,9 @@ function normalizeFileChangeItem(
       eventType
     );
   }
-  if (
-    item.status !== "in_progress" &&
-    item.status !== "completed" &&
-    item.status !== "failed"
-  ) {
-    throw protocolError(
-      `${eventType}.item.status is invalid for file_change.`,
-      line,
-      eventType
-    );
-  }
-  if (eventType === "item.completed" && item.status === "in_progress") {
+
+  const status = itemStatus(item, line, eventType, "file_change");
+  if (eventType === "item.completed" && status === "in_progress") {
     throw protocolError(
       "item.completed file_change cannot have status=in_progress.",
       line,
@@ -360,14 +345,14 @@ function normalizeFileChangeItem(
         eventType
       );
     }
-    return Object.freeze({ id, path, operation, status: item.status });
+    return Object.freeze({ id, path, operation, status });
   });
 }
 
 function normalizeAgentMessage(
   item: JsonObject,
   line: number,
-  eventType: "item.started" | "item.updated" | "item.completed"
+  eventType: ItemEventType
 ): CodexNormalizedAgentMessage | null {
   const id = requireString(item, "id", line, eventType);
   if (item.text === undefined || item.text === null) {
@@ -404,6 +389,7 @@ export function parseCodexJsonl(
   let turnCompleted = false;
   let turnFailed = false;
   let streamFailed = false;
+  let protocolInvalid = false;
   let usage: ParsedUsage = {
     inputTokens: null,
     cachedInputTokens: null,
@@ -412,7 +398,6 @@ export function parseCodexJsonl(
     reasoningOutputTokens: null,
     observed: false
   };
-  let protocolInvalid = false;
 
   const lines = jsonl.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
@@ -487,7 +472,7 @@ export function parseCodexJsonl(
             );
           }
           break;
-        case "turn.failed": {
+        case "turn.failed":
           if (!isObject(parsed.error) || typeof parsed.error.message !== "string") {
             throw protocolError(
               "turn.failed.error.message must be a string.",
@@ -506,14 +491,9 @@ export function parseCodexJsonl(
             )
           );
           break;
-        }
         case "error":
           if (typeof parsed.message !== "string") {
-            throw protocolError(
-              "error.message must be a string.",
-              line,
-              eventType
-            );
+            throw protocolError("error.message must be a string.", line, eventType);
           }
           streamFailed = true;
           diagnostics.push(
@@ -539,6 +519,7 @@ export function parseCodexJsonl(
           const item = parsed.item;
           const id = requireString(item, "id", line, eventType);
           const itemType = requireString(item, "type", line, eventType);
+
           if (itemType === "command_execution") {
             commands.set(id, normalizeCommandItem(item, line, eventType));
           } else if (itemType === "file_change") {
@@ -580,7 +561,15 @@ export function parseCodexJsonl(
       }
     } catch (error) {
       if (error instanceof CodexProtocolError) {
-        diagnostics.push(protocolDiagnostic(error));
+        diagnostics.push(
+          diagnostic(
+            error.code,
+            "error",
+            error.message,
+            error.line,
+            error.eventType
+          )
+        );
       } else {
         diagnostics.push(
           diagnostic(
@@ -599,7 +588,7 @@ export function parseCodexJsonl(
 
   const commandValues = [...commands.values()];
   const fileChangeValues = [...fileChanges.values()];
-  const messageValues = [...agentMessages.values()];
+  const agentMessageValues = [...agentMessages.values()];
   const failedCommandCount = commandValues.filter(
     (command) => command.status === "failed"
   ).length;
@@ -619,27 +608,24 @@ export function parseCodexJsonl(
       durationMs: options.durationMs
     });
   } catch (error) {
-    if (error instanceof AgentTelemetryValidationError) {
-      diagnostics.push(
-        diagnostic(
-          "agent_protocol_invalid",
-          "error",
-          error.message,
-          lines.length,
-          "turn.completed"
-        )
-      );
-      protocolInvalid = true;
-      telemetry = createAgentRunTelemetry({
-        usageStatus: "unavailable",
-        commandCount: commandValues.length,
-        failedCommandCount,
-        fileChangeEventCount: fileChangeValues.length,
-        durationMs: options.durationMs
-      });
-    } else {
-      throw error;
-    }
+    if (!(error instanceof AgentTelemetryValidationError)) throw error;
+    diagnostics.push(
+      diagnostic(
+        "agent_protocol_invalid",
+        "error",
+        error.message,
+        lines.length,
+        "turn.completed"
+      )
+    );
+    protocolInvalid = true;
+    telemetry = createAgentRunTelemetry({
+      usageStatus: "unavailable",
+      commandCount: commandValues.length,
+      failedCommandCount,
+      fileChangeEventCount: fileChangeValues.length,
+      durationMs: options.durationMs
+    });
   }
 
   const status: CodexEventParserStatus = protocolInvalid
@@ -659,7 +645,7 @@ export function parseCodexJsonl(
     telemetry,
     commands: Object.freeze(commandValues),
     fileChanges: Object.freeze(fileChangeValues),
-    agentMessages: Object.freeze(messageValues),
+    agentMessages: Object.freeze(agentMessageValues),
     diagnostics: Object.freeze(diagnostics)
   });
 }
