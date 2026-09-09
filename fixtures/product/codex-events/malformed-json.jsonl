@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"thread-4"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"msg-4","type":"agent_message","text":"before malformed"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}
