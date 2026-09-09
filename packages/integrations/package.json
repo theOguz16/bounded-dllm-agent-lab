@@ -6,8 +6,5 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@openai/codex-sdk": "0.153.4"
   }
 }
