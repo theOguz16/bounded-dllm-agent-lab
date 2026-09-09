@@ -2,16 +2,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { pathToFileURL } = require("node:url");
 const { resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
 const repoRoot = resolve(__dirname, "../..");
 
-const stages = [
-  {
-    name: "canonical runtime smoke",
-    script: "scripts/runtime-generation-boundary-smoke.cjs"
-  },
+const childStages = [
   {
     name: "integrations smoke",
     script: "scripts/smoke/integrations-public-api-smoke.cjs"
@@ -28,7 +25,7 @@ const stages = [
 
 const forbiddenLiveCommand = /(?:runpod|openai|claude|codex|provider-live|live:)/i;
 
-for (const stage of stages) {
+for (const stage of childStages) {
   assert.equal(
     forbiddenLiveCommand.test(stage.script),
     false,
@@ -52,30 +49,54 @@ const childEnv = {
   MODEL_WORKER_UPSTREAM_API_KEY: ""
 };
 
-for (const stage of stages) {
-  process.stdout.write(`[product:v1] ${stage.name}\n`);
+async function main() {
+  process.stdout.write("[product:v1] canonical runtime smoke\n");
 
-  const result = spawnSync(process.execPath, [stage.script], {
-    cwd: repoRoot,
-    env: childEnv,
-    stdio: "inherit"
-  });
+  const runtimeUrl = pathToFileURL(
+    resolve(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
+  ).href;
+  const runtime = await import(runtimeUrl);
 
-  if (result.error) {
-    throw result.error;
+  assert.equal(typeof runtime.runBoundedTask, "function");
+  assert.equal(typeof runtime.resumeBoundedTask, "function");
+  assert.equal(typeof runtime.compileCanonicalPolicy, "function");
+
+  const invalidTaskResult = await runtime.runBoundedTask({});
+  assert.equal(invalidTaskResult.decision, "bounded_task_invalid");
+
+  for (const stage of childStages) {
+    process.stdout.write(`[product:v1] ${stage.name}\n`);
+
+    const result = spawnSync(process.execPath, [stage.script], {
+      cwd: repoRoot,
+      env: childEnv,
+      stdio: "inherit"
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    assert.equal(
+      result.status,
+      0,
+      `${stage.name} failed with exit code ${String(result.status)}`
+    );
   }
 
-  assert.equal(
-    result.status,
-    0,
-    `${stage.name} failed with exit code ${String(result.status)}`
-  );
+  process.stdout.write(`${JSON.stringify({
+    ok: true,
+    lane: "product-v1",
+    deterministic: true,
+    externalProviderCalls: false,
+    stages: [
+      "canonical runtime smoke",
+      ...childStages.map((stage) => stage.name)
+    ]
+  }, null, 2)}\n`);
 }
 
-process.stdout.write(`${JSON.stringify({
-  ok: true,
-  lane: "product-v1",
-  deterministic: true,
-  externalProviderCalls: false,
-  stages: stages.map((stage) => stage.name)
-}, null, 2)}\n`);
+main().catch((error) => {
+  console.error(error.stack || error);
+  process.exitCode = 1;
+});
