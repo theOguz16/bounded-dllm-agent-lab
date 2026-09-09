@@ -3,7 +3,7 @@
   "phase": "AG.2b",
   "evidenceClass": "deterministic_fixture",
   "decision": "ag2b_adapter_evidence_ready",
-  "checkCount": 16,
+  "checkCount": 17,
   "checks": [
     "canonical runtime exports the OpenAI-compatible planner adapter",
     "adapter configuration rejects unsafe endpoints and invalid bounds",
@@ -13,6 +13,7 @@
     "unknown fields and identity drift fail exact draft validation",
     "oversized task context stops before the provider call",
     "oversized provider responses fail closed",
+    "truncated provider completion is not accepted as a plan",
     "HTTP 429 is retried once and then succeeds",
     "non-retryable HTTP failures stop after one attempt",
     "timeout failures participate in bounded retry",
@@ -33,5 +34,5 @@
     "liveTokenUsageObserved": false,
     "infrastructureCostObserved": false
   },
-  "reportHash": "sha256:e73ca39af33209c4639f2f5985c37d50f987d357813048838316be4e97003968"
+  "reportHash": "sha256:964d3888daeb06bd97c4ca1e28507244347cfab421acd10129efe47eb0b544d9"
 }
