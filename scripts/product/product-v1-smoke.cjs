@@ -14,6 +14,10 @@ const childStages = [
     script: "scripts/smoke/integrations-public-api-smoke.cjs"
   },
   {
+    name: "agent telemetry smoke",
+    script: "scripts/smoke/agent-telemetry-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
