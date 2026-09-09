@@ -5,6 +5,7 @@
   "private": true,
   "main": "src/index.ts",
   "bin": {
+    "bounded": "../../dist/apps/cli/src/index.js",
     "bounded-agent": "../../dist/apps/cli/src/index.js"
   }
 }
