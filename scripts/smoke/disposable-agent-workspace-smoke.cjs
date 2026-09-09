@@ -6,6 +6,7 @@ const { createHash } = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdtempSync,
   mkdirSync,
@@ -37,10 +38,11 @@ function write(root, path, content, mode) {
   if (mode !== undefined) chmodSync(target, mode);
 }
 
-function listTree(root) {
+function listTree(root, { excludeGit = false } = {}) {
   const output = [];
   function visit(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (excludeGit && directory === root && entry.name === ".git") continue;
       const absolute = join(directory, entry.name);
       const rel = relative(root, absolute).split("\\").join("/");
       output.push(rel);
@@ -118,6 +120,37 @@ function initFixtureRepo(root) {
   execFileSync("git", ["commit", "-qm", "fixture"], { cwd: root });
 }
 
+function git(cwd, args, env = process.env) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env
+  }).trim();
+}
+
+function assertIndependentGitBaseline(workspacePath, sourceRepoPath) {
+  const workspaceGitDir = resolve(git(workspacePath, ["rev-parse", "--absolute-git-dir"]));
+  const sourceGitDir = resolve(git(sourceRepoPath, ["rev-parse", "--absolute-git-dir"]));
+
+  assert.equal(workspaceGitDir, resolve(workspacePath, ".git"));
+  assert.notEqual(workspaceGitDir, sourceGitDir);
+  assert.equal(workspaceGitDir.startsWith(`${sourceGitDir}/`), false);
+  assert.equal(sourceGitDir.startsWith(`${workspaceGitDir}/`), false);
+  assert.equal(lstatSync(workspaceGitDir).isDirectory(), true);
+  assert.equal(lstatSync(workspaceGitDir).isSymbolicLink(), false);
+
+  const commonDir = git(workspacePath, ["rev-parse", "--git-common-dir"]);
+  assert.equal(resolve(workspacePath, commonDir), workspaceGitDir);
+  assert.equal(git(workspacePath, ["remote"]), "");
+  assert.equal(git(workspacePath, ["status", "--porcelain=v1", "--untracked-files=all"]), "");
+  assert.equal(existsSync(join(workspaceGitDir, "objects", "info", "alternates")), false);
+
+  const headParentCount = git(workspacePath, ["rev-list", "--parents", "-n", "1", "HEAD"])
+    .split(/\s+/)
+    .length;
+  assert.equal(headParentCount, 1, "workspace baseline must be an independent root commit");
+}
+
 async function expectReject(action, pattern) {
   await assert.rejects(action, (error) => {
     assert.equal(error?.code, "disposable_agent_workspace_invalid");
@@ -140,18 +173,42 @@ async function main() {
   try {
     initFixtureRepo(fixtureRoot);
     const sourceBefore = snapshotSourceTree(fixtureRoot);
+    const sourceGitBefore = snapshotSourceTree(join(fixtureRoot, ".git"));
     const sourceSnapshotHash = sha256(
       execFileSync("git", ["rev-parse", "HEAD"], { cwd: fixtureRoot })
     );
 
-    const bounded = await module.createDisposableAgentWorkspace({
-      repositoryPath: fixtureRoot,
-      sourceSnapshotHash,
-      visibleFiles: ["src/allowed.txt", "src/context.txt", "test/allowed.test.txt"],
-      changeAllowedFiles: ["src/allowed.txt", "test/allowed.test.txt"],
-      forbiddenFiles: ["src/other.txt"],
-      mode: "bounded"
-    });
+    const hostileEnv = {
+      ...process.env,
+      GIT_DIR: join(fixtureRoot, ".git"),
+      GIT_WORK_TREE: fixtureRoot,
+      GIT_OBJECT_DIRECTORY: join(fixtureRoot, ".git", "objects")
+    };
+    const originalGitDir = process.env.GIT_DIR;
+    const originalGitWorkTree = process.env.GIT_WORK_TREE;
+    const originalGitObjectDirectory = process.env.GIT_OBJECT_DIRECTORY;
+    process.env.GIT_DIR = hostileEnv.GIT_DIR;
+    process.env.GIT_WORK_TREE = hostileEnv.GIT_WORK_TREE;
+    process.env.GIT_OBJECT_DIRECTORY = hostileEnv.GIT_OBJECT_DIRECTORY;
+
+    let bounded;
+    try {
+      bounded = await module.createDisposableAgentWorkspace({
+        repositoryPath: fixtureRoot,
+        sourceSnapshotHash,
+        visibleFiles: ["src/allowed.txt", "src/context.txt", "test/allowed.test.txt"],
+        changeAllowedFiles: ["src/allowed.txt", "test/allowed.test.txt"],
+        forbiddenFiles: ["src/other.txt"],
+        mode: "bounded"
+      });
+    } finally {
+      if (originalGitDir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = originalGitDir;
+      if (originalGitWorkTree === undefined) delete process.env.GIT_WORK_TREE;
+      else process.env.GIT_WORK_TREE = originalGitWorkTree;
+      if (originalGitObjectDirectory === undefined) delete process.env.GIT_OBJECT_DIRECTORY;
+      else process.env.GIT_OBJECT_DIRECTORY = originalGitObjectDirectory;
+    }
     workspaces.push(bounded.workspacePath);
 
     assert.notEqual(resolve(bounded.workspacePath), resolve(fixtureRoot));
@@ -190,12 +247,29 @@ async function main() {
       "manifest hash must be deterministic over canonical manifest JSON"
     );
 
+    assertIndependentGitBaseline(bounded.workspacePath, fixtureRoot);
+    assert.deepEqual(snapshotSourceTree(join(fixtureRoot, ".git")), sourceGitBefore);
+
     writeFileSync(join(bounded.workspacePath, "src/allowed.txt"), "agent destroyed this\n");
     writeFileSync(join(bounded.workspacePath, "src/context.txt"), "agent changed context\n");
+
+    const diff = git(bounded.workspacePath, ["diff", "--", "src/allowed.txt"]);
+    assert.match(diff, /-alpha/);
+    assert.match(diff, /\+agent destroyed this/);
+    assert.equal(
+      git(bounded.workspacePath, ["diff", "--name-status"]),
+      "M\tsrc/allowed.txt\nM\tsrc/context.txt"
+    );
+
     assert.deepEqual(
       snapshotSourceTree(fixtureRoot),
       sourceBefore,
       "mutating disposable workspace must leave source repo byte-for-byte unchanged"
+    );
+    assert.deepEqual(
+      snapshotSourceTree(join(fixtureRoot, ".git")),
+      sourceGitBefore,
+      "workspace git activity must never write into source .git"
     );
     assert.equal(readFileSync(join(fixtureRoot, "src/allowed.txt"), "utf8"), "alpha\n");
 
@@ -208,6 +282,7 @@ async function main() {
       mode: "baseline"
     });
     workspaces.push(baseline.workspacePath);
+    assertIndependentGitBaseline(baseline.workspacePath, fixtureRoot);
 
     const baselinePaths = baseline.manifest.files.map((entry) => entry.path);
     assert.deepEqual(baselinePaths, [
@@ -215,9 +290,8 @@ async function main() {
       "src/context.txt",
       "test/allowed.test.txt"
     ]);
-    const baselineTree = listTree(baseline.workspacePath);
+    const baselineTree = listTree(baseline.workspacePath, { excludeGit: true });
     for (const forbidden of [
-      ".git",
       ".env",
       ".env.local",
       "credentials.json",
@@ -297,6 +371,11 @@ async function main() {
           schemaVersion: module.DISPOSABLE_AGENT_WORKSPACE_VERSION,
           boundedSelectedOnly: true,
           baselineTrackedEligibleTextOnly: true,
+          independentGitBaseline: true,
+          workspaceRemoteConfigured: false,
+          sourceGitWriteConnection: false,
+          gitDiffDetectsAgentChanges: true,
+          gitNameStatusDetectsAgentChanges: true,
           originalRepositoryMutated: false,
           hardDeniedSecretsExcluded: true,
           binaryExcluded: true,
