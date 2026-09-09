@@ -42,9 +42,13 @@ import {
 import { renderArtifactViewerHtml } from "../../apps/web/src/index.js";
 import { createHttpWorkspaceWorkerClient } from "../../packages/worker-contract/src/index.js";
 import {
+  CODING_EXECUTOR_REQUEST_VERSION,
+  LOCAL_OPENAI_MODEL_CLIENT_VERSION,
+  RUNPOD_MODEL_CLIENT_VERSION,
+  PRODUCTION_MODEL_FAILURE_CODES,
   canonicalLocalOpenAIBaseUrl,
   LocalOpenAIModelClientError
-} from "../../packages/integrations/src/local-openai-compatible-model-client.js";
+} from "../../packages/integrations/src/index.js";
 import { parsePolicy, starterPolicyYaml, validatePolicy } from "../../apps/cli/src/product-policy-utils.js";
 
 const cases = [
@@ -152,6 +156,11 @@ assert.equal(typeof workerClient.health, "function");
 assert.equal(typeof workerClient.refine, "function");
 assert.equal(typeof workerClient.infill, "function");
 assert.equal(typeof workerClient.resolveConflict, "function");
+
+assert.equal(CODING_EXECUTOR_REQUEST_VERSION, "bounded.coding-executor-request/v1");
+assert.equal(LOCAL_OPENAI_MODEL_CLIENT_VERSION, "bounded.local-openai-model-client/v1");
+assert.equal(RUNPOD_MODEL_CLIENT_VERSION, "bounded.runpod-model-client/v1");
+assert.equal(PRODUCTION_MODEL_FAILURE_CODES.includes("AUTH_FAILURE"), true);
 
 const localOpenAiEndpoint = (baseUrl: string) => ({
   type: "custom_openai_compatible" as const,
@@ -1077,4 +1086,4 @@ const humanReview = reviewPatch({
 assert.equal(humanReview.decision, "human_review_required");
 assert.equal(humanReview.riskLevel, "medium");
 
-console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy", "ownership-policy", "module-boundary-policy", "verifier-adapter-contract"] }, null, 2));
+console.log(JSON.stringify({ ok: true, checked: ["report", "manifest", "comparison", "worker-contract", "integrations-public-api", "oracle-leakage", "ablation", "code-benchmark", "product-runtime", "product-policy", "ownership-policy", "module-boundary-policy", "verifier-adapter-contract"] }, null, 2));
