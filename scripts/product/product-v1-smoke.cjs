@@ -22,6 +22,10 @@ const childStages = [
     script: "scripts/smoke/codex-event-parser-smoke.cjs"
   },
   {
+    name: "disposable agent workspace smoke",
+    script: "scripts/smoke/disposable-agent-workspace-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
