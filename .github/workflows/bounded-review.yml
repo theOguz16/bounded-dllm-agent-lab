@@ -46,6 +46,9 @@ jobs:
           output-dir: reports/product-runtime
           fail-on: high
 
+      - name: Verify deterministic artifact maintenance regression
+        run: node scripts/bounded-review-deterministic-artifact-maintenance-smoke.cjs
+
       - name: Post or update PR comment
         if: github.event_name == 'pull_request' && vars.BOUNDED_REVIEW_POST_COMMENT == 'true'
         uses: actions/github-script@v7

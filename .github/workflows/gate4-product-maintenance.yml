@@ -37,6 +37,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - name: Prepare pinned Docker test image
+        env:
+          BOUNDED_TASK_TEST_IMAGE: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
+        run: |
+          set -euo pipefail
+          docker pull "$BOUNDED_TASK_TEST_IMAGE"
+          resolved="$(docker image inspect "$BOUNDED_TASK_TEST_IMAGE" --format '{{index .RepoDigests 0}}')"
+          test -n "$resolved"
+          echo "BOUNDED_TASK_TEST_IMAGE=$resolved" >> "$GITHUB_ENV"
       - run: node scripts/product-maintenance-contract-smoke.cjs
       - run: node scripts/product-unit-smoke.cjs
       - run: node scripts/product-integration-smoke.cjs
