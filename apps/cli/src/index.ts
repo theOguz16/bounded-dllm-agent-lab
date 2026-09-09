@@ -1,5 +1,5 @@
 #!/usr/bin/env node
 
-import { runCanonicalCli } from "./bounded-task.js";
+import { runCanonicalCli } from "./cli-router.js";
 
 process.exitCode = await runCanonicalCli(process.argv.slice(2));
