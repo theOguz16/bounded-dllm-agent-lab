@@ -12,6 +12,7 @@ allowed_paths:
   - examples/**
   - evidence/**
   - .github/**
+  - fixtures/product/codex-events/**
   - reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json
   - reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json
   - benchmarks/gate6/repositories.json
@@ -85,6 +86,7 @@ allowed_paths:
   - scripts/smoke/integrations-public-api-smoke.cjs
   - scripts/smoke/agent-adapter-contract-smoke.cjs
   - scripts/smoke/agent-telemetry-smoke.cjs
+  - scripts/smoke/codex-event-parser-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
