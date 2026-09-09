@@ -30,6 +30,10 @@ const childStages = [
     script: "scripts/smoke/agent-mutation-capture-smoke.cjs"
   },
   {
+    name: "Codex bounded provider smoke",
+    script: "scripts/smoke/codex-bounded-provider-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -41,7 +45,8 @@ const childStages = [
 
 const forbiddenLiveCommand = /(?:runpod|openai|claude|codex|provider-live|live:)/i;
 const deterministicProviderParserSmokes = new Set([
-  "scripts/smoke/codex-event-parser-smoke.cjs"
+  "scripts/smoke/codex-event-parser-smoke.cjs",
+  "scripts/smoke/codex-bounded-provider-smoke.cjs"
 ]);
 
 for (const stage of childStages) {
