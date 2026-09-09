@@ -5,6 +5,7 @@ import {
   reviewPatch,
   type TaskSpec
 } from "../../../packages/product-runtime/src/index.js";
+import { resolveDeterministicArtifactMaintenancePolicy } from "./deterministic-artifact-maintenance.js";
 import { parsePolicy } from "./product-policy-utils.js";
 
 const args = parseArgs(process.argv.slice(2));
@@ -23,7 +24,8 @@ const failOn = parseFailOn(args["fail-on"] ?? "never");
 const task = parseTask(await readFile(taskPath, "utf8"), taskPath);
 const diff = parseUnifiedDiff(await readFile(diffPath, "utf8"));
 const policy = parsePolicy(await readFile(policyPath, "utf8"), policyPath);
-const output = reviewPatch({ task, diff, policy });
+const maintenance = resolveDeterministicArtifactMaintenancePolicy({ policy, diff });
+const output = reviewPatch({ task, diff, policy: maintenance.policy });
 const baseName = `${new Date().toISOString().replace(/[:.]/g, "-")}-product-review`;
 const jsonPath = join(outDir, `${baseName}.json`);
 const markdownPath = join(outDir, `${baseName}.md`);
