@@ -26,9 +26,31 @@ Documentation is descriptive, not authoritative experiment state.
 - Experiment/evidence status: [`evidence/index.json`](evidence/index.json).
 - Human-readable evidence index: [`docs/EVIDENCE_INDEX.md`](docs/EVIDENCE_INDEX.md), generated from the machine-readable registry.
 - Product/runtime narrative: [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+- V1 product scope: [`docs/PRODUCT_SCOPE_V1.md`](docs/PRODUCT_SCOPE_V1.md).
+- Product development boundary: [`docs/PRODUCT_DEVELOPMENT_RULES.md`](docs/PRODUCT_DEVELOPMENT_RULES.md).
+- Productization target and sequencing: [`docs/PRODUCT_ROADMAP_V1.md`](docs/PRODUCT_ROADMAP_V1.md).
 - Claim vocabulary and limits: [`docs/EVIDENCE_CLAIMS.md`](docs/EVIDENCE_CLAIMS.md).
 
 A fixture, harness, or green CI job is not automatically a live observed result. Pending experiments remain pending until durable evidence is committed and registered.
+
+## Product development boundary
+
+Canonical product development is centered on:
+
+```text
+packages/product-runtime/
+packages/repo-intelligence/
+packages/integrations/
+canonical CLI
+```
+
+The canonical CLI is the command surface documented in [`docs/CANONICAL_CLI.md`](docs/CANONICAL_CLI.md), not every historical command that happens to live under `apps/cli`.
+
+Gate 5, Gate 6, C/E/F/CE experiments, frozen benchmark/provider inputs, oracle contracts, historical Qwen runs, dLLM/remask benchmarks, ablations, and related research suites remain research/history. Product work must not rewrite those semantics to manufacture a product capability or claim. Gate 5 or Gate 6 success is not, by itself, product success.
+
+MCP and other provider/tool adapters are integration surfaces, not repository-enforcement boundaries. No agent is given the real repository as a directly writable workspace; real-repository changes require a validated candidate, developer authority, and the controlled-apply path.
+
+See [`docs/PRODUCT_DEVELOPMENT_RULES.md`](docs/PRODUCT_DEVELOPMENT_RULES.md) before product implementation work.
 
 ## Current evidence boundary
 

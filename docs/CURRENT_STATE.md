@@ -17,6 +17,45 @@ in existing files, and a regression assertion added to an existing test file.
 Repository evidence verifies implementation boundaries; it does not yet verify
 market demand or user benefit.
 
+The intended productization UX and sequencing are documented in
+[`PRODUCT_ROADMAP_V1.md`](./PRODUCT_ROADMAP_V1.md). That roadmap describes a
+target and must not be read as evidence that every listed CLI or comparison
+capability already exists on `main`.
+
+## Product development boundary
+
+Product implementation must follow
+[`PRODUCT_DEVELOPMENT_RULES.md`](./PRODUCT_DEVELOPMENT_RULES.md). The canonical
+product development surface is centered on:
+
+- `packages/product-runtime/`;
+- `packages/repo-intelligence/`;
+- `packages/integrations/`; and
+- the canonical CLI command surface documented in [`CANONICAL_CLI.md`](./CANONICAL_CLI.md).
+
+The current canonical CLI wiring lives under `apps/cli`, but the whole directory
+is not thereby canonical product code. Historical review, calibration, report,
+benchmark, and experiment commands there retain their legacy/evaluation role.
+
+Gate 5, Gate 6, C/E/F/CE experiments, frozen provider/benchmark inputs, oracle
+contracts, dLLM/remask benchmarks, ablations, and historical Qwen experiments
+remain research/history unless a later product task deliberately promotes a
+primitive through a new product contract and compatibility decision. Gate 5 or
+Gate 6 success is not product success, and a research result must not be used to
+bypass product-specific acceptance evidence.
+
+MCP, provider adapters, plugins, and similar tool surfaces are integrations, not
+the enforcement boundary. Canonical runtime contracts and deterministic controls
+own repository authority. No agent receives the real repository as a directly
+writable workspace; real-repository mutation requires the validated candidate,
+the required developer authority, and controlled apply.
+
+Existing versioned contracts, including `text-file-update/v1`,
+`bounded-task-receipt/v3`, `canonical-task-input/v4`, and
+`canonical-policy-compiler/v2`, retain their current meanings. A new product
+requirement that changes a contract's meaning must introduce an explicitly
+versioned successor rather than silently reinterpret historical data.
+
 ## Canonical runtime surface
 
 ```text
@@ -147,6 +186,8 @@ Documentation follows code and evidence; it does not override them.
 
 - benchmark documents describe methodology and historical runs;
 - runbooks describe reproducible procedures;
+- `PRODUCT_DEVELOPMENT_RULES.md` defines where product implementation belongs and what research/contract boundaries it must preserve;
+- `PRODUCT_ROADMAP_V1.md` describes the intended V1 productization target, not current evidence;
 - `CURRENT_STATE.md` summarizes canonical runtime direction;
 - `evidence/index.json` owns experiment status;
 - generated evidence docs must remain reproducible from the registry.
