@@ -1,0 +1,41 @@
+name: Product V1
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  product-v1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      OPENAI_API_KEY: ""
+      OPENAI_BASE_URL: ""
+      ANTHROPIC_API_KEY: ""
+      CLAUDE_API_KEY: ""
+      RUNPOD_API_KEY: ""
+      RUNPOD_ENDPOINT_ID: ""
+      CODEX_API_KEY: ""
+      LLM_UPSTREAM_URL: ""
+      MODEL_WORKER_UPSTREAM_URL: ""
+      LLM_UPSTREAM_API_KEY: ""
+      MODEL_WORKER_UPSTREAM_API_KEY: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Product V1 deterministic check
+        run: npm run product:v1-check
