@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "canonical": "node dist/apps/cli/src/index.js",
     "test:canonical-cli": "npm run build && node scripts/canonical-cli-smoke.cjs",
-    "test:smoke": "node dist/tests/smoke/contracts.js",
+    "test:smoke": "node dist/tests/smoke/contracts.js && node scripts/smoke/integrations-public-api-smoke.cjs",
     "eval:demo": "node dist/apps/cli/src/evaluation-demo.js",
     "reports:compare": "node dist/apps/cli/src/compare-reports.js",
     "reports:llm-context": "node dist/apps/cli/src/llm-context-comparison.js",
