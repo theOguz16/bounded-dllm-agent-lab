@@ -1,7 +1,9 @@
 {"type":"thread.started","thread_id":"thread-1"}
 {"type":"turn.started"}
-{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"npm test","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"npm test","status":"in_progress"}}
+{"type":"item.updated","item":{"id":"cmd-1","type":"command_execution","command":"npm test","aggregated_output":"running\n","exit_code":null,"status":"in_progress"}}
 {"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","command":"npm test","aggregated_output":"ok\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"file-1","type":"file_change"}}
 {"type":"item.completed","item":{"id":"file-1","type":"file_change","changes":[{"path":"src/index.ts","kind":"update"}],"status":"completed"}}
 {"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"Done."}}
 {"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"cache_write_input_tokens":10,"output_tokens":25,"reasoning_output_tokens":7}}
