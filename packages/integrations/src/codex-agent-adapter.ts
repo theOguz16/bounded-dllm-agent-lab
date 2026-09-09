@@ -78,7 +78,7 @@ function resolveSandboxMode(
   if (request.sandboxMode === "full_access") return null;
 
   if (request.mode === "planner" || request.mode === "discovery") {
-    return request.sandboxMode === "read_only" ? "read-only" : null;
+    return "read-only";
   }
 
   if (request.sandboxMode === "read_only") return "read-only";
@@ -266,12 +266,12 @@ export class CodexAgentAdapter implements AgentAdapter {
 
     const sdkSandboxMode = resolveSandboxMode(request);
     if (sdkSandboxMode === null) {
-      const reason =
-        request.sandboxMode === "full_access"
-          ? "full_access is not permitted by the bounded Codex adapter."
-          : `${request.mode} mode requires read_only sandbox.`;
       return emptyResult(request, "rejected", 0, [
-        diagnostic("codex_sandbox_rejected", "error", reason)
+        diagnostic(
+          "codex_sandbox_rejected",
+          "error",
+          "full_access is not permitted by the bounded Codex adapter."
+        )
       ]);
     }
 
@@ -293,6 +293,7 @@ export class CodexAgentAdapter implements AgentAdapter {
 
     const controller = new AbortController();
     let termination: RunTermination = "none";
+    const getTermination = (): RunTermination => termination;
     const abortFromCaller = (): void => {
       if (termination === "none") termination = "aborted";
       controller.abort(request.abortSignal?.reason);
@@ -332,7 +333,7 @@ export class CodexAgentAdapter implements AgentAdapter {
       }
     } catch (error) {
       streamError = error;
-      if (termination === "none") {
+      if (getTermination() === "none") {
         adapterDiagnostics.push(
           diagnostic(
             "codex_sdk_error",
@@ -347,23 +348,24 @@ export class CodexAgentAdapter implements AgentAdapter {
       request.abortSignal?.removeEventListener("abort", abortFromCaller);
     }
 
+    const finalTermination = getTermination();
     const durationMs = Math.max(0, this.now() - startedAtMs);
     const parsed = parseCodexJsonl(lines.join("\n"), {
-      processAborted: termination !== "none",
+      processAborted: finalTermination !== "none",
       durationMs
     });
 
-    if (streamError !== null && termination === "timed_out") {
+    if (streamError !== null && finalTermination === "timed_out") {
       adapterDiagnostics.push(
         diagnostic("codex_timed_out", "error", "Codex run exceeded timeoutMs.", true)
       );
-    } else if (streamError !== null && termination === "aborted") {
+    } else if (streamError !== null && finalTermination === "aborted") {
       adapterDiagnostics.push(
         diagnostic("codex_aborted", "info", "Codex run was aborted by the caller.")
       );
     }
 
-    if (termination === "none" && parsed.status === "partial") {
+    if (finalTermination === "none" && parsed.status === "partial") {
       adapterDiagnostics.push(
         diagnostic(
           "codex_partial_stream",
@@ -386,13 +388,13 @@ export class CodexAgentAdapter implements AgentAdapter {
     const commands = mapCommands(
       parsed,
       commandTimings,
-      termination,
+      finalTermination,
       request.workingDirectory,
       diagnostics
     );
 
     return {
-      status: mapRunStatus(parsed, termination),
+      status: mapRunStatus(parsed, finalTermination),
       agentId: CODEX_AGENT_ID,
       agentVersion: CODEX_SDK_VERSION,
       modelId: request.model,
