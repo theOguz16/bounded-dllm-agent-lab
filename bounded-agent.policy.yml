@@ -98,6 +98,7 @@ allowed_paths:
   - scripts/smoke/bounded-apply-smoke.cjs
   - scripts/smoke/product-run-artifact-smoke.cjs
   - scripts/smoke/targeted-repair-contract-smoke.cjs
+  - scripts/smoke/codex-repair-provider-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
@@ -117,9 +118,6 @@ paired_files:
     requires: package-lock.json
     reason: npm package metadata changes must keep the lockfile in sync
     changed_when_contains: "version, dependencies, devDependencies, optionalDependencies, peerDependencies, workspaces"
-  - source: action.yml
-    requires: docs/MVP_USAGE.md
-    reason: GitHub Action behavior changes must be documented for users
 sensitive_patterns:
   - SECRET
   - API_KEY
