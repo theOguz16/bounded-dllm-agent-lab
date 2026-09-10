@@ -57,6 +57,7 @@ export * from "./controlled-repository-apply.js";
 export * from "./controlled-post-apply-validation.js";
 export * from "./controlled-transaction-recovery.js";
 export * from "./durable-consumption-registry.js";
+export * from "./product-run-artifact.js";
 
 export * from "./text-file-update-contract.js";
 export * from "./containerized-workspace-execution-runner.js";
