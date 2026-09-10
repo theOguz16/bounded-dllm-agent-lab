@@ -200,6 +200,20 @@ function emitReportOutput(value: CliJson): boolean {
   process.stdout.write("\nValidation\n");
   emitKeyValueObject(value.validation, ["scope", "typecheck", "tests", "behavior", "status"]);
   process.stdout.write(`\nRepair rounds\n${displayValue(value.repairRounds)}\n\n`);
+  process.stdout.write(`Repair attempts\n${displayValue(value.repairAttemptCount)}\n\n`);
+  process.stdout.write("Repair tokens\n");
+  process.stdout.write(`input ${tokenValue(value.repairInputTokens)}\n`);
+  process.stdout.write(`output ${tokenValue(value.repairOutputTokens)}\n\n`);
+  process.stdout.write(`Repair duration ms\n${displayValue(value.repairDurationMs)}\n\n`);
+  process.stdout.write("Repair changed files\n");
+  if (Array.isArray(value.repairChangedFiles) && value.repairChangedFiles.length > 0) {
+    for (const file of value.repairChangedFiles) process.stdout.write(`- ${displayValue(file)}\n`);
+  } else if (Array.isArray(value.repairChangedFiles)) {
+    process.stdout.write("none\n");
+  } else {
+    process.stdout.write("unavailable\n");
+  }
+  process.stdout.write(`\nRepair outcome\n${displayValue(value.repairOutcome)}\n\n`);
   process.stdout.write(`Human decision\n${displayValue(value.humanDecision)}\n\n`);
   const hashSource = value.receiptHashSource === "artifact-file" ? " (artifact file)" : "";
   process.stdout.write(`Receipt hash\n${displayValue(value.receiptHash)}${hashSource}\n`);
