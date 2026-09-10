@@ -54,6 +54,10 @@ const childStages = [
     script: "scripts/smoke/bounded-apply-smoke.cjs"
   },
   {
+    name: "product run artifact smoke",
+    script: "scripts/smoke/product-run-artifact-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
