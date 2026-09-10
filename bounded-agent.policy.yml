@@ -92,6 +92,7 @@ allowed_paths:
   - scripts/smoke/context-exposure-report-smoke.cjs
   - scripts/smoke/agent-mutation-capture-smoke.cjs
   - scripts/smoke/codex-bounded-provider-smoke.cjs
+  - scripts/smoke/bounded-init-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs

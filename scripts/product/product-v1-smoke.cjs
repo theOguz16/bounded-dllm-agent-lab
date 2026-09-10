@@ -38,6 +38,10 @@ const childStages = [
     script: "scripts/smoke/codex-bounded-provider-smoke.cjs"
   },
   {
+    name: "bounded init smoke",
+    script: "scripts/smoke/bounded-init-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
