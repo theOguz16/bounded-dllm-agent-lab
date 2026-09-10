@@ -42,6 +42,10 @@ const childStages = [
     script: "scripts/smoke/bounded-init-smoke.cjs"
   },
   {
+    name: "bounded doctor smoke",
+    script: "scripts/smoke/bounded-doctor-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
