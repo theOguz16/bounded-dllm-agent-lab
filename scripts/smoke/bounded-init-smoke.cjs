@@ -14,14 +14,17 @@ const runtimeUrl = pathToFileURL(
   path.join(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
 ).href;
 
-function runCli(cwd, args) {
+function runCli(cwd, args, environment = {}) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
+    timeout: 5000,
     env: {
       ...process.env,
       CODEX_API_KEY: "bounded-doctor-smoke-key",
-      OPENAI_API_KEY: ""
+      OPENAI_API_KEY: "",
+      OPENAI_BASE_URL: "http://127.0.0.1:9",
+      ...environment
     }
   });
 }
@@ -46,13 +49,29 @@ async function createRepository(root, options) {
       test: "node --test",
       "test:unit": "node --test test/unit.test.js",
       build: "tsc -p tsconfig.json",
-      typecheck: "tsc -p tsconfig.json --noEmit"
+      ...(options.includeTypecheck === false ? {} : { typecheck: "tsc -p tsconfig.json --noEmit" })
     },
     devDependencies: { typescript: "^5.6.3" }
   });
   if (options.lockfile) await fs.writeFile(path.join(repository, options.lockfile), "fixture\n", "utf8");
   await writeJson(path.join(repository, "tsconfig.json"), { compilerOptions: { strict: true } });
   return repository;
+}
+
+function expectedDoctorCheckIds() {
+  return [
+    "node",
+    "git",
+    "temp_directory",
+    "repository_readable",
+    "config",
+    "repository_type",
+    "policy",
+    "codex_adapter",
+    "codex_authentication",
+    "validation_test",
+    "validation_typecheck"
+  ];
 }
 
 async function assertInitialized(repository, expectedManager) {
@@ -101,25 +120,26 @@ async function assertInitialized(repository, expectedManager) {
   assert.equal(doctorJson.ok, true);
   assert.equal(doctorJson.command, "doctor");
   assert.equal(doctorJson.configVersion, "bounded-local-config/v1");
+  assert.equal(doctorJson.minimumNodeVersion, "22.14.0");
   assert.equal(doctorJson.packageManager, expectedManager);
   assert.equal(doctorJson.codexAuthenticationSource, "environment");
-  assert.deepEqual(
-    doctorJson.checks.map((item) => item.id),
-    [
-      "node",
-      "git",
-      "temp_directory",
-      "repository_readable",
-      "config",
-      "repository_type",
-      "policy",
-      "codex_adapter",
-      "codex_authentication",
-      "validation_test",
-      "validation_typecheck"
-    ]
-  );
+  assert.deepEqual(doctorJson.checks.map((item) => item.id), expectedDoctorCheckIds());
   assert.equal(doctorJson.checks.every((item) => item.ok === true), true);
+
+  const humanDoctor = runCli(repository, ["doctor"]);
+  assert.equal(humanDoctor.status, 0, humanDoctor.stderr || humanDoctor.stdout);
+  assert.match(humanDoctor.stdout, /^Environment\n/m);
+  assert.match(humanDoctor.stdout, /✓ Node\n/);
+  assert.match(humanDoctor.stdout, /✓ Git\n/);
+  assert.match(humanDoctor.stdout, /Repository\n/);
+  assert.match(humanDoctor.stdout, /✓ JavaScript\/TypeScript\n/);
+  assert.match(humanDoctor.stdout, /✓ policy\n/);
+  assert.match(humanDoctor.stdout, /Codex\n/);
+  assert.match(humanDoctor.stdout, /✓ adapter\n/);
+  assert.match(humanDoctor.stdout, /✓ authentication\n/);
+  assert.match(humanDoctor.stdout, /Validation\n/);
+  assert.match(humanDoctor.stdout, /✓ test\n/);
+  assert.match(humanDoctor.stdout, /✓ typecheck\n/);
 
   const before = {
     config: await fs.readFile(configFile, "utf8"),
@@ -178,12 +198,82 @@ async function main() {
     assert.equal(noGitInit.status, 2, noGitInit.stderr || noGitInit.stdout);
     assert.equal(JSON.parse(noGitInit.stdout).code, "cli_init_git_repository_required");
 
+    const emptyCodexHome = path.join(root, "empty-codex-home");
+    await fs.mkdir(emptyCodexHome);
+    const unauthenticated = runCli(npmRepository, ["doctor", "--json"], {
+      CODEX_API_KEY: "",
+      OPENAI_API_KEY: "",
+      CODEX_HOME: emptyCodexHome
+    });
+    assert.equal(unauthenticated.status, 2, unauthenticated.stderr || unauthenticated.stdout);
+    const unauthenticatedJson = JSON.parse(unauthenticated.stdout);
+    assert.equal(unauthenticatedJson.code, "cli_doctor_checks_failed");
+    assert.equal(unauthenticatedJson.codexAuthenticationSource, "unavailable");
+    assert.equal(unauthenticatedJson.checks.find((item) => item.id === "codex_authentication").ok, false);
+    assert.equal(
+      unauthenticatedJson.checks.filter((item) => item.id !== "codex_authentication")
+        .every((item) => item.ok === true),
+      true
+    );
+
+    const authFileHome = path.join(root, "auth-file-codex-home");
+    await fs.mkdir(authFileHome);
+    await writeJson(path.join(authFileHome, "auth.json"), {
+      auth_mode: "chatgpt",
+      tokens: { access_token: "fixture-access-token" }
+    });
+    const authFileDoctor = runCli(npmRepository, ["doctor", "--json"], {
+      CODEX_API_KEY: "",
+      OPENAI_API_KEY: "",
+      CODEX_HOME: authFileHome
+    });
+    assert.equal(authFileDoctor.status, 0, authFileDoctor.stderr || authFileDoctor.stdout);
+    assert.equal(JSON.parse(authFileDoctor.stdout).codexAuthenticationSource, "auth_file");
+    assert.equal(authFileDoctor.stdout.includes("fixture-access-token"), false);
+
+    const noTypecheckRepository = await createRepository(root, {
+      name: "fixture-no-typecheck",
+      lockfile: "package-lock.json",
+      includeTypecheck: false
+    });
+    const noTypecheckInit = runCli(noTypecheckRepository, ["init", "--json"]);
+    assert.equal(noTypecheckInit.status, 0, noTypecheckInit.stderr || noTypecheckInit.stdout);
+    const validationDoctor = runCli(noTypecheckRepository, ["doctor", "--json"]);
+    assert.equal(validationDoctor.status, 2, validationDoctor.stderr || validationDoctor.stdout);
+    const validationJson = JSON.parse(validationDoctor.stdout);
+    assert.equal(validationJson.checks.find((item) => item.id === "validation_test").ok, true);
+    assert.equal(validationJson.checks.find((item) => item.id === "validation_typecheck").ok, false);
+
+    const brokenPolicyRepository = await createRepository(root, {
+      name: "fixture-broken-policy",
+      lockfile: "package-lock.json"
+    });
+    const brokenPolicyInit = runCli(brokenPolicyRepository, ["init", "--json"]);
+    assert.equal(brokenPolicyInit.status, 0, brokenPolicyInit.stderr || brokenPolicyInit.stdout);
+    await fs.writeFile(
+      path.join(brokenPolicyRepository, ".bounded", "policy.yml"),
+      "not: [valid\n",
+      "utf8"
+    );
+    const policyDoctor = runCli(brokenPolicyRepository, ["doctor", "--json"]);
+    assert.equal(policyDoctor.status, 2, policyDoctor.stderr || policyDoctor.stdout);
+    const policyJson = JSON.parse(policyDoctor.stdout);
+    assert.equal(policyJson.checks.find((item) => item.id === "config").ok, true);
+    assert.equal(policyJson.checks.find((item) => item.id === "policy").ok, false);
+
     const driftPackage = JSON.parse(await fs.readFile(path.join(pnpmRepository, "package.json"), "utf8"));
     driftPackage.scripts["test:integration"] = "node --test test/integration.test.js";
     await writeJson(path.join(pnpmRepository, "package.json"), driftPackage);
     const driftDoctor = runCli(pnpmRepository, ["doctor", "--json"]);
     assert.equal(driftDoctor.status, 2, driftDoctor.stderr || driftDoctor.stdout);
     assert.equal(JSON.parse(driftDoctor.stdout).code, "cli_doctor_config_drift");
+
+    const doctorSource = await fs.readFile(
+      path.join(repoRoot, "apps", "cli", "src", "commands", "doctor.ts"),
+      "utf8"
+    );
+    assert.equal(/\.run\s*\(/.test(doctorSource), false, "doctor must not call AgentAdapter.run()");
+    assert.equal(/runStreamed\s*\(/.test(doctorSource), false, "doctor must not call Codex model streams");
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
@@ -198,7 +288,14 @@ async function main() {
       silentOverwritePrevented: true,
       generatedPolicyCompiles: true,
       repositoryDriftDetected: true,
-      expandedDoctorChecks: true
+      doctorEnvironmentChecks: true,
+      doctorRepositoryChecks: true,
+      doctorCodexChecks: true,
+      doctorValidationChecks: true,
+      doctorHumanSections: true,
+      doctorAuthFileSupport: true,
+      doctorMissingAuthFailsClosed: true,
+      doctorModelCalls: 0
     }, null, 2)}\n`);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
