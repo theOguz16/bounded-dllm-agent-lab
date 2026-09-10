@@ -1,6 +1,7 @@
 import { loadTaskFile, type CliCommand, type CliCommandResult } from "./bounded-task.js";
 import { CliError } from "./cli-errors.js";
 import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js";
+import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { initCommand } from "./commands/init.js";
@@ -11,9 +12,9 @@ import { runCommand } from "./commands/run.js";
 import { statusCommand } from "./commands/status.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
-type LocalCommand = "init" | "doctor";
+type LocalCommand = "init" | "doctor" | "apply";
 type RoutedCommand = CliCommand | LocalCommand | "codex";
 
 type ParsedArgs = Readonly<{
@@ -24,7 +25,7 @@ type ParsedArgs = Readonly<{
 }>;
 
 const TASK_COMMANDS: readonly CliCommand[] = ["run", "status", "inspect", "resume", "recover"];
-const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor"];
+const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor", "apply"];
 
 function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   let task: string | undefined;
@@ -101,6 +102,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
 async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "init") return initCommand();
   if (parsed.command === "doctor") return doctorCommand();
+  if (parsed.command === "apply") return applyCommand({ nonInteractive: parsed.json });
   if (parsed.command === "codex") {
     return codexAutoScopeCommand({
       task: parsed.task!,

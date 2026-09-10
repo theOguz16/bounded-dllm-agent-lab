@@ -50,6 +50,10 @@ const childStages = [
     script: "scripts/smoke/codex-scope-discovery-smoke.cjs"
   },
   {
+    name: "bounded apply smoke",
+    script: "scripts/smoke/bounded-apply-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },

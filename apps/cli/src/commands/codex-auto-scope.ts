@@ -4,12 +4,19 @@ import os from "node:os";
 import path from "node:path";
 
 import {
-  createCanonicalRepositoryContentSnapshot
+  createCanonicalRepositoryContentSnapshot,
+  runBoundedTask,
+  type RunBoundedTaskInput,
+  type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import type { AgentAdapter } from "../../../../packages/integrations/src/agent-adapter.js";
 import type { ScopeDiscoveryProposal } from "../../../../packages/integrations/src/scope-discovery-contract.js";
 import { CliError } from "../cli-errors.js";
 import type { CliCommandResult } from "../bounded-task.js";
+import {
+  createCandidateHandoffFromBoundedRun,
+  writeCandidateHandoff
+} from "../candidate-handoff.js";
 import { doctorBoundedLocalConfig } from "../product-config.js";
 import {
   codexCommand,
@@ -141,6 +148,50 @@ function discoveryOutput(
   };
 }
 
+async function runExplicitAndPersistCandidate(
+  task: string,
+  allowFiles: readonly string[],
+  startPath: string,
+  dependencies: CodexCommandDependencies | undefined
+): Promise<CliCommandResult> {
+  let capturedInput: RunBoundedTaskInput | null = null;
+  let capturedResult: RunBoundedTaskResult | null = null;
+  const originalRunTask = dependencies?.runTask;
+  const result = await codexCommand(
+    { task, allowFiles },
+    startPath,
+    {
+      ...dependencies,
+      runTask: async (input) => {
+        const runResult = await (originalRunTask ?? runBoundedTask)(input);
+        capturedInput = input;
+        capturedResult = runResult;
+        return runResult;
+      }
+    }
+  );
+  if (result.output.ok !== true || capturedInput === null || capturedResult === null) return result;
+  const diagnosed = await doctorBoundedLocalConfig(startPath);
+  const repositoryRoot = await realpath(diagnosed.repositoryRoot);
+  const candidate = createCandidateHandoffFromBoundedRun(
+    repositoryRoot,
+    capturedInput,
+    capturedResult
+  );
+  if (candidate === null) return result;
+  await writeCandidateHandoff(repositoryRoot, candidate);
+  return {
+    ...result,
+    output: {
+      ...result.output,
+      candidateHandoffVersion: candidate.handoffVersion,
+      candidateHandoffHash: candidate.handoffHash,
+      candidatePersisted: true,
+      nextStep: "bounded apply"
+    }
+  };
+}
+
 export async function codexAutoScopeCommand(
   input: CodexAutoScopeCommandInput,
   startPath = process.cwd(),
@@ -148,7 +199,7 @@ export async function codexAutoScopeCommand(
 ): Promise<CliCommandResult> {
   const allowFiles = input.allowFiles ?? [];
   if (allowFiles.length > 0) {
-    return codexCommand({ task: input.task, allowFiles }, startPath, dependencies.explicit);
+    return runExplicitAndPersistCandidate(input.task, allowFiles, startPath, dependencies.explicit);
   }
 
   const diagnosed = await doctorBoundedLocalConfig(startPath);
@@ -194,8 +245,9 @@ export async function codexAutoScopeCommand(
   if (!approved) return discoveryOutput(discovery, "approval_declined");
 
   const approvedFiles = proposalFiles(discovery.proposal);
-  return codexCommand(
-    { task: input.task, allowFiles: approvedFiles },
+  return runExplicitAndPersistCandidate(
+    input.task,
+    approvedFiles,
     repositoryRoot,
     dependencies.explicit
   );
