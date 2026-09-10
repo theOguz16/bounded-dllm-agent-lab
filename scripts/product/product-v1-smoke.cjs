@@ -38,7 +38,7 @@ const childStages = [
     script: "scripts/smoke/codex-bounded-provider-smoke.cjs"
   },
   {
-    name: "bounded init smoke",
+    name: "bounded init/doctor smoke",
     script: "scripts/smoke/bounded-init-smoke.cjs"
   },
   {
