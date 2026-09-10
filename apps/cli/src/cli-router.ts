@@ -11,7 +11,7 @@ import { runCommand } from "./commands/run.js";
 import { statusCommand } from "./commands/status.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor> [--json] | bounded codex <description> [--json] | bounded codex --task <description> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor";
 type RoutedCommand = CliCommand | LocalCommand | "codex";
@@ -28,6 +28,7 @@ const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor"];
 
 function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   let task: string | undefined;
+  let taskFromFlag = false;
   const allowFiles: string[] = [];
   let json = false;
   for (let index = 1; index < argv.length; index += 1) {
@@ -42,6 +43,7 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
         throw new CliError("cli_codex_task_missing", CLI_USAGE);
       }
       task = argv[index + 1]!;
+      taskFromFlag = true;
       index += 1;
       continue;
     }
@@ -60,6 +62,9 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
     throw new CliError("cli_argument_invalid", CLI_USAGE);
   }
   if (task === undefined) throw new CliError("cli_codex_task_missing", CLI_USAGE);
+  if (taskFromFlag && allowFiles.length === 0) {
+    throw new CliError("cli_codex_scope_missing", CLI_USAGE);
+  }
   return { command: "codex", task, allowFiles, json };
 }
 
