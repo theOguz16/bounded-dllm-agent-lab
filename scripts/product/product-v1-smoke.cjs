@@ -46,6 +46,10 @@ const childStages = [
     script: "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs"
   },
   {
+    name: "Codex scope discovery smoke",
+    script: "scripts/smoke/codex-scope-discovery-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -59,7 +63,8 @@ const forbiddenLiveCommand = /(?:runpod|openai|claude|codex|provider-live|live:)
 const deterministicProviderParserSmokes = new Set([
   "scripts/smoke/codex-event-parser-smoke.cjs",
   "scripts/smoke/codex-bounded-provider-smoke.cjs",
-  "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs"
+  "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs",
+  "scripts/smoke/codex-scope-discovery-smoke.cjs"
 ]);
 
 for (const stage of childStages) {
