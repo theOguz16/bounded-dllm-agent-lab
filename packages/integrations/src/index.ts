@@ -4,6 +4,7 @@ export * from "./agent-telemetry.js";
 export * from "./codex-agent-adapter.js";
 export * from "./codex-event-parser.js";
 export * from "./coding-executor.js";
+export * from "./comparative-agent-runner.js";
 export * from "./context-exposure-report.js";
 export * from "./disposable-agent-workspace.js";
 export * from "./local-openai-compatible-model-client.js";
