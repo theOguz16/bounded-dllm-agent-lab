@@ -1,6 +1,7 @@
 import { loadTaskFile, type CliCommand, type CliCommandResult } from "./bounded-task.js";
 import { CliError } from "./cli-errors.js";
 import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js";
+import { codexCommand } from "./commands/codex.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { initCommand } from "./commands/init.js";
 import { inspectCommand } from "./commands/inspect.js";
@@ -10,25 +11,62 @@ import { runCommand } from "./commands/run.js";
 import { statusCommand } from "./commands/status.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor";
-type RoutedCommand = CliCommand | LocalCommand;
+type RoutedCommand = CliCommand | LocalCommand | "codex";
 
 type ParsedArgs = Readonly<{
   command: RoutedCommand;
   task?: string;
+  allowFiles?: readonly string[];
   json: boolean;
 }>;
 
 const TASK_COMMANDS: readonly CliCommand[] = ["run", "status", "inspect", "resume", "recover"];
 const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor"];
 
+function parseCodexArgs(argv: readonly string[]): ParsedArgs {
+  let task: string | undefined;
+  const allowFiles: string[] = [];
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("cli_argument_invalid", CLI_USAGE);
+      json = true;
+      continue;
+    }
+    if (argument === "--task") {
+      if (task !== undefined || !argv[index + 1] || argv[index + 1]!.startsWith("--")) {
+        throw new CliError("cli_codex_task_missing", CLI_USAGE);
+      }
+      task = argv[index + 1]!;
+      index += 1;
+      continue;
+    }
+    if (argument === "--allow") {
+      if (!argv[index + 1] || argv[index + 1]!.startsWith("--")) {
+        throw new CliError("cli_codex_scope_missing", CLI_USAGE);
+      }
+      allowFiles.push(argv[index + 1]!);
+      index += 1;
+      continue;
+    }
+    throw new CliError("cli_argument_invalid", CLI_USAGE);
+  }
+  if (task === undefined) throw new CliError("cli_codex_task_missing", CLI_USAGE);
+  if (allowFiles.length === 0) throw new CliError("cli_codex_scope_missing", CLI_USAGE);
+  return { command: "codex", task, allowFiles, json };
+}
+
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] as RoutedCommand;
-  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS].includes(command)) {
+  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex"].includes(command)) {
     throw new CliError("cli_command_invalid", CLI_USAGE);
   }
+
+  if (command === "codex") return parseCodexArgs(argv);
 
   if (LOCAL_COMMANDS.includes(command as LocalCommand)) {
     const recognized = argv.filter((item, offset) => offset === 0 || item === "--json");
@@ -55,6 +93,9 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
 async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "init") return initCommand();
   if (parsed.command === "doctor") return doctorCommand();
+  if (parsed.command === "codex") {
+    return codexCommand({ task: parsed.task!, allowFiles: parsed.allowFiles! });
+  }
 
   const task = await loadTaskFile(parsed.task!);
   switch (parsed.command) {
