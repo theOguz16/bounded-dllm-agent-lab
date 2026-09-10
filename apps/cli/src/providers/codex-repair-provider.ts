@@ -291,7 +291,7 @@ async function buildCandidateSeed(
     for (const claim of claims) {
       const target = join(root, ...claim.file.split("/"));
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, claim.newContent, { encoding: "utf8", flag: "wx", mode: 0o600 });
+      await writeFile(target, claim.newContent, { encoding: "utf8", flag: "wx", mode: 0o644 });
       contents[claim.file] = claim.newContent;
       descriptions.set(claim.file, claim.description);
     }
