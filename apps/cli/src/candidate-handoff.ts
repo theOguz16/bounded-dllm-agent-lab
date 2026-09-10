@@ -6,6 +6,7 @@ import {
   createCanonicalRepositoryContentSnapshot,
   hashCanonicalJson,
   parseTextFileUpdates,
+  VALIDATION_PROFILES,
   type AcceptanceCriteriaContract,
   type CanonicalGovernedExecutionInput,
   type RunBoundedTaskInput,
@@ -155,7 +156,7 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
   if (Object.keys(record).sort().join("\u0000") !== [...fields].sort().join("\u0000") ||
       record.handoffVersion !== BOUNDED_CANDIDATE_HANDOFF_VERSION ||
       typeof record.taskId !== "string" || record.taskId.length === 0 ||
-      !["structural_draft", "existing_function_bug_fix", "existing_file_behavior_change", "existing_test_regression"].includes(String(record.validationProfile)) ||
+      !(String(record.validationProfile) in VALIDATION_PROFILES) ||
       !["low", "medium", "high", "critical"].includes(String(record.declaredRiskClass))) {
     throw new CliError("cli_candidate_handoff_invalid", "Candidate handoff has an invalid shape or version.");
   }
