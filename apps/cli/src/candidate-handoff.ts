@@ -8,6 +8,8 @@ import {
   parseTextFileUpdates,
   type AcceptanceCriteriaContract,
   type CanonicalGovernedExecutionInput,
+  type RunBoundedTaskInput,
+  type RunBoundedTaskResult,
   type TemporaryWorkspaceExecutionSpecification,
   type ValidationProfileId,
   type WorkspaceMutation
@@ -90,6 +92,52 @@ export function createCandidateHandoff(input: CandidateHandoffInput): BoundedCan
   };
   const handoffHash = hashCanonicalJson(handoffMaterial(withoutHash));
   return Object.freeze({ ...withoutHash, handoffHash });
+}
+
+export function createCandidateHandoffFromBoundedRun(
+  repositoryRoot: string,
+  input: RunBoundedTaskInput,
+  result: RunBoundedTaskResult
+): BoundedCandidateHandoff | null {
+  if (result.decision !== "bounded_task_completed" || result.verifierResult?.decision !== "approve" ||
+      result.verifierResult.validationEvidence?.profileSatisfied !== true) return null;
+  const planner = result.plannerResult;
+  const adaptiveResult = planner?.taskSeedResult?.repoResult?.adaptiveResult;
+  const coderResult = adaptiveResult?.coderResult;
+  const coderMutation = coderResult?.providerOutput;
+  const plan = planner?.minimalityResult?.plan;
+  const executionBinding = planner?.executionBinding;
+  const verifierFinding = result.verifierResult.finding;
+  const specification = input.draftValidation?.executionSpecification;
+  const risk = plan?.riskClass;
+  if (!planner || !adaptiveResult || !coderResult?.context || !coderMutation || !plan ||
+      !executionBinding || !verifierFinding || !specification ||
+      !["low", "medium", "high", "critical"].includes(String(risk))) {
+    throw new CliError(
+      "cli_candidate_handoff_unavailable",
+      "Validated run did not retain the canonical evidence required for a later controlled apply."
+    );
+  }
+  const validationProfile = input.validationProfile ?? "structural_draft";
+  return createCandidateHandoff({
+    taskId: input.taskId,
+    objectiveHash: input.objectiveHash,
+    sourceSnapshotHash: captureCandidateSourceSnapshotHash(repositoryRoot),
+    planHash: plan.planHash,
+    contextBindingHash: hashCanonicalJson(coderResult.context),
+    plannerExecutionBindingHash: executionBinding.bindingHash,
+    compiledPolicyHash: input.canonicalPolicy?.compiledPolicy?.compiledPolicyHash ?? input.policyHash,
+    allowedFiles: [...input.allowedChangeFiles],
+    forbiddenFiles: [...(input.forbiddenFiles ?? [])],
+    acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+    validationProfile,
+    phaseVExecutionSpecification: specification,
+    coderMutation,
+    verifierFinding,
+    adaptiveResult,
+    declaredRiskClass: risk as "low" | "medium" | "high" | "critical",
+    candidateFiles: [...result.verifierResult.canonicalTouchedFiles].sort()
+  });
 }
 
 export function validateCandidateHandoff(value: unknown): BoundedCandidateHandoff {
