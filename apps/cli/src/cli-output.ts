@@ -67,6 +67,18 @@ function tokenValue(value: unknown): string {
   return Number.isSafeInteger(value) && (value as number) >= 0 ? String(value) : "unavailable";
 }
 
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "unavailable";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "unavailable";
+  }
+}
+
 function emitCodexOutput(value: CliJson): boolean {
   if (value.command !== "codex") return false;
   const context = value.context && typeof value.context === "object" && !Array.isArray(value.context)
@@ -111,6 +123,89 @@ function emitCodexOutput(value: CliJson): boolean {
   return true;
 }
 
+function emitHistoryOutput(value: CliJson): boolean {
+  if (value.command !== "history" || !Array.isArray(value.runs)) return false;
+  process.stdout.write("Runs\n");
+  if (value.runs.length === 0) {
+    process.stdout.write("No runs.\n");
+    return true;
+  }
+  for (const candidate of value.runs) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const run = candidate as CliJson;
+    process.stdout.write(
+      `${displayValue(run.runId)}  ${displayValue(run.status)}  ${displayValue(run.model)}  ${displayValue(run.task)}\n`
+    );
+  }
+  return true;
+}
+
+function emitKeyValueObject(value: unknown, preferredKeys: readonly string[]): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    process.stdout.write(`${displayValue(value)}\n`);
+    return;
+  }
+  const object = value as CliJson;
+  const emitted = new Set<string>();
+  for (const key of preferredKeys) {
+    if (!(key in object)) continue;
+    process.stdout.write(`${key} ${displayValue(object[key])}\n`);
+    emitted.add(key);
+  }
+  for (const key of Object.keys(object).sort()) {
+    if (emitted.has(key)) continue;
+    process.stdout.write(`${key} ${displayValue(object[key])}\n`);
+  }
+  if (Object.keys(object).length === 0) process.stdout.write("unavailable\n");
+}
+
+function emitReportOutput(value: CliJson): boolean {
+  if (value.command !== "report") return false;
+  const tokens = value.tokens && typeof value.tokens === "object" && !Array.isArray(value.tokens)
+    ? value.tokens as CliJson : {};
+
+  process.stdout.write(`Run\n${displayValue(value.runId)}\n\n`);
+  process.stdout.write(`Status\n${displayValue(value.status)}\n\n`);
+  process.stdout.write(`Agent\n${displayValue(value.agent)}\n\n`);
+  process.stdout.write(`Model\n${displayValue(value.model)}\n\n`);
+  process.stdout.write(`Task\n${displayValue(value.task)}\n\n`);
+  process.stdout.write(`Source commit\n${displayValue(value.sourceCommit)}\n\n`);
+  process.stdout.write("Tokens\n");
+  process.stdout.write(`input ${tokenValue(tokens.input)}\n`);
+  process.stdout.write(`cached ${tokenValue(tokens.cached)}\n`);
+  process.stdout.write(`output ${tokenValue(tokens.output)}\n`);
+  process.stdout.write(`reasoning ${tokenValue(tokens.reasoning)}\n`);
+  process.stdout.write(`total ${tokenValue(tokens.total)}\n\n`);
+  process.stdout.write("Context exposure\n");
+  emitKeyValueObject(value.contextExposure, [
+    "repositoryEligibleFileCount",
+    "repositoryEligibleBytes",
+    "exposedFileCount",
+    "exposedBytes",
+    "mutableFileCount",
+    "mutableBytes"
+  ]);
+  process.stdout.write("\nChanged files\n");
+  if (Array.isArray(value.changedFiles) && value.changedFiles.length > 0) {
+    for (const file of value.changedFiles) process.stdout.write(`- ${displayValue(file)}\n`);
+  } else {
+    process.stdout.write("none\n");
+  }
+  process.stdout.write("\nCommands\n");
+  if (Array.isArray(value.commands) && value.commands.length > 0) {
+    for (const command of value.commands) process.stdout.write(`- ${displayValue(command)}\n`);
+  } else {
+    process.stdout.write("none\n");
+  }
+  process.stdout.write("\nValidation\n");
+  emitKeyValueObject(value.validation, ["scope", "typecheck", "tests", "behavior", "status"]);
+  process.stdout.write(`\nRepair rounds\n${displayValue(value.repairRounds)}\n\n`);
+  process.stdout.write(`Human decision\n${displayValue(value.humanDecision)}\n\n`);
+  const hashSource = value.receiptHashSource === "artifact-file" ? " (artifact file)" : "";
+  process.stdout.write(`Receipt hash\n${displayValue(value.receiptHash)}${hashSource}\n`);
+  return true;
+}
+
 export function emitCliOutput(value: CliJson, json: boolean, secrets: readonly string[]): void {
   const safe = redactCliValue(value, secrets) as CliJson;
   if (json) {
@@ -119,6 +214,8 @@ export function emitCliOutput(value: CliJson, json: boolean, secrets: readonly s
   }
   if (emitDoctorOutput(safe)) return;
   if (emitCodexOutput(safe)) return;
+  if (emitHistoryOutput(safe)) return;
+  if (emitReportOutput(safe)) return;
   process.stdout.write(`${safe.ok ? "OK" : "STOPPED"}: ${safe.command ?? "error"} ${safe.taskId ?? ""}\n`);
   for (const field of ["mode", "state", "decision", "route", "outcome", "receiptHash", "nextStep"]) {
     if (safe[field] !== undefined && safe[field] !== null) {
