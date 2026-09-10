@@ -70,6 +70,10 @@ const childStages = [
     script: "scripts/smoke/codex-repair-provider-smoke.cjs"
   },
   {
+    name: "agent comparison contract smoke",
+    script: "scripts/smoke/agent-comparison-contract-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
