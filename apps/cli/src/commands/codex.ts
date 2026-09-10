@@ -492,16 +492,20 @@ export async function codexCommand(
     coderProvider: bridge.coderProvider,
     contextRequestProvider: async (state) => {
       const visible = new Set(state.visibleEvidence.map((entry) => entry.path));
-      const requestedFiles = [...new Set([
-        ...state.requiredSourceFiles,
-        ...state.requiredTestFiles
-      ])]
+      const requestedFiles = state.requiredSourceFiles
+        .filter((file) => !visible.has(file))
+        .sort((left, right) => left.localeCompare(right, "en"));
+      const requestedTests = state.requiredTestFiles
         .filter((file) => !visible.has(file))
         .sort((left, right) => left.localeCompare(right, "en"));
       return {
         requestedFiles,
-        requiredSymbols: [...state.requiredSymbols],
-        reason: "Load only missing repository-intelligence-derived dependency/test context for explicit-scope V0."
+        requestedSymbols: [...state.requiredSymbols],
+        requestedTests,
+        evidenceKinds: ["direct_dependency", "required_test"] as const,
+        reason: "Load only missing repository-intelligence-derived dependency/test context for explicit-scope V0.",
+        scopeExpansionRequested: false,
+        maxAdditionalTokens: 4096
       };
     },
     validationProfile,
