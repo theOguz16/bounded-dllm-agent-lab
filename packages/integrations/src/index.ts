@@ -9,3 +9,4 @@ export * from "./disposable-agent-workspace.js";
 export * from "./local-openai-compatible-model-client.js";
 export * from "./runpod-openai-compatible-model-client.js";
 export * from "./provider-execution-error.js";
+export * from "./scope-discovery-contract.js";
