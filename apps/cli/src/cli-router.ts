@@ -4,28 +4,31 @@ import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js"
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { recoverCommand } from "./commands/recover.js";
+import { reportCommand } from "./commands/report.js";
 import { resumeCommand } from "./commands/resume.js";
 import { runCommand } from "./commands/run.js";
 import { statusCommand } from "./commands/status.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor|apply> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
-type LocalCommand = "init" | "doctor" | "apply";
-type RoutedCommand = CliCommand | LocalCommand | "codex";
+type LocalCommand = "init" | "doctor" | "apply" | "history";
+type RoutedCommand = CliCommand | LocalCommand | "codex" | "report";
 
 type ParsedArgs = Readonly<{
   command: RoutedCommand;
   task?: string;
   allowFiles?: readonly string[];
+  runId?: string;
   json: boolean;
 }>;
 
 const TASK_COMMANDS: readonly CliCommand[] = ["run", "status", "inspect", "resume", "recover"];
-const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor", "apply"];
+const LOCAL_COMMANDS: readonly LocalCommand[] = ["init", "doctor", "apply", "history"];
 
 function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   let task: string | undefined;
@@ -69,17 +72,38 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   return { command: "codex", task, allowFiles, json };
 }
 
+function parseReportArgs(argv: readonly string[]): ParsedArgs {
+  let runId: string | undefined;
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("cli_argument_invalid", CLI_USAGE);
+      json = true;
+      continue;
+    }
+    if (!argument?.startsWith("--") && runId === undefined) {
+      runId = argument;
+      continue;
+    }
+    throw new CliError("cli_argument_invalid", CLI_USAGE);
+  }
+  if (!runId) throw new CliError("cli_report_run_id_missing", CLI_USAGE);
+  return { command: "report", runId, json };
+}
+
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] as RoutedCommand;
-  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex"].includes(command)) {
+  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "report"].includes(command)) {
     throw new CliError("cli_command_invalid", CLI_USAGE);
   }
 
   if (command === "codex") return parseCodexArgs(argv);
+  if (command === "report") return parseReportArgs(argv);
 
   if (LOCAL_COMMANDS.includes(command as LocalCommand)) {
     const recognized = argv.filter((item, offset) => offset === 0 || item === "--json");
-    if (recognized.length !== argv.length) {
+    if (recognized.length !== argv.length || argv.filter((item) => item === "--json").length > 1) {
       throw new CliError("cli_argument_invalid", CLI_USAGE);
     }
     return { command, json: argv.includes("--json") };
@@ -103,6 +127,8 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "init") return initCommand();
   if (parsed.command === "doctor") return doctorCommand();
   if (parsed.command === "apply") return applyCommand({ nonInteractive: parsed.json });
+  if (parsed.command === "history") return historyCommand();
+  if (parsed.command === "report") return reportCommand(parsed.runId!);
   if (parsed.command === "codex") {
     return codexAutoScopeCommand({
       task: parsed.task!,
