@@ -18,7 +18,11 @@ function runCli(cwd, args) {
   return spawnSync(process.execPath, [cli, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env }
+    env: {
+      ...process.env,
+      CODEX_API_KEY: "bounded-doctor-smoke-key",
+      OPENAI_API_KEY: ""
+    }
   });
 }
 
@@ -98,13 +102,24 @@ async function assertInitialized(repository, expectedManager) {
   assert.equal(doctorJson.command, "doctor");
   assert.equal(doctorJson.configVersion, "bounded-local-config/v1");
   assert.equal(doctorJson.packageManager, expectedManager);
-  assert.deepEqual(doctorJson.checks, [
-    "git_repository",
-    "local_config_schema",
-    "repository_detection",
-    "policy_file",
-    "bounded_gitignore"
-  ]);
+  assert.equal(doctorJson.codexAuthenticationSource, "environment");
+  assert.deepEqual(
+    doctorJson.checks.map((item) => item.id),
+    [
+      "node",
+      "git",
+      "temp_directory",
+      "repository_readable",
+      "config",
+      "repository_type",
+      "policy",
+      "codex_adapter",
+      "codex_authentication",
+      "validation_test",
+      "validation_typecheck"
+    ]
+  );
+  assert.equal(doctorJson.checks.every((item) => item.ok === true), true);
 
   const before = {
     config: await fs.readFile(configFile, "utf8"),
@@ -182,7 +197,8 @@ async function main() {
       doctorAfterInit: true,
       silentOverwritePrevented: true,
       generatedPolicyCompiles: true,
-      repositoryDriftDetected: true
+      repositoryDriftDetected: true,
+      expandedDoctorChecks: true
     }, null, 2)}\n`);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
