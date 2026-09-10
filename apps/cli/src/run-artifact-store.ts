@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   readFile,
+  readdir,
   rename,
   rm,
   writeFile
@@ -44,6 +45,21 @@ export type StoreProductRunArtifactInput = Readonly<{
 export type StoredProductRunArtifact = Readonly<{
   directoryPath: string;
   artifact: ProductRunArtifact;
+}>;
+
+export type StoredProductRunBundle = Readonly<{
+  directoryPath: string;
+  artifact: ProductRunArtifact;
+  candidateDiff: string;
+  receipt: unknown;
+  telemetry: unknown;
+  validation: unknown;
+  comparison: unknown | null;
+}>;
+
+export type StoredProductRunArtifactEntry = Readonly<{
+  artifact: ProductRunArtifact;
+  modifiedAtMs: number;
 }>;
 
 function isCredentialField(key: string): boolean {
@@ -174,6 +190,12 @@ function assertNoKnownSecrets(bytes: Buffer, secrets: readonly string[]): void {
   }
 }
 
+function assertRunId(runId: string): void {
+  if (!RUN_ID.test(runId)) {
+    throw new CliError("cli_run_artifact_run_id_invalid", "Run artifact runId is invalid.");
+  }
+}
+
 async function assertBoundedDirectory(repositoryRoot: string): Promise<string> {
   const bounded = path.join(repositoryRoot, ".bounded");
   const stat = await lstat(bounded).catch(() => null);
@@ -195,6 +217,119 @@ async function prepareRunsDirectory(repositoryRoot: string): Promise<string> {
   return runs;
 }
 
+async function runsDirectoryForRead(repositoryRoot: string): Promise<string | null> {
+  const bounded = await assertBoundedDirectory(repositoryRoot);
+  const runs = path.join(bounded, "runs");
+  const stat = await lstat(runs).catch(() => null);
+  if (!stat) return null;
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new CliError("cli_run_artifact_store_unsafe", ".bounded/runs must be a real directory.");
+  }
+  return runs;
+}
+
+async function runDirectoryForRead(
+  repositoryRoot: string,
+  runId: string
+): Promise<Readonly<{ directoryPath: string; modifiedAtMs: number }>> {
+  assertRunId(runId);
+  const runs = await runsDirectoryForRead(repositoryRoot);
+  if (!runs) {
+    throw new CliError("cli_run_artifact_not_found", `Run artifact not found: ${runId}.`);
+  }
+  const directoryPath = path.join(runs, runId);
+  const stat = await lstat(directoryPath).catch(() => null);
+  if (!stat) {
+    throw new CliError("cli_run_artifact_not_found", `Run artifact not found: ${runId}.`);
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new CliError("cli_run_artifact_store_unsafe", `Run artifact directory is unsafe: ${runId}.`);
+  }
+  return Object.freeze({ directoryPath, modifiedAtMs: stat.mtimeMs });
+}
+
+async function readRegularFile(file: string, maxBytes: number): Promise<Buffer> {
+  const stat = await lstat(file).catch(() => null);
+  if (!stat || !stat.isFile() || stat.isSymbolicLink()) {
+    throw new CliError("cli_run_artifact_invalid", "Stored run artifact file is missing or unsafe.");
+  }
+  if (stat.size > maxBytes) {
+    throw new CliError("cli_run_artifact_too_large", "Stored run artifact exceeds the local size limit.");
+  }
+  try {
+    return await readFile(file);
+  } catch {
+    throw new CliError("cli_run_artifact_invalid", "Stored run artifact file could not be read.");
+  }
+}
+
+function decodeUtf8(bytes: Buffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new CliError("cli_run_artifact_invalid", "Stored run artifact is not valid UTF-8 text.");
+  }
+}
+
+function parseStoredJson(bytes: Buffer, file: string): unknown {
+  try {
+    return JSON.parse(decodeUtf8(bytes));
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw new CliError("cli_run_artifact_invalid", `Stored ${file} is not valid JSON.`);
+  }
+}
+
+async function readManifestFromDirectory(
+  directoryPath: string,
+  runId: string
+): Promise<ProductRunArtifact> {
+  const bytes = await readRegularFile(
+    path.join(directoryPath, PRODUCT_RUN_ARTIFACT_FILES.run),
+    MAX_JSON_BYTES
+  );
+  const value = parseStoredJson(bytes, PRODUCT_RUN_ARTIFACT_FILES.run);
+  if (!verifyProductRunArtifact(value) || value.runId !== runId) {
+    throw new CliError("cli_run_artifact_invalid", "Stored run.json failed bounded-product-run/v1 verification.");
+  }
+  return value;
+}
+
+async function readVerifiedStoredFile(
+  directoryPath: string,
+  metadata: ProductRunStoredFile,
+  maxBytes: number
+): Promise<Buffer> {
+  const bytes = await readRegularFile(path.join(directoryPath, metadata.file), maxBytes);
+  if (bytes.length !== metadata.bytes || hashBytes(bytes) !== metadata.sha256) {
+    throw new CliError("cli_run_artifact_integrity_failed", `Stored ${metadata.file} failed integrity verification.`);
+  }
+  return bytes;
+}
+
+async function assertExpectedRunFiles(
+  directoryPath: string,
+  artifact: ProductRunArtifact
+): Promise<void> {
+  const expected = new Set<string>([
+    PRODUCT_RUN_ARTIFACT_FILES.run,
+    PRODUCT_RUN_ARTIFACT_FILES.candidateDiff,
+    PRODUCT_RUN_ARTIFACT_FILES.receipt,
+    PRODUCT_RUN_ARTIFACT_FILES.telemetry,
+    PRODUCT_RUN_ARTIFACT_FILES.validation
+  ]);
+  if (artifact.runKind === "compare") expected.add(PRODUCT_RUN_ARTIFACT_FILES.comparison);
+  const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => {
+    throw new CliError("cli_run_artifact_invalid", "Stored run artifact directory could not be read.");
+  });
+  if (
+    entries.length !== expected.size ||
+    entries.some((entry) => !entry.isFile() || entry.isSymbolicLink() || !expected.has(entry.name))
+  ) {
+    throw new CliError("cli_run_artifact_integrity_failed", "Stored run artifact directory contents are invalid.");
+  }
+}
+
 async function writePrivateFile(directory: string, file: string, bytes: Buffer): Promise<void> {
   await writeFile(path.join(directory, file), bytes, { flag: "wx", mode: 0o600 });
 }
@@ -202,9 +337,7 @@ async function writePrivateFile(directory: string, file: string, bytes: Buffer):
 export async function storeProductRunArtifact(
   input: StoreProductRunArtifactInput
 ): Promise<StoredProductRunArtifact> {
-  if (!RUN_ID.test(input.runId)) {
-    throw new CliError("cli_run_artifact_run_id_invalid", "Run artifact runId is invalid.");
-  }
+  assertRunId(input.runId);
   if (typeof input.candidateDiff !== "string") {
     throw new CliError("cli_run_artifact_invalid", "candidate.diff content must be text.");
   }
@@ -293,18 +426,63 @@ export async function readStoredProductRunArtifact(
   repositoryRoot: string,
   runId: string
 ): Promise<ProductRunArtifact> {
-  if (!RUN_ID.test(runId)) {
-    throw new CliError("cli_run_artifact_run_id_invalid", "Run artifact runId is invalid.");
+  const { directoryPath } = await runDirectoryForRead(repositoryRoot, runId);
+  return readManifestFromDirectory(directoryPath, runId);
+}
+
+export async function readStoredProductRunBundle(
+  repositoryRoot: string,
+  runId: string
+): Promise<StoredProductRunBundle> {
+  const { directoryPath } = await runDirectoryForRead(repositoryRoot, runId);
+  const artifact = await readManifestFromDirectory(directoryPath, runId);
+  await assertExpectedRunFiles(directoryPath, artifact);
+
+  const candidateDiffBytes = await readVerifiedStoredFile(
+    directoryPath,
+    artifact.files.candidateDiff,
+    MAX_DIFF_BYTES
+  );
+  const receiptBytes = await readVerifiedStoredFile(directoryPath, artifact.files.receipt, MAX_JSON_BYTES);
+  const telemetryBytes = await readVerifiedStoredFile(directoryPath, artifact.files.telemetry, MAX_JSON_BYTES);
+  const validationBytes = await readVerifiedStoredFile(directoryPath, artifact.files.validation, MAX_JSON_BYTES);
+  const comparisonBytes = artifact.files.comparison === null
+    ? null
+    : await readVerifiedStoredFile(directoryPath, artifact.files.comparison, MAX_JSON_BYTES);
+
+  return Object.freeze({
+    directoryPath,
+    artifact,
+    candidateDiff: decodeUtf8(candidateDiffBytes),
+    receipt: parseStoredJson(receiptBytes, PRODUCT_RUN_ARTIFACT_FILES.receipt),
+    telemetry: parseStoredJson(telemetryBytes, PRODUCT_RUN_ARTIFACT_FILES.telemetry),
+    validation: parseStoredJson(validationBytes, PRODUCT_RUN_ARTIFACT_FILES.validation),
+    comparison: comparisonBytes === null
+      ? null
+      : parseStoredJson(comparisonBytes, PRODUCT_RUN_ARTIFACT_FILES.comparison)
+  });
+}
+
+export async function listStoredProductRunArtifacts(
+  repositoryRoot: string
+): Promise<readonly StoredProductRunArtifactEntry[]> {
+  const runs = await runsDirectoryForRead(repositoryRoot);
+  if (!runs) return Object.freeze([]);
+  const entries = await readdir(runs, { withFileTypes: true }).catch(() => {
+    throw new CliError("cli_run_artifact_store_unsafe", ".bounded/runs could not be read.");
+  });
+  const artifacts: StoredProductRunArtifactEntry[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    if (!RUN_ID.test(entry.name) || !entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new CliError("cli_run_artifact_store_unsafe", "Unexpected entry exists under .bounded/runs.");
+    }
+    const { directoryPath, modifiedAtMs } = await runDirectoryForRead(repositoryRoot, entry.name);
+    const artifact = await readManifestFromDirectory(directoryPath, entry.name);
+    artifacts.push(Object.freeze({ artifact, modifiedAtMs }));
   }
-  const file = path.join(repositoryRoot, BOUNDED_RUNS_PATH, runId, PRODUCT_RUN_ARTIFACT_FILES.run);
-  let value: unknown;
-  try {
-    value = JSON.parse(await readFile(file, "utf8"));
-  } catch {
-    throw new CliError("cli_run_artifact_invalid", "Stored run.json is missing or invalid.");
-  }
-  if (!verifyProductRunArtifact(value)) {
-    throw new CliError("cli_run_artifact_invalid", "Stored run.json failed bounded-product-run/v1 verification.");
-  }
-  return value;
+  artifacts.sort((left, right) =>
+    right.modifiedAtMs - left.modifiedAtMs || left.artifact.runId.localeCompare(right.artifact.runId)
+  );
+  return Object.freeze(artifacts);
 }
