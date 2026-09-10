@@ -133,8 +133,15 @@ function safeErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 }
 
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 ? code : null;
+}
+
 export async function doctorCommand(startPath = process.cwd()): Promise<CliCommandResult> {
   const checks: DoctorCheck[] = [];
+  let primaryFailureCode: string | null = null;
 
   const nodeOk = isSupportedNode(process.versions.node);
   checks.push(check(
@@ -170,6 +177,7 @@ export async function doctorCommand(startPath = process.cwd()): Promise<CliComma
     await access(repositoryRoot, fsConstants.R_OK);
     checks.push(check("repository_readable", "Repository", "repository readable", true));
   } catch (error) {
+    primaryFailureCode ??= errorCode(error);
     checks.push(check(
       "repository_readable",
       "Repository",
@@ -184,6 +192,7 @@ export async function doctorCommand(startPath = process.cwd()): Promise<CliComma
       diagnosed = await doctorBoundedLocalConfig(repositoryRoot);
       checks.push(check("config", "Repository", "config", true));
     } catch (error) {
+      primaryFailureCode ??= errorCode(error);
       checks.push(check(
         "config",
         "Repository",
@@ -262,11 +271,13 @@ export async function doctorCommand(startPath = process.cwd()): Promise<CliComma
   ));
 
   const ok = checks.every((item) => item.ok);
+  const code = ok ? null : primaryFailureCode ?? "cli_doctor_checks_failed";
   return {
     exitCode: ok ? 0 : 2,
     output: {
       ok,
       command: "doctor",
+      ...(code ? { code } : {}),
       configVersion: BOUNDED_LOCAL_CONFIG_VERSION,
       minimumNodeVersion: DOCTOR_MIN_NODE_VERSION,
       nodeVersion: process.versions.node,
