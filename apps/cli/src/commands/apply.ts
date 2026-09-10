@@ -213,7 +213,7 @@ export async function applyCommand(
           candidateFiles: candidate.candidateFiles,
           decision: error.route === "recovery_required" ? "recovery_required" : "safe_stop",
           route: error.route,
-          mutationStarted: error.route === "recovery_required",
+          mutationStarted: true,
           apply: "NOT_COMPLETED",
           receiptHash: null,
           failure: { code: error.code, message: error.message }
@@ -221,6 +221,25 @@ export async function applyCommand(
         exitCode: error.route === "recovery_required" ? 4 : 3
       };
     }
-    throw error;
+    return {
+      output: {
+        ok: false,
+        command: "apply",
+        applyVersion: BOUNDED_APPLY_COMMAND_VERSION,
+        taskId: candidate.taskId,
+        candidateHandoffHash: candidate.handoffHash,
+        candidateFiles: candidate.candidateFiles,
+        decision: "recovery_required",
+        route: "recovery_required",
+        mutationStarted: true,
+        apply: "NOT_COMPLETED",
+        receiptHash: null,
+        failure: {
+          code: "controlled_apply_unexpected_failure",
+          message: error instanceof Error ? error.message : "Controlled apply failed after execution began."
+        }
+      },
+      exitCode: 4
+    };
   }
 }
