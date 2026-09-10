@@ -58,6 +58,10 @@ const childStages = [
     script: "scripts/smoke/product-run-artifact-smoke.cjs"
   },
   {
+    name: "repair telemetry report smoke",
+    script: "scripts/smoke/repair-telemetry-report-smoke.cjs"
+  },
+  {
     name: "targeted repair contract smoke",
     script: "scripts/smoke/targeted-repair-contract-smoke.cjs"
   },
