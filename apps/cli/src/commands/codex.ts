@@ -32,7 +32,8 @@ import type { CliCommandResult } from "../bounded-task.js";
 import { exitForResult } from "../bounded-task.js";
 import {
   BOUNDED_POLICY_PATH,
-  doctorBoundedLocalConfig
+  doctorBoundedLocalConfig,
+  type BoundedLocalConfig
 } from "../product-config.js";
 
 export const BOUNDED_CODEX_EXPLICIT_SCOPE_VERSION =
@@ -58,7 +59,7 @@ type RecordedAgentRun = Readonly<{
   result: AgentRunResult;
 }>;
 
-type CodexCommandDependencies = Readonly<{
+export type CodexCommandDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
@@ -121,8 +122,7 @@ function selectScript(values: readonly string[], preferred: readonly string[]): 
   return values[0] ?? null;
 }
 
-function validationSpecification(config: Awaited<ReturnType<typeof doctorBoundedLocalConfig>>["config"]):
-  TemporaryWorkspaceExecutionSpecification {
+function validationSpecification(config: BoundedLocalConfig): TemporaryWorkspaceExecutionSpecification {
   if (!config.packageJson.detected) {
     throw new CliError(
       "cli_codex_package_json_required",
@@ -141,40 +141,40 @@ function validationSpecification(config: Awaited<ReturnType<typeof doctorBounded
     );
   }
   const syntax = selectScript(config.scripts.build, ["build"]) ?? typecheck;
-  return Object.freeze({
-    commands: Object.freeze([
-      Object.freeze({
+  return {
+    commands: [
+      {
         id: "validation.syntax",
-        checkKind: "syntax" as const,
+        checkKind: "syntax",
         executable: "npm",
-        args: Object.freeze(["run", syntax]),
+        args: ["run", syntax],
         timeoutMs: 120_000,
-        expectedExitCodes: Object.freeze([0])
-      }),
-      Object.freeze({
+        expectedExitCodes: [0]
+      },
+      {
         id: "validation.typecheck",
-        checkKind: "typecheck" as const,
+        checkKind: "typecheck",
         executable: "npm",
-        args: Object.freeze(["run", typecheck]),
+        args: ["run", typecheck],
         timeoutMs: 120_000,
-        expectedExitCodes: Object.freeze([0])
-      }),
-      Object.freeze({
+        expectedExitCodes: [0]
+      },
+      {
         id: "validation.test",
-        checkKind: "behavior_test" as const,
+        checkKind: "behavior_test",
         executable: "npm",
-        args: Object.freeze(["run", test]),
+        args: ["run", test],
         timeoutMs: 120_000,
-        expectedExitCodes: Object.freeze([0])
-      })
-    ]),
-    allowedExecutables: Object.freeze(["npm"]),
+        expectedExitCodes: [0]
+      }
+    ],
+    allowedExecutables: ["npm"],
     maxCommands: 3,
     defaultTimeoutMs: 120_000,
     maxTimeoutMs: 120_000,
     maxOutputChars: 20_000,
-    environment: Object.freeze({ CI: "1" })
-  });
+    environment: { CI: "1" }
+  };
 }
 
 async function noSymlinkComponents(repositoryRoot: string, relative: string): Promise<void> {
@@ -266,7 +266,7 @@ async function resolveCodexModel(override?: string): Promise<string> {
       }
     }
   } catch {
-    // A missing/unreadable Codex config is reported below without exposing local paths.
+    // Missing/unreadable Codex config is reported below without exposing local paths.
   }
   throw new CliError(
     "cli_codex_model_missing",
@@ -490,11 +490,20 @@ export async function codexCommand(
     timeoutMs: 300_000,
     plannerMinimalityProvider: bridge.plannerMinimalityProvider,
     coderProvider: bridge.coderProvider,
-    contextRequestProvider: async () => ({
-      requestedFiles: [],
-      requiredSymbols: [],
-      reason: "Explicit-scope V0 does not automatically widen context after the bounded repository pass."
-    }),
+    contextRequestProvider: async (state) => {
+      const visible = new Set(state.visibleEvidence.map((entry) => entry.path));
+      const requestedFiles = [...new Set([
+        ...state.requiredSourceFiles,
+        ...state.requiredTestFiles
+      ])]
+        .filter((file) => !visible.has(file))
+        .sort((left, right) => left.localeCompare(right, "en"));
+      return {
+        requestedFiles,
+        requiredSymbols: [...state.requiredSymbols],
+        reason: "Load only missing repository-intelligence-derived dependency/test context for explicit-scope V0."
+      };
+    },
     validationProfile,
     draftValidation: {
       executionSpecification: specification,
