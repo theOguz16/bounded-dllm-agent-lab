@@ -31,6 +31,16 @@ function stringArray(value: unknown): string[] | null {
   return [...value];
 }
 
+function normalizedStringArray(...values: unknown[]): string[] | null {
+  for (const value of values) {
+    const array = stringArray(value);
+    if (array !== null) {
+      return [...new Set(array)].sort((left, right) => left.localeCompare(right, "en"));
+    }
+  }
+  return null;
+}
+
 function commandList(value: unknown): unknown[] | null {
   return Array.isArray(value) ? [...value] : null;
 }
@@ -94,6 +104,73 @@ function repairRoundsFrom(run: CliJson, telemetry: CliJson, receipt: CliJson): n
   return firstNumber(run.repairRounds, telemetry.repairRounds, receipt.repairRounds);
 }
 
+function repairTelemetryFrom(
+  run: CliJson,
+  telemetry: CliJson,
+  receipt: CliJson
+): Readonly<{
+  repairAttemptCount: number | null;
+  repairInputTokens: number | null;
+  repairOutputTokens: number | null;
+  repairDurationMs: number | null;
+  repairChangedFiles: readonly string[] | null;
+  repairOutcome: string | null;
+}> {
+  const runRepair = record(run.repair) ?? {};
+  const telemetryRepair = record(telemetry.repair) ?? {};
+  const receiptRepair = record(receipt.repair) ?? {};
+  return Object.freeze({
+    repairAttemptCount: firstNumber(
+      run.repairAttemptCount,
+      telemetry.repairAttemptCount,
+      receipt.repairAttemptCount,
+      runRepair.attemptCount,
+      telemetryRepair.attemptCount,
+      receiptRepair.attemptCount
+    ),
+    repairInputTokens: firstNumber(
+      run.repairInputTokens,
+      telemetry.repairInputTokens,
+      receipt.repairInputTokens,
+      runRepair.inputTokens,
+      telemetryRepair.inputTokens,
+      receiptRepair.inputTokens
+    ),
+    repairOutputTokens: firstNumber(
+      run.repairOutputTokens,
+      telemetry.repairOutputTokens,
+      receipt.repairOutputTokens,
+      runRepair.outputTokens,
+      telemetryRepair.outputTokens,
+      receiptRepair.outputTokens
+    ),
+    repairDurationMs: firstNumber(
+      run.repairDurationMs,
+      telemetry.repairDurationMs,
+      receipt.repairDurationMs,
+      runRepair.durationMs,
+      telemetryRepair.durationMs,
+      receiptRepair.durationMs
+    ),
+    repairChangedFiles: normalizedStringArray(
+      run.repairChangedFiles,
+      telemetry.repairChangedFiles,
+      receipt.repairChangedFiles,
+      runRepair.changedFiles,
+      telemetryRepair.changedFiles,
+      receiptRepair.changedFiles
+    ),
+    repairOutcome: firstString(
+      run.repairOutcome,
+      telemetry.repairOutcome,
+      receipt.repairOutcome,
+      runRepair.outcome,
+      telemetryRepair.outcome,
+      receiptRepair.outcome
+    )
+  });
+}
+
 function humanDecisionFrom(run: CliJson, receipt: CliJson): string | null {
   return firstString(
     run.humanDecision,
@@ -128,6 +205,12 @@ export type ProductRunReport = Readonly<{
   commands: readonly unknown[];
   validation: unknown;
   repairRounds: number | null;
+  repairAttemptCount: number | null;
+  repairInputTokens: number | null;
+  repairOutputTokens: number | null;
+  repairDurationMs: number | null;
+  repairChangedFiles: readonly string[] | null;
+  repairOutcome: string | null;
   humanDecision: string | null;
   receiptHash: string;
   receiptHashSource: "receipt" | "artifact-file";
@@ -138,6 +221,7 @@ export function buildProductRunReport(bundle: StoredProductRunBundle): ProductRu
   const telemetry = record(bundle.telemetry) ?? {};
   const receipt = record(bundle.receipt) ?? {};
   const receiptHash = receiptHashFrom(bundle.artifact, run, receipt);
+  const repairTelemetry = repairTelemetryFrom(run, telemetry, receipt);
   return Object.freeze({
     status: firstString(run.status, receipt.status, receipt.outcome, run.outcome),
     agent: firstString(run.agent, telemetry.agent),
@@ -156,6 +240,7 @@ export function buildProductRunReport(bundle: StoredProductRunBundle): ProductRu
     commands: Object.freeze(commandsFrom(run, telemetry, receipt)),
     validation: bundle.validation,
     repairRounds: repairRoundsFrom(run, telemetry, receipt),
+    ...repairTelemetry,
     humanDecision: humanDecisionFrom(run, receipt),
     receiptHash: receiptHash.value,
     receiptHashSource: receiptHash.source
