@@ -62,6 +62,10 @@ const childStages = [
     script: "scripts/smoke/targeted-repair-contract-smoke.cjs"
   },
   {
+    name: "Codex targeted repair provider smoke",
+    script: "scripts/smoke/codex-repair-provider-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -76,7 +80,8 @@ const deterministicProviderParserSmokes = new Set([
   "scripts/smoke/codex-event-parser-smoke.cjs",
   "scripts/smoke/codex-bounded-provider-smoke.cjs",
   "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs",
-  "scripts/smoke/codex-scope-discovery-smoke.cjs"
+  "scripts/smoke/codex-scope-discovery-smoke.cjs",
+  "scripts/smoke/codex-repair-provider-smoke.cjs"
 ]);
 
 for (const stage of childStages) {
