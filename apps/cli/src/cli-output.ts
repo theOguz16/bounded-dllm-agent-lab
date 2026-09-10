@@ -35,12 +35,33 @@ export function redactCliValue(value: unknown, secrets: readonly string[]): unkn
   return value;
 }
 
+function emitDoctorOutput(value: CliJson): boolean {
+  if (value.command !== "doctor" || !Array.isArray(value.checks)) return false;
+  const sections = ["Environment", "Repository", "Codex", "Validation"];
+  for (const section of sections) {
+    process.stdout.write(`${section}\n`);
+    const checks = value.checks.filter((candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return false;
+      return (candidate as CliJson).section === section;
+    });
+    for (const candidate of checks) {
+      const item = candidate as CliJson;
+      const ok = item.ok === true;
+      const suffix = !ok && typeof item.detail === "string" ? ` — ${item.detail}` : "";
+      process.stdout.write(`${ok ? "✓" : "✗"} ${String(item.label)}${suffix}\n`);
+    }
+    if (section !== sections[sections.length - 1]) process.stdout.write("\n");
+  }
+  return true;
+}
+
 export function emitCliOutput(value: CliJson, json: boolean, secrets: readonly string[]): void {
   const safe = redactCliValue(value, secrets) as CliJson;
   if (json) {
     process.stdout.write(`${JSON.stringify(safe)}\n`);
     return;
   }
+  if (emitDoctorOutput(safe)) return;
   process.stdout.write(`${safe.ok ? "OK" : "STOPPED"}: ${safe.command ?? "error"} ${safe.taskId ?? ""}\n`);
   for (const field of ["mode", "state", "decision", "route", "outcome", "receiptHash", "nextStep"]) {
     if (safe[field] !== undefined && safe[field] !== null) {
