@@ -10,9 +10,7 @@ import {
   hashCanonicalJson,
   type ProductComparisonEvaluation
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
-import {
-  CodexAgentAdapter
-} from "../../../../packages/integrations/src/codex-agent-adapter.js";
+import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
 import {
   runComparativeAgentSample,
   type AgentAdapter,
@@ -42,11 +40,7 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 const MAX_TASK_LENGTH = 32_768;
 
-export type CompareCodexCommandInput = Readonly<{
-  task: string;
-}>;
-
-type ValidationKind = "tests" | "build" | "typecheck";
+export type CompareCodexCommandInput = Readonly<{ task: string }>;
 
 type CompareValidationSpec = Readonly<{
   tests: string | null;
@@ -113,10 +107,7 @@ function requireTask(value: string): string {
     value.trim() !== value ||
     /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)
   ) {
-    throw new CliError(
-      "cli_compare_task_invalid",
-      "--task must be a bounded non-empty task description."
-    );
+    throw new CliError("cli_compare_task_invalid", "--task must be a bounded non-empty task description.");
   }
   return value;
 }
@@ -146,7 +137,7 @@ async function resolveCodexModel(override?: string): Promise<string> {
       }
     }
   } catch {
-    // Report the stable configuration error below without exposing local paths.
+    // Report a stable configuration error below without exposing local paths.
   }
 
   throw new CliError(
@@ -197,10 +188,7 @@ function validationSpec(
   });
 }
 
-function runValidationScript(
-  workspacePath: string,
-  script: string | null
-): ValidationObservation {
+function runValidationScript(workspacePath: string, script: string | null): ValidationObservation {
   if (script === null) return Object.freeze({ passed: null, durationMs: 0 });
   const started = Date.now();
   const result = spawnSync("npm", ["run", script], {
@@ -231,15 +219,8 @@ function failedCommandCount(run: AgentRunResult): number {
   ).length;
 }
 
-function addSafe(left: number | null | undefined, right: number | null | undefined): number | null {
-  if (
-    !Number.isSafeInteger(left) || left === null || left === undefined || left < 0 ||
-    !Number.isSafeInteger(right) || right === null || right === undefined || right < 0
-  ) {
-    return null;
-  }
-  const total = left + right;
-  return Number.isSafeInteger(total) ? total : null;
+function exposedBytes(input: ComparativeAgentEvaluatorInput<CompareValidationSpec>): number {
+  return input.workspaceManifest.files.reduce((total, file) => total + file.bytes, 0);
 }
 
 function comparisonEvaluator(
@@ -257,12 +238,7 @@ function comparisonEvaluator(
   const controls =
     scopeViolationCount === 0 && forbiddenTouchCount === 0 && unsupportedMutationCount === 0;
   const behavior = tests.passed;
-  const succeeded = taskSucceeded([
-    controls,
-    behavior,
-    build.passed,
-    typecheck.passed
-  ]);
+  const succeeded = taskSucceeded([controls, behavior, build.passed, typecheck.passed]);
   const validationDurationMs = tests.durationMs + build.durationMs + typecheck.durationMs;
 
   return evaluateProductComparison({
@@ -288,7 +264,7 @@ function comparisonEvaluator(
       reasoningTokens: null,
       totalTokens: input.run.usage.totalTokens,
       exposedFiles: input.workspaceManifest.files.length,
-      exposedBytes: input.workspaceManifest.totalBytes,
+      exposedBytes: exposedBytes(input),
       commandCount: input.run.commands.length,
       failedCommandCount: failedCommandCount(input.run),
       repairRounds: 0,
@@ -327,18 +303,16 @@ function booleanStatus(value: boolean | null): string {
   return value ? "PASS" : "FAIL";
 }
 
-function bytes(value: number | null): string {
+function readableBytes(value: number | null): string {
   if (value === null) return "N/A";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) {
-    const amount = Math.round((value / 1024) * 10) / 10;
-    return `${amount} KB`;
+    return `${Math.round((value / 1024) * 10) / 10} KB`;
   }
-  const amount = Math.round((value / (1024 * 1024)) * 10) / 10;
-  return `${amount} MB`;
+  return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
 }
 
-function duration(value: number | null): string {
+function readableDuration(value: number | null): string {
   if (value === null) return "N/A";
   if (value < 1000) return `${value} ms`;
   return `${Math.round((value / 1000) * 10) / 10} s`;
@@ -369,16 +343,16 @@ export function formatCodexComparisonTable(
     { label: "Cached input", normal: integer(normal.cachedInputTokens), bounded: integer(bounded.cachedInputTokens), delta: "" },
     { label: "Output tokens", normal: integer(normal.outputTokens), bounded: integer(bounded.outputTokens), delta: percentDelta(normal.outputTokens, bounded.outputTokens) },
     { label: "Exposed files", normal: integer(normal.exposedFiles), bounded: integer(bounded.exposedFiles), delta: "" },
-    { label: "Exposed bytes", normal: bytes(normal.exposedBytes), bounded: bytes(bounded.exposedBytes), delta: "" },
+    { label: "Exposed bytes", normal: readableBytes(normal.exposedBytes), bounded: readableBytes(bounded.exposedBytes), delta: "" },
     { label: "Changed files", normal: integer(normal.changedFiles), bounded: integer(bounded.changedFiles), delta: "" },
     { label: "Scope violations", normal: integer(normal.scopeViolations), bounded: integer(bounded.scopeViolations), delta: "" },
     { label: "Commands", normal: integer(normal.commands), bounded: integer(bounded.commands), delta: "" },
     { label: "Failed commands", normal: integer(normal.failedCommands), bounded: integer(bounded.failedCommands), delta: "" },
     { label: "Repair rounds", normal: integer(normal.repairRounds), bounded: integer(bounded.repairRounds), delta: "" },
-    { label: "Duration", normal: duration(normal.durationMs), bounded: duration(bounded.durationMs), delta: "" }
+    { label: "Duration", normal: readableDuration(normal.durationMs), bounded: readableDuration(bounded.durationMs), delta: "" }
   ];
 
-  const labelWidth = Math.max("".length, ...rows.map((row) => row.label.length));
+  const labelWidth = Math.max(...rows.map((row) => row.label.length));
   const normalWidth = Math.max("NORMAL".length, ...rows.map((row) => row.normal.length));
   const boundedWidth = Math.max("BOUNDED".length, ...rows.map((row) => row.bounded.length));
   const deltaWidth = Math.max("Δ".length, ...rows.map((row) => row.delta.length));
@@ -503,7 +477,10 @@ export async function compareCodexCommand(
   }
 
   const normal = displayMetrics(result.arms.baseline, null);
-  const bounded = displayMetrics(result.arms.bounded, result.arms.bounded.evaluation.efficiency.repairRounds);
+  const bounded = displayMetrics(
+    result.arms.bounded,
+    result.arms.bounded.evaluation.efficiency.repairRounds
+  );
   const output: CompareCodexOutput = Object.freeze({
     ok: result.comparison.comparable,
     command: "compare",
