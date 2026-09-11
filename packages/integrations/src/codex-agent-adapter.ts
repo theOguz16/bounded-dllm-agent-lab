@@ -20,6 +20,10 @@ import {
   type AgentEnvironmentSource
 } from "./agent-environment.js";
 import {
+  AgentIsolationPolicyError,
+  resolveAgentIsolationPolicy
+} from "./agent-isolation-policy.js";
+import {
   createAgentOutputRedactor,
   type AgentOutputRedactor
 } from "./agent-output-redaction.js";
@@ -79,19 +83,6 @@ function mapReasoningEffort(effort: AgentReasoningEffort): ModelReasoningEffort 
     case "extra_high":
       return "xhigh";
   }
-}
-
-function resolveSandboxMode(
-  request: AgentRunRequest
-): "read-only" | "workspace-write" | null {
-  if (request.sandboxMode === "full_access") return null;
-
-  if (request.mode === "planner" || request.mode === "discovery") {
-    return "read-only";
-  }
-
-  if (request.sandboxMode === "read_only") return "read-only";
-  return "workspace-write";
 }
 
 function serializeStreamEvent(event: unknown): string {
@@ -281,15 +272,20 @@ export class CodexAgentAdapter implements AgentAdapter {
       ]);
     }
 
-    const sdkSandboxMode = resolveSandboxMode(request);
-    if (sdkSandboxMode === null) {
-      return emptyResult(request, "rejected", 0, [
-        diagnostic(
-          "codex_sandbox_rejected",
-          "error",
-          "full_access is not permitted by the bounded Codex adapter."
-        )
-      ]);
+    let isolation;
+    try {
+      isolation = resolveAgentIsolationPolicy(request);
+    } catch (error) {
+      if (error instanceof AgentIsolationPolicyError) {
+        return emptyResult(request, "rejected", 0, [
+          diagnostic(
+            `codex_isolation_${error.reason}`,
+            "error",
+            error.message
+          )
+        ]);
+      }
+      throw error;
     }
 
     if (request.timeoutMs <= 0 || !Number.isSafeInteger(request.timeoutMs)) {
@@ -325,10 +321,12 @@ export class CodexAgentAdapter implements AgentAdapter {
     const threadOptions: ThreadOptions = {
       workingDirectory: request.workingDirectory,
       model: request.model,
-      sandboxMode: sdkSandboxMode,
+      sandboxMode: isolation.sandboxMode,
       modelReasoningEffort: mapReasoningEffort(request.reasoningEffort),
-      networkAccessEnabled: request.networkAllowed === true,
-      approvalPolicy: "never"
+      networkAccessEnabled: isolation.networkAccessEnabled,
+      webSearchMode: isolation.webSearchMode,
+      approvalPolicy: isolation.approvalPolicy,
+      additionalDirectories: [...isolation.additionalDirectories]
     };
     const turnOptions: TurnOptions = {
       outputSchema: request.outputSchema,
