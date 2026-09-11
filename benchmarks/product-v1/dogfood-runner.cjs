@@ -285,6 +285,8 @@ async function main() {
         assert.equal(parsed.reasoning, suite.comparison.reasoningEffort);
         assert.equal(parsed.networkPolicy, suite.comparison.networkPolicy);
         assert.equal(parsed.sourceRepositoryUnchanged, true);
+        assert.equal(parsed.comparable, true);
+        assert.deepEqual(parsed.identityMismatchFields, []);
         assert.ok(parsed.normal && parsed.bounded);
         record.pairCompleted = true;
         record.result = parsed;
