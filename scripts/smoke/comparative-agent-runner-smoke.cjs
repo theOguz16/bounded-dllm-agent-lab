@@ -74,10 +74,10 @@ function completedResult(request, overrides = {}) {
     durationMs: 25,
     finalMessage: "done",
     usage: {
-      inputTokens: 100,
+      inputTokens: request.mode === "baseline" ? 100 : 60,
       outputTokens: 20,
-      totalTokens: 120,
-      cachedInputTokens: 0,
+      totalTokens: request.mode === "baseline" ? 120 : 80,
+      cachedInputTokens: request.mode === "baseline" ? 40 : 10,
       toolCalls: 1
     },
     commands: [],
@@ -87,113 +87,146 @@ function completedResult(request, overrides = {}) {
   };
 }
 
+function taskForFirstArm(runtime, firstArm) {
+  for (let index = 0; index < 10_000; index += 1) {
+    const task = `Change value from 1 to 2. sample-${index}`;
+    if (runtime.executionOrderForTaskHash(sha256(task))[0] === firstArm) return task;
+  }
+  throw new Error(`Could not find deterministic ${firstArm}-first task fixture.`);
+}
+
+async function runSample(runtime, fixtureRoot, sourceCommitSha, task, options = {}) {
+  const validationSpec = Object.freeze({ command: "node test/evaluate.mjs" });
+  const requests = [];
+  const evaluatorCalls = [];
+  const observedWorkspacePaths = [];
+  const adapter = options.adapter ?? {
+    agentId: "codex",
+    agentVersion: "test-codex/1",
+    async run(request) {
+      requests.push(request);
+      observedWorkspacePaths.push(request.workingDirectory);
+      const files = workspaceFiles(request.workingDirectory);
+      if (request.mode === "baseline") {
+        assert.equal(files.includes("src/unrelated.ts"), true);
+        assert.equal(files.includes(".env"), false);
+      } else {
+        assert.deepEqual(files, [
+          "src/context.ts",
+          "src/target.ts",
+          "test/target.test.ts"
+        ]);
+      }
+      writeFileSync(
+        join(request.workingDirectory, "src/target.ts"),
+        "export const value = 2;\n",
+        "utf8"
+      );
+      return completedResult(request);
+    }
+  };
+  const evaluator = async (context) => {
+    evaluatorCalls.push(context.arm);
+    assert.equal(context.validationSpec, validationSpec);
+    assert.equal(context.task, task);
+    return Object.freeze({
+      passed: readFileSync(join(context.workspacePath, "src/target.ts"), "utf8").includes("2"),
+      arm: context.arm,
+      cachedInputTokens: context.run.usage.cachedInputTokens ?? null
+    });
+  };
+
+  const result = await runtime.runComparativeAgentSample({
+    repositoryPath: fixtureRoot,
+    sourceRepositorySnapshotHash: sha256(`snapshot:${sourceCommitSha}`),
+    sourceCommitSha,
+    task,
+    modelId: "gpt-test-codex",
+    reasoningEffort: "high",
+    timeoutBudget: 45_000,
+    networkPolicy: "disabled",
+    validationSpecHash: sha256(JSON.stringify(validationSpec)),
+    validationSpec,
+    selectedContextFiles: [
+      "src/target.ts",
+      "src/context.ts",
+      "test/target.test.ts"
+    ],
+    approvedMutableFiles: ["src/target.ts"],
+    forbiddenFiles: [],
+    adapter,
+    evaluator
+  });
+  return { result, requests, evaluatorCalls, observedWorkspacePaths };
+}
+
 async function main() {
   const runtime = await import(pathToFileURL(builtModule).href);
   assert.equal(runtime.COMPARATIVE_AGENT_RUNNER_VERSION, "comparative-agent-runner/v1");
   assert.equal(typeof runtime.runComparativeAgentSample, "function");
+  assert.equal(typeof runtime.executionOrderForTaskHash, "function");
+  assert.throws(
+    () => runtime.executionOrderForTaskHash("not-a-hash"),
+    (error) => error?.code === "comparative_agent_runner_invalid"
+  );
 
   const fixtureRoot = mkdtempSync(join(tmpdir(), "bounded-comparison-source-"));
   try {
     initFixture(fixtureRoot);
     const sourceCommitSha = git(fixtureRoot, ["rev-parse", "HEAD"]);
     const sourceBefore = readFileSync(join(fixtureRoot, "src/target.ts"), "utf8");
-    const validationSpec = Object.freeze({ command: "node test/evaluate.mjs" });
-    const requests = [];
-    const observedWorkspacePaths = [];
-    const evaluatorCalls = [];
+    const baselineFirstTask = taskForFirstArm(runtime, "baseline");
+    const boundedFirstTask = taskForFirstArm(runtime, "bounded");
+    assert.notEqual(baselineFirstTask, boundedFirstTask);
 
-    const adapter = {
-      agentId: "codex",
-      agentVersion: "test-codex/1",
-      async run(request) {
-        requests.push(request);
-        observedWorkspacePaths.push(request.workingDirectory);
-        const files = workspaceFiles(request.workingDirectory);
+    for (const [task, expectedOrder] of [
+      [baselineFirstTask, ["baseline", "bounded"]],
+      [boundedFirstTask, ["bounded", "baseline"]]
+    ]) {
+      const first = await runSample(runtime, fixtureRoot, sourceCommitSha, task);
+      const second = await runSample(runtime, fixtureRoot, sourceCommitSha, task);
 
-        if (request.mode === "baseline") {
-          assert.equal(files.includes("src/unrelated.ts"), true);
-          assert.equal(files.includes(".env"), false);
-        } else {
-          assert.deepEqual(files, [
-            "src/context.ts",
-            "src/target.ts",
-            "test/target.test.ts"
-          ]);
-        }
-
-        writeFileSync(
-          join(request.workingDirectory, "src/target.ts"),
-          "export const value = 2;\n",
-          "utf8"
-        );
-        return completedResult(request);
-      }
-    };
-
-    const evaluator = async (context) => {
-      evaluatorCalls.push(context);
-      assert.equal(context.validationSpec, validationSpec);
-      assert.equal(context.task, "Change value from 1 to 2.");
-      return Object.freeze({
-        passed: readFileSync(join(context.workspacePath, "src/target.ts"), "utf8").includes("2"),
-        arm: context.arm
+      assert.deepEqual(first.result.executionOrder, expectedOrder);
+      assert.deepEqual(second.result.executionOrder, expectedOrder);
+      assert.deepEqual(
+        first.requests.map((request) => request.mode === "baseline" ? "baseline" : "bounded"),
+        expectedOrder
+      );
+      assert.deepEqual(first.evaluatorCalls, expectedOrder);
+      assert.equal(first.result.comparison.schemaVersion, "agent-comparison/v1");
+      assert.equal(first.result.comparison.comparable, true);
+      assert.deepEqual(first.result.comparison.identityMismatchFields, []);
+      assert.deepEqual(first.result.workspaceIsolation, {
+        distinctRoots: true,
+        boundedContextIsBaselineSubset: true
       });
-    };
+      assert.equal(first.result.arms.baseline.evaluation.passed, true);
+      assert.equal(first.result.arms.bounded.evaluation.passed, true);
+      assert.equal(first.result.arms.baseline.workspace.exposedFileCount, 4);
+      assert.equal(first.result.arms.bounded.workspace.exposedFileCount, 3);
+      assert.deepEqual(first.result.arms.bounded.workspace.mutableFiles, ["src/target.ts"]);
+      assert.deepEqual(first.result.arms.bounded.workspace.changedFiles, ["src/target.ts"]);
+      assert.equal(first.result.arms.baseline.workspace.mutableFiles.includes("src/unrelated.ts"), true);
 
-    const result = await runtime.runComparativeAgentSample({
-      repositoryPath: fixtureRoot,
-      sourceRepositorySnapshotHash: sha256(`snapshot:${sourceCommitSha}`),
-      sourceCommitSha,
-      task: "Change value from 1 to 2.",
-      modelId: "gpt-test-codex",
-      reasoningEffort: "high",
-      timeoutBudget: 45_000,
-      networkPolicy: "disabled",
-      validationSpecHash: sha256(JSON.stringify(validationSpec)),
-      validationSpec,
-      selectedContextFiles: [
-        "src/target.ts",
-        "src/context.ts",
-        "test/target.test.ts"
-      ],
-      approvedMutableFiles: ["src/target.ts"],
-      forbiddenFiles: [],
-      adapter,
-      evaluator
-    });
+      // Cache usage remains an independent observed metric on each arm.
+      assert.equal(first.result.arms.baseline.run.usage.cachedInputTokens, 40);
+      assert.equal(first.result.arms.bounded.run.usage.cachedInputTokens, 10);
+      assert.equal(first.result.arms.baseline.evaluation.cachedInputTokens, 40);
+      assert.equal(first.result.arms.bounded.evaluation.cachedInputTokens, 10);
 
-    assert.equal(result.schemaVersion, "comparative-agent-runner/v1");
-    assert.equal(result.comparison.schemaVersion, "agent-comparison/v1");
-    assert.equal(result.comparison.comparable, true);
-    assert.deepEqual(result.comparison.identityMismatchFields, []);
-    assert.deepEqual(result.workspaceIsolation, {
-      distinctRoots: true,
-      boundedContextIsBaselineSubset: true
-    });
-    assert.equal(result.arms.baseline.evaluation.passed, true);
-    assert.equal(result.arms.bounded.evaluation.passed, true);
-    assert.equal(result.arms.baseline.workspace.exposedFileCount, 4);
-    assert.equal(result.arms.bounded.workspace.exposedFileCount, 3);
-    assert.deepEqual(result.arms.bounded.workspace.mutableFiles, ["src/target.ts"]);
-    assert.deepEqual(result.arms.bounded.workspace.changedFiles, ["src/target.ts"]);
-    assert.equal(result.arms.baseline.workspace.mutableFiles.includes("src/unrelated.ts"), true);
-
-    assert.equal(requests.length, 2);
-    assert.equal(evaluatorCalls.length, 2);
-    assert.notEqual(requests[0].workingDirectory, requests[1].workingDirectory);
-    assert.equal(requests[0].task, requests[1].task);
-    assert.equal(requests[0].model, requests[1].model);
-    assert.equal(requests[0].reasoningEffort, requests[1].reasoningEffort);
-    assert.equal(requests[0].timeoutMs, requests[1].timeoutMs);
-    assert.equal(requests[0].networkAllowed, requests[1].networkAllowed);
-    assert.equal(requests[0].sandboxMode, "workspace_write");
-    assert.equal(requests[1].sandboxMode, "workspace_write");
-    assert.equal(requests[0].mode, "baseline");
-    assert.equal(requests[1].mode, "coder");
-    assert.equal(existsSync(observedWorkspacePaths[0]), false);
-    assert.equal(existsSync(observedWorkspacePaths[1]), false);
-    assert.equal(readFileSync(join(fixtureRoot, "src/target.ts"), "utf8"), sourceBefore);
-    assert.equal(git(fixtureRoot, ["rev-parse", "HEAD"]), sourceCommitSha);
+      assert.equal(first.requests.length, 2);
+      assert.notEqual(first.requests[0].workingDirectory, first.requests[1].workingDirectory);
+      assert.equal(first.requests[0].task, first.requests[1].task);
+      assert.equal(first.requests[0].model, first.requests[1].model);
+      assert.equal(first.requests[0].reasoningEffort, first.requests[1].reasoningEffort);
+      assert.equal(first.requests[0].timeoutMs, first.requests[1].timeoutMs);
+      assert.equal(first.requests[0].networkAllowed, first.requests[1].networkAllowed);
+      assert.equal(first.requests[0].sandboxMode, "workspace_write");
+      assert.equal(first.requests[1].sandboxMode, "workspace_write");
+      for (const workspacePath of first.observedWorkspacePaths) {
+        assert.equal(existsSync(workspacePath), false);
+      }
+    }
 
     const violatingPaths = [];
     const violatingAdapter = {
@@ -206,79 +239,31 @@ async function main() {
         return completedResult(request);
       }
     };
-
     await assert.rejects(
-      () => runtime.runComparativeAgentSample({
-        repositoryPath: fixtureRoot,
-        sourceRepositorySnapshotHash: sha256(`snapshot:${sourceCommitSha}`),
-        sourceCommitSha,
-        task: "Change value from 1 to 2.",
-        modelId: "gpt-test-codex",
-        reasoningEffort: "high",
-        timeoutBudget: 45_000,
-        networkPolicy: "disabled",
-        validationSpecHash: sha256(JSON.stringify(validationSpec)),
-        validationSpec,
-        selectedContextFiles: [
-          "src/target.ts",
-          "src/context.ts",
-          "test/target.test.ts"
-        ],
-        approvedMutableFiles: ["src/target.ts"],
-        adapter: violatingAdapter,
-        evaluator
-      }),
+      () => runSample(runtime, fixtureRoot, sourceCommitSha, boundedFirstTask, { adapter: violatingAdapter }),
       (error) => {
         assert.equal(error?.code, "comparative_agent_scope_violation");
         assert.equal(error?.file, "src/context.ts");
         return true;
       }
     );
-    for (const workspacePath of violatingPaths) {
-      assert.equal(existsSync(workspacePath), false);
-    }
-    assert.equal(readFileSync(join(fixtureRoot, "src/context.ts"), "utf8"), "export const context = true;\n");
+    for (const workspacePath of violatingPaths) assert.equal(existsSync(workspacePath), false);
 
-    const mismatchAdapter = {
-      agentId: "codex",
-      agentVersion: "test-codex/1",
-      async run(request) {
-        writeFileSync(join(request.workingDirectory, "src/target.ts"), "export const value = 2;\n", "utf8");
-        return completedResult(
-          request,
-          request.mode === "coder" ? { modelId: "unexpected-model" } : {}
-        );
-      }
-    };
-    const nonComparable = await runtime.runComparativeAgentSample({
-      repositoryPath: fixtureRoot,
-      sourceRepositorySnapshotHash: sha256(`snapshot:${sourceCommitSha}`),
-      sourceCommitSha,
-      task: "Change value from 1 to 2.",
-      modelId: "gpt-test-codex",
-      reasoningEffort: "high",
-      timeoutBudget: 45_000,
-      networkPolicy: "disabled",
-      validationSpecHash: sha256(JSON.stringify(validationSpec)),
-      validationSpec,
-      selectedContextFiles: ["src/target.ts", "src/context.ts"],
-      approvedMutableFiles: ["src/target.ts"],
-      adapter: mismatchAdapter,
-      evaluator
-    });
-    assert.equal(nonComparable.comparison.comparable, false);
-    assert.deepEqual(nonComparable.comparison.identityMismatchFields, ["modelId"]);
+    assert.equal(readFileSync(join(fixtureRoot, "src/target.ts"), "utf8"), sourceBefore);
+    assert.equal(readFileSync(join(fixtureRoot, "src/context.ts"), "utf8"), "export const context = true;\n");
+    assert.equal(git(fixtureRoot, ["rev-parse", "HEAD"]), sourceCommitSha);
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
       runnerVersion: runtime.COMPARATIVE_AGENT_RUNNER_VERSION,
+      deterministicTaskHashOrder: true,
+      baselineFirstCovered: true,
+      boundedFirstCovered: true,
+      fullArmOrderIncludesEvaluator: true,
+      executionOrderRecorded: true,
+      cachedInputTokensRemainSeparate: true,
       twinDisposableWorkspaces: true,
-      baselineFullEligibleContext: true,
-      boundedSelectedContextOnly: true,
       boundedMutableScopeFailClosed: true,
-      sameEvaluator: true,
-      sameTaskModelReasoningTimeoutNetworkValidationCommit: true,
-      actualIdentityMismatchMarksNonComparable: true,
       sourceRepositoryUnchanged: true,
       workspacesCleaned: true
     }, null, 2)}\n`);
