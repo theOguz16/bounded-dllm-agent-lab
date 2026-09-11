@@ -18,6 +18,15 @@ import {
   renderCandidateDiff,
   type BoundedCandidateHandoff
 } from "../candidate-handoff.js";
+import {
+  HUMAN_DECISION_REASONS,
+  HUMAN_DECISIONS,
+  isHumanDecision,
+  isHumanDecisionReason,
+  recordHumanDecision,
+  type BoundedHumanDecisionRecord,
+  type HumanDecisionSelection
+} from "../human-decision.js";
 import { doctorBoundedLocalConfig } from "../product-config.js";
 
 export const BOUNDED_APPLY_COMMAND_VERSION = "bounded-apply/v1" as const;
@@ -27,6 +36,7 @@ export type ApplyCommandInput = Readonly<{
 }>;
 
 export type ApplyCommandDependencies = Readonly<{
+  decide?: (candidate: BoundedCandidateHandoff, diff: string) => Promise<HumanDecisionSelection>;
   approve?: (candidate: BoundedCandidateHandoff, diff: string) => Promise<boolean>;
   execute?: typeof executeCanonicalGovernedMutation;
   runtimeRoot?: string;
@@ -37,23 +47,55 @@ function ciMode(environment: NodeJS.ProcessEnv = process.env): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
-async function promptApproval(_candidate: BoundedCandidateHandoff, diff: string): Promise<boolean> {
+async function promptHumanDecision(
+  _candidate: BoundedCandidateHandoff,
+  diff: string
+): Promise<HumanDecisionSelection> {
   process.stdout.write("Candidate diff:\n\n");
   process.stdout.write(diff);
   if (!diff.endsWith("\n")) process.stdout.write("\n");
   process.stdout.write("\n");
   if (!process.stdin.isTTY) {
-    process.stdout.write("Apply to working tree? [y/N] n\n");
-    return false;
+    process.stdout.write(`Decision [${HUMAN_DECISIONS.join("/")}]: reject\n`);
+    return { decision: "reject", reason: null };
   }
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = (await readline.question("Apply to working tree? [y/N] "))
-      .trim().toLocaleLowerCase("en-US");
-    return answer === "y" || answer === "yes";
+    let decision: HumanDecisionSelection["decision"];
+    while (true) {
+      const answer = (await readline.question(`Decision [${HUMAN_DECISIONS.join("/")}]: `))
+        .trim().toLocaleLowerCase("en-US");
+      if (isHumanDecision(answer)) {
+        decision = answer;
+        break;
+      }
+      process.stdout.write("Choose accept, reject, or needs_manual_edit.\n");
+    }
+    while (true) {
+      const answer = (await readline.question(
+        `Reason (optional: ${HUMAN_DECISION_REASONS.join("/")}): `
+      )).trim().toLocaleLowerCase("en-US");
+      if (answer === "") return { decision, reason: null };
+      if (isHumanDecisionReason(answer)) return { decision, reason: answer };
+      process.stdout.write("Choose one of the listed reasons or leave blank.\n");
+    }
   } finally {
     readline.close();
   }
+}
+
+async function resolveHumanDecision(
+  candidate: BoundedCandidateHandoff,
+  diff: string,
+  dependencies: ApplyCommandDependencies
+): Promise<HumanDecisionSelection> {
+  if (dependencies.decide) return dependencies.decide(candidate, diff);
+  if (dependencies.approve) {
+    return (await dependencies.approve(candidate, diff))
+      ? { decision: "accept", reason: null }
+      : { decision: "reject", reason: null };
+  }
+  return promptHumanDecision(candidate, diff);
 }
 
 function runtimeDirectory(repositoryRoot: string, override?: string): string {
@@ -84,10 +126,24 @@ async function runtimeConfiguration(
   };
 }
 
+function humanDecisionOutput(record?: BoundedHumanDecisionRecord) {
+  if (!record) return {};
+  return {
+    humanDecision: {
+      schemaVersion: record.schemaVersion,
+      decision: record.decision,
+      reason: record.reason,
+      recordedAt: record.recordedAt,
+      decisionHash: record.decisionHash
+    }
+  };
+}
+
 function stoppedOutput(
   candidate: BoundedCandidateHandoff,
   decision: "approval_required" | "approval_declined" | "recovery_required",
-  message?: string
+  message?: string,
+  humanDecision?: BoundedHumanDecisionRecord
 ): CliCommandResult {
   return {
     output: {
@@ -102,6 +158,7 @@ function stoppedOutput(
       mutationStarted: false,
       apply: "NOT_RUN",
       receiptHash: null,
+      ...humanDecisionOutput(humanDecision),
       ...(message ? { failure: { code: "candidate_source_drift", message } } : {})
     },
     exitCode: decision === "approval_declined" ? 0 : decision === "recovery_required" ? 4 : 3
@@ -110,7 +167,8 @@ function stoppedOutput(
 
 function completedOutput(
   candidate: BoundedCandidateHandoff,
-  governed: CanonicalGovernedExecutionResult
+  governed: CanonicalGovernedExecutionResult,
+  humanDecision: BoundedHumanDecisionRecord
 ): CliCommandResult {
   const integrated = governed.integratedResult;
   const completed = integrated.decision === "integrated_disposable_apply_finalized" &&
@@ -134,6 +192,7 @@ function completedOutput(
         apply: integrated.applyResult?.receipt?.outcome ?? "NOT_COMPLETED",
         postApplyValidation: integrated.postApplyValidation?.finalReceipt?.outcome ?? "NOT_COMPLETED",
         receiptHash: null,
+        ...humanDecisionOutput(humanDecision),
         failure: integrated.issues[0] ?? null
       },
       exitCode: integrated.route === "recovery_required" ? 4 : 3
@@ -154,7 +213,8 @@ function completedOutput(
       postApplyValidation: "PASS",
       receiptHash: integrated.receipt!.receiptHash,
       controlledApplyReceiptHash: integrated.applyResult!.receipt!.receiptHash,
-      postApplyReceiptHash: integrated.postApplyValidation!.finalReceipt!.receiptHash
+      postApplyReceiptHash: integrated.postApplyValidation!.finalReceipt!.receiptHash,
+      ...humanDecisionOutput(humanDecision)
     },
     exitCode: 0
   };
@@ -183,15 +243,19 @@ export async function applyCommand(
     return stoppedOutput(candidate, "approval_required");
   }
 
-  const approved = await (dependencies.approve ?? promptApproval)(candidate, diff);
-  if (!approved) return stoppedOutput(candidate, "approval_declined");
+  const selection = await resolveHumanDecision(candidate, diff, dependencies);
+  const humanDecision = await recordHumanDecision(repositoryRoot, candidate, selection);
+  if (humanDecision.decision !== "accept") {
+    return stoppedOutput(candidate, "approval_declined", undefined, humanDecision);
+  }
 
   const currentSnapshotHash = captureCandidateSourceSnapshotHash(repositoryRoot);
   if (currentSnapshotHash !== candidate.sourceSnapshotHash) {
     return stoppedOutput(
       candidate,
       "recovery_required",
-      "Repository source snapshot changed after candidate validation; candidate was not applied."
+      "Repository source snapshot changed after candidate validation; candidate was not applied.",
+      humanDecision
     );
   }
 
@@ -200,7 +264,7 @@ export async function applyCommand(
     const governed = await (dependencies.execute ?? executeCanonicalGovernedMutation)(
       candidateToGovernedInput(repositoryRoot, candidate, configuration)
     );
-    return completedOutput(candidate, governed);
+    return completedOutput(candidate, governed, humanDecision);
   } catch (error) {
     if (error instanceof CanonicalGovernedExecutionError) {
       return {
@@ -216,6 +280,7 @@ export async function applyCommand(
           mutationStarted: true,
           apply: "NOT_COMPLETED",
           receiptHash: null,
+          ...humanDecisionOutput(humanDecision),
           failure: { code: error.code, message: error.message }
         },
         exitCode: error.route === "recovery_required" ? 4 : 3
@@ -234,6 +299,7 @@ export async function applyCommand(
         mutationStarted: true,
         apply: "NOT_COMPLETED",
         receiptHash: null,
+        ...humanDecisionOutput(humanDecision),
         failure: {
           code: "controlled_apply_unexpected_failure",
           message: error instanceof Error ? error.message : "Controlled apply failed after execution began."
