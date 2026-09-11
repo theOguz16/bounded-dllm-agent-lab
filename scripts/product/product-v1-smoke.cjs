@@ -26,6 +26,10 @@ const childStages = [
     script: "scripts/smoke/agent-output-redaction-smoke.cjs"
   },
   {
+    name: "agent process control smoke",
+    script: "scripts/smoke/agent-process-control-smoke.cjs"
+  },
+  {
     name: "agent telemetry smoke",
     script: "scripts/smoke/agent-telemetry-smoke.cjs"
   },
@@ -36,6 +40,10 @@ const childStages = [
   {
     name: "Codex agent adapter smoke",
     script: "scripts/smoke/codex-agent-adapter-smoke.cjs"
+  },
+  {
+    name: "Codex process control smoke",
+    script: "scripts/smoke/codex-agent-process-control-smoke.cjs"
   },
   {
     name: "disposable agent workspace smoke",
@@ -119,6 +127,7 @@ const forbiddenLiveCommand = /(?:runpod|openai|claude|codex|provider-live|live:)
 const deterministicProviderParserSmokes = new Set([
   "scripts/smoke/codex-event-parser-smoke.cjs",
   "scripts/smoke/codex-agent-adapter-smoke.cjs",
+  "scripts/smoke/codex-agent-process-control-smoke.cjs",
   "scripts/smoke/codex-bounded-provider-smoke.cjs",
   "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs",
   "scripts/smoke/codex-scope-discovery-smoke.cjs",
