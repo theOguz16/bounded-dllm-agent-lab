@@ -1,0 +1,66 @@
+name: Product Dogfood V1 Live
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Exact Codex model id for all 20 Normal/Bounded pairs
+        required: true
+        type: string
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  live-dogfood:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'product/p7-2-first-20-dogfood-tasks'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DOGFOOD_MODEL: ${{ github.event.inputs.model || vars.BOUNDED_CODEX_MODEL || vars.CODEX_MODEL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - id: live-config
+        name: Check live Codex configuration
+        shell: bash
+        run: |
+          if [[ -n "${DOGFOOD_MODEL}" && ( -n "${CODEX_API_KEY}" || -n "${OPENAI_API_KEY}" ) ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Live dogfood was not executed because Codex authentication or the model variable is not configured."
+          fi
+
+      - name: Run 20 fresh Normal/Bounded dogfood pairs
+        if: steps.live-config.outputs.configured == 'true'
+        env:
+          BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+        run: |
+          node benchmarks/product-v1/dogfood-runner.cjs \
+            --live \
+            --model="${DOGFOOD_MODEL}" \
+            --output="${RUNNER_TEMP}/product-dogfood-v1-live.json"
+
+      - name: Upload dogfood evidence
+        if: always() && steps.live-config.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-dogfood-v1-live
+          path: ${{ runner.temp }}/product-dogfood-v1-live.json
+          if-no-files-found: error
+          retention-days: 30
