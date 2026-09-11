@@ -15,6 +15,7 @@ assert.equal(integrationsPackage.exports?.["."], "./src/index.ts");
 
 const expectedPublicModules = [
   "agent-environment",
+  "agent-isolation-policy",
   "agent-output-redaction",
   "coding-executor",
   "comparative-agent-runner",
@@ -42,6 +43,8 @@ try {
     `import {
   AGENT_ENVIRONMENT_VERSION,
   createAgentEnvironment,
+  AGENT_ISOLATION_POLICY_VERSION,
+  resolveAgentIsolationPolicy,
   AGENT_OUTPUT_REDACTION_VERSION,
   createAgentOutputRedactor,
   CODING_EXECUTOR_REQUEST_VERSION,
@@ -55,6 +58,8 @@ try {
 void [
   AGENT_ENVIRONMENT_VERSION,
   createAgentEnvironment,
+  AGENT_ISOLATION_POLICY_VERSION,
+  resolveAgentIsolationPolicy,
   AGENT_OUTPUT_REDACTION_VERSION,
   createAgentOutputRedactor,
   CODING_EXECUTOR_REQUEST_VERSION,
