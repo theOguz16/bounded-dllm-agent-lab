@@ -98,7 +98,6 @@ function readState(
 }
 
 function createCheckpointBridge(input: Readonly<{
-  repositoryRoot: string;
   runId: string;
   taskId: string;
   idempotencyKey: string;
@@ -121,7 +120,7 @@ function createCheckpointBridge(input: Readonly<{
     source: ProductRunCheckpointSource = {}
   ): ProductRunCheckpoint => {
     const checkpoint = storeProductRunCheckpoint({
-      repositoryRoot: input.repositoryRoot,
+      registryRoot: input.registryRoot,
       runId: input.runId,
       taskId: input.taskId,
       idempotencyKey: input.idempotencyKey,
@@ -194,7 +193,6 @@ export async function codexCommand(
       const durableIdempotencyKey = idempotencyKey(coreInput);
       const existing = readState(registryRoot, coreInput.taskId, durableIdempotencyKey);
       const bridge = createCheckpointBridge({
-        repositoryRoot: coreInput.repositoryPath,
         runId: coreInput.taskId,
         taskId: coreInput.taskId,
         idempotencyKey: durableIdempotencyKey,
