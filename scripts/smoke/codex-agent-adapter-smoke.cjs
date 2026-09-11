@@ -129,6 +129,7 @@ async function main() {
   });
   assert.equal(result.commands.length, 1);
   assert.equal(result.commands[0].command, "npm test");
+  assert.equal(result.commands[0].output, "ok\n");
   assert.equal(result.commands[0].exitCode, 0);
   assert.equal(result.commands[0].status, "completed");
   assert.deepEqual(result.fileChanges, [
@@ -141,8 +142,9 @@ async function main() {
   assert.equal(capture.threadOptions.sandboxMode, "workspace-write");
   assert.equal(capture.threadOptions.modelReasoningEffort, "high");
   assert.equal(capture.threadOptions.networkAccessEnabled, false);
+  assert.equal(capture.threadOptions.webSearchMode, "disabled");
   assert.equal(capture.threadOptions.approvalPolicy, "never");
-  assert.equal("additionalDirectories" in capture.threadOptions, false);
+  assert.deepEqual(capture.threadOptions.additionalDirectories, []);
   assert.equal(capture.turnOptions.outputSchema, schema);
   assert.equal(capture.turnOptions.signal instanceof AbortSignal, true);
 
@@ -158,8 +160,9 @@ async function main() {
   assert.equal(plannerCapture.threadOptions.sandboxMode, "read-only");
   assert.equal(plannerCapture.threadOptions.modelReasoningEffort, "xhigh");
   assert.equal(plannerCapture.threadOptions.networkAccessEnabled, false);
+  assert.equal(plannerCapture.threadOptions.webSearchMode, "disabled");
   assert.equal(plannerCapture.threadOptions.approvalPolicy, "never");
-  assert.equal("additionalDirectories" in plannerCapture.threadOptions, false);
+  assert.deepEqual(plannerCapture.threadOptions.additionalDirectories, []);
 
   let forbiddenFactoryCalls = 0;
   const rejectingAdapter = new CodexAgentAdapter({
@@ -169,15 +172,84 @@ async function main() {
     },
     now: () => 3000
   });
-  const rejected = await rejectingAdapter.run(
+
+  const rejectedFullAccess = await rejectingAdapter.run(
     request({ sandboxMode: "full_access" })
   );
-  assert.equal(rejected.status, "rejected");
+  assert.equal(rejectedFullAccess.status, "rejected");
   assert.equal(forbiddenFactoryCalls, 0);
   assert.equal(
-    rejected.diagnostics.some((entry) => entry.code === "codex_sandbox_rejected"),
+    rejectedFullAccess.diagnostics.some(
+      (entry) => entry.code === "codex_isolation_danger_full_access"
+    ),
     true
   );
+
+  const rejectedPlannerWrite = await rejectingAdapter.run(
+    request({ mode: "planner", sandboxMode: "workspace_write" })
+  );
+  assert.equal(rejectedPlannerWrite.status, "rejected");
+  assert.equal(forbiddenFactoryCalls, 0);
+  assert.equal(
+    rejectedPlannerWrite.diagnostics.some(
+      (entry) => entry.code === "codex_isolation_sandbox_escalation"
+    ),
+    true
+  );
+
+  const rejectedNetwork = await rejectingAdapter.run(
+    request({ networkAllowed: true })
+  );
+  assert.equal(rejectedNetwork.status, "rejected");
+  assert.equal(forbiddenFactoryCalls, 0);
+  assert.equal(
+    rejectedNetwork.diagnostics.some(
+      (entry) => entry.code === "codex_isolation_network_policy_required"
+    ),
+    true
+  );
+
+  const rejectedSourceDirectory = await rejectingAdapter.run(
+    request({
+      sourceRepositoryPath: "/tmp/source-repository",
+      additionalDirectories: ["/tmp/source-repository"]
+    })
+  );
+  assert.equal(rejectedSourceDirectory.status, "rejected");
+  assert.equal(forbiddenFactoryCalls, 0);
+  assert.equal(
+    rejectedSourceDirectory.diagnostics.some(
+      (entry) => entry.code === "codex_isolation_additional_directory_source_overlap"
+    ),
+    true
+  );
+
+  const networkCapture = {};
+  const networkAdapter = new CodexAgentAdapter({
+    clientFactory: () => makeFakeClient(networkCapture),
+    now: () => 4000
+  });
+  const networked = await networkAdapter.run(
+    request({ networkAllowed: true, networkPolicy: "enabled" })
+  );
+  assert.equal(networked.status, "completed");
+  assert.equal(networkCapture.threadOptions.networkAccessEnabled, true);
+  assert.equal(networkCapture.threadOptions.webSearchMode, "disabled");
+  assert.equal(networkCapture.threadOptions.approvalPolicy, "never");
+
+  const additionalCapture = {};
+  const additionalAdapter = new CodexAgentAdapter({
+    clientFactory: () => makeFakeClient(additionalCapture),
+    now: () => 5000
+  });
+  const safeAdditional = await additionalAdapter.run(
+    request({
+      sourceRepositoryPath: "/tmp/source-repository",
+      additionalDirectories: ["/tmp/bounded-shared"]
+    })
+  );
+  assert.equal(safeAdditional.status, "completed");
+  assert.deepEqual(additionalCapture.threadOptions.additionalDirectories, ["/tmp/bounded-shared"]);
 
   const abortController = new AbortController();
   abortController.abort("smoke");
@@ -186,13 +258,6 @@ async function main() {
   );
   assert.equal(aborted.status, "aborted");
   assert.equal(forbiddenFactoryCalls, 0);
-
-  const source = require("node:fs").readFileSync(
-    resolve(repoRoot, "packages/integrations/src/codex-agent-adapter.ts"),
-    "utf8"
-  );
-  assert.equal(source.includes('"danger-full-access"'), false);
-  assert.equal(source.includes("additionalDirectories:"), false);
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
@@ -203,9 +268,12 @@ async function main() {
     plannerSandbox: "read-only",
     coderSandbox: "workspace-write",
     networkDefault: false,
+    networkRequiresExplicitPolicy: true,
+    webSearchMode: "disabled",
     approvalPolicy: "never",
-    dangerFullAccessUsed: false,
-    additionalDirectoriesUsed: false
+    additionalDirectoriesDefaultEmpty: true,
+    dangerFullAccessRejected: true,
+    realRepositoryAdditionalDirectoryRejected: true
   }, null, 2)}\n`);
 }
 
