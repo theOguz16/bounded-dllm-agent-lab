@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  renameSync,
+  writeFileSync
+} from "node:fs";
+import {
   chmod,
   lstat,
   mkdir,
@@ -17,6 +24,10 @@ import {
   AGENT_OUTPUT_REDACTED,
   type AgentOutputRedactor
 } from "../../../packages/integrations/src/agent-output-redaction.js";
+import type {
+  DurableBoundedTaskConfiguration,
+  DurableBoundedTaskState
+} from "../../../packages/product-runtime/src/bounded-task-state-machine.js";
 import {
   PRODUCT_RUN_ARTIFACT_FILES,
   createProductRunArtifact,
@@ -28,10 +39,28 @@ import {
 import { CliError } from "./cli-errors.js";
 
 export const BOUNDED_RUNS_PATH = ".bounded/runs" as const;
+export const BOUNDED_CODEX_CHECKPOINT_VERSION = "bounded-codex-checkpoint/v1" as const;
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;
+
+export type ProductRunPersistPoint =
+  | "before_agent_call"
+  | "after_agent_call"
+  | "after_mutation_capture"
+  | "after_verification"
+  | "after_validation"
+  | "before_apply"
+  | "after_apply";
+
+export type CodexDurableRecoveryBridge = Readonly<{
+  registryRoot: string;
+  idempotencyKey: string;
+  checkpointFile: string;
+  durableTask: DurableBoundedTaskConfiguration;
+  record(point: ProductRunPersistPoint, state?: DurableBoundedTaskState): void;
+}>;
 
 export type StoreProductRunArtifactInput = Readonly<{
   repositoryRoot: string;
@@ -144,6 +173,123 @@ function assertRunId(runId: string): void {
   if (!RUN_ID.test(runId)) {
     throw new CliError("cli_run_artifact_run_id_invalid", "Run artifact runId is invalid.");
   }
+}
+
+function assertBoundedDirectorySync(repositoryRoot: string): string {
+  const bounded = path.join(repositoryRoot, ".bounded");
+  let stat;
+  try {
+    stat = lstatSync(bounded);
+  } catch {
+    throw new CliError("cli_run_artifact_store_unsafe", ".bounded must be a real directory. Run bounded init first.");
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new CliError("cli_run_artifact_store_unsafe", ".bounded must be a real directory. Run bounded init first.");
+  }
+  return bounded;
+}
+
+function codexDurableRegistryRoot(repositoryRoot: string): string {
+  const repositoryKey = createHash("sha256")
+    .update(path.resolve(repositoryRoot))
+    .digest("hex")
+    .slice(0, 32);
+  return path.join(path.dirname(path.resolve(repositoryRoot)), ".bounded-durable", repositoryKey);
+}
+
+function canonicalCheckpointSummary(state: DurableBoundedTaskState | undefined): Readonly<Record<string, unknown>> | null {
+  if (state === undefined) return null;
+  return Object.freeze({
+    state: state.currentState,
+    transitionSequence: state.transitionSequence,
+    runId: state.runId,
+    stateHash: state.stateHash,
+    updatedAt: state.updatedAt
+  });
+}
+
+export function createCodexDurableRecoveryBridge(input: Readonly<{
+  repositoryRoot: string;
+  taskId: string;
+}>): CodexDurableRecoveryBridge {
+  const bounded = assertBoundedDirectorySync(input.repositoryRoot);
+  const stateDirectory = path.join(bounded, "state", "codex");
+  mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(path.join(bounded, "state"), 0o700);
+  chmodSync(stateDirectory, 0o700);
+
+  const key = createHash("sha256")
+    .update(`${path.resolve(input.repositoryRoot)}\u0000${input.taskId}`)
+    .digest("hex");
+  const registryRoot = codexDurableRegistryRoot(input.repositoryRoot);
+  const idempotencyKey = `codex.${key.slice(0, 48)}`;
+  const checkpointFile = path.join(stateDirectory, `${key.slice(0, 32)}.json`);
+  const history: Array<Readonly<Record<string, unknown>>> = [];
+  let lastState: DurableBoundedTaskState | undefined;
+
+  const record = (point: ProductRunPersistPoint, state?: DurableBoundedTaskState): void => {
+    if (state !== undefined) lastState = state;
+    const canonical = canonicalCheckpointSummary(state ?? lastState);
+    const previous = history.at(-1);
+    if (
+      previous?.point === point &&
+      (previous.canonical as Record<string, unknown> | null)?.stateHash === canonical?.stateHash
+    ) return;
+    history.push(Object.freeze({
+      point,
+      recordedAt: new Date().toISOString(),
+      canonical
+    }));
+    if (history.length > 128) history.splice(0, history.length - 128);
+    const document = {
+      checkpointVersion: BOUNDED_CODEX_CHECKPOINT_VERSION,
+      authority: "canonical_bounded_task_state",
+      taskId: input.taskId,
+      registryRoot,
+      idempotencyKey,
+      latestPoint: point,
+      canonical,
+      history
+    };
+    const bytes = jsonBytes(document);
+    const temporary = `${checkpointFile}.tmp-${process.pid}`;
+    writeFileSync(temporary, bytes, { flag: "w", mode: 0o600 });
+    renameSync(temporary, checkpointFile);
+    chmodSync(checkpointFile, 0o600);
+  };
+
+  const onCheckpoint = (state: DurableBoundedTaskState): void => {
+    lastState = state;
+    if (state.currentState === "coding_started") record("before_agent_call", state);
+    else if (state.currentState === "coding_completed") record("after_mutation_capture", state);
+    else if (state.currentState === "mutation_verified") record("after_verification", state);
+    else if (state.currentState === "governed_apply_prepared") record("before_apply", state);
+    else if (state.currentState === "x4_committed") record("after_apply", state);
+    else if (state.currentState === "validation_completed" || state.currentState === "finalized") {
+      record("after_validation", state);
+    }
+  };
+
+  const durableTask: DurableBoundedTaskConfiguration = Object.freeze({
+    registryRoot,
+    idempotencyKey,
+    providerIdempotencySupport: Object.freeze({ planner: false, coder: false, context: false }),
+    onCheckpoint,
+    onProviderCheckpoint(event) {
+      if (event.providerKind !== "coder") return;
+      if (event.phase === "started") record("before_agent_call");
+      else if (event.phase === "response_received" || event.phase === "completed") record("after_agent_call");
+    },
+    onArtifactCheckpoint(event) {
+      if (event.name === "validated-mutation") record("after_mutation_capture");
+      else if (event.name === "verified-mutation") record("after_verification");
+      else if (event.name === "governed_apply_prepared") record("before_apply");
+      else if (event.name === "x4_committed") record("after_apply");
+      else if (event.name === "validation_completed") record("after_validation");
+    }
+  });
+
+  return Object.freeze({ registryRoot, idempotencyKey, checkpointFile, durableTask, record });
 }
 
 async function assertBoundedDirectory(repositoryRoot: string): Promise<string> {
