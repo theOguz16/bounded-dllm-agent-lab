@@ -1,0 +1,29 @@
+name: Product Dogfood V1 Contract
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/product-v1/**"
+      - ".github/workflows/product-dogfood-v1-*.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: node benchmarks/product-v1/dogfood-smoke.cjs
+        env:
+          CODEX_API_KEY: ""
+          OPENAI_API_KEY: ""
+          CODEX_HOME: ""
