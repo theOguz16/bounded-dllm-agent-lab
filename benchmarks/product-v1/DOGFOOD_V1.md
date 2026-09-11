@@ -21,6 +21,28 @@ Failure policy is fixed before execution:
 - no oracle/reference patch in provider input;
 - a failed task is recorded and execution continues to the next task.
 
-`dogfood-smoke.cjs` validates the frozen plan without provider calls. `dogfood-runner.cjs --live` performs the real comparisons when Codex authentication and an explicit model id are configured.
+`dogfood-smoke.cjs` validates the frozen plan without provider calls. `dogfood-runner.cjs --live` performs the real comparisons when live authentication and an explicit model id are configured.
 
 The live report is evidence, not a success-only report: failed or non-comparable pairs remain in the output.
+
+## P7.2 live completion gate
+
+P7.2 is complete only when `dogfood-live-gate.cjs` accepts the real live evidence artifact with all of these invariants:
+
+```text
+completedPairCount = 20
+expectedAgentRuns  = 40
+
+for every task:
+  attempt = 1
+  retryCount = 0
+  pairCompleted = true
+  result.comparable = true
+  identityMismatchFields = []
+  hiddenHintsInjected = false
+  promptMutatedAfterFailure = false
+```
+
+A missing artifact, incomplete pair, retry, identity mismatch, hidden hint, or prompt mutation fails the live completion gate. The PR must remain Draft until this gate passes on real evidence.
+
+The live workflow supports manual dispatch. After the Actions environment has live authentication, supply the exact model as the dispatch input; no PR close/reopen cycle is required.
