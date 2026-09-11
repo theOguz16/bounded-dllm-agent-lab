@@ -13,6 +13,7 @@ export * from "./run-cost-ledger.js";
 export * from "./agent-event-cost-binding.js";
 export * from "./comparative-evidence-contract.js";
 export * from "./agent-comparison-contract.js";
+export * from "./product-comparison-evaluator.js";
 export * from "./external-repository-task-contract.js";
 export * from "./model-mutation-validator.js";
 export * from "./context-sufficiency-contract.js";

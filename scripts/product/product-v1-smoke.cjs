@@ -78,6 +78,10 @@ const childStages = [
     script: "scripts/smoke/agent-comparison-contract-smoke.cjs"
   },
   {
+    name: "product comparison evaluator smoke",
+    script: "scripts/smoke/product-comparison-evaluator-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -132,6 +136,7 @@ async function main() {
   assert.equal(typeof runtime.runBoundedTask, "function");
   assert.equal(typeof runtime.resumeBoundedTask, "function");
   assert.equal(typeof runtime.compileCanonicalPolicy, "function");
+  assert.equal(typeof runtime.evaluateProductComparison, "function");
 
   const invalidTaskResult = await runtime.runBoundedTask({});
   assert.equal(invalidTaskResult.decision, "bounded_task_invalid");
