@@ -15,6 +15,7 @@ function validateLiveEvidence(report) {
   assert.equal(report.taskCount, EXPECTED_PAIR_COUNT);
   assert.equal(report.completedPairCount, EXPECTED_PAIR_COUNT);
   assert.equal(report.expectedAgentRuns, EXPECTED_AGENT_RUNS);
+  assert.equal(report.completedAgentRuns, EXPECTED_AGENT_RUNS);
   assert.equal(report.completedAgentPairs, EXPECTED_PAIR_COUNT);
   assert.equal(report.retryPolicy, "none");
   assert.equal(report.promptMutationAfterFailure, false);
@@ -41,6 +42,7 @@ function validateLiveEvidence(report) {
     ok: true,
     completedPairCount: EXPECTED_PAIR_COUNT,
     expectedAgentRuns: EXPECTED_AGENT_RUNS,
+    completedAgentRuns: EXPECTED_AGENT_RUNS,
     allPairsComparable: true,
     retries: 0,
     promptMutationAfterFailure: false,
@@ -55,6 +57,7 @@ function validFixture() {
     taskCount: EXPECTED_PAIR_COUNT,
     completedPairCount: EXPECTED_PAIR_COUNT,
     expectedAgentRuns: EXPECTED_AGENT_RUNS,
+    completedAgentRuns: EXPECTED_AGENT_RUNS,
     completedAgentPairs: EXPECTED_PAIR_COUNT,
     retryPolicy: "none",
     promptMutationAfterFailure: false,
@@ -84,6 +87,7 @@ function selfTest() {
   const mutations = [
     (report) => { report.completedPairCount = 19; },
     (report) => { report.expectedAgentRuns = 38; },
+    (report) => { report.completedAgentRuns = 38; },
     (report) => { report.results[0].attempt = 2; },
     (report) => { report.results[0].retryCount = 1; },
     (report) => { report.results[0].pairCompleted = false; },
@@ -104,6 +108,7 @@ function selfTest() {
     gate: "product-dogfood-live-evidence/v1",
     completedPairCount: EXPECTED_PAIR_COUNT,
     expectedAgentRuns: EXPECTED_AGENT_RUNS,
+    completedAgentRuns: EXPECTED_AGENT_RUNS,
     failClosedMutationsChecked: mutations.length
   }, null, 2)}\n`);
 }
