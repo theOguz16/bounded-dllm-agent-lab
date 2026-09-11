@@ -82,6 +82,10 @@ const childStages = [
     script: "scripts/smoke/product-comparison-evaluator-smoke.cjs"
   },
   {
+    name: "bounded compare Codex smoke",
+    script: "scripts/smoke/bounded-compare-codex-smoke.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
@@ -97,7 +101,8 @@ const deterministicProviderParserSmokes = new Set([
   "scripts/smoke/codex-bounded-provider-smoke.cjs",
   "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs",
   "scripts/smoke/codex-scope-discovery-smoke.cjs",
-  "scripts/smoke/codex-repair-provider-smoke.cjs"
+  "scripts/smoke/codex-repair-provider-smoke.cjs",
+  "scripts/smoke/bounded-compare-codex-smoke.cjs"
 ]);
 
 for (const stage of childStages) {
