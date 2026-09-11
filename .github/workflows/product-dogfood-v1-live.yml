@@ -23,6 +23,7 @@ jobs:
       CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DOGFOOD_MODEL: ${{ github.event.inputs.model || vars.BOUNDED_CODEX_MODEL || vars.CODEX_MODEL }}
+      DOGFOOD_EVIDENCE: ${{ runner.temp }}/product-dogfood-v1-live.json
 
     steps:
       - uses: actions/checkout@v4
@@ -46,15 +47,30 @@ jobs:
             echo "Live dogfood was not executed because Codex authentication or the model variable is not configured."
           fi
 
-      - name: Run 20 fresh Normal/Bounded dogfood pairs
+      - name: Require live configuration for manual dispatch
+        if: github.event_name == 'workflow_dispatch' && steps.live-config.outputs.configured != 'true'
+        shell: bash
+        run: |
+          echo "Manual P7.2 live dogfood requires a configured Codex/OpenAI credential and exact model input."
+          exit 1
+
+      - id: live-run
+        name: Run 20 fresh Normal/Bounded dogfood pairs
         if: steps.live-config.outputs.configured == 'true'
+        continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
         run: |
           node benchmarks/product-v1/dogfood-runner.cjs \
             --live \
             --model="${DOGFOOD_MODEL}" \
-            --output="${RUNNER_TEMP}/product-dogfood-v1-live.json"
+            --output="${DOGFOOD_EVIDENCE}"
+
+      - name: Enforce P7.2 live completion gate
+        if: always() && steps.live-config.outputs.configured == 'true'
+        run: |
+          node benchmarks/product-v1/dogfood-live-gate.cjs \
+            --input="${DOGFOOD_EVIDENCE}"
 
       - name: Upload dogfood evidence
         if: always() && steps.live-config.outputs.configured == 'true'
