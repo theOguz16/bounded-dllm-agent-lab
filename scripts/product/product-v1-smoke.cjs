@@ -18,6 +18,10 @@ const childStages = [
     script: "scripts/smoke/agent-environment-smoke.cjs"
   },
   {
+    name: "agent output redaction smoke",
+    script: "scripts/smoke/agent-output-redaction-smoke.cjs"
+  },
+  {
     name: "agent telemetry smoke",
     script: "scripts/smoke/agent-telemetry-smoke.cjs"
   },

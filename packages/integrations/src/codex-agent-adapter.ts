@@ -20,6 +20,10 @@ import {
   type AgentEnvironmentSource
 } from "./agent-environment.js";
 import {
+  createAgentOutputRedactor,
+  type AgentOutputRedactor
+} from "./agent-output-redaction.js";
+import {
   parseCodexJsonl,
   type CodexEventParserResult,
   type CodexNormalizedCommandEvent
@@ -163,7 +167,8 @@ function mapCommands(
   timings: ReadonlyMap<string, CommandTiming>,
   termination: RunTermination,
   workingDirectory: string,
-  diagnostics: AgentDiagnostic[]
+  diagnostics: AgentDiagnostic[],
+  redactor: AgentOutputRedactor
 ): AgentCommandEvent[] {
   return parsed.commands.map((command, index) => {
     const timing = timings.get(command.id);
@@ -189,13 +194,16 @@ function mapCommands(
 
     return {
       sequence: index + 1,
-      command: command.command,
+      command: redactor.redactText(command.command),
       args: [],
       workingDirectory,
       startedAtMs,
       durationMs: Math.max(0, completedAtMs - startedAtMs),
       exitCode: command.exitCode,
-      status: mapCommandStatus(command, termination)
+      status: mapCommandStatus(command, termination),
+      output: command.aggregatedOutput === null
+        ? null
+        : redactor.redactText(command.aggregatedOutput)
     };
   });
 }
@@ -250,12 +258,13 @@ export class CodexAgentAdapter implements AgentAdapter {
 
   private readonly clientFactory: () => CodexSdkClientLike;
   private readonly now: () => number;
+  private readonly redactor: AgentOutputRedactor;
 
   constructor(options: CodexAgentAdapterOptions = {}) {
-    this.clientFactory = options.clientFactory ?? (() => {
-      const environment = createAgentEnvironment(options.environment ?? process.env);
-      return new Codex({ env: { ...environment } });
-    });
+    const environmentSource = options.environment ?? process.env;
+    const environment = createAgentEnvironment(environmentSource);
+    this.redactor = createAgentOutputRedactor({ environment: environmentSource });
+    this.clientFactory = options.clientFactory ?? (() => new Codex({ env: { ...environment } }));
     this.now = options.now ?? Date.now;
   }
 
@@ -387,10 +396,13 @@ export class CodexAgentAdapter implements AgentAdapter {
       ...parsed.diagnostics.map(({ code, severity, message, retryable }) => ({
         code,
         severity,
-        message,
+        message: this.redactor.redactText(message),
         retryable
       })),
-      ...adapterDiagnostics
+      ...adapterDiagnostics.map((entry) => ({
+        ...entry,
+        message: this.redactor.redactText(entry.message)
+      }))
     ];
 
     const commands = mapCommands(
@@ -398,7 +410,8 @@ export class CodexAgentAdapter implements AgentAdapter {
       commandTimings,
       finalTermination,
       request.workingDirectory,
-      diagnostics
+      diagnostics,
+      this.redactor
     );
 
     return {
@@ -407,7 +420,7 @@ export class CodexAgentAdapter implements AgentAdapter {
       agentVersion: CODEX_SDK_VERSION,
       modelId: request.model,
       durationMs,
-      finalMessage: parsed.finalMessage,
+      finalMessage: this.redactor.redactText(parsed.finalMessage),
       usage: {
         inputTokens: parsed.telemetry.inputTokens,
         outputTokens: parsed.telemetry.outputTokens,

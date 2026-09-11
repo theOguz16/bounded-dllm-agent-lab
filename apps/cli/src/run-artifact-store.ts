@@ -12,6 +12,12 @@ import {
 import path from "node:path";
 
 import {
+  createAgentOutputRedactor,
+  isCredentialFieldName,
+  AGENT_OUTPUT_REDACTED,
+  type AgentOutputRedactor
+} from "../../../packages/integrations/src/agent-output-redaction.js";
+import {
   PRODUCT_RUN_ARTIFACT_FILES,
   createProductRunArtifact,
   verifyProductRunArtifact,
@@ -26,7 +32,6 @@ export const BOUNDED_RUNS_PATH = ".bounded/runs" as const;
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_DIFF_BYTES = 16 * 1024 * 1024;
-const REDACTED = "[REDACTED]";
 
 export type StoreProductRunArtifactInput = Readonly<{
   repositoryRoot: string;
@@ -62,75 +67,20 @@ export type StoredProductRunArtifactEntry = Readonly<{
   modifiedAtMs: number;
 }>;
 
-function isCredentialField(key: string): boolean {
-  const normalized = key.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
-  return (normalized.endsWith("token") && !normalized.endsWith("pertoken")) ||
-    /secret|password|credential|apikey|authorization|privatekey/.test(normalized);
-}
-
-function collectSecrets(
-  environment: NodeJS.ProcessEnv,
-  explicit: readonly string[]
-): string[] {
-  const values = new Set<string>();
-  for (const secret of explicit) {
-    if (typeof secret === "string" && secret.length >= 4) values.add(secret);
-  }
-  for (const [name, value] of Object.entries(environment)) {
-    if (
-      typeof value === "string" &&
-      value.length >= 4 &&
-      /(?:key|token|secret|credential|password|authorization)/i.test(name)
-    ) {
-      values.add(value);
-    }
-  }
-  return [...values].sort((left, right) => right.length - left.length);
-}
-
-function redactKnownSecrets(value: string, secrets: readonly string[]): string {
-  let output = value;
-  for (const secret of secrets) output = output.replaceAll(secret, REDACTED);
-  return output;
-}
-
-function redactSecretText(value: string, secrets: readonly string[]): string {
-  let output = redactKnownSecrets(value, secrets);
-
-  output = output
-    .replace(/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/g, REDACTED)
-    .replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16})\b/g, REDACTED)
-    .replace(/(\bAuthorization\s*[:=]\s*)(?:Bearer|Basic)\s+[^\s"'`]+/gi, `$1${REDACTED}`);
-
-  const lines = output.split("\n").map((line) => {
-    const prefixMatch = /^([+\- ]?)(.*)$/.exec(line);
-    const prefix = prefixMatch?.[1] ?? "";
-    const body = prefixMatch?.[2] ?? line;
-    if (!/(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|password|credential|authorization|private[_-]?key)/i.test(body)) {
-      return line;
-    }
-    const separator = /[:=]/.exec(body);
-    if (!separator || separator.index === undefined) return line;
-    const head = body.slice(0, separator.index + 1);
-    return `${prefix}${head} ${REDACTED}`;
-  });
-  return lines.join("\n");
-}
-
 function sanitizeJsonValue(
   value: unknown,
-  secrets: readonly string[],
+  redactor: AgentOutputRedactor,
   seen: Set<object>,
   fieldName?: string
 ): unknown {
-  if (fieldName && isCredentialField(fieldName)) return REDACTED;
+  if (fieldName && isCredentialFieldName(fieldName)) return AGENT_OUTPUT_REDACTED;
   if (value === null || typeof value === "boolean" || typeof value === "number") {
     if (typeof value === "number" && !Number.isFinite(value)) {
       throw new CliError("cli_run_artifact_invalid", "Run artifact JSON contains a non-finite number.");
     }
     return value;
   }
-  if (typeof value === "string") return redactSecretText(value, secrets);
+  if (typeof value === "string") return redactor.redactText(value);
   if (typeof value === "undefined") return null;
   if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") {
     throw new CliError("cli_run_artifact_invalid", "Run artifact contains a non-JSON value.");
@@ -138,7 +88,7 @@ function sanitizeJsonValue(
   if (Array.isArray(value)) {
     if (seen.has(value)) throw new CliError("cli_run_artifact_invalid", "Run artifact contains a cycle.");
     seen.add(value);
-    const output = value.map((item) => sanitizeJsonValue(item, secrets, seen));
+    const output = value.map((item) => sanitizeJsonValue(item, redactor, seen));
     seen.delete(value);
     return output;
   }
@@ -147,7 +97,7 @@ function sanitizeJsonValue(
     seen.add(value);
     const output: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = sanitizeJsonValue(item, secrets, seen, key);
+      output[key] = sanitizeJsonValue(item, redactor, seen, key);
     }
     seen.delete(value);
     return output;
@@ -155,8 +105,8 @@ function sanitizeJsonValue(
   throw new CliError("cli_run_artifact_invalid", "Run artifact contains an unsupported value.");
 }
 
-function sanitizeJson(value: unknown, secrets: readonly string[]): unknown {
-  return sanitizeJsonValue(value, secrets, new Set<object>());
+function sanitizeJson(value: unknown, redactor: AgentOutputRedactor): unknown {
+  return sanitizeJsonValue(value, redactor, new Set<object>());
 }
 
 function jsonBytes(value: unknown): Buffer {
@@ -181,12 +131,12 @@ function fileMetadata(file: string, bytes: Buffer): ProductRunStoredFile {
   return Object.freeze({ file, sha256: hashBytes(bytes), bytes: bytes.length });
 }
 
-function assertNoKnownSecrets(bytes: Buffer, secrets: readonly string[]): void {
-  const text = bytes.toString("utf8");
-  for (const secret of secrets) {
-    if (secret.length >= 4 && text.includes(secret)) {
-      throw new CliError("cli_run_artifact_secret_detected", "Raw secret material remained after artifact redaction.");
-    }
+function assertNoKnownSecrets(bytes: Buffer, redactor: AgentOutputRedactor): void {
+  if (redactor.containsKnownCredentialValue(bytes.toString("utf8"))) {
+    throw new CliError(
+      "cli_run_artifact_secret_detected",
+      "Raw secret material remained after artifact redaction."
+    );
   }
 }
 
@@ -350,15 +300,20 @@ export async function storeProductRunArtifact(
     throw new CliError("cli_run_artifact_invalid", "Non-compare run artifacts must not include comparison data.");
   }
 
-  const secrets = collectSecrets(input.environment ?? process.env, input.secrets ?? []);
-  const sanitizedRun = sanitizeJson(input.run, secrets) as Readonly<Record<string, unknown>>;
-  const sanitizedReceipt = sanitizeJson(input.receipt, secrets);
-  const sanitizedTelemetry = sanitizeJson(input.telemetry, secrets);
-  const sanitizedValidation = sanitizeJson(input.validation, secrets);
+  // Redaction is intentionally an artifact-boundary operation. Any canonical
+  // source/evidence hashes must already have been computed from their raw input.
+  const redactor = createAgentOutputRedactor({
+    environment: input.environment ?? process.env,
+    secrets: input.secrets ?? []
+  });
+  const sanitizedRun = sanitizeJson(input.run, redactor) as Readonly<Record<string, unknown>>;
+  const sanitizedReceipt = sanitizeJson(input.receipt, redactor);
+  const sanitizedTelemetry = sanitizeJson(input.telemetry, redactor);
+  const sanitizedValidation = sanitizeJson(input.validation, redactor);
   const sanitizedComparison = input.comparison === undefined
     ? undefined
-    : sanitizeJson(input.comparison, secrets);
-  const sanitizedDiff = redactSecretText(input.candidateDiff, secrets);
+    : sanitizeJson(input.comparison, redactor);
+  const sanitizedDiff = redactor.redactText(input.candidateDiff);
 
   const candidateDiffBytes = Buffer.from(sanitizedDiff, "utf8");
   if (candidateDiffBytes.length > MAX_DIFF_BYTES) {
@@ -370,9 +325,11 @@ export async function storeProductRunArtifact(
   const comparisonBytes = sanitizedComparison === undefined ? null : jsonBytes(sanitizedComparison);
 
   for (const bytes of [candidateDiffBytes, receiptBytes, telemetryBytes, validationBytes, comparisonBytes]) {
-    if (bytes) assertNoKnownSecrets(bytes, secrets);
+    if (bytes) assertNoKnownSecrets(bytes, redactor);
   }
 
+  // These hashes describe the redacted bytes actually persisted to disk; they
+  // are storage-integrity hashes, not semantic hashes of raw source material.
   const artifact = createProductRunArtifact({
     runId: input.runId,
     runKind,
@@ -388,7 +345,7 @@ export async function storeProductRunArtifact(
     }
   });
   const runBytes = jsonBytes(artifact);
-  assertNoKnownSecrets(runBytes, secrets);
+  assertNoKnownSecrets(runBytes, redactor);
 
   const runs = await prepareRunsDirectory(input.repositoryRoot);
   const target = path.join(runs, input.runId);

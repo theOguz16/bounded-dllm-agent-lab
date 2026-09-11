@@ -15,6 +15,7 @@ assert.equal(integrationsPackage.exports?.["."], "./src/index.ts");
 
 const expectedPublicModules = [
   "agent-environment",
+  "agent-output-redaction",
   "coding-executor",
   "comparative-agent-runner",
   "local-openai-compatible-model-client",
@@ -41,6 +42,8 @@ try {
     `import {
   AGENT_ENVIRONMENT_VERSION,
   createAgentEnvironment,
+  AGENT_OUTPUT_REDACTION_VERSION,
+  createAgentOutputRedactor,
   CODING_EXECUTOR_REQUEST_VERSION,
   COMPARATIVE_AGENT_RUNNER_VERSION,
   runComparativeAgentSample,
@@ -52,6 +55,8 @@ try {
 void [
   AGENT_ENVIRONMENT_VERSION,
   createAgentEnvironment,
+  AGENT_OUTPUT_REDACTION_VERSION,
+  createAgentOutputRedactor,
   CODING_EXECUTOR_REQUEST_VERSION,
   COMPARATIVE_AGENT_RUNNER_VERSION,
   runComparativeAgentSample,
