@@ -3,6 +3,7 @@ import { CliError } from "./cli-errors.js";
 import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js";
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
+import { compareCodexCommand } from "./commands/compare.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
@@ -14,10 +15,10 @@ import { runCommand } from "./commands/run.js";
 import { statusCommand } from "./commands/status.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor" | "apply" | "history";
-type RoutedCommand = CliCommand | LocalCommand | "codex" | "report";
+type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report";
 
 type ParsedArgs = Readonly<{
   command: RoutedCommand;
@@ -72,6 +73,33 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   return { command: "codex", task, allowFiles, json };
 }
 
+function parseCompareArgs(argv: readonly string[]): ParsedArgs {
+  if (argv[1] !== "codex") {
+    throw new CliError("cli_compare_target_invalid", CLI_USAGE);
+  }
+  let task: string | undefined;
+  let json = false;
+  for (let index = 2; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("cli_argument_invalid", CLI_USAGE);
+      json = true;
+      continue;
+    }
+    if (argument === "--task") {
+      if (task !== undefined || !argv[index + 1] || argv[index + 1]!.startsWith("--")) {
+        throw new CliError("cli_compare_task_missing", CLI_USAGE);
+      }
+      task = argv[index + 1]!;
+      index += 1;
+      continue;
+    }
+    throw new CliError("cli_argument_invalid", CLI_USAGE);
+  }
+  if (task === undefined) throw new CliError("cli_compare_task_missing", CLI_USAGE);
+  return { command: "compare", task, json };
+}
+
 function parseReportArgs(argv: readonly string[]): ParsedArgs {
   let runId: string | undefined;
   let json = false;
@@ -94,11 +122,12 @@ function parseReportArgs(argv: readonly string[]): ParsedArgs {
 
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] as RoutedCommand;
-  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "report"].includes(command)) {
+  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "compare", "report"].includes(command)) {
     throw new CliError("cli_command_invalid", CLI_USAGE);
   }
 
   if (command === "codex") return parseCodexArgs(argv);
+  if (command === "compare") return parseCompareArgs(argv);
   if (command === "report") return parseReportArgs(argv);
 
   if (LOCAL_COMMANDS.includes(command as LocalCommand)) {
@@ -129,6 +158,7 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "apply") return applyCommand({ nonInteractive: parsed.json });
   if (parsed.command === "history") return historyCommand();
   if (parsed.command === "report") return reportCommand(parsed.runId!);
+  if (parsed.command === "compare") return compareCodexCommand({ task: parsed.task! });
   if (parsed.command === "codex") {
     return codexAutoScopeCommand({
       task: parsed.task!,
