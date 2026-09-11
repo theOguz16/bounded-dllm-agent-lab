@@ -32,6 +32,7 @@ P7.2 is complete only when `dogfood-live-gate.cjs` accepts the real live evidenc
 ```text
 completedPairCount = 20
 expectedAgentRuns  = 40
+completedAgentRuns = 40
 
 for every task:
   attempt = 1
@@ -43,6 +44,6 @@ for every task:
   promptMutatedAfterFailure = false
 ```
 
-A missing artifact, incomplete pair, retry, identity mismatch, hidden hint, or prompt mutation fails the live completion gate. The PR must remain Draft until this gate passes on real evidence.
+A missing artifact, incomplete arm/pair, retry, identity mismatch, hidden hint, or prompt mutation fails the live completion gate. The PR must remain Draft until this gate passes on real evidence.
 
 The live workflow supports manual dispatch. After the Actions environment has live authentication, supply the exact model as the dispatch input; no PR close/reopen cycle is required.
