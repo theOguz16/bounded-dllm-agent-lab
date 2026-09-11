@@ -35,6 +35,10 @@ import {
   doctorBoundedLocalConfig,
   type BoundedLocalConfig
 } from "../product-config.js";
+import {
+  BOUNDED_CODEX_CHECKPOINT_VERSION,
+  createCodexDurableRecoveryBridge
+} from "../run-artifact-store.js";
 
 export const BOUNDED_CODEX_EXPLICIT_SCOPE_VERSION =
   "bounded-codex-explicit-scope/v0" as const;
@@ -439,6 +443,7 @@ export async function codexCommand(
       evidence: { kind: "test", commandId: "validation.test" }
     }]
   });
+  const recovery = createCodexDurableRecoveryBridge({ repositoryRoot, taskId });
 
   const recordedRuns: RecordedAgentRun[] = [];
   const adapter = recordingAdapter(dependencies.adapter ?? new CodexAgentAdapter(), recordedRuns);
@@ -488,6 +493,7 @@ export async function codexCommand(
     hardTotalBudgetTokens: 16_384,
     reservedOutputTokens: 2_048,
     timeoutMs: 300_000,
+    durableTask: recovery.durableTask,
     plannerMinimalityProvider: bridge.plannerMinimalityProvider,
     coderProvider: bridge.coderProvider,
     contextRequestProvider: async (state) => {
@@ -513,7 +519,8 @@ export async function codexCommand(
       executionSpecification: specification,
       containerOptions: { runtime: "docker" }
     }
-    // Intentionally no applyExecutor, governedExecution, or durable task: V0 stops at a verified draft.
+    // Apply remains a separate explicit approval step. Durable state is canonical now;
+    // no Codex-specific resume state machine is introduced here.
   };
 
   let result: RunBoundedTaskResult;
@@ -555,6 +562,13 @@ export async function codexCommand(
     agent: "Codex",
     model: actualModel,
     reasoning: BOUNDED_CODEX_REASONING,
+    recovery: {
+      checkpointVersion: BOUNDED_CODEX_CHECKPOINT_VERSION,
+      authority: "canonical_bounded_task_state",
+      registryRoot: recovery.registryRoot,
+      idempotencyKey: recovery.idempotencyKey,
+      checkpointFile: recovery.checkpointFile
+    },
     context: {
       fileCount: exposure.fileCount,
       bytes: exposure.bytes
