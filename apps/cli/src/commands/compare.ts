@@ -17,6 +17,7 @@ import {
   type AgentAdapter,
   type AgentRunResult,
   type ComparativeAgentEvaluatorInput,
+  type ComparativeAgentExecutionOrder,
   type ComparativeAgentRunnerResult
 } from "../../../../packages/integrations/src/index.js";
 import { CliError } from "../cli-errors.js";
@@ -81,6 +82,7 @@ export type CompareCodexOutput = Readonly<{
   task: string;
   comparable: boolean;
   identityMismatchFields: readonly string[];
+  executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
   timeoutMs: typeof BOUNDED_COMPARE_TIMEOUT_MS;
@@ -528,6 +530,7 @@ export async function compareCodexCommand(
     task,
     comparable: result.comparison.comparable,
     identityMismatchFields: Object.freeze([...result.comparison.identityMismatchFields]),
+    executionOrder: result.executionOrder,
     model,
     reasoning: BOUNDED_COMPARE_REASONING,
     timeoutMs: BOUNDED_COMPARE_TIMEOUT_MS,
