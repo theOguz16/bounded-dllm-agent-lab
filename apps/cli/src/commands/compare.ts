@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,7 @@ export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 const MAX_TASK_LENGTH = 32_768;
+const VALIDATION_CONTEXT_FILE = /^(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^/]+)?\.json|(?:vite|vitest|jest|eslint|prettier)\.config\.[A-Za-z0-9]+)$/;
 
 export type CompareCodexCommandInput = Readonly<{ task: string }>;
 
@@ -164,6 +166,38 @@ function gitHead(repositoryRoot: string): string {
   return head;
 }
 
+function isForbidden(file: string, forbiddenFiles: readonly string[]): boolean {
+  return forbiddenFiles.some(
+    (forbidden) => file === forbidden || file.startsWith(`${forbidden}/`)
+  );
+}
+
+function selectedContextFiles(
+  repositoryRoot: string,
+  approvedMutableFiles: readonly string[],
+  forbiddenFiles: readonly string[]
+): string[] {
+  const result = spawnSync("git", ["ls-files", "-z", "--cached"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 16 * 1024 * 1024
+  });
+  if (result.error || result.status !== 0) {
+    throw new CliError(
+      "cli_compare_repository_inventory_unavailable",
+      "Tracked repository files could not be inspected for comparison context."
+    );
+  }
+  const supportFiles = String(result.stdout)
+    .split("\u0000")
+    .filter((file) => file.length > 0 && VALIDATION_CONTEXT_FILE.test(file))
+    .filter((file) => !isForbidden(file, forbiddenFiles));
+  return [...new Set([...approvedMutableFiles, ...supportFiles])].sort((left, right) =>
+    left.localeCompare(right, "en")
+  );
+}
+
 function selectScript(values: readonly string[], preferred: readonly string[]): string | null {
   for (const candidate of preferred) {
     if (values.includes(candidate)) return candidate;
@@ -189,7 +223,9 @@ function validationSpec(
 }
 
 function runValidationScript(workspacePath: string, script: string | null): ValidationObservation {
-  if (script === null) return Object.freeze({ passed: null, durationMs: 0 });
+  if (script === null || !existsSync(path.join(workspacePath, "package.json"))) {
+    return Object.freeze({ passed: null, durationMs: 0 });
+  }
   const started = Date.now();
   const result = spawnSync("npm", ["run", script], {
     cwd: workspacePath,
@@ -306,9 +342,7 @@ function booleanStatus(value: boolean | null): string {
 function readableBytes(value: number | null): string {
   if (value === null) return "N/A";
   if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) {
-    return `${Math.round((value / 1024) * 10) / 10} KB`;
-  }
+  if (value < 1024 * 1024) return `${Math.round((value / 1024) * 10) / 10} KB`;
   return `${Math.round((value / (1024 * 1024)) * 10) / 10} MB`;
 }
 
@@ -432,6 +466,11 @@ export async function compareCodexCommand(
   const forbiddenFiles = [...policy.forbiddenPaths].sort((left, right) =>
     left.localeCompare(right, "en")
   );
+  const selectedFiles = selectedContextFiles(
+    repositoryRoot,
+    approvedMutableFiles,
+    forbiddenFiles
+  );
   const spec = validationSpec(diagnosed.config, approvedMutableFiles, forbiddenFiles);
   const validationSpecHash = hashCanonicalJson({
     tests: spec.tests,
@@ -453,7 +492,7 @@ export async function compareCodexCommand(
       networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
       validationSpecHash,
       validationSpec: spec,
-      selectedContextFiles: approvedMutableFiles,
+      selectedContextFiles: selectedFiles,
       approvedMutableFiles,
       forbiddenFiles,
       adapter,
