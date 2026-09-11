@@ -9,7 +9,7 @@ on:
         type: string
   pull_request:
     branches: [main]
-    types: [opened]
+    types: [opened, reopened]
 
 permissions:
   contents: read
