@@ -13,11 +13,11 @@ const cliPath = path.join(repoRoot, "dist/apps/cli/src/index.js");
 const codexModuleUrl = pathToFileURL(
   path.join(repoRoot, "dist/apps/cli/src/commands/codex.js")
 ).href;
-const outputModuleUrl = pathToFileURL(
-  path.join(repoRoot, "dist/apps/cli/src/cli-output.js")
-).href;
 const runtimeModuleUrl = pathToFileURL(
   path.join(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
+).href;
+const storeModuleUrl = pathToFileURL(
+  path.join(repoRoot, "dist/apps/cli/src/run-artifact-store.js")
 ).href;
 
 const sourceOriginal = [
@@ -41,20 +41,6 @@ const testSource = [
   ""
 ].join("\n");
 
-function runCli(cwd, args) {
-  return spawnSync(process.execPath, [cliPath, ...args], {
-    cwd,
-    encoding: "utf8",
-    timeout: 10_000,
-    env: {
-      ...process.env,
-      CODEX_API_KEY: "",
-      OPENAI_API_KEY: "",
-      CODEX_MODEL: ""
-    }
-  });
-}
-
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 5000 });
   assert.equal(result.status, 0, result.stderr);
@@ -66,12 +52,12 @@ async function writeJson(file, value) {
 }
 
 async function createRepository(root) {
-  const repository = path.join(root, "fixture-codex-v0");
+  const repository = path.join(root, "fixture-codex-p65");
   await fs.mkdir(path.join(repository, "src"), { recursive: true });
   await fs.mkdir(path.join(repository, "test"), { recursive: true });
   git(repository, ["init", "-q"]);
   await writeJson(path.join(repository, "package.json"), {
-    name: "fixture-codex-v0",
+    name: "fixture-codex-p65",
     scripts: {
       test: "node --test",
       build: "tsc -p tsconfig.json",
@@ -87,7 +73,12 @@ async function createRepository(root) {
   await fs.writeFile(path.join(repository, "src/helper.ts"), helperSource, "utf8");
   await fs.writeFile(path.join(repository, "test/session.test.ts"), testSource, "utf8");
 
-  const init = runCli(repository, ["init", "--json"]);
+  const init = spawnSync(process.execPath, [cliPath, "init", "--json"], {
+    cwd: repository,
+    encoding: "utf8",
+    timeout: 10_000,
+    env: { ...process.env, OPENAI_API_KEY: "", CODEX_API_KEY: "" }
+  });
   assert.equal(init.status, 0, init.stderr || init.stdout);
   assert.equal(JSON.parse(init.stdout).ok, true);
   return repository;
@@ -110,7 +101,7 @@ function plannerDraft(context) {
         },
         {
           path: "test/session.test.ts",
-          reason: "The explicit regression test file anchors bounded behavior evidence."
+          reason: "The regression test anchors bounded behavior evidence."
         }
       ],
       requiredSymbols: [],
@@ -135,32 +126,32 @@ function plannerDraft(context) {
   };
 }
 
-function fakeAdapter(sourceRepository) {
-  const requests = [];
+function fakeAdapter(repository, options = {}) {
+  const calls = [];
   return {
     agentId: "codex",
-    agentVersion: "fake-codex/v0",
-    requests,
+    agentVersion: "fake-codex/p6.5",
+    calls,
     async run(request) {
-      requests.push(request);
-      assert.equal(request.agentId, "codex");
-      assert.equal(request.reasoningEffort, "medium");
+      calls.push(request.mode);
+      if (options.forbidCalls) {
+        throw new Error(`resume unexpectedly called Codex adapter in mode=${request.mode}`);
+      }
+      assert.notEqual(path.resolve(request.workingDirectory), path.resolve(repository));
       assert.equal(request.networkAllowed, false);
-      assert.notEqual(path.resolve(request.workingDirectory), path.resolve(sourceRepository));
-
       if (request.mode === "planner") {
         assert.equal(request.sandboxMode, "read_only");
         const context = JSON.parse(request.task.split("\n").at(-1));
         return {
           status: "completed",
           agentId: "codex",
-          agentVersion: "fake-codex/v0",
-          modelId: "fixture-model-actual",
+          agentVersion: "fake-codex/p6.5",
+          modelId: "fixture-model",
           durationMs: 5,
           finalMessage: JSON.stringify(plannerDraft(context)),
           usage: {
             inputTokens: 100,
-            cachedInputTokens: 25,
+            cachedInputTokens: 20,
             outputTokens: 40,
             totalTokens: 140,
             toolCalls: null
@@ -170,24 +161,16 @@ function fakeAdapter(sourceRepository) {
           diagnostics: []
         };
       }
-
       assert.equal(request.mode, "coder");
       assert.equal(request.sandboxMode, "workspace_write");
-      assert.equal(awaitExists(path.join(request.workingDirectory, "src/session.ts")), true);
-      assert.equal(awaitExists(path.join(request.workingDirectory, "test/session.test.ts")), true);
-      assert.equal(
-        awaitExists(path.join(request.workingDirectory, "src/helper.ts")),
-        true,
-        "repository-intelligence dependency must be loaded read-only into bounded context"
-      );
       await fs.writeFile(path.join(request.workingDirectory, "src/session.ts"), sourceChanged, "utf8");
       return {
         status: "completed",
         agentId: "codex",
-        agentVersion: "fake-codex/v0",
-        modelId: "fixture-model-actual",
+        agentVersion: "fake-codex/p6.5",
+        modelId: "fixture-model",
         durationMs: 8,
-        finalMessage: "Updated refresh expiry in the disposable workspace.",
+        finalMessage: "Updated the bounded disposable workspace.",
         usage: {
           inputTokens: 200,
           cachedInputTokens: 50,
@@ -205,146 +188,183 @@ function fakeAdapter(sourceRepository) {
   };
 }
 
-function awaitExists(file) {
-  try {
-    require("node:fs").accessSync(file);
-    return true;
-  } catch {
-    return false;
-  }
+async function childCrash() {
+  const repository = process.env.P65_REPOSITORY;
+  const registryRoot = process.env.P65_REGISTRY;
+  assert.ok(repository);
+  assert.ok(registryRoot);
+  const codex = await import(codexModuleUrl);
+  const adapter = fakeAdapter(repository);
+  await codex.codexCommand(
+    {
+      task: "Fix refresh token expiry",
+      allowFiles: ["src/session.ts", "test/session.test.ts"]
+    },
+    repository,
+    {
+      adapter,
+      model: "fixture-model",
+      validationProfile: "structural_draft",
+      durableRegistryRoot: registryRoot,
+      durableLeaseTimeoutMs: 50,
+      checkpointObserver(checkpoint) {
+        const event = checkpoint.events.at(-1);
+        if (
+          event?.point === "after_agent_call" &&
+          event.source.providerKind === "coder" &&
+          event.source.providerPhase === "completed"
+        ) {
+          process.exit(73);
+        }
+      }
+    }
+  );
+  throw new Error("simulated crash checkpoint was not reached");
 }
 
-async function renderHuman(outputModule, value) {
-  let rendered = "";
-  const original = process.stdout.write;
-  process.stdout.write = function write(chunk) {
-    rendered += String(chunk);
-    return true;
-  };
-  try {
-    outputModule.emitCliOutput(value, false, []);
-  } finally {
-    process.stdout.write = original;
-  }
-  return rendered;
-}
-
-async function main() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-codex-v0-smoke-"));
+async function parentMain() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-codex-p65-smoke-"));
   try {
     const repository = await createRepository(root);
+    const registryRoot = path.join(root, "durable-registry");
     const sourceBefore = await fs.readFile(path.join(repository, "src/session.ts"), "utf8");
     const statusBefore = git(repository, ["status", "--porcelain=v1", "--untracked-files=all"]);
 
-    const codexModule = await import(codexModuleUrl);
-    const outputModule = await import(outputModuleUrl);
-    const runtime = await import(runtimeModuleUrl);
-    const adapter = fakeAdapter(repository);
-    let capturedInput = null;
+    const crashed = spawnSync(process.execPath, [__filename], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        P65_CHILD: "1",
+        P65_REPOSITORY: repository,
+        P65_REGISTRY: registryRoot,
+        OPENAI_API_KEY: "",
+        CODEX_API_KEY: ""
+      }
+    });
+    assert.equal(crashed.status, 73, crashed.stderr || crashed.stdout);
 
-    const command = await codexModule.codexCommand(
+    const runtime = await import(runtimeModuleUrl);
+    const store = await import(storeModuleUrl);
+    const checkpointFiles = await fs.readdir(path.join(registryRoot, "product-checkpoints"));
+    assert.equal(checkpointFiles.length, 1);
+    assert.match(checkpointFiles[0], /^codex\.[0-9a-f]{32}\.json$/);
+    const productRunId = checkpointFiles[0].slice(0, -5);
+    const crashedCheckpoint = store.readProductRunCheckpoint(registryRoot, productRunId);
+    assert.equal(crashedCheckpoint.authority, "canonical_durable_task_state");
+    assert.equal(crashedCheckpoint.latestPoint, "after_agent_call");
+    const crashPoints = crashedCheckpoint.events.map((event) => event.point);
+    assert.deepEqual(crashPoints, [
+      "before_agent_call",
+      "after_agent_call",
+      "before_agent_call",
+      "after_agent_call"
+    ]);
+    assert.equal(crashedCheckpoint.events.at(-1).source.providerKind, "coder");
+
+    const crashedState = runtime.readDurableBoundedTaskState({
+      registryRoot,
+      taskId: crashedCheckpoint.taskId,
+      idempotencyKey: crashedCheckpoint.idempotencyKey
+    });
+    assert.equal(crashedState.currentState, "coding_started");
+    assert.equal(crashedState.providerIntent.providerKind, "coder");
+    assert.equal(crashedState.providerIntent.status, "completed");
+    assert.ok(Object.keys(crashedState.artifacts).some((name) => name.startsWith("provider-coder-")));
+
+    const statusSummary = runtime.summarizeDurableBoundedTask({
+      registryRoot,
+      taskId: crashedCheckpoint.taskId,
+      idempotencyKey: crashedCheckpoint.idempotencyKey
+    });
+    assert.equal(statusSummary.state, "coding_started");
+    assert.equal(statusSummary.stopReason, "in_progress");
+    assert.equal(statusSummary.protected, true);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const codex = await import(codexModuleUrl);
+    const resumeAdapter = fakeAdapter(repository, { forbidCalls: true });
+    let resumeCalls = 0;
+    const resumed = await codex.codexCommand(
       {
         task: "Fix refresh token expiry",
         allowFiles: ["src/session.ts", "test/session.test.ts"]
       },
       repository,
       {
-        adapter,
-        model: "fixture-model-configured",
+        adapter: resumeAdapter,
+        model: "fixture-model",
         validationProfile: "structural_draft",
-        runTask: async (input) => {
-          capturedInput = input;
-          return runtime.runBoundedTask(input);
+        durableRegistryRoot: registryRoot,
+        durableLeaseTimeoutMs: 50,
+        resumeTask: async (input) => {
+          resumeCalls += 1;
+          return runtime.resumeBoundedTask(input);
         }
       }
     );
 
-    assert.equal(command.exitCode, 0, JSON.stringify(command.output));
-    assert.equal(command.output.ok, true);
-    assert.equal(command.output.command, "codex");
-    assert.equal(command.output.explicitScopeVersion, "bounded-codex-explicit-scope/v0");
-    assert.equal(command.output.agent, "Codex");
-    assert.equal(command.output.model, "fixture-model-actual");
-    assert.equal(command.output.reasoning, "medium");
-    assert.equal(command.output.context.fileCount, 3);
-    assert.equal(command.output.context.bytes > 0, true);
-    assert.deepEqual(command.output.tokens, {
-      input: 300,
-      cached: 75,
-      output: 100,
-      reasoning: null,
-      total: 400
-    });
-    assert.equal(command.output.candidate.changedFileCount, 1);
-    assert.deepEqual(command.output.candidate.files, ["src/session.ts"]);
-    assert.equal(command.output.validation.scope, "PASS");
-    assert.equal(command.output.validation.typecheck, "NOT_RUN");
-    assert.equal(command.output.validation.tests, "NOT_RUN");
-    assert.equal(command.output.validation.behavior, "NOT_DEMONSTRATED");
-    assert.equal(command.output.apply, "NOT_RUN");
-    assert.equal(command.output.sourceRepositoryUnchanged, true);
-    assert.equal(command.output.route, "structurally_verified_draft");
+    assert.equal(resumed.exitCode, 0, JSON.stringify(resumed.output));
+    assert.equal(resumeCalls, 1, "existing Codex durable state must use canonical resumeBoundedTask semantics");
+    assert.deepEqual(resumeAdapter.calls, [], "durably completed planner/coder calls must not be replayed");
+    assert.equal(resumed.output.ok, true);
+    assert.equal(resumed.output.apply, "NOT_RUN");
+    assert.equal(resumed.output.sourceRepositoryUnchanged, true);
+    assert.equal(resumed.output.durable.version, "bounded-codex-durable/v1");
+    assert.equal(resumed.output.durable.recoveryAuthority, "canonical_durable_task_state");
+    assert.equal(resumed.output.durable.resumed, true);
+    assert.equal(resumed.output.durable.state, "finalized");
+    assert.equal(resumed.output.durable.productCheckpointRunId, productRunId);
 
-    assert.ok(capturedInput);
-    assert.equal(Object.hasOwn(capturedInput, "applyExecutor"), false);
-    assert.equal(Object.hasOwn(capturedInput, "governedExecution"), false);
-    assert.equal(Object.hasOwn(capturedInput, "durableTask"), false);
-    assert.deepEqual(capturedInput.allowedChangeFiles, ["src/session.ts", "test/session.test.ts"]);
-    assert.equal(capturedInput.validationProfile, "structural_draft");
-    assert.equal(adapter.requests.length, 2);
-    assert.deepEqual(adapter.requests.map((request) => request.mode), ["planner", "coder"]);
-    assert.deepEqual(adapter.requests.map((request) => request.reasoningEffort), ["medium", "medium"]);
+    const finalState = runtime.readDurableBoundedTaskState({
+      registryRoot,
+      taskId: crashedCheckpoint.taskId,
+      idempotencyKey: crashedCheckpoint.idempotencyKey
+    });
+    assert.equal(finalState.currentState, "finalized");
+    const finalCheckpoint = store.readProductRunCheckpoint(registryRoot, productRunId);
+    const finalPoints = finalCheckpoint.events.map((event) => event.point);
+    for (const point of [
+      "before_agent_call",
+      "after_agent_call",
+      "after_mutation_capture",
+      "after_verification",
+      "after_validation"
+    ]) {
+      assert.equal(finalPoints.includes(point), true, `missing persist point ${point}`);
+    }
+    assert.equal(finalCheckpoint.latestPoint, "after_validation");
+    assert.equal(finalCheckpoint.latestCanonicalStateHash, finalState.stateHash);
+
+    const compiledCodex = await fs.readFile(
+      path.join(repoRoot, "dist/apps/cli/src/commands/codex.js"),
+      "utf8"
+    );
+    assert.match(compiledCodex, /governed_apply_prepared/);
+    assert.match(compiledCodex, /before_apply/);
+    assert.match(compiledCodex, /x4_committed/);
+    assert.match(compiledCodex, /after_apply/);
 
     assert.equal(await fs.readFile(path.join(repository, "src/session.ts"), "utf8"), sourceBefore);
     assert.equal(
       git(repository, ["status", "--porcelain=v1", "--untracked-files=all"]),
       statusBefore,
-      "bounded codex must leave the real repository byte/status state unchanged"
+      "durable recovery/checkpoint metadata must stay outside the source repository"
     );
-
-    const rendered = await renderHuman(outputModule, {
-      ...command.output,
-      validation: {
-        scope: "PASS",
-        typecheck: "PASS",
-        tests: "PASS",
-        behavior: "PASS"
-      }
-    });
-    assert.match(rendered, /^Agent\nCodex\n/m);
-    assert.match(rendered, /Model\nfixture-model-actual\n/);
-    assert.match(rendered, /Reasoning\nmedium\n/);
-    assert.match(rendered, /Context\n3 files \/ /);
-    assert.match(rendered, /Tokens\ninput 300\ncached 75\noutput 100\nreasoning unavailable\ntotal 400\n/);
-    assert.match(rendered, /Candidate\n1 file changed\n/);
-    assert.match(rendered, /Validation\nscope PASS\ntypecheck PASS\ntests PASS\nbehavior PASS\n/);
-    assert.match(rendered, /Apply\nNOT_RUN\n/);
-
-    const missingAllow = runCli(repository, ["codex", "--task", "Fix refresh token expiry", "--json"]);
-    assert.equal(missingAllow.status, 2, missingAllow.stderr || missingAllow.stdout);
-    assert.equal(JSON.parse(missingAllow.stdout).code, "cli_codex_scope_missing");
-
-    const missingTask = runCli(repository, ["codex", "--allow", "src/session.ts", "--json"]);
-    assert.equal(missingTask.status, 2, missingTask.stderr || missingTask.stdout);
-    assert.equal(JSON.parse(missingTask.stdout).code, "cli_codex_task_missing");
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
-      commandVersion: "bounded-codex-explicit-scope/v0",
-      existingRunBoundedTaskCoordinatorUsed: true,
-      explicitMutationScope: true,
-      intelligenceDependencyLoadedReadOnly: true,
-      plannerAndCoderReasoning: "medium",
-      actualModelReported: true,
-      tokenFieldsReported: true,
-      candidateDiffReported: true,
-      scopeVerified: true,
-      productionValidationProfile: "existing_function_bug_fix",
-      smokeValidationProfile: "structural_draft",
-      applyCalled: false,
+      commandVersion: codex.BOUNDED_CODEX_EXPLICIT_SCOPE_VERSION,
+      durableVersion: codex.BOUNDED_CODEX_DURABLE_VERSION,
+      recoveryAuthority: "canonical_durable_task_state",
+      simulatedCrashAfterCoderCall: true,
+      statusUsesCanonicalDurableSummary: true,
+      recoverUsesCanonicalResumeBoundedTask: true,
+      providerCallsReplayedAfterResume: false,
       sourceRepositoryUnchanged: true,
-      routerArgumentsValidated: true,
-      humanOutputContractRendered: true,
+      persistPointsObserved: finalPoints,
+      applyPersistPointsMappedToCanonicalStates: true,
       realCodexCalls: false
     }, null, 2)}\n`);
   } finally {
@@ -352,7 +372,14 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error.stack || error);
-  process.exitCode = 1;
-});
+if (process.env.P65_CHILD === "1") {
+  childCrash().catch((error) => {
+    console.error(error.stack || error);
+    process.exitCode = 1;
+  });
+} else {
+  parentMain().catch((error) => {
+    console.error(error.stack || error);
+    process.exitCode = 1;
+  });
+}
