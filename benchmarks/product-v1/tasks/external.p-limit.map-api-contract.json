@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "product-task/v1",
+  "taskId": "external.p-limit.map-api-contract",
+  "family": "bounded_behavior_change",
+  "repo": "sindresorhus/p-limit",
+  "commitSha": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+  "objective": "Align the public limit.map behavior across runtime, TypeScript declarations, and executable tests without changing unrelated limiter behavior.",
+  "acceptanceCriteria": [
+    "limit.map exposes the intended bounded behavior through the public runtime API.",
+    "TypeScript declarations remain synchronized with the runtime contract.",
+    "Existing limiter behavior outside the requested map contract remains unchanged."
+  ],
+  "validationCommands": [
+    "npm test"
+  ]
+}
