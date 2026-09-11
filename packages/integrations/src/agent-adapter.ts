@@ -72,7 +72,10 @@ export interface AgentRunRequest {
   mode: AgentMode;
   timeoutMs: number;
   networkAllowed: boolean;
+  networkPolicy?: "disabled" | "enabled";
   sandboxMode: AgentSandboxMode;
+  additionalDirectories?: readonly string[];
+  sourceRepositoryPath?: string;
   outputSchema?: Readonly<Record<string, unknown>>;
   abortSignal?: AbortSignal;
 }
