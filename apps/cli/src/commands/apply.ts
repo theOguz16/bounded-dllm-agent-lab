@@ -65,6 +65,11 @@ async function promptHumanDecision(
     while (true) {
       const answer = (await readline.question(`Decision [${HUMAN_DECISIONS.join("/")}]: `))
         .trim().toLocaleLowerCase("en-US");
+      // Legacy safety contract: "Apply to working tree? [y/N]" defaulted to no.
+      if (answer === "") {
+        decision = "reject";
+        break;
+      }
       if (isHumanDecision(answer)) {
         decision = answer;
         break;
