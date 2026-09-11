@@ -122,7 +122,8 @@ async function main() {
   );
   assert.equal(adapterSource.includes("new Codex()"), false);
   assert.equal(adapterSource.includes("...process.env"), false);
-  assert.equal(adapterSource.includes("createAgentEnvironment(options.environment ?? process.env)"), true);
+  assert.equal(adapterSource.includes("const environmentSource = options.environment ?? process.env;"), true);
+  assert.equal(adapterSource.includes("createAgentEnvironment(environmentSource)"), true);
   assert.equal(adapterSource.includes("new Codex({ env: { ...environment } })"), true);
 
   process.stdout.write(`${JSON.stringify({
