@@ -25,6 +25,17 @@ Failure policy is fixed before execution:
 
 The live report is evidence, not a success-only report: failed or non-comparable pairs remain in the output.
 
+## Live authentication modes
+
+Manual `workflow_dispatch` supports exactly two authentication paths:
+
+- `api_key`: runs on GitHub-hosted `ubuntu-latest` and requires `CODEX_API_KEY` or `OPENAI_API_KEY` in GitHub Actions secrets.
+- `codex_home`: runs on a `self-hosted` runner and reuses the runner user's existing Codex/ChatGPT login state through `CODEX_HOME` or the default `~/.codex` directory. API-key environment variables are intentionally blank in this lane.
+
+The benchmark does not require every user to own a separate API key. A self-hosted runner that is already authenticated with Codex can run P7.2 through `auth_mode=codex_home`.
+
+Credential contents are not copied into the repository, Actions secrets, logs, or live evidence artifacts. The self-hosted preflight checks only whether usable local Codex auth state is available and carries forward the resolved Codex home path for the live runner.
+
 ## P7.2 live completion gate
 
 P7.2 is complete only when `dogfood-live-gate.cjs` accepts the real live evidence artifact with all of these invariants:
@@ -46,4 +57,4 @@ for every task:
 
 A missing artifact, incomplete arm/pair, retry, identity mismatch, hidden hint, or prompt mutation fails the live completion gate. The PR must remain Draft until this gate passes on real evidence.
 
-The live workflow supports manual dispatch. After the Actions environment has live authentication, supply the exact model as the dispatch input; no PR close/reopen cycle is required.
+The live workflow is manually dispatched with an explicit `auth_mode` and exact model id. No PR close/reopen cycle is required.
