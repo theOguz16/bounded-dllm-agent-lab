@@ -47,18 +47,25 @@ function ciMode(environment: NodeJS.ProcessEnv = process.env): boolean {
   return value === "1" || value === "true" || value === "yes";
 }
 
+function hasInjectedHumanDecision(dependencies: ApplyCommandDependencies): boolean {
+  return dependencies.decide !== undefined || dependencies.approve !== undefined;
+}
+
 async function promptHumanDecision(
   _candidate: BoundedCandidateHandoff,
   diff: string
 ): Promise<HumanDecisionSelection> {
+  if (process.stdin.isTTY !== true) {
+    throw new CliError(
+      "cli_human_decision_input_unavailable",
+      "Human decision requires an interactive TTY or an explicitly injected decision.",
+      3
+    );
+  }
   process.stdout.write("Candidate diff:\n\n");
   process.stdout.write(diff);
   if (!diff.endsWith("\n")) process.stdout.write("\n");
   process.stdout.write("\n");
-  if (!process.stdin.isTTY) {
-    process.stdout.write(`Decision [${HUMAN_DECISIONS.join("/")}]: reject\n`);
-    return { decision: "reject", reason: null };
-  }
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
     let decision: HumanDecisionSelection["decision"];
@@ -66,6 +73,7 @@ async function promptHumanDecision(
       const answer = (await readline.question(`Decision [${HUMAN_DECISIONS.join("/")}]: `))
         .trim().toLocaleLowerCase("en-US");
       // Legacy safety contract: "Apply to working tree? [y/N]" defaulted to no.
+      // A real interactive blank Enter preserves that behavior as an explicit reject.
       if (answer === "") {
         decision = "reject";
         break;
@@ -245,6 +253,9 @@ export async function applyCommand(
   }
 
   if (input.nonInteractive === true || ciMode()) {
+    return stoppedOutput(candidate, "approval_required");
+  }
+  if (!hasInjectedHumanDecision(dependencies) && process.stdin.isTTY !== true) {
     return stoppedOutput(candidate, "approval_required");
   }
 
