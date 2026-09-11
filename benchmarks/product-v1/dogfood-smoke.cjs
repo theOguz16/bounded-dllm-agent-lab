@@ -11,6 +11,7 @@ const repoRoot = path.resolve(__dirname, "../..");
 const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const hiddenPath = path.join(repoRoot, "benchmarks/product-v1/evaluator/dogfood-v1.hidden.json");
 const runnerPath = path.join(repoRoot, "benchmarks/product-v1/dogfood-runner.cjs");
+const liveGatePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-live-gate.cjs");
 const hiddenKeys = ["oracle", "expectedPatch", "expectedChangedFiles", "evaluator", "referencePullRequest", "referenceHeadSha"];
 const expectedValidation = ["npm run typecheck", "npm run build", "npm test"];
 
@@ -94,9 +95,12 @@ async function main() {
   assert.match(runnerSource, /hiddenHintsInjected:\s*false/);
   assert.match(runnerSource, /promptMutatedAfterFailure:\s*false/);
   assert.match(runnerSource, /Exactly one comparison invocation per task/);
+  assert.match(runnerSource, /assert\.equal\(parsed\.comparable, true\)/);
+  assert.match(runnerSource, /assert\.deepEqual\(parsed\.identityMismatchFields, \[\]\)/);
   assert.equal(runnerSource.includes("referenceHeadSha"), false);
   assert.equal(runnerSource.includes("referencePullRequest"), false);
   assert.equal(runnerSource.includes("dogfood-v1.hidden.json"), false);
+  assert.equal(fs.existsSync(liveGatePath), true);
 
   const check = spawnSync(process.execPath, [runnerPath], {
     cwd: repoRoot,
@@ -124,6 +128,17 @@ async function main() {
   assert.equal(plan.comparison.mutatePromptAfterFailure, false);
   assert.equal(plan.comparison.injectHiddenHints, false);
 
+  const gateSelfTest = spawnSync(process.execPath, [liveGatePath, "--self-test"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 30_000,
+    maxBuffer: 1024 * 1024
+  });
+  assert.equal(gateSelfTest.status, 0, gateSelfTest.stderr);
+  const gate = JSON.parse(gateSelfTest.stdout);
+  assert.equal(gate.completedPairCount, 20);
+  assert.equal(gate.expectedAgentRuns, 40);
+
   process.stdout.write(`${JSON.stringify({
     ok: true,
     suite: suite.suiteId,
@@ -136,6 +151,11 @@ async function main() {
     promptMutationOnFailure: false,
     hiddenHintInjection: false,
     hiddenEvaluatorSeparate: true,
+    liveCompletionGate: {
+      completedPairCount: gate.completedPairCount,
+      expectedAgentRuns: gate.expectedAgentRuns,
+      failClosed: true
+    },
     liveProviderCallsInCi: false
   }, null, 2)}\n`);
 }
