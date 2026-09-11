@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "product-task/v1",
+  "taskId": "external.clsx.push-key-regression-test",
+  "family": "regression_test_addition",
+  "repo": "lukeed/clsx",
+  "commitSha": "925494cf31bcd97d3337aacd34e659e80cae7fe2",
+  "objective": "Add focused regression coverage proving that object keys named push and pop are preserved without broadening the production change scope.",
+  "acceptanceCriteria": [
+    "A regression test covers object keys named push and pop.",
+    "The test fails when those keys are incorrectly treated as array behavior and passes with the intended behavior.",
+    "No unrelated production behavior is changed as part of the regression-test addition."
+  ],
+  "validationCommands": [
+    "npm test"
+  ]
+}
