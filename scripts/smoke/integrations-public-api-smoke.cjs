@@ -14,6 +14,7 @@ assert.equal(integrationsPackage.main, "src/index.ts");
 assert.equal(integrationsPackage.exports?.["."], "./src/index.ts");
 
 const expectedPublicModules = [
+  "agent-environment",
   "coding-executor",
   "comparative-agent-runner",
   "local-openai-compatible-model-client",
@@ -38,6 +39,8 @@ try {
   writeFileSync(
     consumerPath,
     `import {
+  AGENT_ENVIRONMENT_VERSION,
+  createAgentEnvironment,
   CODING_EXECUTOR_REQUEST_VERSION,
   COMPARATIVE_AGENT_RUNNER_VERSION,
   runComparativeAgentSample,
@@ -47,6 +50,8 @@ try {
 } from "@bounded/integrations";
 
 void [
+  AGENT_ENVIRONMENT_VERSION,
+  createAgentEnvironment,
   CODING_EXECUTOR_REQUEST_VERSION,
   COMPARATIVE_AGENT_RUNNER_VERSION,
   runComparativeAgentSample,
