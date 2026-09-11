@@ -41,6 +41,7 @@ export type CodexCommandDependencies = Readonly<
     runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
     resumeTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
     durableRegistryRoot?: string;
+    durableLeaseTimeoutMs?: number;
     checkpointObserver?: (checkpoint: ProductRunCheckpoint) => void;
   }
 >;
@@ -73,9 +74,6 @@ function idempotencyKey(input: RunBoundedTaskInput): string {
     version: BOUNDED_CODEX_DURABLE_VERSION,
     taskId: input.taskId,
     objectiveHash: input.objectiveHash,
-    model: input.taskContext && typeof input.taskContext === "object" && "model" in input.taskContext
-      ? (input.taskContext as Record<string, unknown>).model ?? null
-      : null,
     reasoning: BOUNDED_CODEX_REASONING
   }).slice("sha256:".length, "sha256:".length + 32)}`;
 }
@@ -216,6 +214,9 @@ export async function codexCommand(
           registryRoot,
           idempotencyKey: durableIdempotencyKey,
           resume: existing !== null,
+          ...(dependencies.durableLeaseTimeoutMs === undefined
+            ? {}
+            : { leaseTimeoutMs: dependencies.durableLeaseTimeoutMs }),
           providerIdempotencySupport: {
             planner: false,
             coder: false,
