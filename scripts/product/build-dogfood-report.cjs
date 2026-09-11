@@ -91,10 +91,25 @@ function requireLiveRun(value) {
   if (!Array.isArray(live.results)) {
     throw new TypeError("live dogfood evidence results must be an array.");
   }
+  if (live.retryPolicy !== "none") {
+    throw new TypeError('retryPolicy must be exactly "none".');
+  }
+  if (live.promptMutationAfterFailure !== false) {
+    throw new TypeError("promptMutationAfterFailure must be false.");
+  }
+  if (live.hiddenHintInjection !== false) {
+    throw new TypeError("hiddenHintInjection must be false.");
+  }
   const taskCount = requireNonNegativeInteger(live.taskCount, "taskCount");
   const completedPairCount = requireNonNegativeInteger(live.completedPairCount, "completedPairCount");
   const expectedAgentRuns = requireNonNegativeInteger(live.expectedAgentRuns, "expectedAgentRuns");
   const completedAgentRuns = requireNonNegativeInteger(live.completedAgentRuns, "completedAgentRuns");
+  if (live.completedAgentPairs !== undefined) {
+    const completedAgentPairs = requireNonNegativeInteger(live.completedAgentPairs, "completedAgentPairs");
+    if (completedAgentPairs !== completedPairCount) {
+      throw new TypeError("completedAgentPairs must equal completedPairCount when present.");
+    }
+  }
   if (taskCount !== live.results.length) throw new TypeError("taskCount must equal results.length.");
   if (expectedAgentRuns !== taskCount * 2) throw new TypeError("expectedAgentRuns must equal taskCount * 2.");
   if (completedAgentRuns !== completedPairCount * 2) {
@@ -121,9 +136,15 @@ function requireLiveRun(value) {
     }
     if (entry.pairCompleted) {
       observedCompletedPairs += 1;
+      if (entry.failure !== null) {
+        throw new TypeError(`completed results[${index}] must have failure === null.`);
+      }
       const comparison = requireObject(entry.result, `results[${index}].result`);
       if (comparison.comparable !== true) {
         throw new TypeError(`completed results[${index}] must be comparable.`);
+      }
+      if (!Array.isArray(comparison.identityMismatchFields) || comparison.identityMismatchFields.length !== 0) {
+        throw new TypeError(`completed results[${index}].result.identityMismatchFields must be exactly [].`);
       }
       const evaluations = requireObject(comparison.evaluations, `results[${index}].result.evaluations`);
       for (const arm of ["normal", "bounded"]) {
@@ -599,11 +620,22 @@ function syntheticComparison(normalSpec, boundedSpec, humanAcceptance) {
   delete bounded.__changedFiles;
   return {
     comparable: true,
+    identityMismatchFields: [],
     evaluations: { normal, bounded },
     normal: { changedFiles: normalChangedFiles },
     bounded: { changedFiles: boundedChangedFiles },
     ...(humanAcceptance === undefined ? {} : { humanAcceptance })
   };
+}
+
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function expectRejected(evidence, mutate) {
+  const candidate = clone(evidence);
+  mutate(candidate);
+  assert.throws(() => buildDogfoodReport(candidate, sha256(JSON.stringify(candidate))));
 }
 
 function selfTest() {
@@ -667,6 +699,10 @@ function selfTest() {
     completedPairCount: 3,
     expectedAgentRuns: 8,
     completedAgentRuns: 6,
+    completedAgentPairs: 3,
+    retryPolicy: "none",
+    promptMutationAfterFailure: false,
+    hiddenHintInjection: false,
     results
   };
   const raw = JSON.stringify(evidence);
@@ -686,7 +722,29 @@ function selfTest() {
   for (const heading of ["Overall success", "Control", "Behavior", "Tokens", "Context", "Scope", "Duration", "Human acceptance", "Failure taxonomy"]) {
     assert.equal(markdown.includes(`## ${heading}`), true);
   }
-  process.stdout.write(`${JSON.stringify({ ok: true, reportVersion: REPORT_VERSION, taxonomy: FAILURE_TAXONOMY }, null, 2)}\n`);
+
+  const mutations = [
+    (candidate) => { candidate.results[0].result.identityMismatchFields = ["modelId"]; },
+    (candidate) => { delete candidate.results[0].result.identityMismatchFields; },
+    (candidate) => { candidate.results[0].failure = { code: "agent_protocol_failure" }; },
+    (candidate) => { candidate.retryPolicy = "retry_once"; },
+    (candidate) => { candidate.promptMutationAfterFailure = true; },
+    (candidate) => { candidate.hiddenHintInjection = true; },
+    (candidate) => { candidate.completedAgentPairs = candidate.completedPairCount - 1; }
+  ];
+  for (const mutate of mutations) expectRejected(evidence, mutate);
+
+  const withoutCompletedAgentPairs = clone(evidence);
+  delete withoutCompletedAgentPairs.completedAgentPairs;
+  assert.doesNotThrow(() => buildDogfoodReport(withoutCompletedAgentPairs, sha256(JSON.stringify(withoutCompletedAgentPairs))));
+
+  process.stdout.write(`${JSON.stringify({
+    ok: true,
+    reportVersion: REPORT_VERSION,
+    taxonomy: FAILURE_TAXONOMY,
+    failClosedMutationsChecked: mutations.length,
+    optionalCompletedAgentPairsAccepted: true
+  }, null, 2)}\n`);
 }
 
 function main() {
