@@ -318,6 +318,7 @@ async function main() {
     taskCount: results.length,
     completedPairCount,
     expectedAgentRuns: results.length * 2,
+    completedAgentRuns: completedPairCount * 2,
     completedAgentPairs: completedPairCount,
     retryPolicy: "none",
     promptMutationAfterFailure: false,
