@@ -16,6 +16,10 @@ import type {
   AgentRunStatus
 } from "./agent-adapter.js";
 import {
+  createAgentEnvironment,
+  type AgentEnvironmentSource
+} from "./agent-environment.js";
+import {
   parseCodexJsonl,
   type CodexEventParserResult,
   type CodexNormalizedCommandEvent
@@ -38,6 +42,7 @@ export interface CodexSdkClientLike {
 
 export type CodexAgentAdapterOptions = Readonly<{
   clientFactory?: () => CodexSdkClientLike;
+  environment?: AgentEnvironmentSource;
   now?: () => number;
 }>;
 
@@ -247,7 +252,10 @@ export class CodexAgentAdapter implements AgentAdapter {
   private readonly now: () => number;
 
   constructor(options: CodexAgentAdapterOptions = {}) {
-    this.clientFactory = options.clientFactory ?? (() => new Codex());
+    this.clientFactory = options.clientFactory ?? (() => {
+      const environment = createAgentEnvironment(options.environment ?? process.env);
+      return new Codex({ env: { ...environment } });
+    });
     this.now = options.now ?? Date.now;
   }
 
