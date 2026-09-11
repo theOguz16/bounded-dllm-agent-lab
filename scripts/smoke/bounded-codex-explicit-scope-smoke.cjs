@@ -284,16 +284,48 @@ async function main() {
     assert.equal(command.output.apply, "NOT_RUN");
     assert.equal(command.output.sourceRepositoryUnchanged, true);
     assert.equal(command.output.route, "structurally_verified_draft");
+    assert.equal(command.output.recovery.checkpointVersion, "bounded-codex-checkpoint/v1");
+    assert.equal(command.output.recovery.authority, "canonical_bounded_task_state");
 
     assert.ok(capturedInput);
     assert.equal(Object.hasOwn(capturedInput, "applyExecutor"), false);
     assert.equal(Object.hasOwn(capturedInput, "governedExecution"), false);
-    assert.equal(Object.hasOwn(capturedInput, "durableTask"), false);
+    assert.equal(Object.hasOwn(capturedInput, "durableTask"), true);
+    assert.notEqual(capturedInput.durableTask.registryRoot.startsWith(`${path.resolve(repository)}${path.sep}`), true);
+    assert.equal(capturedInput.durableTask.idempotencyKey, command.output.recovery.idempotencyKey);
     assert.deepEqual(capturedInput.allowedChangeFiles, ["src/session.ts", "test/session.test.ts"]);
     assert.equal(capturedInput.validationProfile, "structural_draft");
     assert.equal(adapter.requests.length, 2);
     assert.deepEqual(adapter.requests.map((request) => request.mode), ["planner", "coder"]);
     assert.deepEqual(adapter.requests.map((request) => request.reasoningEffort), ["medium", "medium"]);
+
+    const durableState = runtime.readDurableBoundedTaskState({
+      registryRoot: capturedInput.durableTask.registryRoot,
+      taskId: capturedInput.taskId,
+      idempotencyKey: capturedInput.durableTask.idempotencyKey
+    });
+    assert.equal(durableState.currentState, "finalized");
+    assert.equal(durableState.taskId, capturedInput.taskId);
+
+    const checkpoint = JSON.parse(await fs.readFile(command.output.recovery.checkpointFile, "utf8"));
+    assert.equal(checkpoint.authority, "canonical_bounded_task_state");
+    assert.equal(checkpoint.taskId, capturedInput.taskId);
+    const persistedPoints = new Set(checkpoint.history.map((entry) => entry.point));
+    for (const point of [
+      "before_agent_call",
+      "after_agent_call",
+      "after_mutation_capture",
+      "after_verification",
+      "after_validation"
+    ]) {
+      assert.equal(persistedPoints.has(point), true, `missing Codex persist point: ${point}`);
+    }
+
+    const requestsBeforeRecover = adapter.requests.length;
+    const recovered = await runtime.resumeBoundedTask(capturedInput);
+    assert.equal(recovered.decision, "bounded_task_completed");
+    assert.equal(recovered.route, "structurally_verified_draft");
+    assert.equal(adapter.requests.length, requestsBeforeRecover, "terminal canonical recovery must not recall Codex");
 
     assert.equal(await fs.readFile(path.join(repository, "src/session.ts"), "utf8"), sourceBefore);
     assert.equal(
@@ -332,6 +364,10 @@ async function main() {
       ok: true,
       commandVersion: "bounded-codex-explicit-scope/v0",
       existingRunBoundedTaskCoordinatorUsed: true,
+      canonicalDurableRecoveryUsed: true,
+      canonicalStatusReadable: true,
+      canonicalResumeReusedTerminalState: true,
+      crashCheckpointMirrorOnly: true,
       explicitMutationScope: true,
       intelligenceDependencyLoadedReadOnly: true,
       plannerAndCoderReasoning: "medium",
