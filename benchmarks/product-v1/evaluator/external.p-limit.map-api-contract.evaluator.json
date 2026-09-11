@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "product-task-evaluator/v1",
+  "taskId": "external.p-limit.map-api-contract",
+  "expectedChangedFiles": [
+    "index.js",
+    "index.d.ts",
+    "test.js"
+  ],
+  "oracleAssertions": [
+    "Runtime and declaration behavior for limit.map remain aligned.",
+    "Unrelated limiter behavior remains unchanged."
+  ]
+}
