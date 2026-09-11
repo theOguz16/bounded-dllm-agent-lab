@@ -1,3 +1,8 @@
+import type {
+  AgentProcessBudgetOverrides,
+  AgentProcessFailureCode
+} from "./agent-process-control.js";
+
 export type AgentRunStatus =
   | "completed"
   | "failed"
@@ -71,6 +76,7 @@ export interface AgentRunRequest {
   reasoningEffort: AgentReasoningEffort;
   mode: AgentMode;
   timeoutMs: number;
+  processBudget?: AgentProcessBudgetOverrides;
   networkAllowed: boolean;
   networkPolicy?: "disabled" | "enabled";
   sandboxMode: AgentSandboxMode;
@@ -82,6 +88,7 @@ export interface AgentRunRequest {
 
 export interface AgentRunResult {
   status: AgentRunStatus;
+  failureCode?: AgentProcessFailureCode | null;
   agentId: string;
   agentVersion: string;
   modelId: string;
