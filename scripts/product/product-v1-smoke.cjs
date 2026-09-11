@@ -110,6 +110,10 @@ const childStages = [
     script: "scripts/smoke/product-stats-smoke.cjs"
   },
   {
+    name: "product task contract smoke",
+    script: "scripts/smoke/product-task-contract-smoke.cjs"
+  },
+  {
     name: "bounded compare Codex smoke",
     script: "scripts/smoke/bounded-compare-codex-smoke.cjs"
   },
@@ -177,6 +181,8 @@ async function main() {
   assert.equal(typeof runtime.compileCanonicalPolicy, "function");
   assert.equal(typeof runtime.evaluateProductComparison, "function");
   assert.equal(typeof runtime.aggregateProductStats, "function");
+  assert.equal(typeof runtime.parseProductTask, "function");
+  assert.equal(typeof runtime.createProductTaskProviderInput, "function");
 
   const invalidTaskResult = await runtime.runBoundedTask({});
   assert.equal(invalidTaskResult.decision, "bounded_task_invalid");
