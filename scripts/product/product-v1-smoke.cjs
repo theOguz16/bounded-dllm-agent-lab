@@ -26,6 +26,10 @@ const childStages = [
     script: "scripts/smoke/disposable-agent-workspace-smoke.cjs"
   },
   {
+    name: "comparative agent runner smoke",
+    script: "scripts/smoke/comparative-agent-runner-smoke.cjs"
+  },
+  {
     name: "context exposure report smoke",
     script: "scripts/smoke/context-exposure-report-smoke.cjs"
   },

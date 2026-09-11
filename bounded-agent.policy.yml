@@ -89,6 +89,7 @@ allowed_paths:
   - scripts/smoke/codex-event-parser-smoke.cjs
   - scripts/smoke/codex-agent-adapter-smoke.cjs
   - scripts/smoke/disposable-agent-workspace-smoke.cjs
+  - scripts/smoke/comparative-agent-runner-smoke.cjs
   - scripts/smoke/context-exposure-report-smoke.cjs
   - scripts/smoke/agent-mutation-capture-smoke.cjs
   - scripts/smoke/codex-bounded-provider-smoke.cjs

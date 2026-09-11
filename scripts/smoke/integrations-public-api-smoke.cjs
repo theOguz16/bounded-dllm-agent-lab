@@ -15,6 +15,7 @@ assert.equal(integrationsPackage.exports?.["."], "./src/index.ts");
 
 const expectedPublicModules = [
   "coding-executor",
+  "comparative-agent-runner",
   "local-openai-compatible-model-client",
   "runpod-openai-compatible-model-client",
   "provider-execution-error"
@@ -38,6 +39,8 @@ try {
     consumerPath,
     `import {
   CODING_EXECUTOR_REQUEST_VERSION,
+  COMPARATIVE_AGENT_RUNNER_VERSION,
+  runComparativeAgentSample,
   LOCAL_OPENAI_MODEL_CLIENT_VERSION,
   RUNPOD_MODEL_CLIENT_VERSION,
   PRODUCTION_MODEL_FAILURE_CODES
@@ -45,6 +48,8 @@ try {
 
 void [
   CODING_EXECUTOR_REQUEST_VERSION,
+  COMPARATIVE_AGENT_RUNNER_VERSION,
+  runComparativeAgentSample,
   LOCAL_OPENAI_MODEL_CLIENT_VERSION,
   RUNPOD_MODEL_CLIENT_VERSION,
   PRODUCTION_MODEL_FAILURE_CODES
