@@ -16,4 +16,4 @@ Use `--output-dir=<path>` to write somewhere other than the repository report di
 
 The report is derived only from observed dogfood evidence. Missing metrics remain `null`/`N/A`; human acceptance is never inferred from task success, and an incomplete pair remains incomplete. The report includes overall success, control, behavior, tokens, context, scope, duration, human acceptance, and the fixed Product V1 failure taxonomy.
 
-The directory is intentionally still covered by `forbidden_paths: reports/**` in `bounded-agent.policy.yml`. Generating or reviewing a report does not authorize a bounded coding agent to mutate report/evidence files.
+The bounded-agent policy allowlists only this Product V1 report documentation and the report builder. Other `reports/product-v1/**` outputs are not allowlisted source mutations, while non-Product-V1 report namespaces remain explicitly forbidden. Report generation therefore does not grant a bounded coding agent authority to rewrite observed report/evidence files.
