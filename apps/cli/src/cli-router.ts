@@ -1,4 +1,6 @@
-import { loadTaskFile, type CliCommand, type CliCommandResult } from "./bounded-task.js";
+import { randomUUID } from "node:crypto";
+
+import { loadTaskFile, type CliCommand, type CliCommandResult, type CliJson } from "./bounded-task.js";
 import { CliError } from "./cli-errors.js";
 import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js";
 import { applyCommand } from "./commands/apply.js";
@@ -12,19 +14,27 @@ import { recoverCommand } from "./commands/recover.js";
 import { reportCommand } from "./commands/report.js";
 import { resumeCommand } from "./commands/resume.js";
 import { runCommand } from "./commands/run.js";
+import {
+  DEFAULT_STATS_LAST,
+  MAX_STATS_LAST,
+  statsCommand
+} from "./commands/stats.js";
 import { statusCommand } from "./commands/status.js";
+import { findGitRepositoryRoot } from "./product-config.js";
+import { storeProductRunArtifact } from "./run-artifact-store.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded stats [--last <count>] [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor" | "apply" | "history";
-type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report";
+type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report" | "stats";
 
 type ParsedArgs = Readonly<{
   command: RoutedCommand;
   task?: string;
   allowFiles?: readonly string[];
   runId?: string;
+  last?: number;
   json: boolean;
 }>;
 
@@ -120,15 +130,45 @@ function parseReportArgs(argv: readonly string[]): ParsedArgs {
   return { command: "report", runId, json };
 }
 
+function parseStatsArgs(argv: readonly string[]): ParsedArgs {
+  let last = DEFAULT_STATS_LAST;
+  let seenLast = false;
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json") {
+      if (json) throw new CliError("cli_argument_invalid", CLI_USAGE);
+      json = true;
+      continue;
+    }
+    if (argument === "--last") {
+      const raw = argv[index + 1];
+      if (seenLast || raw === undefined || !/^\d+$/.test(raw)) {
+        throw new CliError("cli_stats_last_invalid", CLI_USAGE);
+      }
+      last = Number(raw);
+      if (!Number.isSafeInteger(last) || last < 1 || last > MAX_STATS_LAST) {
+        throw new CliError("cli_stats_last_invalid", CLI_USAGE);
+      }
+      seenLast = true;
+      index += 1;
+      continue;
+    }
+    throw new CliError("cli_argument_invalid", CLI_USAGE);
+  }
+  return { command: "stats", last, json };
+}
+
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] as RoutedCommand;
-  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "compare", "report"].includes(command)) {
+  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "compare", "report", "stats"].includes(command)) {
     throw new CliError("cli_command_invalid", CLI_USAGE);
   }
 
   if (command === "codex") return parseCodexArgs(argv);
   if (command === "compare") return parseCompareArgs(argv);
   if (command === "report") return parseReportArgs(argv);
+  if (command === "stats") return parseStatsArgs(argv);
 
   if (LOCAL_COMMANDS.includes(command as LocalCommand)) {
     const recognized = argv.filter((item, offset) => offset === 0 || item === "--json");
@@ -158,6 +198,7 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "apply") return applyCommand({ nonInteractive: parsed.json });
   if (parsed.command === "history") return historyCommand();
   if (parsed.command === "report") return reportCommand(parsed.runId!);
+  if (parsed.command === "stats") return statsCommand({ last: parsed.last });
   if (parsed.command === "compare") return compareCodexCommand({ task: parsed.task! });
   if (parsed.command === "codex") {
     return codexAutoScopeCommand({
@@ -182,13 +223,70 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   }
 }
 
+async function persistComparisonResult(result: CliCommandResult): Promise<CliCommandResult> {
+  const repositoryRoot = await findGitRepositoryRoot(process.cwd());
+  const runId = `compare-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const output = Object.freeze({ ...result.output, runId }) as CliJson;
+  const evaluations =
+    output.evaluations !== null && typeof output.evaluations === "object" && !Array.isArray(output.evaluations)
+      ? output.evaluations
+      : null;
+
+  await storeProductRunArtifact({
+    repositoryRoot,
+    runId,
+    runKind: "compare",
+    run: {
+      command: "compare",
+      target: output.target ?? "codex",
+      task: output.task ?? null,
+      model: output.model ?? null,
+      comparable: output.comparable ?? null,
+      executionOrder: output.executionOrder ?? null,
+      status: result.exitCode === 0 ? "completed" : "not_comparable"
+    },
+    candidateDiff: "",
+    receipt: {
+      outcome: result.exitCode === 0 ? "comparison_completed" : "comparison_not_comparable",
+      sourceRepositoryUnchanged: output.sourceRepositoryUnchanged ?? null
+    },
+    telemetry: {
+      normal: output.normal ?? null,
+      bounded: output.bounded ?? null,
+      executionOrder: output.executionOrder ?? null
+    },
+    validation: evaluations,
+    comparison: output
+  });
+
+  return Object.freeze({ output, exitCode: result.exitCode });
+}
+
+function emitStatsHuman(output: CliJson): void {
+  const comparableRuns = Number.isSafeInteger(output.comparableRuns)
+    ? String(output.comparableRuns)
+    : "N/A";
+  const comparisonRuns = Number.isSafeInteger(output.comparisonRuns)
+    ? String(output.comparisonRuns)
+    : "N/A";
+  process.stdout.write(`Comparable runs: ${comparableRuns} / ${comparisonRuns}\n\n`);
+  process.stdout.write(`${typeof output.table === "string" ? output.table : "N/A"}\n`);
+}
+
 export async function runCanonicalCli(argv: readonly string[]): Promise<number> {
   const json = argv.includes("--json");
   const secrets = collectCliSecrets();
   try {
     const parsed = parseArgs(argv);
-    const result = await dispatch(parsed);
-    emitCliOutput(result.output, parsed.json, secrets);
+    let result = await dispatch(parsed);
+    if (parsed.command === "compare") {
+      result = await persistComparisonResult(result);
+    }
+    if (parsed.command === "stats" && !parsed.json) {
+      emitStatsHuman(result.output);
+    } else {
+      emitCliOutput(result.output, parsed.json, secrets);
+    }
     return result.exitCode;
   } catch (error) {
     const output = {
