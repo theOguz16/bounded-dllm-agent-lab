@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "product-task/v1",
+  "taskId": "external.nanoid.secure-pool-fractional-size",
+  "family": "existing_function_bug_fix",
+  "repo": "ai/nanoid",
+  "commitSha": "e4b7a9a7323006474ec939112aec68944b0da097",
+  "objective": "Fix secure Nano ID pool handling so fractional size requests cannot pollute later generated IDs.",
+  "acceptanceCriteria": [
+    "Fractional secure ID size requests do not leave invalid pool state for subsequent calls.",
+    "Existing secure ID behavior for valid integer sizes remains unchanged.",
+    "Regression coverage demonstrates the failure before the fix and passes after the fix."
+  ],
+  "validationCommands": [
+    "npm test"
+  ]
+}
