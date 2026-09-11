@@ -9,6 +9,8 @@ const path = require("node:path");
 const preflight = require("./dogfood-auth-preflight.cjs");
 
 const MODEL = "gpt-5.6-codex";
+const repoRoot = path.resolve(__dirname, "../..");
+const workflowPath = path.join(repoRoot, ".github/workflows/product-dogfood-v1-live.yml");
 
 function expectFailure(input) {
   assert.throws(
@@ -19,6 +21,19 @@ function expectFailure(input) {
 
 function main() {
   assert.deepEqual([...preflight.AUTH_MODES], ["api_key", "codex_home"]);
+
+  const workflow = fs.readFileSync(workflowPath, "utf8");
+  const authStart = workflow.indexOf("      auth_mode:");
+  const modelStart = workflow.indexOf("      model:", authStart);
+  assert.notEqual(authStart, -1);
+  assert.notEqual(modelStart, -1);
+  const authBlock = workflow.slice(authStart, modelStart);
+  assert.match(authBlock, /type:\s*choice/);
+  assert.match(authBlock, /\n\s*- api_key\n/);
+  assert.match(authBlock, /\n\s*- codex_home\n/);
+  assert.equal((authBlock.match(/^\s*- /gm) || []).length, 2);
+  assert.match(workflow, /api-key-live:[\s\S]*?runs-on:\s*ubuntu-latest/);
+  assert.match(workflow, /codex-home-live:[\s\S]*?runs-on:\s*self-hosted/);
 
   expectFailure({
     mode: "api_key",
@@ -68,6 +83,7 @@ function main() {
   process.stdout.write(`${JSON.stringify({
     ok: true,
     supportedAuthModes: [...preflight.AUTH_MODES],
+    workflowAuthModeChoicesExact: true,
     apiKeyWithoutKeyFails: true,
     codexHomeWithoutAuthFails: true,
     codexHomeFakeAuthPasses: true,
