@@ -114,6 +114,10 @@ const childStages = [
     script: "scripts/smoke/bounded-compare-codex-smoke.cjs"
   },
   {
+    name: "adversarial agent suite",
+    script: "scripts/product/adversarial-agent-suite.cjs"
+  },
+  {
     name: "CLI smoke",
     script: "scripts/canonical-cli-smoke.cjs"
   },
