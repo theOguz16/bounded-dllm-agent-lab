@@ -18,6 +18,7 @@ import {
   type ProductRunCheckpointSource,
   type ProductRunPersistPoint
 } from "../run-artifact-store.js";
+import type { CliCommandResult } from "../bounded-task.js";
 import {
   BOUNDED_CODEX_EXPLICIT_SCOPE_VERSION,
   BOUNDED_CODEX_REASONING,
@@ -180,7 +181,7 @@ export async function codexCommand(
   raw: CodexExplicitScopeCommandInput,
   startPath = process.cwd(),
   dependencies: CodexCommandDependencies = {}
-) {
+): Promise<CliCommandResult> {
   let binding: DurableBinding | null = null;
   let finalState: DurableBoundedTaskState | null = null;
 
