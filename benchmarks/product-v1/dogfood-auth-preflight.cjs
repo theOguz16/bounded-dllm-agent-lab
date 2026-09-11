@@ -88,6 +88,11 @@ function main() {
     runnerEnvironment: args.runnerEnvironment,
     env: process.env
   });
+
+  if (args.mode === "codex_home" && process.env.GITHUB_ENV) {
+    fs.appendFileSync(process.env.GITHUB_ENV, `CODEX_HOME=${resolveCodexHome(process.env)}\n`, "utf8");
+  }
+
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
