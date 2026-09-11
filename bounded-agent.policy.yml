@@ -16,6 +16,7 @@ allowed_paths:
   - fixtures/product/adversarial-agent/**
   - reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json
   - reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json
+  - reports/product-v1/README.md
   - benchmarks/product-v1/**
   - benchmarks/gate6/repositories.json
   - benchmarks/gate6/tasks/**
@@ -115,6 +116,7 @@ allowed_paths:
   - scripts/smoke/bounded-compare-codex-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/product/adversarial-agent-suite.cjs
+  - scripts/product/build-dogfood-report.cjs
   - scripts/runpod-controlled-pilot-bootstrap.sh
   - scripts/runpod-controlled-pilot-bootstrap-smoke.cjs
   - scripts/runpod-openai-compatible-model-client-error-smoke.cjs
@@ -124,7 +126,8 @@ allowed_paths:
   - pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json
   - pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json
 forbidden_paths:
-  - reports/**
+  - reports/!(product-v1)
+  - reports/!(product-v1)/**
   - benchmarks/repos/**
   - node_modules/**
   - dist/**
