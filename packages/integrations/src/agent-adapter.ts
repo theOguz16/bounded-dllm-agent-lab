@@ -41,6 +41,7 @@ export interface AgentCommandEvent {
   durationMs: number;
   exitCode: number | null;
   status: "completed" | "failed" | "aborted" | "timed_out";
+  output?: string | null;
 }
 
 export interface AgentFileChangeEvent {
