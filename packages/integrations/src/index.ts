@@ -1,4 +1,5 @@
 export * from "./agent-adapter.js";
+export * from "./agent-environment.js";
 export * from "./agent-mutation-capture.js";
 export * from "./agent-telemetry.js";
 export * from "./codex-agent-adapter.js";
