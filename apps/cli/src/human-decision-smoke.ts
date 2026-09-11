@@ -34,8 +34,8 @@ function sha256(value: string): string {
 
 function git(cwd: string, args: readonly string[]): string {
   const result = spawnSync("git", [...args], { cwd, encoding: "utf8", timeout: 5_000 });
-  assert.equal(result.status, 0, result.stderr);
-  return result.stdout;
+  assert.equal(result.status, 0, String(result.stderr || result.stdout));
+  return String(result.stdout);
 }
 
 function runCli(cwd: string, args: readonly string[]): ReturnType<typeof spawnSync> {
@@ -64,7 +64,7 @@ async function createNonTtyApplyFixture(root: string): Promise<{
   );
   await writeFile(path.join(repository, "src", "value.ts"), sourceOriginal, "utf8");
   const init = runCli(repository, ["init", "--json"]);
-  assert.equal(init.status, 0, init.stderr || init.stdout);
+  assert.equal(init.status, 0, String(init.stderr || init.stdout));
 
   const candidate = createCandidateHandoff({
     taskId: "codex.fixture.human-decision-non-tty",
@@ -104,7 +104,7 @@ async function createNonTtyApplyFixture(root: string): Promise<{
     adaptiveResult: { decision: "fixture" },
     declaredRiskClass: "low",
     candidateFiles: ["src/value.ts"]
-  } as Parameters<typeof createCandidateHandoff>[0]);
+  } as unknown as Parameters<typeof createCandidateHandoff>[0]);
   await writeCandidateHandoff(repository, candidate);
   return { repository, candidate, sourceOriginal };
 }
@@ -112,9 +112,10 @@ async function createNonTtyApplyFixture(root: string): Promise<{
 async function verifyNonTtyWithoutInjectedDecision(root: string): Promise<void> {
   const { repository, candidate, sourceOriginal } = await createNonTtyApplyFixture(root);
   const originalCi = process.env.CI;
-  const stdinDescriptor = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+  const stdin = process.stdin as unknown as { isTTY?: boolean };
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(stdin, "isTTY");
   delete process.env.CI;
-  Object.defineProperty(process.stdin, "isTTY", {
+  Object.defineProperty(stdin, "isTTY", {
     value: false,
     configurable: true
   });
@@ -128,8 +129,8 @@ async function verifyNonTtyWithoutInjectedDecision(root: string): Promise<void> 
     assert.equal(await readHumanDecision(repository, candidate.handoffHash), null);
     assert.equal(await readFile(path.join(repository, "src", "value.ts"), "utf8"), sourceOriginal);
   } finally {
-    if (stdinDescriptor) Object.defineProperty(process.stdin, "isTTY", stdinDescriptor);
-    else delete (process.stdin as NodeJS.ReadStream & { isTTY?: boolean }).isTTY;
+    if (stdinDescriptor) Object.defineProperty(stdin, "isTTY", stdinDescriptor);
+    else delete stdin.isTTY;
     if (originalCi === undefined) delete process.env.CI;
     else process.env.CI = originalCi;
   }
