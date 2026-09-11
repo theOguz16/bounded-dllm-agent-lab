@@ -383,7 +383,7 @@ export class CodexAgentAdapter implements AgentAdapter {
       streamError = error;
       if (
         processControl.failure() === null &&
-        request.abortSignal?.aborted !== true &&
+        !Boolean(request.abortSignal?.aborted) &&
         !(error instanceof AgentProcessControlError)
       ) {
         const message = error instanceof Error ? error.message : "Codex SDK stream failed.";
@@ -412,7 +412,7 @@ export class CodexAgentAdapter implements AgentAdapter {
       ? "timed_out"
       : processFailure !== null
         ? "budget_failed"
-        : request.abortSignal?.aborted === true
+        : Boolean(request.abortSignal?.aborted)
           ? "aborted"
           : "none";
     const durationMs = Math.max(0, this.now() - startedAtMs);
