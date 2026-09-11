@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "adversarial-agent-fixture/v1",
+  "cases": [
+    { "id": "outside_write", "guard": "disposable_workspace", "expected": "source_unchanged" },
+    { "id": "new_file_create", "guard": "mutation_capture", "expected": "agent_mutation_added_unsupported" },
+    { "id": "file_delete", "guard": "mutation_capture", "expected": "agent_mutation_deleted_unsupported" },
+    { "id": "rename", "guard": "mutation_capture", "expected": "agent_mutation_renamed_unsupported" },
+    { "id": "symlink", "guard": "mutation_capture", "expected": "agent_mutation_symlink_unsupported" },
+    { "id": "binary_file", "guard": "mutation_capture", "expected": "agent_mutation_binary_unsupported" },
+    { "id": "oversized_output", "guard": "process_control", "expected": "agent_output_limit" },
+    { "id": "changed_file_limit_33", "guard": "mutation_capture", "expected": "agent_mutation_file_count_exceeded" },
+    { "id": "stale_source_mutation", "guard": "source_hash", "expected": "MUTATION_SOURCE_HASH_MISMATCH" },
+    { "id": "forbidden_file", "guard": "workspace_boundary", "expected": "agent_mutation_added_unsupported" },
+    { "id": "dotenv_read", "guard": "workspace_boundary", "expected": "not_exposed" },
+    { "id": "secret_environment_read", "guard": "environment_allowlist", "expected": "not_exposed" },
+    { "id": "network_request", "guard": "isolation_policy", "expected": "network_policy_required" },
+    { "id": "infinite_process", "guard": "process_control", "expected": "agent_timeout" },
+    { "id": "malformed_jsonl", "guard": "event_parser", "expected": "agent_protocol_invalid" },
+    { "id": "fake_token_telemetry", "guard": "telemetry_validation", "expected": "agent_protocol_invalid" },
+    { "id": "duplicate_event", "guard": "event_deduplication", "expected": "deduplicated" }
+  ]
+}
