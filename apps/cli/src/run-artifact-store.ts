@@ -212,18 +212,18 @@ export function createCodexDurableRecoveryBridge(input: Readonly<{
   repositoryRoot: string;
   taskId: string;
 }>): CodexDurableRecoveryBridge {
-  const bounded = assertBoundedDirectorySync(input.repositoryRoot);
-  const stateDirectory = path.join(bounded, "state", "codex");
-  mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  chmodSync(path.join(bounded, "state"), 0o700);
-  chmodSync(stateDirectory, 0o700);
-
+  assertBoundedDirectorySync(input.repositoryRoot);
   const key = createHash("sha256")
     .update(`${path.resolve(input.repositoryRoot)}\u0000${input.taskId}`)
     .digest("hex");
   const registryRoot = codexDurableRegistryRoot(input.repositoryRoot);
   const idempotencyKey = `codex.${key.slice(0, 48)}`;
-  const checkpointFile = path.join(stateDirectory, `${key.slice(0, 32)}.json`);
+  const checkpointDirectory = path.join(registryRoot, "product-checkpoints");
+  mkdirSync(registryRoot, { recursive: true, mode: 0o700 });
+  chmodSync(registryRoot, 0o700);
+  mkdirSync(checkpointDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(checkpointDirectory, 0o700);
+  const checkpointFile = path.join(checkpointDirectory, `${key.slice(0, 32)}.json`);
   const history: Array<Readonly<Record<string, unknown>>> = [];
   let lastState: DurableBoundedTaskState | undefined;
 
