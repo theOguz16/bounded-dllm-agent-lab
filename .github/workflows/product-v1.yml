@@ -39,3 +39,6 @@ jobs:
 
       - name: Product V1 deterministic check
         run: npm run product:v1-check
+
+      - name: Human decision capture smoke
+        run: node dist/apps/cli/src/human-decision-smoke.js
