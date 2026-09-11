@@ -16,6 +16,7 @@ allowed_paths:
   - fixtures/product/adversarial-agent/**
   - reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json
   - reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json
+  - benchmarks/product-v1/**
   - benchmarks/gate6/repositories.json
   - benchmarks/gate6/tasks/**
   - benchmarks/gate6/oracles/**
@@ -110,6 +111,7 @@ allowed_paths:
   - scripts/smoke/agent-comparison-contract-smoke.cjs
   - scripts/smoke/product-comparison-evaluator-smoke.cjs
   - scripts/smoke/product-stats-smoke.cjs
+  - scripts/smoke/product-task-contract-smoke.cjs
   - scripts/smoke/bounded-compare-codex-smoke.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/product/adversarial-agent-suite.cjs
