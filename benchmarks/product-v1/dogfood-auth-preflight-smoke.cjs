@@ -5,12 +5,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 
 const preflight = require("./dogfood-auth-preflight.cjs");
 
 const MODEL = "gpt-5.6-codex";
 const repoRoot = path.resolve(__dirname, "../..");
 const workflowPath = path.join(repoRoot, ".github/workflows/product-dogfood-v1-live.yml");
+const preflightPath = path.join(__dirname, "dogfood-auth-preflight.cjs");
 
 function expectFailure(input) {
   assert.throws(
@@ -76,6 +78,41 @@ function main() {
     fs.rmSync(fakeHome, { recursive: true, force: true });
   }
 
+  const defaultHome = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-default-home-"));
+  try {
+    const defaultCodexHome = path.join(defaultHome, ".codex");
+    fs.mkdirSync(defaultCodexHome, { recursive: true });
+    fs.writeFileSync(path.join(defaultCodexHome, "auth.json"), "{}\n", { mode: 0o600 });
+    const githubEnv = path.join(defaultHome, "github-env.txt");
+    fs.writeFileSync(githubEnv, "", { mode: 0o600 });
+
+    const child = spawnSync(process.execPath, [
+      preflightPath,
+      "--mode=codex_home",
+      `--model=${MODEL}`,
+      "--runner-environment=self-hosted"
+    ], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: defaultHome,
+        CODEX_HOME: "",
+        GITHUB_ENV: githubEnv,
+        PATH: ""
+      },
+      timeout: 10_000
+    });
+
+    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.stdout.includes(defaultHome), false);
+    assert.equal(
+      fs.readFileSync(githubEnv, "utf8"),
+      `CODEX_HOME=${defaultCodexHome}\n`
+    );
+  } finally {
+    fs.rmSync(defaultHome, { recursive: true, force: true });
+  }
+
   for (const mode of ["", "key", "chatgpt", "auto", "api-key"]) {
     expectFailure({ mode, model: MODEL, runnerEnvironment: "self-hosted", env: {} });
   }
@@ -87,6 +124,8 @@ function main() {
     apiKeyWithoutKeyFails: true,
     codexHomeWithoutAuthFails: true,
     codexHomeFakeAuthPasses: true,
+    codexHomeDefaultDirectoryPasses: true,
+    codexHomePropagatesWithoutLoggingPath: true,
     codexHomeRequiresSelfHosted: true,
     externalProviderCalls: false
   }, null, 2)}\n`);
