@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "product-task-evaluator/v1",
+  "taskId": "external.nanoid.secure-pool-fractional-size",
+  "expectedChangedFiles": [
+    "index.js",
+    "test/index.test.js"
+  ],
+  "oracleAssertions": [
+    "The secure pool cannot retain a fractional cursor that contaminates the next generated ID.",
+    "Regression coverage exercises a fractional size call followed by a normal secure ID call."
+  ]
+}
