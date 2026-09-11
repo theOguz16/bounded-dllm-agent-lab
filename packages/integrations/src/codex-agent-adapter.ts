@@ -28,6 +28,12 @@ import {
   type AgentOutputRedactor
 } from "./agent-output-redaction.js";
 import {
+  AgentProcessControlError,
+  createAgentProcessControl,
+  type AgentProcessControl,
+  type AgentProcessFailureCode
+} from "./agent-process-control.js";
+import {
   parseCodexJsonl,
   type CodexEventParserResult,
   type CodexNormalizedCommandEvent
@@ -59,7 +65,7 @@ type CommandTiming = {
   completedAtMs: number | null;
 };
 
-type RunTermination = "none" | "aborted" | "timed_out";
+type RunTermination = "none" | "aborted" | "timed_out" | "budget_failed";
 
 function diagnostic(
   code: string,
@@ -93,7 +99,8 @@ function serializeStreamEvent(event: unknown): string {
 function observeCommandTiming(
   event: unknown,
   observedAtMs: number,
-  timings: Map<string, CommandTiming>
+  timings: Map<string, CommandTiming>,
+  processControl: AgentProcessControl
 ): void {
   const observeOne = (candidate: unknown): void => {
     if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
@@ -113,6 +120,7 @@ function observeCommandTiming(
     const item = record.item as Record<string, unknown>;
     if (item.type !== "command_execution" || typeof item.id !== "string") return;
 
+    processControl.observeCommand(item.id);
     const existing = timings.get(item.id) ?? {
       startedAtMs: null,
       completedAtMs: null
@@ -136,7 +144,8 @@ function observeCommandTiming(
     if (line.trim().length === 0) continue;
     try {
       observeOne(JSON.parse(line));
-    } catch {
+    } catch (error) {
+      if (error instanceof AgentProcessControlError) throw error;
       // Protocol validation belongs to the canonical JSONL parser.
     }
   }
@@ -213,6 +222,7 @@ function mapRunStatus(
 ): AgentRunStatus {
   if (termination === "timed_out") return "timed_out";
   if (termination === "aborted") return "aborted";
+  if (termination === "budget_failed") return "failed";
   if (parsed.status === "completed") return "completed";
   return "failed";
 }
@@ -221,10 +231,12 @@ function emptyResult(
   request: AgentRunRequest,
   status: AgentRunStatus,
   durationMs: number,
-  diagnostics: AgentDiagnostic[]
+  diagnostics: AgentDiagnostic[],
+  failureCode: AgentProcessFailureCode | null = null
 ): AgentRunResult {
   return {
     status,
+    failureCode,
     agentId: CODEX_AGENT_ID,
     agentVersion: CODEX_SDK_VERSION,
     modelId: request.model,
@@ -304,19 +316,37 @@ export class CodexAgentAdapter implements AgentAdapter {
       ]);
     }
 
-    const controller = new AbortController();
-    let termination: RunTermination = "none";
-    const getTermination = (): RunTermination => termination;
-    const abortFromCaller = (): void => {
-      if (termination === "none") termination = "aborted";
-      controller.abort(request.abortSignal?.reason);
-    };
-    request.abortSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    let processControl: AgentProcessControl;
+    try {
+      processControl = createAgentProcessControl({
+        totalTimeoutMs: request.timeoutMs,
+        budget: request.processBudget,
+        parentSignal: request.abortSignal
+      });
+    } catch (error) {
+      return emptyResult(request, "rejected", 0, [
+        diagnostic(
+          "codex_process_budget_invalid",
+          "error",
+          error instanceof Error ? error.message : "Agent process budget is invalid."
+        )
+      ]);
+    }
 
-    const timeoutHandle = setTimeout(() => {
-      if (termination === "none") termination = "timed_out";
-      controller.abort(new Error("Codex agent run timed out."));
-    }, request.timeoutMs);
+    try {
+      if (request.mode === "repair") processControl.recordRepairRound();
+      processControl.recordProviderCall();
+      processControl.recordModelCall();
+    } catch (error) {
+      const failure = processControl.failure();
+      processControl.close();
+      if (failure !== null) {
+        return emptyResult(request, "failed", Math.max(0, this.now() - startedAtMs), [
+          diagnostic(failure.code, "error", failure.message)
+        ], failure.code);
+      }
+      throw error;
+    }
 
     const threadOptions: ThreadOptions = {
       workingDirectory: request.workingDirectory,
@@ -330,7 +360,7 @@ export class CodexAgentAdapter implements AgentAdapter {
     };
     const turnOptions: TurnOptions = {
       outputSchema: request.outputSchema,
-      signal: controller.signal
+      signal: processControl.signal
     };
 
     const lines: string[] = [];
@@ -343,36 +373,62 @@ export class CodexAgentAdapter implements AgentAdapter {
       const thread = client.startThread(threadOptions);
       const streamed = await thread.runStreamed(request.task, turnOptions);
       for await (const event of streamed.events) {
-        observeCommandTiming(event, this.now(), commandTimings);
-        lines.push(serializeStreamEvent(event));
+        processControl.observeEvent();
+        const serialized = serializeStreamEvent(event);
+        processControl.observeStdout(serialized);
+        observeCommandTiming(event, this.now(), commandTimings, processControl);
+        lines.push(serialized);
       }
     } catch (error) {
       streamError = error;
-      if (getTermination() === "none") {
-        adapterDiagnostics.push(
-          diagnostic(
-            "codex_sdk_error",
-            "error",
-            error instanceof Error ? error.message : "Codex SDK stream failed.",
-            true
-          )
-        );
+      if (
+        processControl.failure() === null &&
+        request.abortSignal?.aborted !== true &&
+        !(error instanceof AgentProcessControlError)
+      ) {
+        const message = error instanceof Error ? error.message : "Codex SDK stream failed.";
+        try {
+          processControl.observeStderr(message);
+        } catch (budgetError) {
+          streamError = budgetError;
+        }
+        if (processControl.failure() === null) {
+          adapterDiagnostics.push(
+            diagnostic(
+              "codex_sdk_error",
+              "error",
+              message,
+              true
+            )
+          );
+        }
       }
     } finally {
-      clearTimeout(timeoutHandle);
-      request.abortSignal?.removeEventListener("abort", abortFromCaller);
+      processControl.close();
     }
 
-    const finalTermination = getTermination();
+    const processFailure = processControl.failure();
+    const finalTermination: RunTermination = processFailure?.code === "agent_timeout"
+      ? "timed_out"
+      : processFailure !== null
+        ? "budget_failed"
+        : request.abortSignal?.aborted === true
+          ? "aborted"
+          : "none";
     const durationMs = Math.max(0, this.now() - startedAtMs);
     const parsed = parseCodexJsonl(lines.join("\n"), {
       processAborted: finalTermination !== "none",
       durationMs
     });
 
-    if (streamError !== null && finalTermination === "timed_out") {
+    if (processFailure !== null) {
       adapterDiagnostics.push(
-        diagnostic("codex_timed_out", "error", "Codex run exceeded timeoutMs.", true)
+        diagnostic(
+          processFailure.code,
+          "error",
+          processFailure.message,
+          processFailure.code === "agent_timeout"
+        )
       );
     } else if (streamError !== null && finalTermination === "aborted") {
       adapterDiagnostics.push(
@@ -414,6 +470,7 @@ export class CodexAgentAdapter implements AgentAdapter {
 
     return {
       status: mapRunStatus(parsed, finalTermination),
+      failureCode: processFailure?.code ?? null,
       agentId: CODEX_AGENT_ID,
       agentVersion: CODEX_SDK_VERSION,
       modelId: request.model,
