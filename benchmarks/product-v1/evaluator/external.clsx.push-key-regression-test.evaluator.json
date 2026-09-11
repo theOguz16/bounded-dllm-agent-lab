@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "product-task-evaluator/v1",
+  "taskId": "external.clsx.push-key-regression-test",
+  "expectedChangedFiles": [
+    "test/index.js"
+  ],
+  "oracleAssertions": [
+    "Regression coverage includes both push and pop object keys.",
+    "The benchmark solution remains test-focused unless production code is strictly required by the observed failure."
+  ]
+}
