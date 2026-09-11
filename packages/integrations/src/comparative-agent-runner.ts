@@ -25,6 +25,7 @@ export const COMPARATIVE_AGENT_RUNNER_VERSION =
   "comparative-agent-runner/v1" as const;
 
 export type ComparativeAgentNetworkPolicy = "disabled" | "enabled";
+export type ComparativeAgentExecutionOrder = readonly [AgentComparisonArm, AgentComparisonArm];
 
 export type ComparativeAgentEvaluatorInput<TValidationSpec> = Readonly<{
   arm: AgentComparisonArm;
@@ -79,6 +80,7 @@ export type ComparativeAgentArmResult<TEvaluation> = Readonly<{
 export type ComparativeAgentRunnerResult<TEvaluation> = Readonly<{
   schemaVersion: typeof COMPARATIVE_AGENT_RUNNER_VERSION;
   comparison: AgentComparisonContract;
+  executionOrder: ComparativeAgentExecutionOrder;
   workspaceIsolation: Readonly<{
     distinctRoots: true;
     boundedContextIsBaselineSubset: true;
@@ -108,6 +110,7 @@ export class ComparativeAgentRunnerError extends Error {
 }
 
 const MAX_GIT_BUFFER = 32 * 1024 * 1024;
+const SHA256 = /^sha256:([0-9a-f]{64})$/;
 
 function fail(
   code: ComparativeAgentRunnerErrorCode,
@@ -119,6 +122,24 @@ function fail(
 
 function sha256Text(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+/**
+ * Deterministically alternates which arm runs first from the canonical task hash.
+ * Even final SHA-256 nibbles run baseline first; odd nibbles run bounded first.
+ */
+export function executionOrderForTaskHash(taskHash: string): ComparativeAgentExecutionOrder {
+  const match = SHA256.exec(taskHash);
+  if (!match) {
+    return fail(
+      "comparative_agent_runner_invalid",
+      "taskHash must be a canonical lowercase sha256 hash."
+    );
+  }
+  const finalNibble = Number.parseInt(match[1]!.slice(-1), 16);
+  return finalNibble % 2 === 0
+    ? Object.freeze(["baseline", "bounded"] as const)
+    : Object.freeze(["bounded", "baseline"] as const);
 }
 
 function isolatedGitEnvironment(): NodeJS.ProcessEnv {
@@ -262,7 +283,6 @@ function validateBasicInput<TValidationSpec, TEvaluation>(
     timeoutBudget: input.timeoutBudget
   };
 
-  // Reuse the Product Comparison V1 contract as the canonical identity validator.
   createAgentComparisonContract({
     baseline: expectedIdentity,
     bounded: expectedIdentity
@@ -358,6 +378,8 @@ function freezeWorkspaceSummary(
  * receives the full eligible tracked repository in a disposable workspace;
  * bounded receives only selected context and is fail-closed if it mutates a
  * file outside approvedMutableFiles. The two arms never share a workspace root.
+ * Arm execution order is deterministic from taskHash so one arm is not always
+ * advantaged by provider/cache warmup effects.
  */
 export async function runComparativeAgentSample<TValidationSpec, TEvaluation>(
   input: ComparativeAgentRunnerInput<TValidationSpec, TEvaluation>
@@ -413,73 +435,81 @@ export async function runComparativeAgentSample<TValidationSpec, TEvaluation>(
     }
 
     const networkAllowed = input.networkPolicy === "enabled";
-    const baselineRun = await input.adapter.run(
-      requestForArm({
-        arm: "baseline",
-        workspace: baselineWorkspace,
-        task: input.task,
-        adapter: input.adapter,
-        modelId: input.modelId,
-        reasoningEffort: input.reasoningEffort,
-        timeoutBudget: input.timeoutBudget,
-        networkAllowed,
-        ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
-      })
-    );
-    const boundedRun = await input.adapter.run(
-      requestForArm({
-        arm: "bounded",
-        workspace: boundedWorkspace,
-        task: input.task,
-        adapter: input.adapter,
-        modelId: input.modelId,
-        reasoningEffort: input.reasoningEffort,
-        timeoutBudget: input.timeoutBudget,
-        networkAllowed,
-        ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
-      })
-    );
-
-    const [baselineChangedFiles, boundedChangedFiles] = await Promise.all([
-      changedFiles(baselineWorkspace.workspacePath),
-      changedFiles(boundedWorkspace.workspacePath)
-    ]);
-
-    const approvedMutable = new Set(input.approvedMutableFiles);
-    const unauthorized = boundedChangedFiles.find((path) => !approvedMutable.has(path));
-    if (unauthorized !== undefined) {
-      return fail(
-        "comparative_agent_scope_violation",
-        `Bounded arm changed a file outside approvedMutableFiles: ${unauthorized}.`,
-        unauthorized
-      );
-    }
-
+    const executionOrder = executionOrderForTaskHash(validated.taskHash);
     const baselineMutableFiles = baselineWorkspace.manifest.files.map((entry) => entry.path);
     const boundedMutableFiles = [...input.approvedMutableFiles].sort((left, right) =>
       left.localeCompare(right, "en")
     );
+    const approvedMutable = new Set(input.approvedMutableFiles);
+    const completed: Partial<Record<AgentComparisonArm, ComparativeAgentArmResult<TEvaluation>>> = {};
 
-    const baselineEvaluation = await input.evaluator({
-      arm: "baseline",
-      task: input.task,
-      workspacePath: baselineWorkspace.workspacePath,
-      workspaceManifest: baselineWorkspace.manifest,
-      mutableFiles: Object.freeze([...baselineMutableFiles]),
-      changedFiles: Object.freeze([...baselineChangedFiles]),
-      run: baselineRun,
-      validationSpec: input.validationSpec
-    });
-    const boundedEvaluation = await input.evaluator({
-      arm: "bounded",
-      task: input.task,
-      workspacePath: boundedWorkspace.workspacePath,
-      workspaceManifest: boundedWorkspace.manifest,
-      mutableFiles: Object.freeze([...boundedMutableFiles]),
-      changedFiles: Object.freeze([...boundedChangedFiles]),
-      run: boundedRun,
-      validationSpec: input.validationSpec
-    });
+    const executeArm = async (
+      arm: AgentComparisonArm
+    ): Promise<ComparativeAgentArmResult<TEvaluation>> => {
+      const workspace = arm === "baseline" ? baselineWorkspace! : boundedWorkspace!;
+      const mutableFiles = arm === "baseline" ? baselineMutableFiles : boundedMutableFiles;
+      const run = await input.adapter.run(
+        requestForArm({
+          arm,
+          workspace,
+          task: input.task,
+          adapter: input.adapter,
+          modelId: input.modelId,
+          reasoningEffort: input.reasoningEffort,
+          timeoutBudget: input.timeoutBudget,
+          networkAllowed,
+          ...(input.abortSignal === undefined ? {} : { abortSignal: input.abortSignal })
+        })
+      );
+      const observedChangedFiles = await changedFiles(workspace.workspacePath);
+
+      if (arm === "bounded") {
+        const unauthorized = observedChangedFiles.find((path) => !approvedMutable.has(path));
+        if (unauthorized !== undefined) {
+          return fail(
+            "comparative_agent_scope_violation",
+            `Bounded arm changed a file outside approvedMutableFiles: ${unauthorized}.`,
+            unauthorized
+          );
+        }
+      }
+
+      const evaluation = await input.evaluator({
+        arm,
+        task: input.task,
+        workspacePath: workspace.workspacePath,
+        workspaceManifest: workspace.manifest,
+        mutableFiles: Object.freeze([...mutableFiles]),
+        changedFiles: Object.freeze([...observedChangedFiles]),
+        run,
+        validationSpec: input.validationSpec
+      });
+
+      return Object.freeze({
+        arm,
+        run,
+        evaluation,
+        workspace: freezeWorkspaceSummary(
+          arm,
+          workspace,
+          mutableFiles,
+          observedChangedFiles
+        )
+      });
+    };
+
+    for (const arm of executionOrder) {
+      completed[arm] = await executeArm(arm);
+    }
+
+    const baselineResult = completed.baseline;
+    const boundedResult = completed.bounded;
+    if (baselineResult === undefined || boundedResult === undefined) {
+      return fail(
+        "comparative_agent_runner_invalid",
+        "Both comparison arms must complete exactly once."
+      );
+    }
 
     const sourceHeadAfterRuns = (await runGit(repositoryPath, ["rev-parse", "HEAD"])).trim();
     if (sourceHeadAfterRuns !== sourceHeadBefore) {
@@ -490,40 +520,21 @@ export async function runComparativeAgentSample<TValidationSpec, TEvaluation>(
     }
 
     const comparison = createAgentComparisonContract({
-      baseline: identityFromRun(validated.expectedIdentity, baselineRun),
-      bounded: identityFromRun(validated.expectedIdentity, boundedRun)
+      baseline: identityFromRun(validated.expectedIdentity, baselineResult.run),
+      bounded: identityFromRun(validated.expectedIdentity, boundedResult.run)
     });
 
     return Object.freeze({
       schemaVersion: COMPARATIVE_AGENT_RUNNER_VERSION,
       comparison,
+      executionOrder,
       workspaceIsolation: Object.freeze({
         distinctRoots: true as const,
         boundedContextIsBaselineSubset: true as const
       }),
       arms: Object.freeze({
-        baseline: Object.freeze({
-          arm: "baseline" as const,
-          run: baselineRun,
-          evaluation: baselineEvaluation,
-          workspace: freezeWorkspaceSummary(
-            "baseline",
-            baselineWorkspace,
-            baselineMutableFiles,
-            baselineChangedFiles
-          )
-        }),
-        bounded: Object.freeze({
-          arm: "bounded" as const,
-          run: boundedRun,
-          evaluation: boundedEvaluation,
-          workspace: freezeWorkspaceSummary(
-            "bounded",
-            boundedWorkspace,
-            boundedMutableFiles,
-            boundedChangedFiles
-          )
-        })
+        baseline: baselineResult,
+        bounded: boundedResult
       })
     });
   } finally {
