@@ -79,6 +79,20 @@ function displayValue(value: unknown): string {
   }
 }
 
+function emitCompareOutput(value: CliJson): boolean {
+  if (value.command !== "compare" || value.target !== "codex" || typeof value.table !== "string") {
+    return false;
+  }
+  process.stdout.write(`${value.table}\n`);
+  if (value.comparable === false) {
+    const mismatches = Array.isArray(value.identityMismatchFields)
+      ? value.identityMismatchFields.map((item) => String(item)).join(", ")
+      : "unknown";
+    process.stdout.write(`\nComparison not comparable: ${mismatches}\n`);
+  }
+  return true;
+}
+
 function emitCodexOutput(value: CliJson): boolean {
   if (value.command !== "codex") return false;
   const context = value.context && typeof value.context === "object" && !Array.isArray(value.context)
@@ -227,6 +241,7 @@ export function emitCliOutput(value: CliJson, json: boolean, secrets: readonly s
     return;
   }
   if (emitDoctorOutput(safe)) return;
+  if (emitCompareOutput(safe)) return;
   if (emitCodexOutput(safe)) return;
   if (emitHistoryOutput(safe)) return;
   if (emitReportOutput(safe)) return;
