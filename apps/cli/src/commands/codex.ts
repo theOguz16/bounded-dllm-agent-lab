@@ -116,7 +116,7 @@ function normalizeAllowFiles(values: readonly string[]): string[] {
 }
 
 function looksLikeTestPath(file: string): boolean {
-  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/i.test(file);
+  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec|[-_.]smoke)\.[^/]+$/i.test(file);
 }
 
 function selectScript(values: readonly string[], preferred: readonly string[]): string | null {
