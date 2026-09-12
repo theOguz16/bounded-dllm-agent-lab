@@ -69,7 +69,7 @@ async function writeJson(file, value) {
 async function createRepository(root) {
   const repository = path.join(root, "fixture-scope-discovery");
   await fs.mkdir(path.join(repository, "src"), { recursive: true });
-  await fs.mkdir(path.join(repository, "test"), { recursive: true });
+  await fs.mkdir(path.join(repository, "scripts"), { recursive: true });
   await fs.mkdir(path.join(repository, "benchmarks", "gate6", "oracles"), { recursive: true });
   await fs.mkdir(path.join(repository, "benchmarks"), { recursive: true });
   git(repository, ["init", "-q"]);
@@ -84,14 +84,14 @@ async function createRepository(root) {
   await fs.writeFile(path.join(repository, "package-lock.json"), "fixture\n", "utf8");
   await fs.writeFile(path.join(repository, "src", "session.ts"), sourceOriginal, "utf8");
   await fs.writeFile(path.join(repository, "src", "helper.ts"), helperSource, "utf8");
-  await fs.writeFile(path.join(repository, "test", "session.test.ts"), testSource, "utf8");
+  await fs.writeFile(path.join(repository, "scripts", "session-smoke.cjs"), testSource, "utf8");
   await fs.writeFile(
     path.join(repository, "benchmarks", "gate6", "oracles", "hidden-oracle.ts"),
     hiddenOracle,
     "utf8"
   );
   await fs.writeFile(path.join(repository, "benchmarks", "ground-truth-patch.ts"), groundTruth, "utf8");
-  git(repository, ["add", "package.json", "package-lock.json", "src", "test", "benchmarks"]);
+  git(repository, ["add", "package.json", "package-lock.json", "src", "scripts", "benchmarks"]);
   const init = runCli(repository, ["init", "--json"]);
   assert.equal(init.status, 0, init.stderr || init.stdout);
   return repository;
@@ -101,7 +101,7 @@ function discoveryProposal() {
   return {
     schemaVersion: "scope-discovery/v1",
     candidateSourceFiles: ["src/session.ts"],
-    candidateTestFiles: ["test/session.test.ts"],
+    candidateTestFiles: ["scripts/session-smoke.cjs"],
     candidateSymbols: ["refreshExpiry"],
     reason: "The refresh expiry implementation and its focused regression test are the smallest plausible mutable scope."
   };
@@ -122,7 +122,7 @@ function fakeDiscoveryAdapter(sourceRepository) {
       assert.notEqual(path.resolve(request.workingDirectory), path.resolve(sourceRepository));
       assert.equal(require("node:fs").existsSync(path.join(request.workingDirectory, "src/session.ts")), true);
       assert.equal(require("node:fs").existsSync(path.join(request.workingDirectory, "src/helper.ts")), true);
-      assert.equal(require("node:fs").existsSync(path.join(request.workingDirectory, "test/session.test.ts")), true);
+      assert.equal(require("node:fs").existsSync(path.join(request.workingDirectory, "scripts/session-smoke.cjs")), true);
       assert.equal(
         require("node:fs").existsSync(
           path.join(request.workingDirectory, "benchmarks/gate6/oracles/hidden-oracle.ts")
@@ -170,13 +170,13 @@ function plannerDraft(context) {
       acceptanceContractHash: context.acceptanceContractHash,
       authorityHash: context.authorityHash,
       policyHash: context.policyHash,
-      seedFiles: ["src/session.ts", "test/session.test.ts"],
+      seedFiles: ["src/session.ts", "scripts/session-smoke.cjs"],
       seedRationales: [
         { path: "src/session.ts", reason: "Approved implementation scope." },
-        { path: "test/session.test.ts", reason: "Approved regression-test scope." }
+        { path: "scripts/session-smoke.cjs", reason: "Approved regression-test scope." }
       ],
       requiredSymbols: [],
-      requiredTestFiles: ["test/session.test.ts"],
+      requiredTestFiles: ["scripts/session-smoke.cjs"],
       maxExpansionAttempts: 1
     },
     minimalityPlan: {
@@ -269,7 +269,7 @@ async function main() {
     assert.equal(nonInteractive.output.decision, "approval_required");
     assert.equal(nonInteractive.output.approvalRequired, true);
     assert.equal(nonInteractive.output.mutationStarted, false);
-    assert.deepEqual(nonInteractive.output.suggestedMutableScope, ["src/session.ts", "test/session.test.ts"]);
+    assert.deepEqual(nonInteractive.output.suggestedMutableScope, ["src/session.ts", "scripts/session-smoke.cjs"]);
     assert.equal(nonInteractiveDiscovery.requests.length, 1);
 
     const declinedDiscovery = fakeDiscoveryAdapter(repository);

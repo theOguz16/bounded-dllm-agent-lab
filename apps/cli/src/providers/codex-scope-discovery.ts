@@ -60,7 +60,7 @@ const MAX_INVENTORY_PROMPT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function looksLikeTestPath(file: string): boolean {
-  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/i.test(file);
+  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec|[-_.]smoke)\.[^/]+$/i.test(file);
 }
 
 function protectedDiscoveryPath(file: string): boolean {
