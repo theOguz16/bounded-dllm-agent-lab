@@ -340,6 +340,20 @@ function addObserved(base: number | null, extra: number | null | undefined): num
   return Number.isSafeInteger(total) ? total : null;
 }
 
+function observedTotal(
+  runs: readonly AgentRunResult[],
+  read: (run: AgentRunResult) => number | null | undefined,
+  extra: number | null | undefined
+): number | null {
+  if (runs.length === 0) {
+    if (extra === undefined || extra === null || !Number.isSafeInteger(extra) || extra < 0) {
+      return null;
+    }
+    return extra;
+  }
+  return addObserved(observedSum(runs, read), extra);
+}
+
 function commandCount(runs: readonly AgentRunResult[]): number {
   return runs.reduce((total, run) => total + run.commands.length, 0);
 }
@@ -389,6 +403,7 @@ function evaluateArm(input: Readonly<{
   validation: CompareValidationResult;
   changedFiles: readonly string[];
   approvedMutableFiles: readonly string[];
+  controlAvailable: boolean;
   forbiddenFiles: readonly string[];
   runs: readonly AgentRunResult[];
   additionalUsage?: UsageObservation;
@@ -398,10 +413,16 @@ function evaluateArm(input: Readonly<{
   durationMs: number;
 }>): ArmExecution {
   const approved = new Set(input.approvedMutableFiles);
-  const scopeViolationCount = input.changedFiles.filter((file) => !approved.has(file)).length;
+  const scopeViolationCount = input.controlAvailable
+    ? input.changedFiles.filter((file) => !approved.has(file)).length
+    : 0;
   const forbiddenTouchCount = input.changedFiles.filter((file) => isForbidden(file, input.forbiddenFiles)).length;
   const unsupportedMutationCount = 0;
-  const controls = scopeViolationCount === 0 && forbiddenTouchCount === 0;
+  const controls = forbiddenTouchCount > 0
+    ? false
+    : input.controlAvailable
+      ? scopeViolationCount === 0
+      : null;
   const validationInfrastructureOk = input.validation.infrastructureFailure === null;
   const behavior = input.runtimeCompleted && validationInfrastructureOk
     ? input.validation.tests.passed
@@ -433,21 +454,25 @@ function evaluateArm(input: Readonly<{
       changedFileNecessityAssessments: []
     },
     efficiency: {
-      inputTokens: addObserved(
-        observedSum(input.runs, (run) => run.usage.inputTokens),
+      inputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.inputTokens,
         input.additionalUsage?.inputTokens
       ),
-      cachedInputTokens: addObserved(
-        observedSum(input.runs, (run) => run.usage.cachedInputTokens),
+      cachedInputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.cachedInputTokens,
         input.additionalUsage?.cachedInputTokens
       ),
-      outputTokens: addObserved(
-        observedSum(input.runs, (run) => run.usage.outputTokens),
+      outputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.outputTokens,
         input.additionalUsage?.outputTokens
       ),
       reasoningTokens: null,
-      totalTokens: addObserved(
-        observedSum(input.runs, (run) => run.usage.totalTokens),
+      totalTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.totalTokens,
         input.additionalUsage?.totalTokens
       ),
       exposedFiles: input.exposedFiles,
@@ -467,7 +492,9 @@ function evaluateArm(input: Readonly<{
     exposedFiles: evaluation.efficiency.exposedFiles,
     exposedBytes: evaluation.efficiency.exposedBytes,
     changedFiles: input.changedFiles.length,
-    scopeViolations: evaluation.control.scopeViolationCount,
+    scopeViolations: input.controlAvailable
+      ? evaluation.control.scopeViolationCount
+      : null,
     commands: evaluation.efficiency.commandCount,
     failedCommands: evaluation.efficiency.failedCommandCount,
     repairRounds: input.repairRounds,
@@ -595,7 +622,8 @@ export async function compareCodexCommand(
   const sourceBefore = createCanonicalRepositoryContentSnapshot(repositoryRoot);
   const adapter = dependencies.adapter ?? new CodexAgentAdapter();
 
-  let discovery: CodexScopeDiscoveryResult;
+  let discovery: CodexScopeDiscoveryResult | null = null;
+  let discoveryFailure: CodexScopeDiscoveryError | null = null;
   const discoveryStarted = Date.now();
   try {
     discovery = await (dependencies.discover ?? discoverCodexScope)({
@@ -609,9 +637,10 @@ export async function compareCodexCommand(
     });
   } catch (error) {
     if (error instanceof CodexScopeDiscoveryError) {
-      throw new CliError("cli_compare_scope_discovery_failed", error.message, 3);
+      discoveryFailure = error;
+    } else {
+      throw error;
     }
-    throw error;
   }
   const discoveryDurationMs = Math.max(0, Date.now() - discoveryStarted);
 
@@ -624,8 +653,15 @@ export async function compareCodexCommand(
     );
   }
 
-  const approvedMutableFiles = proposalFiles(discovery);
-  if (approvedMutableFiles.length === 0) {
+  const discoveryUsage =
+    discovery?.usage ?? discoveryFailure?.observation?.usage ?? null;
+  const discoveryVisibleFileCount =
+    discovery?.visibleFileCount ?? discoveryFailure?.observation?.visibleFileCount ?? 0;
+  const discoveryVisibleBytes =
+    discovery?.visibleBytes ?? discoveryFailure?.observation?.visibleBytes ?? 0;
+
+  const approvedMutableFiles = discovery === null ? [] : proposalFiles(discovery);
+  if (discovery !== null && approvedMutableFiles.length === 0) {
     throw new CliError(
       "cli_compare_scope_empty",
       "Codex scope discovery did not produce a non-empty comparison scope.",
@@ -708,6 +744,7 @@ export async function compareCodexCommand(
           validation,
           changedFiles: files,
           approvedMutableFiles,
+          controlAvailable: discovery !== null,
           forbiddenFiles,
           runs: [run],
           exposedFiles: baselineWorkspace.exposedFileCount,
@@ -722,25 +759,27 @@ export async function compareCodexCommand(
       const boundedRuns: AgentRunResult[] = [];
       const boundedAdapter = recordingAdapter(adapter, boundedRuns);
       const capture: BoundedCapture = {};
-      let boundedFailureCode: string | null = null;
-      try {
-        await codexCommand(
-          { task, allowFiles: approvedMutableFiles },
-          repositoryRoot,
-          {
-            adapter: boundedAdapter,
-            model,
-            validationProfile: "structural_draft",
-            runTask: async (input) => {
-              capture.input = input;
-              const result = await (dependencies.runTask ?? runBoundedTask)(input);
-              capture.result = result;
-              return result;
+      let boundedFailureCode: string | null = discoveryFailure?.failureCode ?? null;
+      if (discovery !== null) {
+        try {
+          await codexCommand(
+            { task, allowFiles: approvedMutableFiles },
+            repositoryRoot,
+            {
+              adapter: boundedAdapter,
+              model,
+              validationProfile: "structural_draft",
+              runTask: async (input) => {
+                capture.input = input;
+                const result = await (dependencies.runTask ?? runBoundedTask)(input);
+                capture.result = result;
+                return result;
+              }
             }
-          }
-        );
-      } catch (error) {
-        boundedFailureCode = failureCode(error);
+          );
+        } catch (error) {
+          boundedFailureCode = failureCode(error);
+        }
       }
 
       const boundedInput = capturedInput(capture);
@@ -780,11 +819,12 @@ export async function compareCodexCommand(
         validation,
         changedFiles: boundedChangedFiles,
         approvedMutableFiles,
+        controlAvailable: discovery !== null,
         forbiddenFiles,
         runs: boundedRuns,
-        additionalUsage: discovery.usage,
-        exposedFiles: Math.max(exposure.files, discovery.visibleFileCount),
-        exposedBytes: Math.max(exposure.bytes, discovery.visibleBytes),
+        additionalUsage: discoveryUsage ?? undefined,
+        exposedFiles: Math.max(exposure.files, discoveryVisibleFileCount),
+        exposedBytes: Math.max(exposure.bytes, discoveryVisibleBytes),
         repairRounds: 0,
         durationMs: Math.max(
           0,
@@ -833,12 +873,12 @@ export async function compareCodexCommand(
     }),
     networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
     discovery: Object.freeze({
-      inputTokens: discovery.usage.inputTokens,
-      cachedInputTokens: discovery.usage.cachedInputTokens ?? null,
-      outputTokens: discovery.usage.outputTokens,
-      totalTokens: discovery.usage.totalTokens,
-      visibleFileCount: discovery.visibleFileCount,
-      visibleBytes: discovery.visibleBytes,
+      inputTokens: discoveryUsage?.inputTokens ?? null,
+      cachedInputTokens: discoveryUsage?.cachedInputTokens ?? null,
+      outputTokens: discoveryUsage?.outputTokens ?? null,
+      totalTokens: discoveryUsage?.totalTokens ?? null,
+      visibleFileCount: discoveryVisibleFileCount,
+      visibleBytes: discoveryVisibleBytes,
       durationMs: discoveryDurationMs
     }),
     validationSubstrate: Object.freeze({

@@ -11,6 +11,9 @@ const repoRoot = resolveRepoRoot();
 const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const hiddenPath = path.join(repoRoot, "benchmarks/product-v1/evaluator/dogfood-v1.hidden.json");
 const runnerPath = path.join(repoRoot, "benchmarks/product-v1/dogfood-runner.cjs");
+const resumableRunnerPath = path.join(repoRoot, "benchmarks/product-v1/dogfood-resumable-runner.cjs");
+const comparePath = path.join(repoRoot, "apps/cli/src/commands/compare.ts");
+const scopeDiscoveryPath = path.join(repoRoot, "apps/cli/src/providers/codex-scope-discovery.ts");
 const liveGatePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-live-gate.cjs");
 const postFixRunnerPath = path.join(repoRoot, "benchmarks/product-v1/dogfood-post-fix-runner.cjs");
 const hiddenKeys = ["oracle", "expectedPatch", "expectedChangedFiles", "evaluator", "referencePullRequest", "referenceHeadSha"];
@@ -108,6 +111,18 @@ async function main() {
   assert.equal(runnerSource.includes("dogfood-v1.hidden.json"), false);
   assert.equal(fs.existsSync(liveGatePath), true);
   assert.equal(fs.existsSync(postFixRunnerPath), true);
+
+  const resumableSource = fs.readFileSync(resumableRunnerPath, "utf8");
+  assert.match(resumableSource, /CHILD_TIMEOUT_MS = 60 \* 60 \* 1000/);
+
+  const compareSource = fs.readFileSync(comparePath, "utf8");
+  assert.match(compareSource, /let discoveryFailure: CodexScopeDiscoveryError \| null = null/);
+  assert.match(compareSource, /boundedFailureCode: string \| null = discoveryFailure\?\.failureCode \?\? null/);
+  assert.match(compareSource, /controlAvailable: discovery !== null/);
+
+  const scopeDiscoverySource = fs.readFileSync(scopeDiscoveryPath, "utf8");
+  assert.match(scopeDiscoverySource, /codex_scope_discovery_invalid_json/);
+  assert.match(scopeDiscoverySource, /codex_scope_discovery_contract_invalid/);
 
   const postFixSource = fs.readFileSync(postFixRunnerPath, "utf8");
   assert.match(postFixSource, /value\.failedTaskId/);

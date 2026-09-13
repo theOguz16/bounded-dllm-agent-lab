@@ -16,6 +16,12 @@ const commandUrl = pathToFileURL(
 const contractUrl = pathToFileURL(
   path.join(repoRoot, "dist/packages/integrations/src/scope-discovery-contract.js")
 ).href;
+const discoveryUrl = pathToFileURL(
+  path.join(repoRoot, "dist/apps/cli/src/providers/codex-scope-discovery.js")
+).href;
+const runtimeUrl = pathToFileURL(
+  path.join(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
+).href;
 
 const sourceOriginal = [
   'import { refreshSkew } from "./helper";',
@@ -161,6 +167,20 @@ function fakeDiscoveryAdapter(sourceRepository) {
   };
 }
 
+function fakeInvalidJsonDiscoveryAdapter(sourceRepository) {
+  const base = fakeDiscoveryAdapter(sourceRepository);
+  return {
+    ...base,
+    async run(request) {
+      const result = await base.run(request);
+      return {
+        ...result,
+        finalMessage: "not-json"
+      };
+    }
+  };
+}
+
 function plannerDraft(context) {
   return {
     proposal: {
@@ -242,6 +262,8 @@ async function main() {
     const repository = await createRepository(root);
     const commandModule = await import(commandUrl);
     const contract = await import(contractUrl);
+    const discoveryModule = await import(discoveryUrl);
+    const runtime = await import(runtimeUrl);
     const original = await fs.readFile(path.join(repository, "src/session.ts"), "utf8");
     const statusBefore = git(repository, ["status", "--porcelain=v1", "--untracked-files=all"]);
 
@@ -251,6 +273,52 @@ async function main() {
       async () => contract.parseScopeDiscoveryProposal({ ...discoveryProposal(), unexpected: true }),
       /exact contract fields/
     );
+
+    const invalidJsonDiscovery = fakeInvalidJsonDiscoveryAdapter(repository);
+    const repositorySnapshot =
+      runtime.createCanonicalRepositoryContentSnapshot(repository);
+
+    await assert.rejects(
+      () => discoveryModule.discoverCodexScope({
+        repositoryPath: repository,
+        sourceSnapshotHash: repositorySnapshot.snapshotHash,
+        task: "Fix refresh token expiry",
+        model: "fixture-discovery-model-configured",
+        adapter: invalidJsonDiscovery,
+        reasoningEffort: "medium",
+        timeoutMs: 10_000
+      }),
+      (error) => {
+        assert.equal(
+          error instanceof discoveryModule.CodexScopeDiscoveryError,
+          true
+        );
+        assert.equal(
+          error.failureCode,
+          "codex_scope_discovery_invalid_json"
+        );
+        assert.equal(
+          error.message,
+          "Codex scope discovery returned invalid JSON."
+        );
+        assert.ok(error.observation);
+        assert.equal(
+          error.observation.modelId,
+          "fixture-discovery-model-actual"
+        );
+        assert.deepEqual(error.observation.usage, {
+          inputTokens: 90,
+          cachedInputTokens: 20,
+          outputTokens: 30,
+          totalTokens: 120,
+          toolCalls: null
+        });
+        assert.equal(error.observation.visibleFileCount > 0, true);
+        assert.equal(error.observation.visibleBytes > 0, true);
+        return true;
+      }
+    );
+    assert.equal(invalidJsonDiscovery.requests.length, 1);
 
     const nonInteractiveDiscovery = fakeDiscoveryAdapter(repository);
     const nonInteractive = await commandModule.codexAutoScopeCommand(
@@ -357,6 +425,8 @@ async function main() {
       expectedChangedFilesExposed: false,
       candidateFilesGrounded: true,
       candidateSymbolsGrounded: true,
+      invalidJsonFailureCodePreserved: true,
+      discoveryFailureTelemetryPreserved: true,
       developerConfirmationRequired: true,
       nonInteractiveMutationStarted: false,
       declinedMutationStarted: false,

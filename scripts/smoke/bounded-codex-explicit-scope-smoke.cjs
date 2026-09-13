@@ -242,9 +242,19 @@ async function main() {
     const adapter = fakeAdapter(repository);
     let capturedInput = null;
 
+    const multilineTask = [
+      "Fix refresh token expiry",
+      "",
+      "Acceptance criteria:",
+      "- Refresh token expiry must remain deterministic.",
+      "",
+      "Validation commands:",
+      "- npm test"
+    ].join("\n");
+
     const command = await codexModule.codexCommand(
       {
-        task: "Fix refresh token expiry",
+        task: multilineTask,
         allowFiles: ["src/session.ts", "test/session.test.ts"]
       },
       repository,
@@ -288,6 +298,20 @@ async function main() {
     assert.equal(command.output.recovery.authority, "canonical_bounded_task_state");
 
     assert.ok(capturedInput);
+    assert.equal(
+      capturedInput.taskContext.objective,
+      multilineTask,
+      "the provider/runtime objective must retain the exact multiline task"
+    );
+    assert.equal(
+      capturedInput.acceptanceCriteriaContract.criteria[0].description,
+      "Fix refresh token expiry Acceptance criteria: - Refresh token expiry must remain deterministic. Validation commands: - npm test",
+      "acceptance metadata must normalize multiline task whitespace"
+    );
+    assert.equal(
+      capturedInput.acceptanceCriteriaContract.criteria[0].description.includes("\n"),
+      false
+    );
     assert.equal(Object.hasOwn(capturedInput, "applyExecutor"), false);
     assert.equal(Object.hasOwn(capturedInput, "governedExecution"), false);
     assert.equal(Object.hasOwn(capturedInput, "durableTask"), true);

@@ -92,6 +92,10 @@ function requireTask(value: string): string {
   return value;
 }
 
+function acceptanceDescription(task: string): string {
+  return task.replace(/[ \t\r\n]+/g, " ").slice(0, 1000).trim();
+}
+
 function normalizeAllowFiles(values: readonly string[]): string[] {
   if (!Array.isArray(values) || values.length === 0 || values.length > MAX_ALLOW_FILES) {
     throw new CliError(
@@ -438,7 +442,7 @@ export async function codexCommand(
     objectiveHash,
     criteria: [{
       id: "requested_behavior",
-      description: task.slice(0, 1000),
+      description: acceptanceDescription(task),
       required: true,
       evidence: { kind: "test", commandId: "validation.test" }
     }]
