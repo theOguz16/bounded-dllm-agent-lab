@@ -103,11 +103,11 @@ export type CompareCodexOutput = Readonly<{
   executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
-  timeoutMs: typeof BOUNDED_COMPARE_TIMEOUT_MS;
+  timeoutMs: number;
   budgets: Readonly<{
-    discoveryMs: typeof BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS;
-    agentMs: typeof BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
-    validationCommandMs: typeof COMPARE_VALIDATION_TIMEOUT_MS;
+    discoveryMs: number;
+    agentMs: number;
+    validationCommandMs: number;
   }>;
   networkPolicy: typeof BOUNDED_COMPARE_NETWORK_POLICY;
   validationSubstrate: Readonly<{
@@ -422,7 +422,7 @@ function evaluateArm(input: Readonly<{
       durationMs: Math.max(0, input.durationMs + input.validation.durationMs)
     }
   });
-  const display = Object.freeze({
+  const display: ArmDisplayMetrics = Object.freeze({
     behavior: evaluation.correctness.behaviorSatisfied,
     controls: evaluation.correctness.controlPassed,
     inputTokens: evaluation.efficiency.inputTokens,
@@ -522,6 +522,19 @@ function failureCode(error: unknown): string {
     return error.code;
   }
   return "cli_compare_bounded_runtime_failed";
+}
+
+type BoundedCapture = {
+  input?: RunBoundedTaskInput;
+  result?: RunBoundedTaskResult;
+};
+
+function capturedInput(capture: BoundedCapture): RunBoundedTaskInput | null {
+  return capture.input ?? null;
+}
+
+function capturedResult(capture: BoundedCapture): RunBoundedTaskResult | null {
+  return capture.result ?? null;
 }
 
 export async function compareCodexCommand(
@@ -670,8 +683,7 @@ export async function compareCodexCommand(
       const started = Date.now();
       const boundedRuns: AgentRunResult[] = [];
       const boundedAdapter = recordingAdapter(adapter, boundedRuns);
-      let capturedInput: RunBoundedTaskInput | null = null;
-      let capturedResult: RunBoundedTaskResult | null = null;
+      const capture: BoundedCapture = {};
       let boundedFailureCode: string | null = null;
       try {
         await codexCommand(
@@ -682,9 +694,9 @@ export async function compareCodexCommand(
             model,
             validationProfile: "structural_draft",
             runTask: async (input) => {
-              capturedInput = input;
+              capture.input = input;
               const result = await (dependencies.runTask ?? runBoundedTask)(input);
-              capturedResult = result;
+              capture.result = result;
               return result;
             }
           }
@@ -693,15 +705,16 @@ export async function compareCodexCommand(
         boundedFailureCode = failureCode(error);
       }
 
-      const boundedResult = capturedResult;
+      const boundedInput = capturedInput(capture);
+      const boundedResult = capturedResult(capture);
       const runtimeCompleted = boundedResult?.decision === "bounded_task_completed";
       if (!runtimeCompleted && boundedFailureCode === null) {
         boundedFailureCode = boundedResult?.failure?.code ?? "bounded_runtime_not_completed";
       }
       let boundedChanges: CompareCandidateChange[] = [];
       let boundedChangedFiles: string[] = [];
-      if (runtimeCompleted && capturedInput !== null && boundedResult !== null) {
-        const candidate = createCandidateHandoffFromBoundedRun(repositoryRoot, capturedInput, boundedResult);
+      if (runtimeCompleted && boundedInput !== null && boundedResult !== null) {
+        const candidate = createCandidateHandoffFromBoundedRun(repositoryRoot, boundedInput, boundedResult);
         if (candidate === null) {
           boundedFailureCode = "bounded_candidate_handoff_unavailable";
         } else {
