@@ -80,6 +80,20 @@ function validateRawEvidence(raw) {
   }
 }
 
+function validateResumeSafety(rawOutput) {
+  const checkpoint = `${rawOutput}.checkpoint.json`;
+  if (!fs.existsSync(checkpoint)) return;
+  const value = JSON.parse(fs.readFileSync(checkpoint, "utf8"));
+  if (value && typeof value === "object" && !Array.isArray(value) &&
+      (value.failedTaskId !== undefined || value.failure !== undefined)) {
+    const failedTaskId = typeof value.failedTaskId === "string" ? value.failedTaskId : "unknown";
+    throw new Error(
+      `cannot resume post-fix regression after failed task ${failedTaskId}; ` +
+      "retryPolicy=none forbids re-running failed tasks"
+    );
+  }
+}
+
 function checkPlan(args) {
   return {
     ok: true,
@@ -110,6 +124,8 @@ function main() {
   if (fs.existsSync(args.output)) throw new Error(`refusing to overwrite post-fix artifact: ${args.output}`);
 
   const rawOutput = `${args.output}.raw.json`;
+  if (args.resume) validateResumeSafety(rawOutput);
+
   const childArgs = [
     resumableRunner,
     "--live",
