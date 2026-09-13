@@ -100,6 +100,7 @@ async function main() {
   assert.match(runnerSource, /hiddenHintsInjected:\s*false/);
   assert.match(runnerSource, /promptMutatedAfterFailure:\s*false/);
   assert.match(runnerSource, /Exactly one comparison invocation per task/);
+  assert.match(runnerSource, /DEFAULT_TASK_TIMEOUT_MS = 60 \* 60 \* 1000/);
   assert.match(runnerSource, /assert\.equal\(parsed\.comparable, true\)/);
   assert.match(runnerSource, /assert\.deepEqual\(parsed\.identityMismatchFields, \[\]\)/);
   assert.equal(runnerSource.includes("referenceHeadSha"), false);
