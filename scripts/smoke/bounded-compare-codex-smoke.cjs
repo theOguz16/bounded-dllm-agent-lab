@@ -13,13 +13,23 @@ async function main() {
     resolve(repoRoot, "dist/apps/cli/src/commands/compare.js")
   ).href;
   const compare = await import(moduleUrl);
+  const validation = await import(pathToFileURL(
+    resolve(repoRoot, "dist/apps/cli/src/compare-validation-substrate.js")
+  ).href);
 
   assert.equal(compare.BOUNDED_COMPARE_CODEX_VERSION, "bounded-compare-codex/v1");
+  assert.equal(compare.BOUNDED_COMPARE_RUNTIME_VERSION, "canonical-bounded-compare/v1");
   assert.equal(compare.BOUNDED_COMPARE_REASONING, "medium");
-  assert.equal(compare.BOUNDED_COMPARE_TIMEOUT_MS, 120000);
+  assert.equal(compare.BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS, 120000);
+  assert.equal(compare.BOUNDED_COMPARE_AGENT_TIMEOUT_MS, 300000);
+  assert.equal(compare.BOUNDED_COMPARE_TIMEOUT_MS, 300000);
   assert.equal(compare.BOUNDED_COMPARE_NETWORK_POLICY, "disabled");
+  assert.equal(validation.COMPARE_VALIDATION_SUBSTRATE_VERSION, "compare-validation-substrate/v1");
+  assert.equal(validation.COMPARE_VALIDATION_TIMEOUT_MS, 120000);
   assert.equal(typeof compare.compareCodexCommand, "function");
   assert.equal(typeof compare.formatCodexComparisonTable, "function");
+  assert.equal(typeof validation.prepareCompareValidationSubstrate, "function");
+  assert.equal(typeof validation.runCompareValidation, "function");
 
   const normal = {
     behavior: true,
@@ -33,7 +43,7 @@ async function main() {
     scopeViolations: 2,
     commands: 27,
     failedCommands: 4,
-    repairRounds: null,
+    repairRounds: 0,
     durationMs: 91234
   };
   const bounded = {
@@ -48,7 +58,7 @@ async function main() {
     scopeViolations: 0,
     commands: 16,
     failedCommands: 1,
-    repairRounds: 1,
+    repairRounds: 0,
     durationMs: 65432
   };
 
@@ -64,7 +74,7 @@ async function main() {
   assert.match(table, /Scope violations\s+2\s+0/);
   assert.match(table, /Commands\s+27\s+16/);
   assert.match(table, /Failed commands\s+4\s+1/);
-  assert.match(table, /Repair rounds\s+N\/A\s+1/);
+  assert.match(table, /Repair rounds\s+0\s+0/);
   assert.match(table, /Duration\s+91\.2 s\s+65\.4 s/);
 
   const missing = compare.formatCodexComparisonTable(
@@ -98,6 +108,11 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     ok: true,
     version: compare.BOUNDED_COMPARE_CODEX_VERSION,
+    runtimeVersion: compare.BOUNDED_COMPARE_RUNTIME_VERSION,
+    validationSubstrate: validation.COMPARE_VALIDATION_SUBSTRATE_VERSION,
+    discoveryBudgetMs: compare.BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS,
+    agentBudgetMs: compare.BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
+    validationBudgetMs: validation.COMPARE_VALIDATION_TIMEOUT_MS,
     humanTable: true,
     missingMetric: "N/A",
     inputDelta: "-52.7%",
