@@ -52,7 +52,7 @@ import {
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
 export const BOUNDED_COMPARE_RUNTIME_VERSION = "canonical-bounded-compare/v1" as const;
 export const BOUNDED_COMPARE_REASONING = "medium" as const;
-export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 120_000;
+export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
@@ -85,6 +85,13 @@ type ArmRuntimeObservation = Readonly<{
   validationFailureCode: string | null;
 }>;
 
+type UsageObservation = Readonly<{
+  inputTokens: number | null;
+  cachedInputTokens?: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}>;
+
 type ArmExecution = Readonly<{
   evaluation: ProductComparisonEvaluation;
   display: ArmDisplayMetrics;
@@ -110,6 +117,15 @@ export type CompareCodexOutput = Readonly<{
     validationCommandMs: number;
   }>;
   networkPolicy: typeof BOUNDED_COMPARE_NETWORK_POLICY;
+  discovery: Readonly<{
+    inputTokens: number | null;
+    cachedInputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+    visibleFileCount: number;
+    visibleBytes: number;
+    durationMs: number;
+  }>;
   validationSubstrate: Readonly<{
     version: typeof COMPARE_VALIDATION_SUBSTRATE_VERSION;
     dependencySnapshotHash: string;
@@ -317,6 +333,13 @@ function observedSum(
   return total;
 }
 
+function addObserved(base: number | null, extra: number | null | undefined): number | null {
+  if (extra === undefined) return base;
+  if (base === null || extra === null || !Number.isSafeInteger(extra) || extra < 0) return null;
+  const total = base + extra;
+  return Number.isSafeInteger(total) ? total : null;
+}
+
 function commandCount(runs: readonly AgentRunResult[]): number {
   return runs.reduce((total, run) => total + run.commands.length, 0);
 }
@@ -368,6 +391,7 @@ function evaluateArm(input: Readonly<{
   approvedMutableFiles: readonly string[];
   forbiddenFiles: readonly string[];
   runs: readonly AgentRunResult[];
+  additionalUsage?: UsageObservation;
   exposedFiles: number;
   exposedBytes: number;
   repairRounds: number;
@@ -409,11 +433,23 @@ function evaluateArm(input: Readonly<{
       changedFileNecessityAssessments: []
     },
     efficiency: {
-      inputTokens: observedSum(input.runs, (run) => run.usage.inputTokens),
-      cachedInputTokens: observedSum(input.runs, (run) => run.usage.cachedInputTokens),
-      outputTokens: observedSum(input.runs, (run) => run.usage.outputTokens),
+      inputTokens: addObserved(
+        observedSum(input.runs, (run) => run.usage.inputTokens),
+        input.additionalUsage?.inputTokens
+      ),
+      cachedInputTokens: addObserved(
+        observedSum(input.runs, (run) => run.usage.cachedInputTokens),
+        input.additionalUsage?.cachedInputTokens
+      ),
+      outputTokens: addObserved(
+        observedSum(input.runs, (run) => run.usage.outputTokens),
+        input.additionalUsage?.outputTokens
+      ),
       reasoningTokens: null,
-      totalTokens: observedSum(input.runs, (run) => run.usage.totalTokens),
+      totalTokens: addObserved(
+        observedSum(input.runs, (run) => run.usage.totalTokens),
+        input.additionalUsage?.totalTokens
+      ),
       exposedFiles: input.exposedFiles,
       exposedBytes: input.exposedBytes,
       commandCount: commandCount(input.runs),
@@ -560,6 +596,7 @@ export async function compareCodexCommand(
   const adapter = dependencies.adapter ?? new CodexAgentAdapter();
 
   let discovery: CodexScopeDiscoveryResult;
+  const discoveryStarted = Date.now();
   try {
     discovery = await (dependencies.discover ?? discoverCodexScope)({
       repositoryPath: repositoryRoot,
@@ -576,6 +613,7 @@ export async function compareCodexCommand(
     }
     throw error;
   }
+  const discoveryDurationMs = Math.max(0, Date.now() - discoveryStarted);
 
   const sourceAfterDiscovery = createCanonicalRepositoryContentSnapshot(repositoryRoot);
   if (sourceAfterDiscovery.snapshotHash !== sourceBefore.snapshotHash || gitHead(repositoryRoot) !== sourceCommitSha) {
@@ -744,10 +782,14 @@ export async function compareCodexCommand(
         approvedMutableFiles,
         forbiddenFiles,
         runs: boundedRuns,
-        exposedFiles: exposure.files,
-        exposedBytes: exposure.bytes,
+        additionalUsage: discovery.usage,
+        exposedFiles: Math.max(exposure.files, discovery.visibleFileCount),
+        exposedBytes: Math.max(exposure.bytes, discovery.visibleBytes),
         repairRounds: 0,
-        durationMs: Math.max(0, Date.now() - started - validation.durationMs)
+        durationMs: Math.max(
+          0,
+          Date.now() - started - validation.durationMs + discoveryDurationMs
+        )
       });
     }
   } finally {
@@ -790,6 +832,15 @@ export async function compareCodexCommand(
       validationCommandMs: COMPARE_VALIDATION_TIMEOUT_MS
     }),
     networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
+    discovery: Object.freeze({
+      inputTokens: discovery.usage.inputTokens,
+      cachedInputTokens: discovery.usage.cachedInputTokens ?? null,
+      outputTokens: discovery.usage.outputTokens,
+      totalTokens: discovery.usage.totalTokens,
+      visibleFileCount: discovery.visibleFileCount,
+      visibleBytes: discovery.visibleBytes,
+      durationMs: discoveryDurationMs
+    }),
     validationSubstrate: Object.freeze({
       version: substrate.version,
       dependencySnapshotHash: substrate.dependencySnapshotHash,
