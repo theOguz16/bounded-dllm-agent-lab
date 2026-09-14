@@ -14,6 +14,7 @@ allowed_paths:
   - .github/**
   - fixtures/product/codex-events/**
   - fixtures/product/adversarial-agent/**
+  - reports/ag/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.json
   - reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json
   - reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json
   - benchmarks/product-v1/**
@@ -83,6 +84,7 @@ allowed_paths:
   - scripts/controlled-coding-pilot-acceptance.cjs
   - scripts/controlled-coding-pilot-acceptance-smoke.cjs
   - scripts/controlled-coding-pilot-acceptance-chain-smoke.cjs
+  - scripts/ag1b-repo-intelligence-context-binding-smoke.cjs
   - scripts/bounded-review-deterministic-artifact-maintenance-smoke.cjs
   - scripts/verify-bounded-review-deterministic-artifacts.cjs
   - scripts/smoke/integrations-public-api-smoke.cjs

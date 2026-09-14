@@ -3,11 +3,12 @@ import path from "node:path";
 import type { PatchDiff, RepoPolicy } from "../../../packages/product-runtime/src/index.js";
 
 export const DETERMINISTIC_AG_ARTIFACT_PATHS = Object.freeze([
+  "reports/ag/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.json",
   "reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json",
   "reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json"
 ] as const);
 
-export const DETERMINISTIC_AG_SEMANTIC_VERIFIER = "npm run verify:ag3c" as const;
+export const DETERMINISTIC_AG_SEMANTIC_VERIFIER = "npm run verify:ag1b && npm run verify:ag3c" as const;
 export const DETERMINISTIC_AG_BYTE_VERIFIER = "canonical-json-serialization/v1" as const;
 const REPORTS_FORBIDDEN_PATTERN = "reports/**";
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -100,7 +101,7 @@ export function validateDeterministicArtifactVerificationReceipt(
   const expectedPaths = [...DETERMINISTIC_AG_ARTIFACT_PATHS].sort((a, b) => a.localeCompare(b, "en"));
   if (artifacts.length !== expectedPaths.length ||
       artifacts.some((artifact, index) => artifact.path !== expectedPaths[index])) {
-    throw new Error("Deterministic artifact receipt must cover exactly the AG2B and AG3C maintenance artifacts.");
+    throw new Error("Deterministic artifact receipt must cover exactly the AG1B, AG2B, and AG3C maintenance artifacts.");
   }
 
   return value as DeterministicArtifactVerificationReceipt;

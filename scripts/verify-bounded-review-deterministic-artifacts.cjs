@@ -4,10 +4,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DETERMINISTIC_ARTIFACTS = Object.freeze([
+  "reports/ag/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.json",
   "reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json",
   "reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json"
 ]);
-const SEMANTIC_VERIFIER = "npm run verify:ag3c";
+const SEMANTIC_VERIFIER = "npm run verify:ag1b && npm run verify:ag3c";
 const BYTE_VERIFIER = "canonical-json-serialization/v1";
 
 function verifyDeterministicArtifacts(repositoryPath = process.cwd()) {
@@ -17,6 +18,7 @@ function verifyDeterministicArtifacts(repositoryPath = process.cwd()) {
     fs.readFileSync(path.join(root, relative))
   ]));
 
+  run(root, npmCommand(), ["run", "verify:ag1b"]);
   run(root, npmCommand(), ["run", "verify:ag3c"]);
 
   const artifacts = DETERMINISTIC_ARTIFACTS.map((relative) => {
