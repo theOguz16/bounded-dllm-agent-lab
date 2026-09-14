@@ -447,6 +447,7 @@ export function createCodexBoundedProvider(
         workingDirectory: plannerRoot,
         task: plannerPrompt(context),
         model: options.model,
+        repositoryRequirement: "none",
         reasoningEffort: options.plannerReasoningEffort,
         mode: "planner",
         timeoutMs: remainingTimeout(control, options.providerTimeoutMs),
