@@ -180,6 +180,11 @@ function fakeAdapter(sourceRepository) {
         true,
         "repository-intelligence dependency must be loaded read-only into bounded context"
       );
+      assert.equal(
+        request.task.includes(helperSource.trim()),
+        false,
+        "workspace-readable dependency content must not be eagerly injected into prompt evidence"
+      );
       await fs.writeFile(path.join(request.workingDirectory, "src/session.ts"), sourceChanged, "utf8");
       return {
         status: "completed",
@@ -276,7 +281,7 @@ async function main() {
     assert.equal(command.output.agent, "Codex");
     assert.equal(command.output.model, "fixture-model-actual");
     assert.equal(command.output.reasoning, "medium");
-    assert.equal(command.output.context.fileCount, 3);
+    assert.equal(command.output.context.fileCount, 2);
     assert.equal(command.output.context.bytes > 0, true);
     assert.deepEqual(command.output.tokens, {
       input: 300,
@@ -370,7 +375,7 @@ async function main() {
     assert.match(rendered, /^Agent\nCodex\n/m);
     assert.match(rendered, /Model\nfixture-model-actual\n/);
     assert.match(rendered, /Reasoning\nmedium\n/);
-    assert.match(rendered, /Context\n3 files \/ /);
+    assert.match(rendered, /Context\n2 files \/ /);
     assert.match(rendered, /Tokens\ninput 300\ncached 75\noutput 100\nreasoning unavailable\ntotal 400\n/);
     assert.match(rendered, /Candidate\n1 file changed\n/);
     assert.match(rendered, /Validation\nscope PASS\ntypecheck PASS\ntests PASS\nbehavior PASS\n/);
