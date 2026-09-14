@@ -183,7 +183,9 @@ function successfulGovernedResult() {
 async function main() {
   const originalCi = process.env.CI;
   delete process.env.CI;
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-apply-smoke-"));
+  const root = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), "bounded-apply-smoke-"))
+  );
   try {
     const repository = await createRepository(root);
     const candidateModule = await import(candidateModuleUrl);

@@ -11,7 +11,9 @@ const repoRoot = path.resolve(__dirname, "../..");
 const canonicalRunner = path.join(repoRoot, "benchmarks/product-v1/dogfood-runner.cjs");
 const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const CHECKPOINT_SCHEMA_VERSION = "product-dogfood-resume-checkpoint/v1";
-const CHILD_TIMEOUT_MS = 12 * 60 * 1000;
+// Coarse outer kill switch only. The canonical per-task runner owns the
+// authoritative comparison phase budgets and must be allowed to finish first.
+const CHILD_TIMEOUT_MS = 60 * 60 * 1000;
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;

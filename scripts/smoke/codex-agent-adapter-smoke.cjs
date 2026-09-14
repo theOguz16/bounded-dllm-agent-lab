@@ -139,6 +139,7 @@ async function main() {
   assert.equal(capture.input, "Fix the bounded fixture.");
   assert.equal(capture.threadOptions.workingDirectory, "/tmp/bounded-workspace");
   assert.equal(capture.threadOptions.model, "gpt-5.6-codex");
+  assert.equal(capture.threadOptions.skipGitRepoCheck, false);
   assert.equal(capture.threadOptions.sandboxMode, "workspace-write");
   assert.equal(capture.threadOptions.modelReasoningEffort, "high");
   assert.equal(capture.threadOptions.networkAccessEnabled, false);
@@ -154,9 +155,15 @@ async function main() {
     now: () => 2000
   });
   const planner = await plannerAdapter.run(
-    request({ mode: "planner", sandboxMode: "read_only", reasoningEffort: "extra_high" })
+    request({
+      mode: "planner",
+      sandboxMode: "read_only",
+      repositoryRequirement: "none",
+      reasoningEffort: "extra_high"
+    })
   );
   assert.equal(planner.status, "completed");
+  assert.equal(plannerCapture.threadOptions.skipGitRepoCheck, true);
   assert.equal(plannerCapture.threadOptions.sandboxMode, "read-only");
   assert.equal(plannerCapture.threadOptions.modelReasoningEffort, "xhigh");
   assert.equal(plannerCapture.threadOptions.networkAccessEnabled, false);
@@ -266,6 +273,8 @@ async function main() {
     fakeSdkOnly: true,
     realCodexCalls: false,
     plannerSandbox: "read-only",
+    plannerRepositoryRequirementMapped: true,
+    coderRepositoryRequirementDefaultsRequired: true,
     coderSandbox: "workspace-write",
     networkDefault: false,
     networkRequiresExplicitPolicy: true,
