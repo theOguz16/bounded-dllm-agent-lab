@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "product-dogfood-suite/v1",
+  "suiteId": "product-v1-first-20-real-dogfood",
+  "repository": "theOguz16/bounded-dllm-agent-lab",
+  "evaluatorCatalog": "benchmarks/product-v1/evaluator/dogfood-v1.hidden.json",
+  "comparison": {
+    "normalArm": "baseline",
+    "boundedArm": "bounded",
+    "freshWorkspacePerArm": true,
+    "freshSourceCheckoutPerTask": true,
+    "sameTask": true,
+    "sameCommit": true,
+    "sameModel": true,
+    "sameReasoning": true,
+    "sameValidation": true,
+    "reasoningEffort": "medium",
+    "networkPolicy": "disabled",
+    "retryOnArmFailure": false,
+    "mutatePromptAfterFailure": false,
+    "injectHiddenHints": false
+  },
+  "categories": {
+    "bug_fix": [
+      "dogfood.bugfix.timestamp-leakage-false-positive",
+      "dogfood.bugfix.runpod-error-classification",
+      "dogfood.bugfix.runpod-bootstrap-review-sentinels",
+      "dogfood.bugfix.bounded-review-policy-precision",
+      "dogfood.bugfix.gate5-distinct-contexts"
+    ],
+    "behavior_change": [
+      "dogfood.behavior.bounded-init-local-config",
+      "dogfood.behavior.bounded-doctor-diagnostics",
+      "dogfood.behavior.codex-explicit-scope",
+      "dogfood.behavior.codex-scope-discovery",
+      "dogfood.behavior.human-approved-apply"
+    ],
+    "regression_test": [
+      "dogfood.regression.acceptance-chain-smoke",
+      "dogfood.regression.gate5-live-ablation-contract",
+      "dogfood.regression.external-repository-runner",
+      "dogfood.regression.hidden-oracle-harness",
+      "dogfood.regression.gate6-task-schema"
+    ],
+    "small_multi_file": [
+      "dogfood.multifile.local-run-artifact-format",
+      "dogfood.multifile.report-history",
+      "dogfood.multifile.agent-comparison-contract",
+      "dogfood.multifile.twin-workspace-comparison-runner",
+      "dogfood.multifile.product-comparison-evaluator"
+    ]
+  },
+  "taskFile": "benchmarks/product-v1/tasks/dogfood/taskset.json"
+}

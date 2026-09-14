@@ -351,6 +351,8 @@ export class CodexAgentAdapter implements AgentAdapter {
     const threadOptions: ThreadOptions = {
       workingDirectory: request.workingDirectory,
       model: request.model,
+      skipGitRepoCheck:
+        request.repositoryRequirement === "none",
       sandboxMode: isolation.sandboxMode,
       modelReasoningEffort: mapReasoningEffort(request.reasoningEffort),
       networkAccessEnabled: isolation.networkAccessEnabled,

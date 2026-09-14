@@ -9,9 +9,7 @@
       "src/index.ts"
     ],
     "requiredSourceFiles": [
-      "src/index.ts",
-      "src/service.ts",
-      "src/types.ts"
+      "src/index.ts"
     ],
     "requiredTestFiles": [
       "tests/service.test.ts"
@@ -24,14 +22,14 @@
     ],
     "repositoryIdentityHash": "sha256:d6424cb6ae2bdf184feddd129e54bb76e454402728f9a9a82267ac7c414bba25",
     "intelligenceHash": "sha256:7856bac11e6daab002ab7abfe5a42992f4516cf6bbd64d7914ee8e4a01326fb7",
-    "bindingHash": "sha256:061486990238ba91ae90ec3dafd90265123c108430364d6103686eb095b26d65",
+    "bindingHash": "sha256:8a12babee9708c20b883292ad35621b3c0cd8800908f69c210490d3aecfd8681",
     "coderProviderCallCount": 1,
     "contextRequestProviderCallCount": 0
   },
   "checks": [
     "canonical v0.2-dev entrypoint exports intelligence binding",
     "intelligence binding completes before exactly one coder call",
-    "dependency closure becomes required and allowed context",
+    "seed files are required while dependency closure remains allowed context",
     "coder receives hash-bound graph context and repository evidence",
     "binding receipt is deterministic and tamper evident",
     "repository identity and intelligence hash are clone-path independent",
@@ -41,10 +39,11 @@
     "required tests must exist in the intelligence snapshot",
     "allowed and forbidden context overlap is invalid",
     "required context-request provider failure stops before coder",
+    "readable context authority fails closed before coder",
     "integration is read-only and declares no shell or network use"
   ],
   "summary": {
-    "checkCount": 13,
+    "checkCount": 14,
     "intelligenceReady": true,
     "intelligenceVerified": true,
     "bindingVerified": true,
@@ -54,5 +53,5 @@
     "shellExecuted": false,
     "networkAccessed": false
   },
-  "reportHash": "sha256:f2853106e34bcb09ab5670f71b94bad2fce03aea95b0a59da8008966fc48f5b9"
+  "reportHash": "sha256:b50e1401afc8a0b50b7e5a9369b5f85453963b81de3f625d52e3f498531b38cb"
 }

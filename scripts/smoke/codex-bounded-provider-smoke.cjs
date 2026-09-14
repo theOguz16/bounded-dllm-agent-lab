@@ -103,6 +103,7 @@ function fakeAdapter(sourceRoot, { plannerUsageMissing = false } = {}) {
 
       if (request.mode === "planner") {
         assert.equal(request.sandboxMode, "read_only");
+        assert.equal(request.repositoryRequirement, "none");
         const context = JSON.parse(request.task.split("\n").at(-1));
         const draft = plannerDraft(context);
         assert.equal(JSON.stringify(draft).includes("proposalHash"), false);
@@ -126,6 +127,7 @@ function fakeAdapter(sourceRoot, { plannerUsageMissing = false } = {}) {
       }
 
       assert.equal(request.mode, "coder");
+      assert.equal(request.repositoryRequirement, undefined);
       assert.equal(request.sandboxMode, "workspace_write");
       assert.equal(fs.existsSync(path.join(request.workingDirectory, ".git")), true);
       assert.equal(fs.existsSync(path.join(request.workingDirectory, "src/calculate.ts")), true);
@@ -366,6 +368,8 @@ async function main() {
       bridgeVersion: "codex-bounded-provider/v1",
       existingRunBoundedTaskCoordinatorUsed: true,
       plannerMinimalityProviderBound: true,
+      plannerRepositoryRequirementNone: true,
+      coderRepositoryRequirementDefault: true,
       coderProviderBound: true,
       disposableWorkspaceUsed: true,
       sourceRepositoryMutated: false,

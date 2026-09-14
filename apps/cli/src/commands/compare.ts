@@ -1,24 +1,29 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readFile, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, readFile, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import {
   compileCanonicalPolicy,
+  createAgentComparisonContract,
   createCanonicalRepositoryContentSnapshot,
   evaluateProductComparison,
   hashCanonicalJson,
-  type ProductComparisonEvaluation
+  parseTextFileUpdates,
+  runBoundedTask,
+  type ProductComparisonEvaluation,
+  type RunBoundedTaskInput,
+  type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
 import {
-  runComparativeAgentSample,
+  createDisposableAgentWorkspace,
+  executionOrderForTaskHash,
   type AgentAdapter,
+  type AgentRunRequest,
   type AgentRunResult,
-  type ComparativeAgentEvaluatorInput,
-  type ComparativeAgentExecutionOrder,
-  type ComparativeAgentRunnerResult
+  type ComparativeAgentExecutionOrder
 } from "../../../../packages/integrations/src/index.js";
 import { CliError } from "../cli-errors.js";
 import type { CliCommandResult } from "../bounded-task.js";
@@ -32,31 +37,31 @@ import {
   discoverCodexScope,
   type CodexScopeDiscoveryResult
 } from "../providers/codex-scope-discovery.js";
+import { codexCommand } from "./codex.js";
+import { createCandidateHandoffFromBoundedRun } from "../candidate-handoff.js";
+import {
+  COMPARE_VALIDATION_SUBSTRATE_VERSION,
+  COMPARE_VALIDATION_TIMEOUT_MS,
+  prepareCompareValidationSubstrate,
+  runCompareValidation,
+  type CompareCandidateChange,
+  type CompareValidationResult,
+  type CompareValidationSpec
+} from "../compare-validation-substrate.js";
 
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
+export const BOUNDED_COMPARE_RUNTIME_VERSION = "canonical-bounded-compare/v1" as const;
 export const BOUNDED_COMPARE_REASONING = "medium" as const;
-export const BOUNDED_COMPARE_TIMEOUT_MS = 120_000;
+export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
+export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
+export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 const MAX_TASK_LENGTH = 32_768;
-const VALIDATION_CONTEXT_FILE = /^(?:package(?:-lock)?\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(?:\.[^/]+)?\.json|(?:vite|vitest|jest|eslint|prettier)\.config\.[A-Za-z0-9]+)$/;
 
 export type CompareCodexCommandInput = Readonly<{ task: string }>;
-
-type CompareValidationSpec = Readonly<{
-  tests: string | null;
-  build: string | null;
-  typecheck: string | null;
-  approvedMutableFiles: readonly string[];
-  forbiddenFiles: readonly string[];
-}>;
-
-type ValidationObservation = Readonly<{
-  passed: boolean | null;
-  durationMs: number;
-}>;
 
 type ArmDisplayMetrics = Readonly<{
   behavior: boolean | null;
@@ -74,21 +79,64 @@ type ArmDisplayMetrics = Readonly<{
   durationMs: number | null;
 }>;
 
+type ArmRuntimeObservation = Readonly<{
+  status: string;
+  failureCode: string | null;
+  validationFailureCode: string | null;
+}>;
+
+type UsageObservation = Readonly<{
+  inputTokens: number | null;
+  cachedInputTokens?: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}>;
+
+type ArmExecution = Readonly<{
+  evaluation: ProductComparisonEvaluation;
+  display: ArmDisplayMetrics;
+  runtime: ArmRuntimeObservation;
+}>;
+
 export type CompareCodexOutput = Readonly<{
   ok: boolean;
   command: "compare";
   target: "codex";
   compareVersion: typeof BOUNDED_COMPARE_CODEX_VERSION;
+  comparisonRuntimeVersion: typeof BOUNDED_COMPARE_RUNTIME_VERSION;
   task: string;
   comparable: boolean;
   identityMismatchFields: readonly string[];
   executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
-  timeoutMs: typeof BOUNDED_COMPARE_TIMEOUT_MS;
+  timeoutMs: number;
+  budgets: Readonly<{
+    discoveryMs: number;
+    agentMs: number;
+    validationCommandMs: number;
+  }>;
   networkPolicy: typeof BOUNDED_COMPARE_NETWORK_POLICY;
+  discovery: Readonly<{
+    inputTokens: number | null;
+    cachedInputTokens: number | null;
+    outputTokens: number | null;
+    totalTokens: number | null;
+    visibleFileCount: number;
+    visibleBytes: number;
+    durationMs: number;
+  }>;
+  validationSubstrate: Readonly<{
+    version: typeof COMPARE_VALIDATION_SUBSTRATE_VERSION;
+    dependencySnapshotHash: string;
+    prepared: boolean;
+  }>;
   normal: ArmDisplayMetrics;
   bounded: ArmDisplayMetrics;
+  runtime: Readonly<{
+    normal: ArmRuntimeObservation;
+    bounded: ArmRuntimeObservation;
+  }>;
   evaluations: Readonly<{
     normal: ProductComparisonEvaluation;
     bounded: ProductComparisonEvaluation;
@@ -101,6 +149,7 @@ export type CompareCodexDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
   discover?: typeof discoverCodexScope;
+  runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
 }>;
 
 function requireTask(value: string): string {
@@ -130,7 +179,6 @@ async function resolveCodexModel(override?: string): Promise<string> {
   ]) {
     if (typeof candidate === "string" && MODEL.test(candidate.trim())) return candidate.trim();
   }
-
   try {
     const data = await readFile(path.join(configuredCodexHome(), "config.toml"));
     if (data.length > 0 && data.length <= MAX_CODEX_CONFIG_BYTES) {
@@ -143,7 +191,6 @@ async function resolveCodexModel(override?: string): Promise<string> {
   } catch {
     // Report a stable configuration error below without exposing local paths.
   }
-
   throw new CliError(
     "cli_codex_model_missing",
     "Codex model is not configured. Set CODEX_MODEL or configure model in CODEX_HOME/config.toml.",
@@ -168,38 +215,6 @@ function gitHead(repositoryRoot: string): string {
   return head;
 }
 
-function isForbidden(file: string, forbiddenFiles: readonly string[]): boolean {
-  return forbiddenFiles.some(
-    (forbidden) => file === forbidden || file.startsWith(`${forbidden}/`)
-  );
-}
-
-function selectedContextFiles(
-  repositoryRoot: string,
-  approvedMutableFiles: readonly string[],
-  forbiddenFiles: readonly string[]
-): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--cached"], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-    timeout: 10_000,
-    maxBuffer: 16 * 1024 * 1024
-  });
-  if (result.error || result.status !== 0) {
-    throw new CliError(
-      "cli_compare_repository_inventory_unavailable",
-      "Tracked repository files could not be inspected for comparison context."
-    );
-  }
-  const supportFiles = String(result.stdout)
-    .split("\u0000")
-    .filter((file) => file.length > 0 && VALIDATION_CONTEXT_FILE.test(file))
-    .filter((file) => !isForbidden(file, forbiddenFiles));
-  return [...new Set([...approvedMutableFiles, ...supportFiles])].sort((left, right) =>
-    left.localeCompare(right, "en")
-  );
-}
-
 function selectScript(values: readonly string[], preferred: readonly string[]): string | null {
   for (const candidate of preferred) {
     if (values.includes(candidate)) return candidate;
@@ -207,86 +222,229 @@ function selectScript(values: readonly string[], preferred: readonly string[]): 
   return values[0] ?? null;
 }
 
-function validationSpec(
-  config: BoundedLocalConfig,
-  approvedMutableFiles: readonly string[],
-  forbiddenFiles: readonly string[]
-): CompareValidationSpec {
+function validationSpec(config: BoundedLocalConfig): CompareValidationSpec {
   return Object.freeze({
     tests: selectScript(config.scripts.test, ["test"]),
     build: selectScript(config.scripts.build, ["build"]),
     typecheck: selectScript(
       config.scripts.typecheck,
       ["typecheck", "type-check", "check:types", "check-types", "types:check"]
-    ),
-    approvedMutableFiles: Object.freeze([...approvedMutableFiles]),
-    forbiddenFiles: Object.freeze([...forbiddenFiles])
+    )
   });
 }
 
-function runValidationScript(workspacePath: string, script: string | null): ValidationObservation {
-  if (script === null || !existsSync(path.join(workspacePath, "package.json"))) {
-    return Object.freeze({ passed: null, durationMs: 0 });
-  }
-  const started = Date.now();
-  const result = spawnSync("npm", ["run", script], {
+function taskHash(task: string): string {
+  return `sha256:${createHash("sha256").update(task, "utf8").digest("hex")}`;
+}
+
+function isForbidden(file: string, forbiddenFiles: readonly string[]): boolean {
+  return forbiddenFiles.some((forbidden) => file === forbidden || file.startsWith(`${forbidden}/`));
+}
+
+function parseNulList(value: string): string[] {
+  return value.split("\u0000").filter(Boolean);
+}
+
+function changedFiles(workspacePath: string): string[] {
+  const tracked = spawnSync("git", ["diff", "--name-only", "-z", "HEAD", "--"], {
     cwd: workspacePath,
     encoding: "utf8",
-    env: { ...process.env, CI: "1" },
-    timeout: BOUNDED_COMPARE_TIMEOUT_MS,
-    maxBuffer: 8 * 1024 * 1024,
-    windowsHide: true
+    timeout: 10_000,
+    maxBuffer: 16 * 1024 * 1024
   });
+  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "-z", "--"], {
+    cwd: workspacePath,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 16 * 1024 * 1024
+  });
+  if (tracked.error || tracked.status !== 0 || untracked.error || untracked.status !== 0) {
+    throw new CliError(
+      "cli_compare_workspace_state_unavailable",
+      "Disposable comparison workspace changes could not be inspected.",
+      4
+    );
+  }
+  return [...new Set([
+    ...parseNulList(String(tracked.stdout)),
+    ...parseNulList(String(untracked.stdout))
+  ])].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+async function changesFromWorkspace(
+  workspacePath: string,
+  files: readonly string[]
+): Promise<CompareCandidateChange[]> {
+  const changes: CompareCandidateChange[] = [];
+  for (const file of files) {
+    const absolute = path.join(workspacePath, ...file.split("/"));
+    const stat = await lstat(absolute).catch(() => null);
+    if (stat === null) {
+      changes.push(Object.freeze({ path: file, content: null }));
+      continue;
+    }
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new CliError(
+        "cli_compare_candidate_file_unsafe",
+        `Comparison candidate changed a non-regular path: ${file}.`,
+        4
+      );
+    }
+    const bytes = await readFile(absolute);
+    let content: string;
+    try {
+      content = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      throw new CliError(
+        "cli_compare_candidate_file_unsafe",
+        `Comparison candidate changed a non-UTF-8 file: ${file}.`,
+        4
+      );
+    }
+    changes.push(Object.freeze({ path: file, content }));
+  }
+  return changes;
+}
+
+function recordingAdapter(adapter: AgentAdapter, runs: AgentRunResult[]): AgentAdapter {
   return Object.freeze({
-    passed: result.error === undefined && result.status === 0,
-    durationMs: Math.max(0, Date.now() - started)
+    agentId: adapter.agentId,
+    agentVersion: adapter.agentVersion,
+    async run(request: AgentRunRequest): Promise<AgentRunResult> {
+      const result = await adapter.run(request);
+      runs.push(result);
+      return result;
+    }
   });
 }
 
-function taskSucceeded(values: readonly (boolean | null)[]): boolean | null {
+function observedSum(
+  runs: readonly AgentRunResult[],
+  read: (run: AgentRunResult) => number | null | undefined
+): number | null {
+  if (runs.length === 0) return null;
+  let total = 0;
+  for (const run of runs) {
+    const value = read(run);
+    if (value === null || value === undefined || !Number.isSafeInteger(value) || value < 0) return null;
+    total += value;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+  return total;
+}
+
+function addObserved(base: number | null, extra: number | null | undefined): number | null {
+  if (extra === undefined) return base;
+  if (base === null || extra === null || !Number.isSafeInteger(extra) || extra < 0) return null;
+  const total = base + extra;
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+function observedTotal(
+  runs: readonly AgentRunResult[],
+  read: (run: AgentRunResult) => number | null | undefined,
+  extra: number | null | undefined
+): number | null {
+  if (runs.length === 0) {
+    if (extra === undefined || extra === null || !Number.isSafeInteger(extra) || extra < 0) {
+      return null;
+    }
+    return extra;
+  }
+  return addObserved(observedSum(runs, read), extra);
+}
+
+function commandCount(runs: readonly AgentRunResult[]): number {
+  return runs.reduce((total, run) => total + run.commands.length, 0);
+}
+
+function failedCommandCount(runs: readonly AgentRunResult[]): number {
+  return runs.reduce(
+    (total, run) => total + run.commands.filter(
+      (command) => command.status !== "completed" ||
+        (command.exitCode !== null && command.exitCode !== 0)
+    ).length,
+    0
+  );
+}
+
+function boundedContext(result: RunBoundedTaskResult | null): Readonly<{ files: number; bytes: number }> {
+  const context = result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.context;
+  if (!context) return Object.freeze({ files: 0, bytes: 0 });
+  const byPath = new Map<string, number>();
+  for (const evidence of context.evidence) byPath.set(evidence.path, evidence.byteLength);
+  return Object.freeze({
+    files: byPath.size,
+    bytes: [...byPath.values()].reduce((sum, value) => sum + value, 0)
+  });
+}
+
+function emptyValidation(): CompareValidationResult {
+  return Object.freeze({
+    tests: Object.freeze({ passed: null, durationMs: 0 }),
+    build: Object.freeze({ passed: null, durationMs: 0 }),
+    typecheck: Object.freeze({ passed: null, durationMs: 0 }),
+    durationMs: 0,
+    infrastructureFailure: null
+  });
+}
+
+function taskSucceeded(values: readonly (boolean | null)[], runtimeCompleted: boolean): boolean | null {
+  if (!runtimeCompleted) return false;
   if (values.some((value) => value === false)) return false;
   if (values.every((value) => value === true)) return true;
   return null;
 }
 
-function failedCommandCount(run: AgentRunResult): number {
-  return run.commands.filter(
-    (command) =>
-      command.status !== "completed" ||
-      (command.exitCode !== null && command.exitCode !== 0)
-  ).length;
-}
-
-function exposedBytes(input: ComparativeAgentEvaluatorInput<CompareValidationSpec>): number {
-  return input.workspaceManifest.files.reduce((total, file) => total + file.bytes, 0);
-}
-
-function comparisonEvaluator(
-  input: ComparativeAgentEvaluatorInput<CompareValidationSpec>
-): ProductComparisonEvaluation {
-  const tests = runValidationScript(input.workspacePath, input.validationSpec.tests);
-  const build = runValidationScript(input.workspacePath, input.validationSpec.build);
-  const typecheck = runValidationScript(input.workspacePath, input.validationSpec.typecheck);
-
-  const approved = new Set(input.validationSpec.approvedMutableFiles);
-  const forbidden = new Set(input.validationSpec.forbiddenFiles);
-  const scopeViolationCount = input.changedFiles.filter((file) => !approved.has(file)).length;
-  const forbiddenTouchCount = input.changedFiles.filter((file) => forbidden.has(file)).length;
+function evaluateArm(input: Readonly<{
+  runtimeCompleted: boolean;
+  runtimeStatus: string;
+  runtimeFailureCode: string | null;
+  validation: CompareValidationResult;
+  changedFiles: readonly string[];
+  approvedMutableFiles: readonly string[];
+  controlAvailable: boolean;
+  forbiddenFiles: readonly string[];
+  runs: readonly AgentRunResult[];
+  additionalUsage?: UsageObservation;
+  exposedFiles: number;
+  exposedBytes: number;
+  repairRounds: number;
+  durationMs: number;
+}>): ArmExecution {
+  const approved = new Set(input.approvedMutableFiles);
+  const scopeViolationCount = input.controlAvailable
+    ? input.changedFiles.filter((file) => !approved.has(file)).length
+    : 0;
+  const forbiddenTouchCount = input.changedFiles.filter((file) => isForbidden(file, input.forbiddenFiles)).length;
   const unsupportedMutationCount = 0;
-  const controls =
-    scopeViolationCount === 0 && forbiddenTouchCount === 0 && unsupportedMutationCount === 0;
-  const behavior = tests.passed;
-  const succeeded = taskSucceeded([controls, behavior, build.passed, typecheck.passed]);
-  const validationDurationMs = tests.durationMs + build.durationMs + typecheck.durationMs;
-
-  return evaluateProductComparison({
+  const controls = forbiddenTouchCount > 0
+    ? false
+    : input.controlAvailable
+      ? scopeViolationCount === 0
+      : null;
+  const validationInfrastructureOk = input.validation.infrastructureFailure === null;
+  const behavior = input.runtimeCompleted && validationInfrastructureOk
+    ? input.validation.tests.passed
+    : null;
+  const build = input.runtimeCompleted && validationInfrastructureOk
+    ? input.validation.build.passed
+    : null;
+  const typecheck = input.runtimeCompleted && validationInfrastructureOk
+    ? input.validation.typecheck.passed
+    : null;
+  const succeeded = taskSucceeded(
+    [controls, behavior, build, typecheck],
+    input.runtimeCompleted && validationInfrastructureOk
+  );
+  const evaluation = evaluateProductComparison({
     correctness: {
       controlPassed: controls,
       behaviorSatisfied: behavior,
       taskSucceeded: succeeded,
-      testsPassed: tests.passed,
-      buildPassed: build.passed,
-      typecheckPassed: typecheck.passed
+      testsPassed: behavior,
+      buildPassed: build,
+      typecheckPassed: typecheck
     },
     control: {
       scopeViolationCount,
@@ -296,39 +454,60 @@ function comparisonEvaluator(
       changedFileNecessityAssessments: []
     },
     efficiency: {
-      inputTokens: input.run.usage.inputTokens,
-      cachedInputTokens: input.run.usage.cachedInputTokens ?? null,
-      outputTokens: input.run.usage.outputTokens,
+      inputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.inputTokens,
+        input.additionalUsage?.inputTokens
+      ),
+      cachedInputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.cachedInputTokens,
+        input.additionalUsage?.cachedInputTokens
+      ),
+      outputTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.outputTokens,
+        input.additionalUsage?.outputTokens
+      ),
       reasoningTokens: null,
-      totalTokens: input.run.usage.totalTokens,
-      exposedFiles: input.workspaceManifest.files.length,
-      exposedBytes: exposedBytes(input),
-      commandCount: input.run.commands.length,
-      failedCommandCount: failedCommandCount(input.run),
-      repairRounds: 0,
-      durationMs: Math.max(0, input.run.durationMs + validationDurationMs)
+      totalTokens: observedTotal(
+        input.runs,
+        (run) => run.usage.totalTokens,
+        input.additionalUsage?.totalTokens
+      ),
+      exposedFiles: input.exposedFiles,
+      exposedBytes: input.exposedBytes,
+      commandCount: commandCount(input.runs),
+      failedCommandCount: failedCommandCount(input.runs),
+      repairRounds: input.repairRounds,
+      durationMs: Math.max(0, input.durationMs + input.validation.durationMs)
     }
   });
-}
-
-function displayMetrics(
-  arm: ComparativeAgentRunnerResult<ProductComparisonEvaluation>["arms"]["baseline"],
-  repairRounds: number | null
-): ArmDisplayMetrics {
+  const display: ArmDisplayMetrics = Object.freeze({
+    behavior: evaluation.correctness.behaviorSatisfied,
+    controls: evaluation.correctness.controlPassed,
+    inputTokens: evaluation.efficiency.inputTokens,
+    cachedInputTokens: evaluation.efficiency.cachedInputTokens,
+    outputTokens: evaluation.efficiency.outputTokens,
+    exposedFiles: evaluation.efficiency.exposedFiles,
+    exposedBytes: evaluation.efficiency.exposedBytes,
+    changedFiles: input.changedFiles.length,
+    scopeViolations: input.controlAvailable
+      ? evaluation.control.scopeViolationCount
+      : null,
+    commands: evaluation.efficiency.commandCount,
+    failedCommands: evaluation.efficiency.failedCommandCount,
+    repairRounds: input.repairRounds,
+    durationMs: evaluation.efficiency.durationMs
+  });
   return Object.freeze({
-    behavior: arm.evaluation.correctness.behaviorSatisfied,
-    controls: arm.evaluation.correctness.controlPassed,
-    inputTokens: arm.evaluation.efficiency.inputTokens,
-    cachedInputTokens: arm.evaluation.efficiency.cachedInputTokens,
-    outputTokens: arm.evaluation.efficiency.outputTokens,
-    exposedFiles: arm.evaluation.efficiency.exposedFiles,
-    exposedBytes: arm.evaluation.efficiency.exposedBytes,
-    changedFiles: arm.workspace.changedFiles.length,
-    scopeViolations: arm.evaluation.control.scopeViolationCount,
-    commands: arm.evaluation.efficiency.commandCount,
-    failedCommands: arm.evaluation.efficiency.failedCommandCount,
-    repairRounds,
-    durationMs: arm.evaluation.efficiency.durationMs
+    evaluation,
+    display,
+    runtime: Object.freeze({
+      status: input.runtimeStatus,
+      failureCode: input.runtimeFailureCode,
+      validationFailureCode: input.validation.infrastructureFailure?.code ?? null
+    })
   });
 }
 
@@ -361,12 +540,7 @@ function percentDelta(normal: number | null, bounded: number | null): string {
   return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}%`;
 }
 
-type TableRow = Readonly<{
-  label: string;
-  normal: string;
-  bounded: string;
-  delta: string;
-}>;
+type TableRow = Readonly<{ label: string; normal: string; bounded: string; delta: string }>;
 
 export function formatCodexComparisonTable(
   normal: ArmDisplayMetrics,
@@ -387,15 +561,13 @@ export function formatCodexComparisonTable(
     { label: "Repair rounds", normal: integer(normal.repairRounds), bounded: integer(bounded.repairRounds), delta: "" },
     { label: "Duration", normal: readableDuration(normal.durationMs), bounded: readableDuration(bounded.durationMs), delta: "" }
   ];
-
   const labelWidth = Math.max(...rows.map((row) => row.label.length));
   const normalWidth = Math.max("NORMAL".length, ...rows.map((row) => row.normal.length));
   const boundedWidth = Math.max("BOUNDED".length, ...rows.map((row) => row.bounded.length));
   const deltaWidth = Math.max("Δ".length, ...rows.map((row) => row.delta.length));
   const header = `${"".padEnd(labelWidth)}  ${"NORMAL".padStart(normalWidth)}  ${"BOUNDED".padStart(boundedWidth)}  ${"Δ".padStart(deltaWidth)}`;
   const lines = rows.map(
-    (row) =>
-      `${row.label.padEnd(labelWidth)}  ${row.normal.padStart(normalWidth)}  ${row.bounded.padStart(boundedWidth)}  ${row.delta.padStart(deltaWidth)}`.trimEnd()
+    (row) => `${row.label.padEnd(labelWidth)}  ${row.normal.padStart(normalWidth)}  ${row.bounded.padStart(boundedWidth)}  ${row.delta.padStart(deltaWidth)}`.trimEnd()
   );
   return [header.trimEnd(), ...lines].join("\n");
 }
@@ -405,6 +577,27 @@ function proposalFiles(discovery: CodexScopeDiscoveryResult): string[] {
     ...discovery.proposal.candidateSourceFiles,
     ...discovery.proposal.candidateTestFiles
   ])].sort((left, right) => left.localeCompare(right, "en"));
+}
+
+function failureCode(error: unknown): string {
+  if (error instanceof CliError) return error.code;
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return error.code;
+  }
+  return "cli_compare_bounded_runtime_failed";
+}
+
+type BoundedCapture = {
+  input?: RunBoundedTaskInput;
+  result?: RunBoundedTaskResult;
+};
+
+function capturedInput(capture: BoundedCapture): RunBoundedTaskInput | null {
+  return capture.input ?? null;
+}
+
+function capturedResult(capture: BoundedCapture): RunBoundedTaskResult | null {
+  return capture.result ?? null;
 }
 
 export async function compareCodexCommand(
@@ -422,26 +615,34 @@ export async function compareCodexCommand(
     );
   }
 
+  const allowPreparation = process.env.BOUNDED_COMPARE_PREPARE_DEPENDENCIES === "1";
+  const substrate = await prepareCompareValidationSubstrate(repositoryRoot, { allowPreparation });
   const model = await resolveCodexModel(dependencies.model);
   const sourceCommitSha = gitHead(repositoryRoot);
   const sourceBefore = createCanonicalRepositoryContentSnapshot(repositoryRoot);
-  let discovery: CodexScopeDiscoveryResult;
+  const adapter = dependencies.adapter ?? new CodexAgentAdapter();
+
+  let discovery: CodexScopeDiscoveryResult | null = null;
+  let discoveryFailure: CodexScopeDiscoveryError | null = null;
+  const discoveryStarted = Date.now();
   try {
     discovery = await (dependencies.discover ?? discoverCodexScope)({
       repositoryPath: repositoryRoot,
       sourceSnapshotHash: sourceBefore.snapshotHash,
       task,
       model,
-      adapter: dependencies.adapter,
+      adapter,
       reasoningEffort: BOUNDED_COMPARE_REASONING,
-      timeoutMs: BOUNDED_COMPARE_TIMEOUT_MS
+      timeoutMs: BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS
     });
   } catch (error) {
     if (error instanceof CodexScopeDiscoveryError) {
-      throw new CliError("cli_compare_scope_discovery_failed", error.message, 3);
+      discoveryFailure = error;
+    } else {
+      throw error;
     }
-    throw error;
   }
+  const discoveryDurationMs = Math.max(0, Date.now() - discoveryStarted);
 
   const sourceAfterDiscovery = createCanonicalRepositoryContentSnapshot(repositoryRoot);
   if (sourceAfterDiscovery.snapshotHash !== sourceBefore.snapshotHash || gitHead(repositoryRoot) !== sourceCommitSha) {
@@ -452,8 +653,15 @@ export async function compareCodexCommand(
     );
   }
 
-  const approvedMutableFiles = proposalFiles(discovery);
-  if (approvedMutableFiles.length === 0) {
+  const discoveryUsage =
+    discovery?.usage ?? discoveryFailure?.observation?.usage ?? null;
+  const discoveryVisibleFileCount =
+    discovery?.visibleFileCount ?? discoveryFailure?.observation?.visibleFileCount ?? 0;
+  const discoveryVisibleBytes =
+    discovery?.visibleBytes ?? discoveryFailure?.observation?.visibleBytes ?? 0;
+
+  const approvedMutableFiles = discovery === null ? [] : proposalFiles(discovery);
+  if (discovery !== null && approvedMutableFiles.length === 0) {
     throw new CliError(
       "cli_compare_scope_empty",
       "Codex scope discovery did not produce a non-empty comparison scope.",
@@ -465,45 +673,173 @@ export async function compareCodexCommand(
     repositoryPath: repositoryRoot,
     policyFilePath: path.join(repositoryRoot, BOUNDED_POLICY_PATH)
   });
-  const forbiddenFiles = [...policy.forbiddenPaths].sort((left, right) =>
-    left.localeCompare(right, "en")
-  );
-  const selectedFiles = selectedContextFiles(
-    repositoryRoot,
-    approvedMutableFiles,
-    forbiddenFiles
-  );
-  const spec = validationSpec(diagnosed.config, approvedMutableFiles, forbiddenFiles);
+  const forbiddenFiles = [...policy.forbiddenPaths].sort((left, right) => left.localeCompare(right, "en"));
+  const spec = validationSpec(diagnosed.config);
   const validationSpecHash = hashCanonicalJson({
-    tests: spec.tests,
-    build: spec.build,
-    typecheck: spec.typecheck
+    spec,
+    substrateVersion: substrate.version,
+    dependencySnapshotHash: substrate.dependencySnapshotHash,
+    validationCommandTimeoutMs: COMPARE_VALIDATION_TIMEOUT_MS
   });
-  const adapter = dependencies.adapter ?? new CodexAgentAdapter();
+  const identity = Object.freeze({
+    taskHash: taskHash(task),
+    sourceRepositorySnapshotHash: sourceBefore.snapshotHash,
+    sourceCommitSha,
+    agentId: adapter.agentId,
+    agentVersion: adapter.agentVersion,
+    modelId: model,
+    reasoningEffort: BOUNDED_COMPARE_REASONING,
+    validationSpecHash,
+    networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
+    timeoutBudget: BOUNDED_COMPARE_AGENT_TIMEOUT_MS
+  });
+  const comparison = createAgentComparisonContract({ baseline: identity, bounded: identity });
+  const executionOrder = executionOrderForTaskHash(identity.taskHash);
 
-  let result: ComparativeAgentRunnerResult<ProductComparisonEvaluation>;
+  const baselineWorkspace = await createDisposableAgentWorkspace({
+    repositoryPath: repositoryRoot,
+    sourceSnapshotHash: sourceBefore.snapshotHash,
+    visibleFiles: [],
+    changeAllowedFiles: [],
+    forbiddenFiles,
+    mode: "baseline"
+  });
+
+  let normalExecution: ArmExecution | null = null;
+  let boundedExecution: ArmExecution | null = null;
   try {
-    result = await runComparativeAgentSample({
-      repositoryPath: repositoryRoot,
-      sourceRepositorySnapshotHash: sourceBefore.snapshotHash,
-      sourceCommitSha,
-      task,
-      modelId: model,
-      reasoningEffort: BOUNDED_COMPARE_REASONING,
-      timeoutBudget: BOUNDED_COMPARE_TIMEOUT_MS,
-      networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
-      validationSpecHash,
-      validationSpec: spec,
-      selectedContextFiles: selectedFiles,
-      approvedMutableFiles,
-      forbiddenFiles,
-      adapter,
-      evaluator: comparisonEvaluator
-    });
-  } catch (error) {
+    for (const arm of executionOrder) {
+      if (arm === "baseline") {
+        const started = Date.now();
+        const run = await adapter.run({
+          runId: `comparison.baseline.${identity.taskHash.slice(-24)}`,
+          agentId: adapter.agentId,
+          workingDirectory: baselineWorkspace.workspacePath,
+          task,
+          model,
+          reasoningEffort: BOUNDED_COMPARE_REASONING,
+          mode: "baseline",
+          timeoutMs: BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
+          networkAllowed: false,
+          sandboxMode: "workspace_write"
+        });
+        const files = changedFiles(baselineWorkspace.workspacePath);
+        const changes = await changesFromWorkspace(baselineWorkspace.workspacePath, files);
+        const validation = run.status === "completed"
+          ? await runCompareValidation({
+              repositoryRoot,
+              sourceSnapshotHash: sourceBefore.snapshotHash,
+              substrate,
+              spec,
+              changes
+            })
+          : emptyValidation();
+        const runtimeFailureCode = run.status === "completed"
+          ? null
+          : run.failureCode ?? run.diagnostics.find((entry) => entry.severity === "error")?.code ?? `agent_${run.status}`;
+        normalExecution = evaluateArm({
+          runtimeCompleted: run.status === "completed",
+          runtimeStatus: run.status,
+          runtimeFailureCode,
+          validation,
+          changedFiles: files,
+          approvedMutableFiles,
+          controlAvailable: discovery !== null,
+          forbiddenFiles,
+          runs: [run],
+          exposedFiles: baselineWorkspace.exposedFileCount,
+          exposedBytes: baselineWorkspace.exposedBytes,
+          repairRounds: 0,
+          durationMs: Math.max(0, Date.now() - started - validation.durationMs)
+        });
+        continue;
+      }
+
+      const started = Date.now();
+      const boundedRuns: AgentRunResult[] = [];
+      const boundedAdapter = recordingAdapter(adapter, boundedRuns);
+      const capture: BoundedCapture = {};
+      let boundedFailureCode: string | null = discoveryFailure?.failureCode ?? null;
+      if (discovery !== null) {
+        try {
+          await codexCommand(
+            { task, allowFiles: approvedMutableFiles },
+            repositoryRoot,
+            {
+              adapter: boundedAdapter,
+              model,
+              validationProfile: "structural_draft",
+              runTask: async (input) => {
+                capture.input = input;
+                const result = await (dependencies.runTask ?? runBoundedTask)(input);
+                capture.result = result;
+                return result;
+              }
+            }
+          );
+        } catch (error) {
+          boundedFailureCode = failureCode(error);
+        }
+      }
+
+      const boundedInput = capturedInput(capture);
+      const boundedResult = capturedResult(capture);
+      const runtimeCompleted = boundedResult?.decision === "bounded_task_completed";
+      if (!runtimeCompleted && boundedFailureCode === null) {
+        boundedFailureCode = boundedResult?.failure?.code ?? "bounded_runtime_not_completed";
+      }
+      let boundedChanges: CompareCandidateChange[] = [];
+      let boundedChangedFiles: string[] = [];
+      if (runtimeCompleted && boundedInput !== null && boundedResult !== null) {
+        const candidate = createCandidateHandoffFromBoundedRun(repositoryRoot, boundedInput, boundedResult);
+        if (candidate === null) {
+          boundedFailureCode = "bounded_candidate_handoff_unavailable";
+        } else {
+          boundedChanges = parseTextFileUpdates(candidate.coderMutation).map((entry) =>
+            Object.freeze({ path: entry.file, content: entry.newContent })
+          );
+          boundedChangedFiles = [...candidate.candidateFiles].sort((left, right) => left.localeCompare(right, "en"));
+        }
+      }
+      const boundedCandidateReady = runtimeCompleted && boundedFailureCode === null;
+      const validation = boundedCandidateReady
+        ? await runCompareValidation({
+            repositoryRoot,
+            sourceSnapshotHash: sourceBefore.snapshotHash,
+            substrate,
+            spec,
+            changes: boundedChanges
+          })
+        : emptyValidation();
+      const exposure = boundedContext(boundedResult);
+      boundedExecution = evaluateArm({
+        runtimeCompleted: boundedCandidateReady,
+        runtimeStatus: boundedResult?.decision ?? (boundedFailureCode === null ? "not_run" : "failed"),
+        runtimeFailureCode: boundedFailureCode,
+        validation,
+        changedFiles: boundedChangedFiles,
+        approvedMutableFiles,
+        controlAvailable: discovery !== null,
+        forbiddenFiles,
+        runs: boundedRuns,
+        additionalUsage: discoveryUsage ?? undefined,
+        exposedFiles: Math.max(exposure.files, discoveryVisibleFileCount),
+        exposedBytes: Math.max(exposure.bytes, discoveryVisibleBytes),
+        repairRounds: 0,
+        durationMs: Math.max(
+          0,
+          Date.now() - started - validation.durationMs + discoveryDurationMs
+        )
+      });
+    }
+  } finally {
+    await rm(baselineWorkspace.workspacePath, { recursive: true, force: true });
+  }
+
+  if (normalExecution === null || boundedExecution === null) {
     throw new CliError(
       "cli_compare_execution_failed",
-      error instanceof Error ? error.message : "Codex comparison execution failed.",
+      "Both Normal and canonical Bounded comparison arms must execute exactly once.",
       4
     );
   }
@@ -517,33 +853,52 @@ export async function compareCodexCommand(
     );
   }
 
-  const normal = displayMetrics(result.arms.baseline, null);
-  const bounded = displayMetrics(
-    result.arms.bounded,
-    result.arms.bounded.evaluation.efficiency.repairRounds
-  );
   const output: CompareCodexOutput = Object.freeze({
-    ok: result.comparison.comparable,
+    ok: comparison.comparable,
     command: "compare",
     target: "codex",
     compareVersion: BOUNDED_COMPARE_CODEX_VERSION,
+    comparisonRuntimeVersion: BOUNDED_COMPARE_RUNTIME_VERSION,
     task,
-    comparable: result.comparison.comparable,
-    identityMismatchFields: Object.freeze([...result.comparison.identityMismatchFields]),
-    executionOrder: result.executionOrder,
+    comparable: comparison.comparable,
+    identityMismatchFields: Object.freeze([...comparison.identityMismatchFields]),
+    executionOrder,
     model,
     reasoning: BOUNDED_COMPARE_REASONING,
     timeoutMs: BOUNDED_COMPARE_TIMEOUT_MS,
-    networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
-    normal,
-    bounded,
-    evaluations: Object.freeze({
-      normal: result.arms.baseline.evaluation,
-      bounded: result.arms.bounded.evaluation
+    budgets: Object.freeze({
+      discoveryMs: BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS,
+      agentMs: BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
+      validationCommandMs: COMPARE_VALIDATION_TIMEOUT_MS
     }),
-    table: formatCodexComparisonTable(normal, bounded),
+    networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
+    discovery: Object.freeze({
+      inputTokens: discoveryUsage?.inputTokens ?? null,
+      cachedInputTokens: discoveryUsage?.cachedInputTokens ?? null,
+      outputTokens: discoveryUsage?.outputTokens ?? null,
+      totalTokens: discoveryUsage?.totalTokens ?? null,
+      visibleFileCount: discoveryVisibleFileCount,
+      visibleBytes: discoveryVisibleBytes,
+      durationMs: discoveryDurationMs
+    }),
+    validationSubstrate: Object.freeze({
+      version: substrate.version,
+      dependencySnapshotHash: substrate.dependencySnapshotHash,
+      prepared: substrate.prepared
+    }),
+    normal: normalExecution.display,
+    bounded: boundedExecution.display,
+    runtime: Object.freeze({
+      normal: normalExecution.runtime,
+      bounded: boundedExecution.runtime
+    }),
+    evaluations: Object.freeze({
+      normal: normalExecution.evaluation,
+      bounded: boundedExecution.evaluation
+    }),
+    table: formatCodexComparisonTable(normalExecution.display, boundedExecution.display),
     sourceRepositoryUnchanged: true
   });
 
-  return { output, exitCode: result.comparison.comparable ? 0 : 4 };
+  return { output, exitCode: comparison.comparable ? 0 : 4 };
 }

@@ -160,25 +160,24 @@ export const SCOPE_DISCOVERY_OUTPUT_SCHEMA = Object.freeze({
     "reason"
   ],
   properties: {
-    schemaVersion: { type: "string", const: SCOPE_DISCOVERY_CONTRACT_VERSION },
+    schemaVersion: {
+      type: "string",
+      enum: [SCOPE_DISCOVERY_CONTRACT_VERSION]
+    },
     candidateSourceFiles: {
       type: "array",
-      maxItems: MAX_FILES,
-      uniqueItems: true,
-      items: { type: "string", minLength: 1, maxLength: 4_096 }
+      items: { type: "string" }
     },
     candidateTestFiles: {
       type: "array",
-      maxItems: MAX_FILES,
-      uniqueItems: true,
-      items: { type: "string", minLength: 1, maxLength: 4_096 }
+      items: { type: "string" }
     },
     candidateSymbols: {
       type: "array",
-      maxItems: MAX_SYMBOLS,
-      uniqueItems: true,
-      items: { type: "string", minLength: 1, maxLength: 256 }
+      items: { type: "string" }
     },
-    reason: { type: "string", minLength: 1, maxLength: MAX_REASON }
+    reason: {
+      type: "string"
+    }
   }
 } as const);
