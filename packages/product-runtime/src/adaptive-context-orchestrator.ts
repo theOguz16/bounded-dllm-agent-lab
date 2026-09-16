@@ -80,6 +80,7 @@ export type RunAdaptiveCoderContextFlowInput<T> = {
   requiredSymbols?: readonly string[];
   authorityPresent: boolean;
   policyPresent: boolean;
+  readableFiles?: readonly string[];
   allowedContextFiles?: readonly string[];
   forbiddenFiles?: readonly string[];
   hardTotalBudgetTokens: number;
@@ -336,6 +337,11 @@ export async function runAdaptiveCoderContextFlow<T>(
         baseContext: input.baseContext,
         initialEvidence: accumulatedEvidence,
         expansionResolution: pendingResolution,
+        readableFiles: input.readableFiles,
+        allowedContextFiles:
+          input.allowedContextFiles,
+        forbiddenFiles:
+          input.forbiddenFiles,
         requiredSourceFiles:
           input.requiredSourceFiles,
         requiredTestFiles:

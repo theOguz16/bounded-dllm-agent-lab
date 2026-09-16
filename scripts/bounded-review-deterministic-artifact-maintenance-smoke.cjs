@@ -40,7 +40,7 @@ async function main() {
   assert(policy.forbidden_paths.includes("reports/**"));
   assert(!resolved.policy.forbidden_paths.includes("reports/**"));
   assert.deepEqual(resolved.policy.allowed_paths, policy.allowed_paths);
-  assert.equal(resolved.receipt.semanticVerifier, "npm run verify:ag3c");
+  assert.equal(resolved.receipt.semanticVerifier, "npm run verify:ag1b && npm run verify:ag3c");
   assert.equal(resolved.receipt.sourceMutationDetected, false);
 
   const wildcardOnly = maintenance.resolveDeterministicArtifactMaintenancePolicy({
@@ -82,7 +82,7 @@ async function main() {
   });
   assert.equal(real.status, 0, `${real.stdout}\n${real.stderr}`);
   const receipt = maintenance.validateDeterministicArtifactVerificationReceipt(JSON.parse(real.stdout));
-  assert.equal(receipt.semanticVerifier, "npm run verify:ag3c");
+  assert.equal(receipt.semanticVerifier, "npm run verify:ag1b && npm run verify:ag3c");
   assert.equal(receipt.byteVerifier, "canonical-json-serialization/v1");
   assert.equal(receipt.sourceMutationDetected, false);
   assert.deepEqual(receipt.artifacts.map((entry) => entry.path), exact);

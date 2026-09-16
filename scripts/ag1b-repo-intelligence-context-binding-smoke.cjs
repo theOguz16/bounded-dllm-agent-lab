@@ -33,6 +33,11 @@ async function main() {
   const canonicalRuntime = await import(
     "../dist/packages/product-runtime/src/canonical-runtime.js"
   );
+  const {
+    runAdaptiveCoderContextFlow
+  } = await import(
+    "../dist/packages/product-runtime/src/adaptive-context-orchestrator.js"
+  );
 
   const roots = [];
   const checks = [];
@@ -149,12 +154,10 @@ async function main() {
       assert.equal(readyCase.result.summary.adaptiveFlowCallCount, 1);
     });
 
-    await check("dependency closure becomes required and allowed context", async () => {
+    await check("seed files are required while dependency closure remains allowed context", async () => {
       assert(readyCase.result.binding);
       assert.deepEqual(readyCase.result.binding.requiredSourceFiles, [
-        "src/index.ts",
-        "src/service.ts",
-        "src/types.ts"
+        "src/index.ts"
       ]);
       assert.deepEqual(readyCase.result.binding.requiredTestFiles, [
         "tests/service.test.ts"
@@ -172,7 +175,11 @@ async function main() {
       const base = readyCase.observedContext.baseContext;
       assert.equal(base.version, "1");
       assert.equal(base.repositoryIntelligence.bindingHash, readyCase.result.binding.bindingHash);
-      assert.deepEqual(base.repositoryIntelligence.dependencyClosure, readyCase.result.binding.requiredSourceFiles);
+      assert.deepEqual(base.repositoryIntelligence.dependencyClosure, [
+        "src/index.ts",
+        "src/service.ts",
+        "src/types.ts"
+      ]);
       assert(base.repositoryIntelligence.dependencyEdges.some(
         (edge) => edge.from === "src/index.ts" && edge.to === "src/service.ts"
       ));
@@ -302,6 +309,7 @@ async function main() {
         seedFiles: ["src/index.ts"],
         baseContext: {},
         initialEvidence: evidenceFor(firstFixture.files, ["src/index.ts"]),
+        requiredTestFiles: ["tests/service.test.ts"],
         authorityPresent: true,
         policyPresent: true,
         hardTotalBudgetTokens: 4096,
@@ -310,6 +318,90 @@ async function main() {
       });
       assert.notEqual(result.decision, "repo_context_binding_completed");
       assert.equal(coders, 0);
+    });
+
+    await check("readable context authority fails closed before coder", async () => {
+      const cases = [
+        {
+          readableFiles: ["src/unrelated.ts"],
+          allowedContextFiles: ["src/index.ts"],
+          forbiddenFiles: [],
+          expectedCode:
+            "coder_readable_context_outside_allowed_boundary"
+        },
+        {
+          readableFiles: ["src/unrelated.ts"],
+          allowedContextFiles: ["src"],
+          forbiddenFiles: ["src/unrelated.ts"],
+          expectedCode:
+            "coder_readable_context_forbidden"
+        }
+      ];
+
+      for (const testCase of cases) {
+        let coders = 0;
+        let requests = 0;
+
+        const result =
+          await runAdaptiveCoderContextFlow({
+            repositoryPath:
+              firstFixture.root,
+            baseContext: {},
+            initialEvidence:
+              evidenceFor(
+                firstFixture.files,
+                ["src/index.ts"]
+              ),
+            readableFiles:
+              testCase.readableFiles,
+            allowedContextFiles:
+              testCase.allowedContextFiles,
+            forbiddenFiles:
+              testCase.forbiddenFiles,
+            requiredSourceFiles: [
+              "src/index.ts"
+            ],
+            authorityPresent: true,
+            policyPresent: true,
+            hardTotalBudgetTokens: 4096,
+            contextRequestProvider:
+              async () => {
+                requests += 1;
+                throw new Error(
+                  "context request provider must not run for readable-boundary rejection"
+                );
+              },
+            coderProvider:
+              async () => {
+                coders += 1;
+                return {};
+              }
+          });
+
+        assert.equal(
+          result.decision,
+          "adaptive_coder_stopped",
+          JSON.stringify(result)
+        );
+        assert.equal(
+          result.route,
+          "human_review_required"
+        );
+        assert(
+          result.issues.some(
+            (entry) =>
+              entry.code ===
+              testCase.expectedCode
+          )
+        );
+        assert.equal(
+          result.summary
+            .coderProviderCallCount,
+          0
+        );
+        assert.equal(requests, 0);
+        assert.equal(coders, 0);
+      }
     });
 
     await check("integration is read-only and declares no shell or network use", async () => {

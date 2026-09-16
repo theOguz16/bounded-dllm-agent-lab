@@ -180,6 +180,11 @@ function fakeAdapter(sourceRepository) {
         true,
         "repository-intelligence dependency must be loaded read-only into bounded context"
       );
+      assert.equal(
+        request.task.includes(helperSource.trim()),
+        false,
+        "workspace-readable dependency content must not be eagerly injected into prompt evidence"
+      );
       await fs.writeFile(path.join(request.workingDirectory, "src/session.ts"), sourceChanged, "utf8");
       return {
         status: "completed",
@@ -242,9 +247,19 @@ async function main() {
     const adapter = fakeAdapter(repository);
     let capturedInput = null;
 
+    const multilineTask = [
+      "Fix refresh token expiry",
+      "",
+      "Acceptance criteria:",
+      "- Refresh token expiry must remain deterministic.",
+      "",
+      "Validation commands:",
+      "- npm test"
+    ].join("\n");
+
     const command = await codexModule.codexCommand(
       {
-        task: "Fix refresh token expiry",
+        task: multilineTask,
         allowFiles: ["src/session.ts", "test/session.test.ts"]
       },
       repository,
@@ -266,7 +281,7 @@ async function main() {
     assert.equal(command.output.agent, "Codex");
     assert.equal(command.output.model, "fixture-model-actual");
     assert.equal(command.output.reasoning, "medium");
-    assert.equal(command.output.context.fileCount, 3);
+    assert.equal(command.output.context.fileCount, 2);
     assert.equal(command.output.context.bytes > 0, true);
     assert.deepEqual(command.output.tokens, {
       input: 300,
@@ -288,6 +303,20 @@ async function main() {
     assert.equal(command.output.recovery.authority, "canonical_bounded_task_state");
 
     assert.ok(capturedInput);
+    assert.equal(
+      capturedInput.taskContext.objective,
+      multilineTask,
+      "the provider/runtime objective must retain the exact multiline task"
+    );
+    assert.equal(
+      capturedInput.acceptanceCriteriaContract.criteria[0].description,
+      "Fix refresh token expiry Acceptance criteria: - Refresh token expiry must remain deterministic. Validation commands: - npm test",
+      "acceptance metadata must normalize multiline task whitespace"
+    );
+    assert.equal(
+      capturedInput.acceptanceCriteriaContract.criteria[0].description.includes("\n"),
+      false
+    );
     assert.equal(Object.hasOwn(capturedInput, "applyExecutor"), false);
     assert.equal(Object.hasOwn(capturedInput, "governedExecution"), false);
     assert.equal(Object.hasOwn(capturedInput, "durableTask"), true);
@@ -346,7 +375,7 @@ async function main() {
     assert.match(rendered, /^Agent\nCodex\n/m);
     assert.match(rendered, /Model\nfixture-model-actual\n/);
     assert.match(rendered, /Reasoning\nmedium\n/);
-    assert.match(rendered, /Context\n3 files \/ /);
+    assert.match(rendered, /Context\n2 files \/ /);
     assert.match(rendered, /Tokens\ninput 300\ncached 75\noutput 100\nreasoning unavailable\ntotal 400\n/);
     assert.match(rendered, /Candidate\n1 file changed\n/);
     assert.match(rendered, /Validation\nscope PASS\ntypecheck PASS\ntests PASS\nbehavior PASS\n/);

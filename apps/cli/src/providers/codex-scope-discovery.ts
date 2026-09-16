@@ -46,10 +46,21 @@ export type CodexScopeDiscoveryResult = Readonly<{
   networkAllowed: false;
 }>;
 
+export type CodexScopeDiscoveryFailureObservation = Readonly<{
+  modelId: string;
+  usage: AgentUsage;
+  visibleFileCount: number;
+  visibleBytes: number;
+}>;
+
 export class CodexScopeDiscoveryError extends Error {
   readonly code = "codex_scope_discovery_failed" as const;
 
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly failureCode: string = "codex_scope_discovery_failed",
+    readonly observation: CodexScopeDiscoveryFailureObservation | null = null
+  ) {
     super(message);
     this.name = "CodexScopeDiscoveryError";
   }
@@ -60,7 +71,7 @@ const MAX_INVENTORY_PROMPT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function looksLikeTestPath(file: string): boolean {
-  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/i.test(file);
+  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec|[-_.]smoke)\.[^/]+$/i.test(file);
 }
 
 function protectedDiscoveryPath(file: string): boolean {
@@ -187,13 +198,17 @@ function parseFinalMessage(value: string): ScopeDiscoveryProposal {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new CodexScopeDiscoveryError("Codex scope discovery returned invalid JSON.");
+    throw new CodexScopeDiscoveryError(
+      "Codex scope discovery returned invalid JSON.",
+      "codex_scope_discovery_invalid_json"
+    );
   }
   try {
     return parseScopeDiscoveryProposal(parsed);
   } catch (error) {
     throw new CodexScopeDiscoveryError(
-      error instanceof Error ? error.message : "Codex scope discovery output violated its contract."
+      error instanceof Error ? error.message : "Codex scope discovery output violated its contract.",
+      "codex_scope_discovery_contract_invalid"
     );
   }
 }
@@ -312,15 +327,60 @@ export async function discoverCodexScope(
       sandboxMode: "read_only",
       outputSchema: SCOPE_DISCOVERY_OUTPUT_SCHEMA
     });
+    const observation: CodexScopeDiscoveryFailureObservation = Object.freeze({
+      modelId: result.modelId,
+      usage: Object.freeze({ ...result.usage }),
+      visibleFileCount: workspace.exposedFileCount,
+      visibleBytes: workspace.exposedBytes
+    });
+
     const afterStatus = workspaceStatus(workspace.workspacePath);
     if (afterStatus.length !== 0 || result.fileChanges.length !== 0) {
-      throw new CodexScopeDiscoveryError("Read-only scope discovery attempted to mutate its disposable workspace.");
+      throw new CodexScopeDiscoveryError(
+        "Read-only scope discovery attempted to mutate its disposable workspace.",
+        "codex_scope_discovery_mutation_attempt",
+        observation
+      );
     }
     if (result.status !== "completed") {
-      throw new CodexScopeDiscoveryError(`Codex scope discovery did not complete successfully: ${result.status}.`);
+      const adapterFailureCode =
+        result.failureCode ??
+        result.diagnostics.find((entry) => entry.severity === "error")?.code ??
+        `codex_scope_discovery_${result.status}`;
+      throw new CodexScopeDiscoveryError(
+        `Codex scope discovery did not complete successfully: ${result.status}.`,
+        adapterFailureCode,
+        observation
+      );
     }
-    const proposal = parseFinalMessage(result.finalMessage);
-    validateGrounding(proposal, facts);
+
+    let proposal: ScopeDiscoveryProposal;
+    try {
+      proposal = parseFinalMessage(result.finalMessage);
+    } catch (error) {
+      if (error instanceof CodexScopeDiscoveryError) {
+        throw new CodexScopeDiscoveryError(
+          error.message,
+          error.failureCode,
+          observation
+        );
+      }
+      throw error;
+    }
+
+    try {
+      validateGrounding(proposal, facts);
+    } catch (error) {
+      if (error instanceof CodexScopeDiscoveryError) {
+        throw new CodexScopeDiscoveryError(
+          error.message,
+          "codex_scope_discovery_grounding_invalid",
+          observation
+        );
+      }
+      throw error;
+    }
+
     return Object.freeze({
       discoveryVersion: CODEX_SCOPE_DISCOVERY_VERSION,
       proposal,
