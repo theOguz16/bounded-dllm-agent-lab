@@ -46,6 +46,7 @@ export type CoderProviderContext = {
   version: "1";
   baseContext: unknown;
   evidence: readonly CoderVisibleEvidence[];
+  readableFiles?: readonly string[];
   provenance: readonly {
     path: string;
     origin:
@@ -68,6 +69,9 @@ export type ExecuteCoderWithContextGateInput<T> = {
     readonly InitialCoderContextEvidence[];
   expansionResolution?:
     ContextExpansionResolution | null;
+  readableFiles?: readonly string[];
+  allowedContextFiles?: readonly string[];
+  forbiddenFiles?: readonly string[];
   requiredSourceFiles: readonly string[];
   requiredTestFiles?: readonly string[];
   requiredSymbols?: readonly string[];
@@ -234,6 +238,16 @@ function normalizePaths(
       )
     )
   ];
+}
+
+function matchesPolicyPath(
+  candidate: string,
+  rule: string
+): boolean {
+  return (
+    candidate === rule ||
+    candidate.startsWith(`${rule}/`)
+  );
 }
 
 function normalizeSymbols(
@@ -630,6 +644,15 @@ export async function executeCoderWithContextGate<T>(
   let requiredSymbols:
     string[] = [];
 
+  let requestedReadableFiles:
+    string[] = [];
+
+  let allowedContextFiles:
+    string[] = [];
+
+  let forbiddenFiles:
+    string[] = [];
+
   let hardTotalBudgetTokens = 0;
   let reservedOutputTokens = 0;
 
@@ -659,6 +682,24 @@ export async function executeCoderWithContextGate<T>(
     requiredSymbols =
       normalizeSymbols(
         input.requiredSymbols
+      );
+
+    requestedReadableFiles =
+      normalizePaths(
+        input.readableFiles,
+        "readableFiles"
+      );
+
+    allowedContextFiles =
+      normalizePaths(
+        input.allowedContextFiles,
+        "allowedContextFiles"
+      );
+
+    forbiddenFiles =
+      normalizePaths(
+        input.forbiddenFiles,
+        "forbiddenFiles"
       );
 
     hardTotalBudgetTokens =
@@ -854,6 +895,92 @@ export async function executeCoderWithContextGate<T>(
     a.path.localeCompare(b.path)
   );
 
+  const readableFiles = [
+    ...new Set([
+      ...requestedReadableFiles,
+      ...visibleEvidence.map(
+        (entry) => entry.path
+      )
+    ])
+  ].sort((a, b) =>
+    a.localeCompare(b, "en")
+  );
+
+  const forbiddenReadableFile =
+    readableFiles.find((filePath) =>
+      forbiddenFiles.some((rule) =>
+        matchesPolicyPath(
+          filePath,
+          rule
+        )
+      )
+    );
+
+  if (forbiddenReadableFile !== undefined) {
+    return blocked(
+      "human_review_required",
+      "coder_execution_blocked",
+      [
+        issue(
+          "coder_readable_context_forbidden",
+          "Coder-readable context intersects the forbidden repository boundary.",
+          "error",
+          {
+            filePath:
+              forbiddenReadableFile,
+            field: "forbiddenFiles"
+          }
+        )
+      ],
+      {
+        ...baseSummary,
+        visibleFileCount:
+          visibleEvidence.length
+      }
+    );
+  }
+
+  const outsideAllowedReadableFile =
+    allowedContextFiles.length === 0
+      ? undefined
+      : readableFiles.find(
+          (filePath) =>
+            !allowedContextFiles.some(
+              (rule) =>
+                matchesPolicyPath(
+                  filePath,
+                  rule
+                )
+            )
+        );
+
+  if (
+    outsideAllowedReadableFile !==
+    undefined
+  ) {
+    return blocked(
+      "human_review_required",
+      "coder_execution_blocked",
+      [
+        issue(
+          "coder_readable_context_outside_allowed_boundary",
+          "Coder-readable context is outside the allowed repository boundary.",
+          "error",
+          {
+            filePath:
+              outsideAllowedReadableFile,
+            field: "allowedContextFiles"
+          }
+        )
+      ],
+      {
+        ...baseSummary,
+        visibleFileCount:
+          visibleEvidence.length
+      }
+    );
+  }
+
   const visiblePaths =
     new Set(
       visibleEvidence.map(
@@ -962,6 +1089,7 @@ export async function executeCoderWithContextGate<T>(
     baseContext:
       input.baseContext,
     evidence: visibleEvidence,
+    readableFiles,
     provenance:
       visibleEvidence.map(
         (entry) => ({

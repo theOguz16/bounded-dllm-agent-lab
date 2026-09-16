@@ -82,6 +82,7 @@ export interface AgentRunRequest {
   sandboxMode: AgentSandboxMode;
   additionalDirectories?: readonly string[];
   sourceRepositoryPath?: string;
+  repositoryRequirement?: "required" | "none";
   outputSchema?: Readonly<Record<string, unknown>>;
   abortSignal?: AbortSignal;
 }

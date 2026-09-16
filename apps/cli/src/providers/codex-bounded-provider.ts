@@ -447,6 +447,7 @@ export function createCodexBoundedProvider(
         workingDirectory: plannerRoot,
         task: plannerPrompt(context),
         model: options.model,
+        repositoryRequirement: "none",
         reasoningEffort: options.plannerReasoningEffort,
         mode: "planner",
         timeoutMs: remainingTimeout(control, options.providerTimeoutMs),
@@ -470,7 +471,9 @@ export function createCodexBoundedProvider(
     const repositoryPath = await realpath(options.repositoryPath).catch(() => {
       throw new CodexBoundedProviderError("repositoryPath cannot be resolved.");
     });
-    const visibleFiles = [...new Set(context.evidence.map((entry) => entry.path))].sort(
+    const visibleFiles = [...new Set(
+      context.readableFiles ?? context.evidence.map((entry) => entry.path)
+    )].sort(
       (left, right) => left.localeCompare(right, "en")
     );
     if (visibleFiles.length === 0) {

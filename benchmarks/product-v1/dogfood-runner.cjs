@@ -12,7 +12,9 @@ const { pathToFileURL } = require("node:url");
 const repoRoot = path.resolve(__dirname, "../..");
 const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const cliPath = path.join(repoRoot, "dist/apps/cli/src/index.js");
-const DEFAULT_TASK_TIMEOUT_MS = 8 * 60 * 1000;
+// Coarse outer kill switch only. The comparison runtime owns the authoritative
+// discovery, agent, and validation phase budgets; this envelope must not expire first.
+const DEFAULT_TASK_TIMEOUT_MS = 60 * 60 * 1000;
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
