@@ -36,6 +36,8 @@ The benchmark does not require every user to own a separate API key. A self-host
 
 Credential contents are not copied into the repository, Actions secrets, logs, or live evidence artifacts. The self-hosted preflight checks only whether usable local Codex auth state is available and carries forward the resolved Codex home path for the live runner.
 
+The live workflow creates a redacted diagnostic before checkout or dependency preparation. Before any paid agent invocation it then verifies authentication, the exact configured model and provider reachability through `codex doctor`, runner OS/architecture identity, the npm lockfile, `npm ci` output, the built CLI, and the Codex CLI. A failed or skipped agent execution cannot satisfy the live completion gate. Interrupted runs retain a checkpoint: completed task pairs are not replayed, while an in-flight or failed invocation is treated as ambiguous and cannot be silently retried. Failures are recorded separately as `infrastructure`, `agent`, or `acceptance`.
+
 ## P7.2 live completion gate
 
 P7.2 is complete only when `dogfood-live-gate.cjs` accepts the real live evidence artifact with all of these invariants:

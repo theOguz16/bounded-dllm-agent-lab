@@ -173,6 +173,13 @@ function validateResumeCheckpoint(checkpoint, context) {
   assert.equal(typeof checkpoint.startedAt, "string");
   assert.equal(checkpoint.results.length <= tasks.length, true);
 
+  if (checkpoint.failedTaskId !== undefined || checkpoint.failure !== undefined) {
+    throw new Error(
+      `cannot resume: previous task ${checkpoint.failedTaskId || "unknown"} failed; ` +
+      "retryPolicy=none forbids a second invocation"
+    );
+  }
+
   if (checkpoint.inFlightTaskId !== null) {
     throw new Error(
       `cannot resume: previous run stopped during ${checkpoint.inFlightTaskId}; ` +
@@ -362,6 +369,10 @@ function main() {
 
     const childReport = parseChildReport(child.stdout);
     if (child.error || child.status !== 0 || !childReport) {
+      const reportedFailure = childReport?.results?.[0]?.failure;
+      const reportedDomain = ["infrastructure", "agent", "acceptance"].includes(reportedFailure?.domain)
+        ? reportedFailure.domain
+        : null;
       atomicWriteJson(checkpointFile, {
         ...createCheckpoint({
           suite,
@@ -374,6 +385,10 @@ function main() {
         }),
         failedTaskId: task.taskId,
         failure: {
+          domain: reportedDomain ?? (child.error || child.signal || child.status === null ? "infrastructure" : "agent"),
+          code: reportedFailure?.code ?? (child.error || child.signal || child.status === null
+            ? "dogfood_child_infrastructure_failure"
+            : "dogfood_agent_execution_failure"),
           exitCode: child.status,
           signal: child.signal,
           processError: child.error,
@@ -406,9 +421,13 @@ function main() {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+module.exports = { createCheckpoint, validateResumeCheckpoint, loadSuiteTasks };
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

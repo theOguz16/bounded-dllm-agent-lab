@@ -114,6 +114,10 @@ async function main() {
 
   const resumableSource = fs.readFileSync(resumableRunnerPath, "utf8");
   assert.match(resumableSource, /CHILD_TIMEOUT_MS = 60 \* 60 \* 1000/);
+  assert.match(resumableSource, /retryPolicy=none forbids a second invocation/);
+  assert.match(resumableSource, /dogfood_child_infrastructure_failure/);
+  assert.match(resumableSource, /dogfood_agent_execution_failure/);
+  assert.match(runnerSource, /dogfood_validation_acceptance_failed/);
 
   const compareSource = fs.readFileSync(comparePath, "utf8");
   assert.match(compareSource, /let discoveryFailure: CodexScopeDiscoveryError \| null = null/);

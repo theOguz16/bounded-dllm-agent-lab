@@ -139,7 +139,10 @@ function parseCliJson(stdout) {
 }
 
 function redactedFailure(result) {
+  const infrastructure = Boolean(result.error || result.signal || result.status === null);
   return {
+    domain: infrastructure ? "infrastructure" : "agent",
+    code: infrastructure ? "dogfood_agent_process_infrastructure_failure" : "dogfood_agent_execution_failure",
     exitCode: result.status,
     signal: result.signal,
     processError: result.error,
@@ -148,6 +151,24 @@ function redactedFailure(result) {
     stdoutBytes: Buffer.byteLength(result.stdout),
     stderrBytes: Buffer.byteLength(result.stderr)
   };
+}
+
+function classifyComparisonFailure(parsed) {
+  for (const arm of ["normal", "bounded"]) {
+    const runtime = parsed.runtime?.[arm];
+    if (runtime?.validationFailureCode) {
+      return { domain: "infrastructure", code: runtime.validationFailureCode, arm };
+    }
+    if (runtime?.failureCode) {
+      return { domain: "agent", code: runtime.failureCode, arm };
+    }
+    const correctness = parsed.evaluations?.[arm]?.correctness;
+    if ([correctness?.testsPassed, correctness?.buildPassed, correctness?.typecheckPassed]
+      .some((value) => value === false)) {
+      return { domain: "acceptance", code: "dogfood_validation_acceptance_failed", arm };
+    }
+  }
+  return null;
 }
 
 function cloneFixedTask(task, root) {
@@ -290,8 +311,9 @@ async function main() {
         assert.equal(parsed.comparable, true);
         assert.deepEqual(parsed.identityMismatchFields, []);
         assert.ok(parsed.normal && parsed.bounded);
-        record.pairCompleted = true;
         record.result = parsed;
+        record.failure = classifyComparisonFailure(parsed);
+        record.pairCompleted = record.failure === null;
       }
 
       const headAfter = run("git", ["rev-parse", "HEAD"], { cwd: checkout, timeout: 10_000 });
@@ -299,6 +321,7 @@ async function main() {
       assert.equal(headAfter.stdout.trim().toLowerCase(), task.commitSha);
     } catch (error) {
       record.failure = {
+        domain: "infrastructure",
         code: "dogfood_task_infrastructure_failure",
         message: error instanceof Error ? error.message : String(error)
       };

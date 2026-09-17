@@ -38,6 +38,7 @@ jobs:
           OPENAI_API_KEY: ""
           CODEX_HOME: ""
       - run: node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs
+      - run: node benchmarks/product-v1/dogfood-live-infrastructure-smoke.cjs
         env:
           CODEX_API_KEY: ""
           OPENAI_API_KEY: ""

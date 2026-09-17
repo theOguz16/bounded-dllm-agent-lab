@@ -36,6 +36,11 @@ function main() {
   assert.equal((authBlock.match(/^\s*- /gm) || []).length, 2);
   assert.match(workflow, /api-key-live:[\s\S]*?runs-on:\s*ubuntu-latest/);
   assert.match(workflow, /codex-home-live:[\s\S]*?runs-on:\s*self-hosted/);
+  assert.equal((workflow.match(/dogfood-resumable-runner\.cjs/g) || []).length, 2);
+  assert.equal((workflow.match(/--check-runtime/g) || []).length, 2);
+  assert.equal((workflow.match(/DOGFOOD_PREFLIGHT/g) || []).length >= 4, true);
+  assert.equal((workflow.match(/\.checkpoint\.json/g) || []).length, 2);
+  assert.equal((workflow.match(/workflow_startup_incomplete/g) || []).length, 2);
 
   expectFailure({
     mode: "api_key",
@@ -117,6 +122,24 @@ function main() {
     expectFailure({ mode, model: MODEL, runnerEnvironment: "self-hosted", env: {} });
   }
 
+  const diagnosticRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-preflight-diagnostic-"));
+  try {
+    const diagnostic = path.join(diagnosticRoot, "diagnostic.json");
+    const secretSentinel = "dogfood-secret-must-not-leak";
+    const child = spawnSync(process.execPath, [preflightPath,
+      "--mode=api_key", `--model=${MODEL}`, "--runner-environment=github-hosted",
+      "--check-runtime", `--output=${diagnostic}`], { encoding: "utf8",
+      env: { PATH: process.env.PATH || "", CODEX_API_KEY: secretSentinel } });
+    assert.notEqual(child.status, 0);
+    const value = JSON.parse(fs.readFileSync(diagnostic, "utf8"));
+    assert.equal(value.ok, false);
+    assert.equal(value.failureDomain, "infrastructure");
+    assert.equal(value.paidModelCalls, 0);
+    assert.equal(JSON.stringify(value).includes(secretSentinel), false);
+  } finally {
+    fs.rmSync(diagnosticRoot, { recursive: true, force: true });
+  }
+
   process.stdout.write(`${JSON.stringify({
     ok: true,
     supportedAuthModes: [...preflight.AUTH_MODES],
@@ -127,6 +150,8 @@ function main() {
     codexHomeDefaultDirectoryPasses: true,
     codexHomePropagatesWithoutLoggingPath: true,
     codexHomeRequiresSelfHosted: true,
+    runtimePreflightBeforePaidCall: true,
+    redactedFailureDiagnostic: true,
     externalProviderCalls: false
   }, null, 2)}\n`);
 }
