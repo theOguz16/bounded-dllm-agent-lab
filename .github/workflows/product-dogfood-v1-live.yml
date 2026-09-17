@@ -27,9 +27,9 @@ jobs:
       CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DOGFOOD_MODEL: ${{ inputs.model }}
-      DOGFOOD_EVIDENCE: ${{ runner.temp }}/product-dogfood-v1-live.json
-      DOGFOOD_REPORT_DIR: ${{ runner.temp }}/product-dogfood-report
-      DOGFOOD_PREFLIGHT: ${{ runner.temp }}/product-dogfood-preflight.json
+      DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
+      DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
+      DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
 
     steps:
       - name: Initialize redacted startup diagnostic
@@ -105,9 +105,9 @@ jobs:
       CODEX_API_KEY: ""
       OPENAI_API_KEY: ""
       DOGFOOD_MODEL: ${{ inputs.model }}
-      DOGFOOD_EVIDENCE: ${{ runner.temp }}/product-dogfood-v1-live.json
-      DOGFOOD_REPORT_DIR: ${{ runner.temp }}/product-dogfood-report
-      DOGFOOD_PREFLIGHT: ${{ runner.temp }}/product-dogfood-preflight.json
+      DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
+      DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
+      DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
 
     steps:
       - name: Initialize redacted startup diagnostic
