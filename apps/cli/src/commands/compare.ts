@@ -424,9 +424,12 @@ function evaluateArm(input: Readonly<{
       ? scopeViolationCount === 0
       : null;
   const validationInfrastructureOk = input.validation.infrastructureFailure === null;
-  const behavior = input.runtimeCompleted && validationInfrastructureOk
+  const tests = input.runtimeCompleted && validationInfrastructureOk
     ? input.validation.tests.passed
     : null;
+  // Generic validation cannot prove task-specific behavior. Hidden acceptance
+  // evidence is evaluated by the benchmark harness after agent execution.
+  const behavior = null;
   const build = input.runtimeCompleted && validationInfrastructureOk
     ? input.validation.build.passed
     : null;
@@ -440,12 +443,12 @@ function evaluateArm(input: Readonly<{
   const evaluation = evaluateProductComparison({
     correctness: {
       controlPassed: controls,
-      behaviorSatisfied: behavior,
       taskSucceeded: succeeded,
-      testsPassed: behavior,
+      testsPassed: tests,
       buildPassed: build,
       typecheckPassed: typecheck
     },
+    behaviorEvidence: null,
     control: {
       scopeViolationCount,
       forbiddenTouchCount,

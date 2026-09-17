@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "product-dogfood-suite/v2",
+  "suiteId": "product-v1-supported-20-dogfood-v2",
+  "repository": "theOguz16/bounded-dllm-agent-lab",
+  "taskFile": "benchmarks/product-v1/tasks/dogfood/taskset-v2.json",
+  "evaluatorCatalog": "benchmarks/product-v1/evaluator/dogfood-v2.hidden.json",
+  "unsupportedSet": "benchmarks/product-v1/tasks/dogfood/unsupported-v1.json",
+  "validationEnvironment": { "nodeVersion": "22", "installCommand": "npm ci", "networkPolicy": "disabled" },
+  "categories": {
+    "bug_fix": ["dogfood.v2.bugfix.macos-temp-realpath","dogfood.v2.bugfix.failed-resume","dogfood.v2.bugfix.compare-failure-typing","dogfood.v2.bugfix.non-tty-smoke-typing","dogfood.v2.bugfix.report-validation"],
+    "behavior_change": ["dogfood.v2.behavior.discovery-cost","dogfood.v2.behavior.non-tty-evidence","dogfood.v2.behavior.blank-decision","dogfood.v2.behavior.human-decision-capture","dogfood.v2.behavior.provider-neutral-requirement"],
+    "regression_test": ["dogfood.v2.regression.failed-resume-smoke","dogfood.v2.regression.discovery-budget-smoke","dogfood.v2.regression.compare-contract-smoke","dogfood.v2.regression.non-tty-decision-smoke","dogfood.v2.regression.auth-home-smoke"],
+    "small_multi_file": ["dogfood.v2.multifile.timeout-budgets","dogfood.v2.multifile.ag1b-artifact","dogfood.v2.multifile.scope-live-compat","dogfood.v2.multifile.crash-recovery","dogfood.v2.multifile.comparison-order"]
+  }
+}
