@@ -14,6 +14,8 @@ const CHECKPOINT_SCHEMA_VERSION = "product-dogfood-resume-checkpoint/v1";
 // Coarse outer kill switch only. The canonical per-task runner owns the
 // authoritative comparison phase budgets and must be allowed to finish first.
 const CHILD_TIMEOUT_MS = 60 * 60 * 1000;
+const PHASE_BUDGETS_MS = Object.freeze({ discovery: 180_000, agent: 300_000,
+  validationCommand: 120_000, taskEnvelope: CHILD_TIMEOUT_MS });
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
@@ -121,8 +123,37 @@ function runIdentityHash({ suite, tasks, model, runnerHeadSha }) {
     model,
     reasoningEffort: suite.comparison.reasoningEffort,
     runnerHeadSha,
-    tasks: tasks.map((task) => ({ taskId: task.taskId, commitSha: task.commitSha }))
+    comparison: suite.comparison,
+    phaseBudgetsMs: PHASE_BUDGETS_MS,
+    tasks: tasks.map((task) => ({ taskId: task.taskId, commitSha: task.commitSha,
+      validationCommands: task.validationCommands, armOrder: armOrder(task) }))
   }));
+}
+
+function providerTaskText(task) {
+  return [task.objective, "", "Acceptance criteria:",
+    ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`), "",
+    "Validation commands:", ...task.validationCommands.map((command) => `- ${command}`)].join("\n");
+}
+
+function armOrder(task) {
+  const digest = crypto.createHash("sha256").update(providerTaskText(task), "utf8").digest("hex");
+  return Number.parseInt(digest.slice(-1), 16) % 2 === 0
+    ? ["baseline", "bounded"] : ["bounded", "baseline"];
+}
+
+function frozenExecutionContract({ suite, tasks, model }) {
+  return {
+    model,
+    reasoningEffort: suite.comparison.reasoningEffort,
+    phaseBudgetsMs: PHASE_BUDGETS_MS,
+    networkPolicy: suite.comparison.networkPolicy,
+    retryPolicy: "none",
+    costAccountingPhases: ["discovery", "planner", "coder", "repair", "validation"],
+    taskOrder: tasks.map((task) => task.taskId),
+    tasks: tasks.map((task) => ({ taskId: task.taskId, commitSha: task.commitSha,
+      validationCommands: task.validationCommands, armOrder: armOrder(task) }))
+  };
 }
 
 function createCheckpoint({ suite, tasks, model, runnerHeadSha, startedAt, results, inFlightTaskId }) {
@@ -144,6 +175,7 @@ function createCheckpoint({ suite, tasks, model, runnerHeadSha, startedAt, resul
     retryPolicy: "none",
     promptMutationAfterFailure: false,
     hiddenHintInjection: false,
+    frozenExecution: frozenExecutionContract({ suite, tasks, model }),
     inFlightTaskId,
     results
   };
@@ -173,6 +205,13 @@ function validateResumeCheckpoint(checkpoint, context) {
   assert.equal(typeof checkpoint.startedAt, "string");
   assert.equal(checkpoint.results.length <= tasks.length, true);
 
+  if (checkpoint.failedTaskId !== undefined || checkpoint.failure !== undefined) {
+    throw new Error(
+      `cannot resume: previous task ${checkpoint.failedTaskId || "unknown"} failed; ` +
+      "retryPolicy=none forbids a second invocation"
+    );
+  }
+
   if (checkpoint.inFlightTaskId !== null) {
     throw new Error(
       `cannot resume: previous run stopped during ${checkpoint.inFlightTaskId}; ` +
@@ -187,8 +226,11 @@ function validateResumeCheckpoint(checkpoint, context) {
     assert.equal(entry.retryCount, 0);
     assert.equal(entry.hiddenHintsInjected, false);
     assert.equal(entry.promptMutatedAfterFailure, false);
-    if (!entry.pairCompleted || entry.failure !== null) {
-      throw new Error(`cannot resume: ${entry.taskId} was not a successful completed pair`);
+    assert.equal(entry.pairCompleted, true,
+      `cannot resume: ${entry.taskId} does not have two terminal arm invocations`);
+    if (entry.failure !== null) {
+      assert.equal(["infrastructure", "agent", "acceptance"].includes(entry.failure?.domain), true,
+        `${entry.taskId}: invalid failure domain`);
     }
   }
 
@@ -235,7 +277,10 @@ function validateChildReport(report, task, suite, model) {
   assert.equal(entry.hiddenHintsInjected, false);
   assert.equal(entry.promptMutatedAfterFailure, false);
   assert.equal(entry.pairCompleted, true, `${task.taskId}: pair did not complete`);
-  assert.equal(entry.failure, null, `${task.taskId}: completed pair carried a failure`);
+  if (entry.failure !== null) {
+    assert.equal(["infrastructure", "agent", "acceptance"].includes(entry.failure?.domain), true,
+      `${task.taskId}: invalid failure domain`);
+  }
   assert.ok(entry.result && typeof entry.result === "object");
   assert.equal(entry.result.comparable, true, `${task.taskId}: result is not comparable`);
   assert.deepEqual(entry.result.identityMismatchFields, []);
@@ -260,6 +305,7 @@ function finalReport({ suite, tasks, model, startedAt, results }) {
     retryPolicy: "none",
     promptMutationAfterFailure: false,
     hiddenHintInjection: false,
+    frozenExecution: frozenExecutionContract({ suite, tasks, model }),
     results
   };
 }
@@ -362,6 +408,10 @@ function main() {
 
     const childReport = parseChildReport(child.stdout);
     if (child.error || child.status !== 0 || !childReport) {
+      const reportedFailure = childReport?.results?.[0]?.failure;
+      const reportedDomain = ["infrastructure", "agent", "acceptance"].includes(reportedFailure?.domain)
+        ? reportedFailure.domain
+        : null;
       atomicWriteJson(checkpointFile, {
         ...createCheckpoint({
           suite,
@@ -374,6 +424,10 @@ function main() {
         }),
         failedTaskId: task.taskId,
         failure: {
+          domain: reportedDomain ?? (child.error || child.signal || child.status === null ? "infrastructure" : "agent"),
+          code: reportedFailure?.code ?? (child.error || child.signal || child.status === null
+            ? "dogfood_child_infrastructure_failure"
+            : "dogfood_agent_execution_failure"),
           exitCode: child.status,
           signal: child.signal,
           processError: child.error,
@@ -406,9 +460,13 @@ function main() {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+module.exports = { createCheckpoint, validateResumeCheckpoint, loadSuiteTasks };
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }

@@ -9,7 +9,7 @@ const path = require("node:path");
 const repoRoot = path.resolve(__dirname, "../..");
 const REPORT_VERSION = "product-dogfood-report/v1";
 const LIVE_RUN_VERSION = "product-dogfood-live-run/v1";
-const COMPARISON_EVALUATION_VERSION = "product-comparison-evaluation/v1";
+const COMPARISON_EVALUATION_VERSION = "product-comparison-evaluation/v2";
 const FAILURE_TAXONOMY = Object.freeze([
   "agent_wrong_file",
   "agent_bad_change",

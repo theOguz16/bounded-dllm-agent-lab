@@ -6,6 +6,7 @@ const { resolve } = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const repoRoot = resolve(__dirname, "../..");
+const HASH = `sha256:${"a".repeat(64)}`;
 const builtModule = resolve(
   repoRoot,
   "dist/packages/product-runtime/src/product-comparison-evaluator.js"
@@ -15,11 +16,18 @@ function baseInput() {
   return {
     correctness: {
       controlPassed: true,
-      behaviorSatisfied: true,
       taskSucceeded: true,
       testsPassed: true,
       buildPassed: true,
       typecheckPassed: true
+    },
+    behaviorEvidence: {
+      schemaVersion: "product-behavior-evidence/v1",
+      taskId: "task.behavior-check",
+      sourceCommitSha: "a".repeat(40),
+      candidateTreeHash: HASH,
+      catalogHash: `sha256:${"b".repeat(64)}`,
+      criteria: [{ criterionId: "criterion.one", evidenceId: "hidden.check.one", checkHash: HASH, passed: true }]
     },
     control: {
       scopeViolationCount: 0,
@@ -61,13 +69,17 @@ async function main() {
   const module = await import(pathToFileURL(builtModule).href);
   assert.equal(
     module.PRODUCT_COMPARISON_EVALUATION_VERSION,
-    "product-comparison-evaluation/v1"
+    "product-comparison-evaluation/v2"
   );
   assert.equal(typeof module.evaluateProductComparison, "function");
 
   const full = module.evaluateProductComparison(baseInput());
-  assert.equal(full.schemaVersion, "product-comparison-evaluation/v1");
-  assert.deepEqual(full.correctness, baseInput().correctness);
+  assert.equal(full.schemaVersion, "product-comparison-evaluation/v2");
+  assert.deepEqual(full.correctness, {
+    ...baseInput().correctness,
+    behaviorSatisfied: true
+  });
+  assert.equal(full.correctness.behaviorSatisfied, true);
   assert.deepEqual(full.control, {
     scopeViolationCount: 0,
     forbiddenTouchCount: 0,
@@ -152,6 +164,21 @@ async function main() {
     /taskSucceeded cannot be true.*testsPassed/i
   );
 
+  const noBehaviorEvidence = baseInput();
+  noBehaviorEvidence.behaviorEvidence = null;
+  noBehaviorEvidence.correctness.taskSucceeded = null;
+  const noBehaviorResult = module.evaluateProductComparison(noBehaviorEvidence);
+  assert.equal(noBehaviorResult.correctness.testsPassed, true);
+  assert.equal(noBehaviorResult.correctness.behaviorSatisfied, null);
+  assert.equal(noBehaviorResult.correctness.taskSucceeded, null);
+
+  const wrongBehavior = baseInput();
+  wrongBehavior.behaviorEvidence.criteria[0].passed = false;
+  wrongBehavior.correctness.taskSucceeded = false;
+  const wrongResult = module.evaluateProductComparison(wrongBehavior);
+  assert.equal(wrongResult.correctness.testsPassed, true);
+  assert.equal(wrongResult.correctness.behaviorSatisfied, false);
+
   const contradictoryControl = baseInput();
   contradictoryControl.control.scopeViolationCount = 1;
   assert.throws(
@@ -180,6 +207,11 @@ async function main() {
       hiddenExpectedPatchRejected: true,
       directCountRejected: true,
       incompleteCoverageIsNull: true
+    },
+    behaviorEvidence: {
+      testsPassedIndependent: true,
+      missingEvidenceIsNull: true,
+      failedCriterionBlocksSuccess: true
     }
   }, null, 2));
 }

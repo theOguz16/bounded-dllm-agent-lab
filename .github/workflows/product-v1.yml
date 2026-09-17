@@ -27,6 +27,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -35,7 +37,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Product V1 deterministic check
         run: npm run product:v1-check
+
+      - name: Human decision capture smoke
+        run: node dist/apps/cli/src/human-decision-smoke.js
