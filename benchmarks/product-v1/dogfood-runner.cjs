@@ -140,9 +140,16 @@ function parseCliJson(stdout) {
 
 function redactedFailure(result) {
   const infrastructure = Boolean(result.error || result.signal || result.status === null);
+  const payload = parseCliJson(result.stdout);
+  const diagnosticCode = typeof payload?.failure?.code === "string"
+    ? payload.failure.code
+    : typeof payload?.error?.code === "string"
+      ? payload.error.code
+      : typeof payload?.code === "string" ? payload.code : null;
   return {
     domain: infrastructure ? "infrastructure" : "agent",
     code: infrastructure ? "dogfood_agent_process_infrastructure_failure" : "dogfood_agent_execution_failure",
+    diagnosticCode,
     exitCode: result.status,
     signal: result.signal,
     processError: result.error,
