@@ -10,6 +10,12 @@ const AUTH_MODES = Object.freeze(["api_key", "codex_home"]);
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const repoRoot = path.resolve(__dirname, "../..");
 
+function codexCommand() {
+  const local = path.join(repoRoot, "node_modules", ".bin",
+    process.platform === "win32" ? "codex.cmd" : "codex");
+  return fs.existsSync(local) ? local : "codex";
+}
+
 function fail(message) {
   const error = new Error(message);
   error.code = "dogfood_live_auth_preflight_failed";
@@ -31,7 +37,7 @@ function hasFileAuthState(codexHome) {
 }
 
 function hasCliAuthState(codexHome, env = process.env) {
-  const result = spawnSync("codex", ["login", "status"], {
+  const result = spawnSync(codexCommand(), ["login", "status"], {
     env: { ...env, CODEX_HOME: codexHome },
     stdio: "ignore",
     timeout: 10_000,
@@ -87,7 +93,7 @@ function validateInputs({ mode, model, runnerEnvironment, runnerOs, runnerArch, 
     lockfile: fs.existsSync(path.join(repoRoot, "package-lock.json")),
     dependencies: fs.existsSync(path.join(repoRoot, "node_modules")),
     build: fs.existsSync(path.join(repoRoot, "dist/apps/cli/src/index.js")),
-    codexCli: commandOk("codex", ["--version"], env),
+    codexCli: commandOk(codexCommand(), ["--version"], env),
     modelAccess: false
   };
   if (checkRuntime) {
@@ -96,7 +102,7 @@ function validateInputs({ mode, model, runnerEnvironment, runnerOs, runnerArch, 
     if (!checks.dependencies) fail("dependencies are not prepared; npm ci must complete before preflight");
     if (!checks.build) fail("built CLI is missing; npm run build must complete before preflight");
     if (!checks.codexCli) fail("Codex CLI is unavailable");
-    const doctor = spawnSync("codex", ["doctor", "--json", "-c", `model=${JSON.stringify(model.trim())}`], {
+    const doctor = spawnSync(codexCommand(), ["doctor", "--json", "-c", `model=${JSON.stringify(model.trim())}`], {
       cwd: repoRoot, env, encoding: "utf8", timeout: 60_000, windowsHide: true
     });
     let report = null;
@@ -156,6 +162,7 @@ function main() {
 
 module.exports = {
   AUTH_MODES,
+  codexCommand,
   resolveCodexHome,
   hasFileAuthState,
   hasCodexAuthState,

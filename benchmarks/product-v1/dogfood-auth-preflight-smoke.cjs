@@ -23,6 +23,7 @@ function expectFailure(input) {
 
 function main() {
   assert.deepEqual([...preflight.AUTH_MODES], ["api_key", "codex_home"]);
+  assert.equal(path.isAbsolute(preflight.codexCommand()), true);
   const doctorFixture = { checks: {
     "auth.credentials": { status: "ok" },
     "config.load": { details: { model: MODEL } },
