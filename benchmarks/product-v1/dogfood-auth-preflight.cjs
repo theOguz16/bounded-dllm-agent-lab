@@ -53,6 +53,12 @@ function commandOk(command, args, env) {
   return result.error === undefined && result.status === 0;
 }
 
+function doctorConfirmsModelAccess(report, model) {
+  return report?.checks?.["auth.credentials"]?.status === "ok" &&
+    report?.checks?.["config.load"]?.details?.model === model &&
+    report?.checks?.["network.provider_reachability"]?.status === "ok";
+}
+
 function validateInputs({ mode, model, runnerEnvironment, runnerOs, runnerArch, env = process.env,
   checkRuntime = false }) {
   if (!AUTH_MODES.includes(mode)) {
@@ -95,10 +101,7 @@ function validateInputs({ mode, model, runnerEnvironment, runnerOs, runnerArch, 
     });
     let report = null;
     try { report = JSON.parse(doctor.stdout); } catch {}
-    const configuredModel = report?.checks?.["config.load"]?.details?.model;
-    const reachability = report?.checks?.["network.provider_reachability"]?.status;
-    checks.modelAccess = doctor.error === undefined && doctor.status === 0 &&
-      configuredModel === model.trim() && reachability === "ok";
+    checks.modelAccess = doctor.error === undefined && doctorConfirmsModelAccess(report, model.trim());
     if (!checks.modelAccess) fail("Codex doctor could not verify auth, configured model, and provider reachability");
   }
 
@@ -156,6 +159,7 @@ module.exports = {
   resolveCodexHome,
   hasFileAuthState,
   hasCodexAuthState,
+  doctorConfirmsModelAccess,
   validateInputs
 };
 

@@ -23,6 +23,15 @@ function expectFailure(input) {
 
 function main() {
   assert.deepEqual([...preflight.AUTH_MODES], ["api_key", "codex_home"]);
+  const doctorFixture = { checks: {
+    "auth.credentials": { status: "ok" },
+    "config.load": { details: { model: MODEL } },
+    "network.provider_reachability": { status: "ok" }
+  } };
+  assert.equal(preflight.doctorConfirmsModelAccess(doctorFixture, MODEL), true);
+  assert.equal(preflight.doctorConfirmsModelAccess({ ...doctorFixture, checks: {
+    ...doctorFixture.checks, "network.provider_reachability": { status: "fail" }
+  } }, MODEL), false);
 
   const workflow = fs.readFileSync(workflowPath, "utf8");
   const authStart = workflow.indexOf("      auth_mode:");

@@ -64,6 +64,7 @@ jobs:
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
@@ -142,6 +143,7 @@ jobs:
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
