@@ -313,7 +313,9 @@ async function main() {
         assert.ok(parsed.normal && parsed.bounded);
         record.result = parsed;
         record.failure = classifyComparisonFailure(parsed);
-        record.pairCompleted = record.failure === null;
+        // Completion records whether both frozen arm invocations reached a
+        // terminal result. It is intentionally independent from success.
+        record.pairCompleted = true;
       }
 
       const headAfter = run("git", ["rev-parse", "HEAD"], { cwd: checkout, timeout: 10_000 });

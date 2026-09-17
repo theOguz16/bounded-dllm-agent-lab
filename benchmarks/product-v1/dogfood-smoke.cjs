@@ -118,8 +118,11 @@ async function main() {
   assert.match(resumableSource, /dogfood_child_infrastructure_failure/);
   assert.match(resumableSource, /dogfood_agent_execution_failure/);
   assert.match(runnerSource, /dogfood_validation_acceptance_failed/);
+  assert.match(resumableSource, /costAccountingPhases:\s*\["discovery", "planner", "coder", "repair", "validation"\]/);
 
   const compareSource = fs.readFileSync(comparePath, "utf8");
+  assert.match(compareSource, /additionalUsage:\s*discoveryUsage/);
+  assert.match(compareSource, /recordingAdapter\(adapter, boundedRuns\)/);
   assert.match(compareSource, /let discoveryFailure: CodexScopeDiscoveryError \| null = null/);
   assert.match(compareSource, /boundedFailureCode: string \| null = discoveryFailure\?\.failureCode \?\? null/);
   assert.match(compareSource, /controlAvailable: discovery !== null/);

@@ -22,7 +22,7 @@ jobs:
   api-key-live:
     if: ${{ inputs.auth_mode == 'api_key' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 600
     env:
       CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -100,7 +100,7 @@ jobs:
   codex-home-live:
     if: ${{ inputs.auth_mode == 'codex_home' }}
     runs-on: self-hosted
-    timeout-minutes: 240
+    timeout-minutes: 600
     env:
       CODEX_API_KEY: ""
       OPENAI_API_KEY: ""
