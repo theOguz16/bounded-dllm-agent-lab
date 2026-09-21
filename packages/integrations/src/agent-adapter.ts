@@ -29,6 +29,13 @@ export type AgentSandboxMode =
   | "workspace_write"
   | "full_access";
 
+/** Provider-neutral terminal failure categories; provider-specific adapters normalize into them. */
+export type AgentProviderFailureCode =
+  | "usage_limit_exceeded"
+  | "authentication_failed"
+  | "provider_overloaded"
+  | "provider_stream_error_unknown";
+
 export interface AgentUsage {
   inputTokens: number | null;
   outputTokens: number | null;
@@ -89,7 +96,9 @@ export interface AgentRunRequest {
 
 export interface AgentRunResult {
   status: AgentRunStatus;
-  failureCode?: AgentProcessFailureCode | null;
+  failureCode?: AgentProcessFailureCode | AgentProviderFailureCode | null;
+  /** Absence of a trusted quota endpoint is never interpreted as availability. */
+  quotaStatus?: "unknown";
   agentId: string;
   agentVersion: string;
   modelId: string;

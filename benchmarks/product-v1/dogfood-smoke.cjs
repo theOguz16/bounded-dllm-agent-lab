@@ -29,9 +29,7 @@ function readJson(file) {
 
 async function main() {
   const runtime = await import(
-    pathToFileURL(
-      path.join(repoRoot, "dist/packages/product-runtime/src/product-task-contract.js")
-    ).href
+    pathToFileURL(path.join(repoRoot, "dist/packages/product-runtime/src/product-task-contract.js")).href
   );
   const suite = readJson(suitePath);
   const taskset = readJson(path.join(repoRoot, suite.taskFile));
@@ -102,10 +100,12 @@ async function main() {
   assert.match(runnerSource, /retryCount:\s*0/);
   assert.match(runnerSource, /hiddenHintsInjected:\s*false/);
   assert.match(runnerSource, /promptMutatedAfterFailure:\s*false/);
-  assert.match(runnerSource, /Exactly one comparison invocation per task/);
+  assert.match(runnerSource, /Exactly one comparison invocation/);
   assert.match(runnerSource, /DEFAULT_TASK_TIMEOUT_MS = 60 \* 60 \* 1000/);
   assert.match(runnerSource, /assert\.equal\(parsed\.comparable, true\)/);
   assert.match(runnerSource, /assert\.deepEqual\(parsed\.identityMismatchFields, \[\]\)/);
+  assert.match(runnerSource, /assertSameIdentity\(providerIdentity, access\.beforeInvocation\(\)\)/);
+  assert.match(runnerSource, /quotaStatus:\s*"unknown"/);
   assert.equal(runnerSource.includes("referenceHeadSha"), false);
   assert.equal(runnerSource.includes("referencePullRequest"), false);
   assert.equal(runnerSource.includes("dogfood-v1.hidden.json"), false);
@@ -114,6 +114,9 @@ async function main() {
 
   const resumableSource = fs.readFileSync(resumableRunnerPath, "utf8");
   assert.match(resumableSource, /CHILD_TIMEOUT_MS = 60 \* 60 \* 1000/);
+  assert.match(resumableSource, /assertSameIdentity\(checkpoint\.providerIdentity, providerIdentity\)/);
+  assert.match(resumableSource, /providerIdentity,/);
+  assert.match(resumableSource, /quotaStatus:\s*"unknown"/);
 
   const compareSource = fs.readFileSync(comparePath, "utf8");
   assert.match(compareSource, /let discoveryFailure: CodexScopeDiscoveryError \| null = null/);
@@ -134,32 +137,21 @@ async function main() {
     encoding: "utf8",
     timeout: 30_000,
     maxBuffer: 1024 * 1024,
-    env: {
-      ...process.env,
-      CODEX_API_KEY: "",
-      OPENAI_API_KEY: "",
-      CODEX_HOME: ""
-    }
+    env: { ...process.env, CODEX_API_KEY: "", OPENAI_API_KEY: "", CODEX_HOME: "" }
   });
   assert.equal(check.status, 0, check.stderr);
   const plan = JSON.parse(check.stdout);
   assert.equal(plan.liveProviderCalls, false);
   assert.equal(plan.taskCount, 20);
   assert.deepEqual(plan.distribution, {
-    bug_fix: 5,
-    behavior_change: 5,
-    regression_test: 5,
-    small_multi_file: 5
+    bug_fix: 5, behavior_change: 5, regression_test: 5, small_multi_file: 5
   });
   assert.equal(plan.comparison.retryOnArmFailure, false);
   assert.equal(plan.comparison.mutatePromptAfterFailure, false);
   assert.equal(plan.comparison.injectHiddenHints, false);
 
   const gateSelfTest = spawnSync(process.execPath, [liveGatePath, "--self-test"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    timeout: 30_000,
-    maxBuffer: 1024 * 1024
+    cwd: repoRoot, encoding: "utf8", timeout: 30_000, maxBuffer: 1024 * 1024
   });
   assert.equal(gateSelfTest.status, 0, gateSelfTest.stderr);
   const gate = JSON.parse(gateSelfTest.stdout);
@@ -179,6 +171,8 @@ async function main() {
     hiddenHintInjection: false,
     hiddenEvaluatorSeparate: true,
     postFixResumeAfterFailedTask: "forbidden",
+    providerIdentityPinned: true,
+    quotaUnknownPreserved: true,
     liveCompletionGate: {
       completedPairCount: gate.completedPairCount,
       expectedAgentRuns: gate.expectedAgentRuns,
