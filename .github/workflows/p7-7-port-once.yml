@@ -1,0 +1,79 @@
+name: P7.7 Scoped Offline Port
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [product/p7-4-human-decision-capture]
+    paths: ['.github/workflows/p7-7-port-once.yml']
+permissions:
+  contents: write
+jobs:
+  port:
+    if: github.event.pull_request.head.ref == 'product/p7-7-after-p7-6-review' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CODEX_API_KEY: ''
+      OPENAI_API_KEY: ''
+      CODEX_ACCESS_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Apply only the previously reviewed P7.7 worker delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+          test "$(git merge-base 448f642c2d5558a01a1c831894c049fdb100a2be HEAD)" = "448f642c2d5558a01a1c831894c049fdb100a2be"
+          git fetch origin 338201d9e28fce2a1e58d773e9984b91cb0ce3d2 76f4abf6cc6e2e71a5ba41f81e538554571079ab
+          git diff 338201d9e28fce2a1e58d773e9984b91cb0ce3d2 76f4abf6cc6e2e71a5ba41f81e538554571079ab -- \
+            .github/workflows/p7-7-worker-offline.yml \
+            apps/cli/src/commands/codex-compare-provider-gate.ts \
+            apps/cli/src/commands/compare.ts \
+            benchmarks/product-v1/dogfood-resumable-runner.cjs \
+            benchmarks/product-v1/dogfood-runner.cjs \
+            benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs \
+            bounded-agent.policy.yml docs/P7_7_WORKER_TERMINATION.md \
+            packages/integrations/src/agent-adapter.ts \
+            packages/integrations/src/agent-process-control.ts \
+            packages/integrations/src/codex-agent-adapter.ts \
+            packages/integrations/src/codex-agent-worker.ts \
+            packages/integrations/src/index.ts \
+            packages/integrations/src/isolated-agent-worker.ts \
+            scripts/fixtures/p7-7-hanging-worker.cjs \
+            scripts/product/adversarial-agent-suite.cjs \
+            scripts/smoke/agent-environment-smoke.cjs \
+            scripts/smoke/agent-process-control-smoke.cjs \
+            scripts/smoke/codex-agent-process-control-smoke.cjs \
+            scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs \
+            scripts/smoke/p7-7-worker-termination-smoke.cjs > /tmp/p7-7-delta.patch
+          if ! git apply --3way --index /tmp/p7-7-delta.patch; then
+            git status --short
+            echo 'Scoped P7.7 port conflicts with verified P7.6; refusing automatic integration.' >&2
+            exit 1
+          fi
+          git diff --cached --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify scoped integration before writing
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run typecheck
+          npm run build
+          node scripts/smoke/p7-7-worker-termination-smoke.cjs
+          node scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
+          node benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
+      - name: Commit scoped port to its own branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --quiet && { echo 'No P7.7 delta was staged'; exit 1; }
+          git commit -m 'feat(P7.7): port isolated worker termination onto verified P7.6'
+          git push origin HEAD:refs/heads/product/p7-7-after-p7-6-review
