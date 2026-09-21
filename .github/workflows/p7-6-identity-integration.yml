@@ -1,0 +1,51 @@
+name: P7.6 Provider Identity Offline Integration
+
+on:
+  push:
+    branches:
+      - product/p7-6-integrated-review
+    paths:
+      - .github/workflows/p7-6-identity-integration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  identity-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: product/p7-6-integrated-review
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Guarded P7.6 provider identity wiring
+        run: node scripts/product/p7-6-identity-patch-guard.cjs
+      - name: Typecheck and build
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Offline provider and compare regressions
+        run: |
+          node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs
+          node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs
+          node benchmarks/product-v1/p7-6-first-access-budget-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          node scripts/smoke/agent-comparison-contract-smoke.cjs
+          node scripts/smoke/bounded-compare-codex-smoke.cjs
+      - name: Commit only verified source and offline tests
+        run: |
+          git add apps/cli/src/commands/compare.ts apps/cli/src/commands/codex-compare-provider-gate.ts benchmarks/product-v1/p7-6-compare-provider-smoke.cjs benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          git diff --cached --check
+          git -c user.name='p7-6-offline-integration' -c user.email='98805835+theOguz16@users.noreply.github.com' commit -m 'fix(p7.6): pin account identity through discovery and both arms'
+          git push origin HEAD:refs/heads/product/p7-6-integrated-review
