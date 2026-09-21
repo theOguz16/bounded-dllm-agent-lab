@@ -641,6 +641,13 @@ export async function compareCodexCommand(
   } catch (error) {
     if (error instanceof CodexScopeDiscoveryError) {
       discoveryFailure = error;
+      // A failed discovery may already have consumed a provider invocation.
+      // Never start another arm after a provider failure.
+      if (["codex_provider_auth", "codex_provider_quota", "codex_provider_capacity",
+        "codex_stream_error", "codex_sdk_error", "codex_turn_failed"].includes(error.failureCode)) {
+        throw new CliError(error.failureCode,
+          "Codex scope discovery provider failed; no subsequent arm invocation is allowed.", 4);
+      }
     } else {
       throw error;
     }

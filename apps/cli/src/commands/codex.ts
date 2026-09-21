@@ -42,7 +42,7 @@ import {
 
 export const BOUNDED_CODEX_EXPLICIT_SCOPE_VERSION =
   "bounded-codex-explicit-scope/v0" as const;
-export const BOUNDED_CODEX_REASONING = "medium" as const;
+export const BOUNDED_CODEX_REASONING = "none" as const;
 export const BOUNDED_CODEX_VALIDATION_PROFILE =
   "existing_function_bug_fix" as const satisfies ValidationProfileId;
 
