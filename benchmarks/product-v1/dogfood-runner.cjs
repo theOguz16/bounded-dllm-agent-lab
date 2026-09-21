@@ -15,6 +15,7 @@ const cliPath = path.join(repoRoot, "dist/apps/cli/src/index.js");
 // Coarse outer kill switch only. The comparison runtime owns the authoritative
 // discovery, agent, and validation phase budgets; this envelope must not expire first.
 const DEFAULT_TASK_TIMEOUT_MS = 60 * 60 * 1000;
+const REQUIRED_MODEL = "gpt-5.6-luna";
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
@@ -113,7 +114,7 @@ function validateSuiteShape(suite, tasks) {
   assert.equal(suite.comparison.sameModel, true);
   assert.equal(suite.comparison.sameReasoning, true);
   assert.equal(suite.comparison.sameValidation, true);
-  assert.equal(suite.comparison.reasoningEffort, "medium");
+  assert.equal(suite.comparison.reasoningEffort, "none");
   assert.equal(suite.comparison.networkPolicy, "disabled");
   assert.equal(suite.comparison.retryOnArmFailure, false);
   assert.equal(suite.comparison.mutatePromptAfterFailure, false);
@@ -253,6 +254,13 @@ async function main() {
   if (!args.model) {
     throw new Error("live dogfood requires --model or BOUNDED_CODEX_MODEL/CODEX_MODEL");
   }
+  if (args.model !== REQUIRED_MODEL) {
+    throw new Error(`live dogfood model must be exactly ${REQUIRED_MODEL}; fallback is forbidden`);
+  }
+  const accountAlias = process.env.DOGFOOD_ACCOUNT_ALIAS?.trim();
+  if (!accountAlias || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(accountAlias)) {
+    throw new Error("live dogfood requires a stable non-secret DOGFOOD_ACCOUNT_ALIAS");
+  }
   if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY && !process.env.CODEX_HOME) {
     throw new Error("live dogfood requires Codex authentication configuration");
   }
@@ -276,6 +284,7 @@ async function main() {
       taskHash: sha256(prompt),
       validationHash: sha256(JSON.stringify(task.validationCommands)),
       model: args.model,
+      accountAlias,
       reasoningEffort: suite.comparison.reasoningEffort,
       attempt: 1,
       retryCount: 0,
@@ -348,6 +357,7 @@ async function main() {
     startedAt,
     completedAt: new Date().toISOString(),
     model: args.model,
+    accountAlias,
     reasoningEffort: suite.comparison.reasoningEffort,
     taskCount: results.length,
     completedPairCount,

@@ -19,7 +19,7 @@ async function main() {
 
   assert.equal(compare.BOUNDED_COMPARE_CODEX_VERSION, "bounded-compare-codex/v1");
   assert.equal(compare.BOUNDED_COMPARE_RUNTIME_VERSION, "canonical-bounded-compare/v1");
-  assert.equal(compare.BOUNDED_COMPARE_REASONING, "medium");
+  assert.equal(compare.BOUNDED_COMPARE_REASONING, "none");
   assert.equal(compare.BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS, 180000);
   assert.equal(compare.BOUNDED_COMPARE_AGENT_TIMEOUT_MS, 300000);
   assert.equal(compare.BOUNDED_COMPARE_TIMEOUT_MS, 300000);
