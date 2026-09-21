@@ -84,7 +84,7 @@ async function main() {
         BOUNDED_CODEX_ACCOUNT_ALIAS: "account-a", BOUNDED_CODEX_AUTH_MODE: "api_key",
         CODEX_API_KEY: "fixture-key-never-saved", BOUNDED_CODEX_MODEL: "fake-model"
       };
-      const gate = new CodexCompareProviderGate("fake-model", "medium", () => env);
+      const gate = new CodexCompareProviderGate("fake-model", "none", () => env);
       const fake = {
         agentId: "codex", agentVersion: "offline-fixture",
         async run(request) {

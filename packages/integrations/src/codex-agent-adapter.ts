@@ -81,7 +81,7 @@ function diagnostic(
 
 function mapReasoningEffort(effort: AgentReasoningEffort): ModelReasoningEffort {
   switch (effort) {
-    case "none": return "minimal";
+    case "none": throw new Error("none is a Codex CLI override, not minimal reasoning");
     case "low": return "low";
     case "medium": return "medium";
     case "high": return "high";
@@ -229,7 +229,7 @@ export class CodexAgentAdapter implements AgentAdapter {
     const environmentSource = options.environment ?? process.env;
     const environment = createAgentEnvironment(environmentSource);
     this.redactor = createAgentOutputRedactor({ environment: environmentSource });
-    this.clientFactory = options.clientFactory ?? (() => new Codex({ env: { ...environment } }));
+    this.clientFactory = options.clientFactory ?? (() => new Codex({ env: { ...environment }, config: { model_reasoning_effort: "none" } }));
     this.now = options.now ?? Date.now;
     // Injected SDK clients are deterministic fakes in the offline conformance suite.
     // The real client always performs the free local auth/config check.
@@ -316,7 +316,7 @@ export class CodexAgentAdapter implements AgentAdapter {
       model: request.model,
       skipGitRepoCheck: request.repositoryRequirement === "none",
       sandboxMode: isolation.sandboxMode,
-      modelReasoningEffort: mapReasoningEffort(request.reasoningEffort),
+      ...(request.reasoningEffort === "none" ? {} : { modelReasoningEffort: mapReasoningEffort(request.reasoningEffort) }),
       networkAccessEnabled: isolation.networkAccessEnabled,
       webSearchMode: isolation.webSearchMode,
       approvalPolicy: isolation.approvalPolicy,
@@ -353,6 +353,9 @@ export class CodexAgentAdapter implements AgentAdapter {
         }
         if (processControl.failure() === null) {
           adapterDiagnostics.push(diagnostic(providerFailure, "error", providerFailure));
+          if (this.redactor.redactText(message) !== message) {
+            adapterDiagnostics.push(diagnostic("codex_provider_message_redacted", "info", "[REDACTED]"));
+          }
         }
       }
     } finally {
@@ -372,11 +375,11 @@ export class CodexAgentAdapter implements AgentAdapter {
     // Errors can be reported inside JSONL without throwing from the SDK.
     if (finalTermination === "none" && providerFailure === null) {
       const providerDiagnostics = parsed.diagnostics.filter(
-        (entry) => entry.code === "codex_stream_error" || entry.code === "codex_turn_failed"
+        (entry) => ["codex_stream_error", "codex_turn_failed", "codex_provider_auth", "codex_provider_quota", "codex_provider_capacity"].includes(entry.code)
       );
       if (providerDiagnostics.length > 0) {
         for (const entry of providerDiagnostics) {
-          const candidate = this.providerGate.observe(entry.message);
+          const candidate = this.providerGate.observe({ code: entry.code === "codex_provider_auth" ? "authentication_failed" : entry.code === "codex_provider_quota" ? "usage_limit_exceeded" : entry.code === "codex_provider_capacity" ? "provider_overloaded" : entry.message });
           if (providerFailure === null || providerFailure === "provider_stream_error_unknown") {
             providerFailure = candidate;
           }
@@ -400,13 +403,13 @@ export class CodexAgentAdapter implements AgentAdapter {
 
     const diagnostics: AgentDiagnostic[] = [
       ...parsed.diagnostics.map(({ code, severity, message, retryable }) => ({
-        code: code === "codex_stream_error" || code === "codex_turn_failed"
+        code: ["codex_stream_error", "codex_turn_failed", "codex_provider_auth", "codex_provider_quota", "codex_provider_capacity"].includes(code)
           ? providerFailure ?? "provider_stream_error_unknown" : code,
         severity,
         // Provider errors may include identities; report only normalized codes.
-        message: code === "codex_stream_error" || code === "codex_turn_failed"
+        message: ["codex_stream_error", "codex_turn_failed", "codex_provider_auth", "codex_provider_quota", "codex_provider_capacity"].includes(code)
           ? providerFailure ?? "provider_stream_error_unknown" : this.redactor.redactText(message),
-        retryable: code === "codex_stream_error" || code === "codex_turn_failed" ? false : retryable
+        retryable: ["codex_stream_error", "codex_turn_failed", "codex_provider_auth", "codex_provider_quota", "codex_provider_capacity"].includes(code) ? false : retryable
       })),
       ...adapterDiagnostics.map((entry) => ({
         ...entry,

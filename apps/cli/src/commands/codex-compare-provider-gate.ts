@@ -88,7 +88,7 @@ export class CodexCompareProviderGate {
     private readonly reasoning: string,
     private readonly environment: () => NodeJS.ProcessEnv = () => process.env
   ) {
-    if (!MODEL.test(model) || reasoning !== "medium") throw failure("authentication_failed");
+    if (!MODEL.test(model) || reasoning !== "none") throw failure("authentication_failed");
     const env = environment();
     this.identity = identityOf(env);
     this.initialAuth = authState(env, this.identity.authMode);

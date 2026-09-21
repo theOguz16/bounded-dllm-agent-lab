@@ -52,7 +52,7 @@ import {
 
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
 export const BOUNDED_COMPARE_RUNTIME_VERSION = "canonical-bounded-compare/v1" as const;
-export const BOUNDED_COMPARE_REASONING = "medium" as const;
+export const BOUNDED_COMPARE_REASONING = "none" as const;
 export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
@@ -448,12 +448,12 @@ function evaluateArm(input: Readonly<{
   const evaluation = evaluateProductComparison({
     correctness: {
       controlPassed: controls,
-      behaviorSatisfied: behavior,
-      taskSucceeded: succeeded,
+      taskSucceeded: succeeded === false ? false : null,
       testsPassed: behavior,
       buildPassed: build,
       typecheckPassed: typecheck
     },
+    behaviorEvidence: null,
     control: {
       scopeViolationCount,
       forbiddenTouchCount,
@@ -792,6 +792,7 @@ export async function compareCodexCommand(
             {
               adapter: boundedAdapter,
               model,
+              reasoningEffort: BOUNDED_COMPARE_REASONING,
               validationProfile: "structural_draft",
               runTask: async (input) => {
                 capture.input = input;
