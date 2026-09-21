@@ -137,7 +137,16 @@ function requireLiveRun(value) {
     if (entry.pairCompleted) {
       observedCompletedPairs += 1;
       if (entry.failure !== null) {
-        throw new TypeError(`completed results[${index}] must have failure === null.`);
+        const failure = requireObject(entry.failure, `results[${index}].failure`);
+        if (!["infrastructure", "agent", "acceptance"].includes(failure.domain)) {
+          throw new TypeError(`completed results[${index}].failure.domain is invalid.`);
+        }
+        if (typeof failure.code !== "string" || failure.code.length === 0) {
+          throw new TypeError(`completed results[${index}].failure.code must be a non-empty string.`);
+        }
+        if (failure.arm !== undefined && !["normal", "bounded"].includes(failure.arm)) {
+          throw new TypeError(`completed results[${index}].failure.arm is invalid.`);
+        }
       }
       const comparison = requireObject(entry.result, `results[${index}].result`);
       if (comparison.comparable !== true) {
@@ -340,9 +349,16 @@ function createFailureTaxonomy(records, observationsByArm) {
   }
 
   for (const record of records) {
-    if (!record.pairCompleted) {
+    if (isObject(record.failure)) {
       const code = failureCodeFromRecord(record);
-      add(failureCodeCategory(code), record.taskId, "pair", code || "pair_incomplete_without_safe_failure_code");
+      add(
+        failureCodeCategory(code),
+        record.taskId,
+        typeof record.failure.arm === "string" ? record.failure.arm : "pair",
+        code || "failure_without_safe_failure_code"
+      );
+    } else if (!record.pairCompleted) {
+      add(null, record.taskId, "pair", "pair_incomplete_without_safe_failure_code");
     }
   }
 
@@ -662,7 +678,7 @@ function selfTest() {
         { success: false, control: false, behavior: false, changedFiles: 1, scope: 1 },
         { bounded: false }
       ),
-      failure: null
+      failure: { domain: "acceptance", code: "test_failed", arm: "normal" }
     },
     {
       taskId: "task.incomplete",
@@ -709,6 +725,7 @@ function selfTest() {
   const report = buildDogfoodReport(evidence, sha256(raw));
   assert.equal(report.overallSuccess.completedPairCount, 3);
   assert.equal(report.failureTaxonomy.categories.agent_bad_change.count, 1);
+  assert.equal(report.failureTaxonomy.categories.runtime_validation_failure.count, 1);
   assert.equal(report.failureTaxonomy.categories.agent_wrong_file.count, 1);
   assert.equal(report.failureTaxonomy.categories.agent_incomplete_change.count, 1);
   assert.equal(report.failureTaxonomy.categories.human_rejected.count, 1);
@@ -727,6 +744,8 @@ function selfTest() {
     (candidate) => { candidate.results[0].result.identityMismatchFields = ["modelId"]; },
     (candidate) => { delete candidate.results[0].result.identityMismatchFields; },
     (candidate) => { candidate.results[0].failure = { code: "agent_protocol_failure" }; },
+    (candidate) => { candidate.results[0].failure = { domain: "agent", code: "" }; },
+    (candidate) => { candidate.results[0].failure = { domain: "agent", code: "agent_timeout", arm: "other" }; },
     (candidate) => { candidate.retryPolicy = "retry_once"; },
     (candidate) => { candidate.promptMutationAfterFailure = true; },
     (candidate) => { candidate.hiddenHintInjection = true; },
