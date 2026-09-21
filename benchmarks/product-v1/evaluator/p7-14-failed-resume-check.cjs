@@ -46,8 +46,9 @@ function inspectFailedResume(workspace) {
     const failedReachedBlockedChild = failed.status === 79 && failed.stderr.includes(BLOCKED);
     const verdict = healthyReachedBlockedChild && failedRejectedCorrectly ? "pass" :
       healthyReachedBlockedChild && failedReachedBlockedChild ? "assertion_fail" : "infrastructure_fail";
-    return { verdict, exitCode: failed.status, outputHash: sha(JSON.stringify([failed, healthy])),
-      output: { failed, healthy } };
+    const rawOutput = { failed, healthy };
+    return { verdict, exitCode: failed.status, outputHash: sha(JSON.stringify(rawOutput)),
+      output: rawOutput };
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 module.exports = { inspectFailedResume };
