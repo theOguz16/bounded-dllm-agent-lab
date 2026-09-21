@@ -22,6 +22,7 @@ const DEFAULT_TASK_TIMEOUT_MS = 60 * 60 * 1000;
 const PROVIDER_FAILURES = new Set([
   "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
 ]);
+const TERMINAL_FAILURES = new Set([...PROVIDER_FAILURES, "provider_outcome_ambiguous", "worker_termination_failed"]);
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
@@ -126,10 +127,11 @@ function providerCodeFromCompare(parsed, result) {
     runtime?.normal?.failureCode,
     runtime?.bounded?.failureCode,
     parsed?.failureCode,
-    parsed?.providerCode
+    parsed?.providerCode,
+    parsed?.terminalFailureCode
   ];
   for (const code of candidates) {
-    if (typeof code === "string" && PROVIDER_FAILURES.has(code)) return code;
+    if (typeof code === "string" && TERMINAL_FAILURES.has(code)) return code;
   }
   // stderr is inspected only in memory. Never persist the stream or a credential hash.
   if (result.status !== 0 || result.error) {
@@ -254,8 +256,11 @@ async function main() {
       const parsed = parseCliJson(compare.stdout);
       const providerCode = providerCodeFromCompare(parsed, compare);
       if (providerCode !== null) {
-        record.failure = redactedFailure(compare, access.observeFailure({ code: providerCode }));
-        stoppedProviderCode = providerCode;
+        const terminalCode = PROVIDER_FAILURES.has(providerCode)
+          ? access.observeFailure({ code: providerCode })
+          : providerCode;
+        record.failure = redactedFailure(compare, terminalCode);
+        stoppedProviderCode = terminalCode;
       } else if (compare.error || compare.status !== 0 || !parsed) {
         record.failure = redactedFailure(compare);
       } else {

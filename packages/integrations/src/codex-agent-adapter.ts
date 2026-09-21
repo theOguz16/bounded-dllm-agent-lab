@@ -1,8 +1,8 @@
-import {
-  Codex,
-  type ModelReasoningEffort,
-  type ThreadOptions,
-  type TurnOptions
+import { fileURLToPath } from "node:url";
+import type {
+  ModelReasoningEffort,
+  ThreadOptions,
+  TurnOptions
 } from "@openai/codex-sdk";
 
 import type {
@@ -32,6 +32,11 @@ import {
   createAgentProcessControl,
   type AgentProcessControl
 } from "./agent-process-control.js";
+import {
+  DEFAULT_AGENT_WORKER_FORCE_GRACE_MS,
+  DEFAULT_AGENT_WORKER_GRACE_MS,
+  runIsolatedAgentWorker
+} from "./isolated-agent-worker.js";
 import {
   CodexProviderAccessGate,
   codexLocalAuthCheck,
@@ -65,6 +70,10 @@ export type CodexAgentAdapterOptions = Readonly<{
   now?: () => number;
   /** Allows fake providers to supply a local, offline preflight in tests. */
   authCheck?: CodexLocalAuthCheck;
+  /** Offline fake-hang tests may substitute the worker entrypoint; live use keeps the bundled worker. */
+  workerEntrypoint?: string;
+  workerGraceMs?: number;
+  workerForceGraceMs?: number;
 }>;
 
 type CommandTiming = { startedAtMs: number | null; completedAtMs: number | null };
@@ -220,7 +229,11 @@ export class CodexAgentAdapter implements AgentAdapter {
   readonly agentId = CODEX_AGENT_ID;
   readonly agentVersion = CODEX_SDK_VERSION;
 
-  private readonly clientFactory: () => CodexSdkClientLike;
+  private readonly clientFactory: (() => CodexSdkClientLike) | null;
+  private readonly environment: NodeJS.ProcessEnv;
+  private readonly workerEntrypoint: string;
+  private readonly workerGraceMs: number;
+  private readonly workerForceGraceMs: number;
   private readonly now: () => number;
   private readonly redactor: AgentOutputRedactor;
   private readonly providerGate: CodexProviderAccessGate;
@@ -229,7 +242,11 @@ export class CodexAgentAdapter implements AgentAdapter {
     const environmentSource = options.environment ?? process.env;
     const environment = createAgentEnvironment(environmentSource);
     this.redactor = createAgentOutputRedactor({ environment: environmentSource });
-    this.clientFactory = options.clientFactory ?? (() => new Codex({ env: { ...environment } }));
+    this.clientFactory = options.clientFactory ?? null;
+    this.environment = { ...environment };
+    this.workerEntrypoint = options.workerEntrypoint ?? fileURLToPath(new URL("./codex-agent-worker.js", import.meta.url));
+    this.workerGraceMs = options.workerGraceMs ?? DEFAULT_AGENT_WORKER_GRACE_MS;
+    this.workerForceGraceMs = options.workerForceGraceMs ?? DEFAULT_AGENT_WORKER_FORCE_GRACE_MS;
     this.now = options.now ?? Date.now;
     // Injected SDK clients are deterministic fakes in the offline conformance suite.
     // The real client always performs the free local auth/config check.
@@ -327,18 +344,49 @@ export class CodexAgentAdapter implements AgentAdapter {
     const commandTimings = new Map<string, CommandTiming>();
     const adapterDiagnostics: AgentDiagnostic[] = [];
     let streamError: unknown = null;
-    let providerFailure: CodexProviderFailureCode | null = null;
+    let providerFailure: CodexProviderFailureCode | "provider_outcome_ambiguous" | null = null;
 
     try {
-      const client = this.clientFactory();
-      const thread = client.startThread(threadOptions);
-      const streamed = await thread.runStreamed(request.task, turnOptions);
-      for await (const event of streamed.events) {
-        processControl.observeEvent();
-        const serialized = serializeStreamEvent(event);
-        processControl.observeStdout(serialized);
-        observeCommandTiming(event, this.now(), commandTimings, processControl);
-        lines.push(serialized);
+      if (this.clientFactory !== null) {
+        const client = this.clientFactory();
+        const thread = client.startThread(threadOptions);
+        const streamed = await thread.runStreamed(request.task, turnOptions);
+        for await (const event of streamed.events) {
+          processControl.observeEvent();
+          const serialized = serializeStreamEvent(event);
+          processControl.observeStdout(serialized);
+          observeCommandTiming(event, this.now(), commandTimings, processControl);
+          lines.push(serialized);
+        }
+      } else {
+        const worker = await runIsolatedAgentWorker({
+          command: process.execPath,
+          args: [this.workerEntrypoint],
+          cwd: request.workingDirectory,
+          env: this.environment,
+          stdin: JSON.stringify({
+            protocolVersion: "codex-agent-worker/v1",
+            task: request.task,
+            threadOptions,
+            outputSchema: request.outputSchema
+          }),
+          processControl,
+          graceMs: this.workerGraceMs,
+          forceGraceMs: this.workerForceGraceMs,
+          onStdoutLine: (line) => {
+            processControl.observeEvent();
+            observeCommandTiming(line, this.now(), commandTimings, processControl);
+            lines.push(line);
+          }
+        });
+        if (!worker.terminationConfirmed && processControl.failure()?.code !== "worker_termination_failed") {
+          processControl.markWorkerTerminationFailed();
+        } else if (processControl.failure()?.code === "agent_timeout") {
+          providerFailure = "provider_outcome_ambiguous";
+        } else if (worker.exitCode !== 0 && processControl.failure() === null && !request.abortSignal?.aborted) {
+          providerFailure = this.providerGate.observe(worker.stderr || { code: "provider_stream_error_unknown" });
+          adapterDiagnostics.push(diagnostic(providerFailure, "error", providerFailure));
+        }
       }
     } catch (error) {
       streamError = error;
@@ -419,8 +467,11 @@ export class CodexAgentAdapter implements AgentAdapter {
     return {
       status: providerFailure !== null && finalTermination === "none"
         ? "failed" : mapRunStatus(parsed, finalTermination),
-      failureCode: processFailure?.code ?? providerFailure,
+      failureCode: processFailure?.code === "agent_timeout"
+        ? "provider_outcome_ambiguous"
+        : processFailure?.code ?? providerFailure,
       quotaStatus: "unknown",
+      workerLifecycle: this.clientFactory === null ? processControl.lifecycle() : null,
       agentId: CODEX_AGENT_ID,
       agentVersion: CODEX_SDK_VERSION,
       modelId: request.model,

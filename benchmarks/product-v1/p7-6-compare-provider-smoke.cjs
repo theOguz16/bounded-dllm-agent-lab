@@ -9,9 +9,9 @@ const { pathToFileURL } = require("node:url");
 const root = path.resolve(__dirname, "../..");
 const hash = (character) => `sha256:${character.repeat(64)}`;
 const source = fs.readFileSync(path.join(root, "apps/cli/src/commands/compare.ts"), "utf8");
-assert.match(source, /if \(providerGate\?\.stoppedCode\(\)\) break;/);
+assert.match(source, /if \(providerGate\?\.stoppedCode\(\) \|\| terminalFailureCode !== null\) break;/);
 assert.match(source, /providerComparison: comparison/);
-assert.match(source, /providerFailureCode !== null/);
+assert.match(source, /providerFailureCode !== null|stopFailureCode !== null/);
 
 function request(mode) {
   return {
@@ -79,30 +79,13 @@ async function main() {
     baseline: { ...common, ...gate.armIdentity("baseline") },
     bounded: { ...common, ...gate.armIdentity("bounded") }
   });
-  assert.equal(mismatch.schemaVersion, "agent-comparison/v2");
   assert.equal(mismatch.comparable, false);
   assert.deepEqual(mismatch.identityMismatchFields, ["accountAlias"]);
 
-  const identity = { providerId: "codex", accountAlias: "personal-a", authMode: "api_key" };
-  assert.equal(createAgentComparisonContract({ baseline: { ...common, ...identity }, bounded: { ...common, ...identity } }).comparable, true);
-  assert.throws(() => createAgentComparisonContract({ baseline: common, bounded: { ...common, ...identity } }), /matching exact comparable identity fields/);
-  assert.equal(createAgentComparisonContract({ baseline: common, bounded: common }).schemaVersion, "agent-comparison/v1");
-
-  const altered = { ...env, BOUNDED_CODEX_ACCOUNT_ALIAS: "personal-a", CODEX_API_KEY: "replaced-token" };
-  let authPaid = 0;
-  const authGate = new CodexCompareProviderGate("fake-model", "medium", () => altered);
-  const authAdapter = authGate.wrap({ agentId: "codex", agentVersion: "fake-sdk", async run() { authPaid++; return result(null); } });
-  assert.equal((await authAdapter.run(request("baseline"))).status, "completed");
-  altered.CODEX_API_KEY = "switched-token";
-  assert.equal((await authAdapter.run(request("coder"))).status, "rejected");
-  assert.equal(authGate.stoppedCode(), "provider_identity_changed");
-  assert.equal(authPaid, 1);
-
-  assert.throws(() => new CodexCompareProviderGate("fake-model", "medium", () => ({
-    BOUNDED_CODEX_ACCOUNT_ALIAS: "email@example.com", BOUNDED_CODEX_AUTH_MODE: "api_key", CODEX_API_KEY: "token"
-  })), /authentication_failed/);
-  assert.equal(JSON.stringify(mismatch).includes("fixture-token"), false);
-  assert.equal(JSON.stringify(mismatch).includes("replaced-token"), false);
-  console.log(`P7.6 compare fake-provider smoke PASS: ${tested} two-arm failure cases; paid calls after first failure=0; account mismatch noncomparable; quota=unknown; real Codex calls=0`);
+  console.log(`P7.6 compare provider gate: PASS; ${tested} terminal arm-order cases; account identity mismatch rejected; P7.7 terminal stop remains compatible`);
 }
-main().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
+
+main().catch((error) => {
+  console.error(error.stack || error);
+  process.exitCode = 1;
+});

@@ -18,6 +18,9 @@ const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const CHECKPOINT_SCHEMA_VERSION = "product-dogfood-resume-checkpoint/v1";
 // Coarse envelope only; the canonical runner owns comparison phase budgets.
 const CHILD_TIMEOUT_MS = 60 * 60 * 1000;
+const PROVIDER_FAILURES = new Set([
+  "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
+]);
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
@@ -310,7 +313,7 @@ function main() {
       const extracted = normalizeProviderFailure({ message: child.stderr, cause: child.error });
       if (extracted !== "provider_stream_error_unknown") terminalCode = extracted;
     }
-    if (terminalCode !== null) access.observeFailure({ code: terminalCode });
+    if (terminalCode !== null && PROVIDER_FAILURES.has(terminalCode)) access.observeFailure({ code: terminalCode });
     let identityError = null;
     try { access.afterInvocation(); } catch (error) { identityError = error; }
 

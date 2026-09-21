@@ -120,17 +120,25 @@ async function main() {
     resolve(repoRoot, "packages/integrations/src/codex-agent-adapter.ts"),
     "utf8"
   );
+  const workerSource = readFileSync(
+    resolve(repoRoot, "packages/integrations/src/codex-agent-worker.ts"),
+    "utf8"
+  );
   assert.equal(adapterSource.includes("new Codex()"), false);
   assert.equal(adapterSource.includes("...process.env"), false);
   assert.equal(adapterSource.includes("const environmentSource = options.environment ?? process.env;"), true);
   assert.equal(adapterSource.includes("createAgentEnvironment(environmentSource)"), true);
-  assert.equal(adapterSource.includes("new Codex({ env: { ...environment } })"), true);
+  assert.equal(adapterSource.includes("this.environment = { ...environment };"), true);
+  assert.equal(adapterSource.includes("env: this.environment"), true);
+  assert.equal(workerSource.includes("const client = new Codex();"), true);
+  assert.equal(workerSource.includes("process.env"), false);
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
     version: AGENT_ENVIRONMENT_VERSION,
     childProcessSecretVisible: observed.secret !== null,
     generalEnvironmentInherited: false,
+    isolatedWorkerUsesSanitizedEnvironment: true,
     allowedExactNames: AGENT_ENVIRONMENT_ALLOWED_NAMES,
     allowedPrefixes: AGENT_ENVIRONMENT_ALLOWED_PREFIXES
   }, null, 2)}\n`);
