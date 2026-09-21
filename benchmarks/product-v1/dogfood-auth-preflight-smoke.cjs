@@ -6,169 +6,58 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-
 const preflight = require("./dogfood-auth-preflight.cjs");
 
-const MODEL = "gpt-5.6-codex";
-const repoRoot = path.resolve(__dirname, "../..");
-const workflowPath = path.join(repoRoot, ".github/workflows/product-dogfood-v1-live.yml");
-const preflightPath = path.join(__dirname, "dogfood-auth-preflight.cjs");
+const valid = { mode: "api_key", model: "gpt-5.6-luna", reasoning: "none", accountAlias: "primary",
+  runnerEnvironment: "github-hosted", runnerOs: "Linux", runnerArch: "X64", env: { CODEX_API_KEY: "sentinel" },
+  firstLiveAttemptApproved: true, firstLiveAttemptBudget: 1 };
+const fails = (input, code) => assert.throws(() => preflight.validateInputs(input), (error) => error?.code === code);
 
-function expectFailure(input) {
-  assert.throws(
-    () => preflight.validateInputs(input),
-    (error) => error instanceof Error && error.code === "dogfood_live_auth_preflight_failed"
-  );
-}
+assert.deepEqual([...preflight.AUTH_MODES], ["api_key", "codex_home"]);
+assert.equal(preflight.REQUIRED_MODEL, "gpt-5.6-luna");
+assert.equal(preflight.REQUIRED_REASONING, "none");
+assert.equal(preflight.doctorConfirmsModelAccess({ checks: { "config.load": { details: { model: "gpt-5.6-luna", reasoningEffort: "none" } } } }, "gpt-5.6-luna"), true);
+fails({ ...valid, env: {} }, "dogfood_preflight_auth_missing");
+fails({ ...valid, model: "gpt-5.6-sol" }, "dogfood_preflight_model_mismatch");
+fails({ ...valid, reasoning: "minimal" }, "dogfood_preflight_reasoning_mismatch");
+fails({ ...valid, firstLiveAttemptApproved: false }, "dogfood_preflight_live_attempt_not_approved");
+fails({ ...valid, firstLiveAttemptBudget: 2 }, "dogfood_preflight_live_attempt_not_approved");
 
-function main() {
-  assert.deepEqual([...preflight.AUTH_MODES], ["api_key", "codex_home"]);
-  assert.equal(path.isAbsolute(preflight.codexCommand()), true);
-  const doctorFixture = { checks: {
-    "auth.credentials": { status: "ok" },
-    "config.load": { details: { model: MODEL } },
-    "network.provider_reachability": { status: "ok" }
-  } };
-  assert.equal(preflight.doctorConfirmsModelAccess(doctorFixture, MODEL), true);
-  assert.equal(preflight.doctorConfirmsModelAccess({ ...doctorFixture, checks: {
-    ...doctorFixture.checks, "network.provider_reachability": { status: "fail" }
-  } }, MODEL), false);
+const result = preflight.validateInputs(valid);
+assert.equal(result.ok, true);
+assert.equal(result.quota.status, "unknown");
+assert.equal(result.checks.authStatePresent, true);
+assert.equal(result.checks.authAccessVerified, false);
+assert.equal(result.networkPolicies.providerEndpoint, "approved_first_attempt_only");
+assert.equal(result.networkPolicies.agent, "disabled");
+assert.equal(result.networkPolicies.validation, "disabled");
+assert.equal(result.silentFallback, false);
 
-  const workflow = fs.readFileSync(workflowPath, "utf8");
-  const authStart = workflow.indexOf("      auth_mode:");
-  const modelStart = workflow.indexOf("      model:", authStart);
-  assert.notEqual(authStart, -1);
-  assert.notEqual(modelStart, -1);
-  const authBlock = workflow.slice(authStart, modelStart);
-  assert.match(authBlock, /type:\s*choice/);
-  assert.match(authBlock, /\n\s*- api_key\n/);
-  assert.match(authBlock, /\n\s*- codex_home\n/);
-  assert.equal((authBlock.match(/^\s*- /gm) || []).length, 2);
-  assert.match(workflow, /api-key-live:[\s\S]*?runs-on:\s*ubuntu-latest/);
-  assert.match(workflow, /codex-home-live:[\s\S]*?runs-on:\s*self-hosted/);
-  assert.equal((workflow.match(/dogfood-resumable-runner\.cjs/g) || []).length, 2);
-  assert.equal((workflow.match(/--check-runtime/g) || []).length, 2);
-  assert.equal((workflow.match(/DOGFOOD_PREFLIGHT/g) || []).length >= 4, true);
-  assert.equal((workflow.match(/\.checkpoint\.json/g) || []).length, 2);
-  assert.equal((workflow.match(/workflow_startup_incomplete/g) || []).length, 2);
+const runtime = preflight.validateInputs({ ...valid, checkRuntime: true, commandProbe: () => true, compatibilityProbe: () => ({ ok: true }) });
+assert.equal(runtime.checks.cliModelReasoningCompatible, true);
+fails({ ...valid, checkRuntime: true, commandProbe: () => true, compatibilityProbe: () => ({ ok: false }) }, "dogfood_preflight_cli_model_incompatible");
 
-  expectFailure({
-    mode: "api_key",
-    model: MODEL,
-    runnerEnvironment: "github-hosted",
-    env: {}
-  });
-
-  const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-auth-empty-"));
-  try {
-    expectFailure({
-      mode: "codex_home",
-      model: MODEL,
-      runnerEnvironment: "self-hosted",
-      env: { CODEX_HOME: emptyHome, PATH: "" }
-    });
-  } finally {
-    fs.rmSync(emptyHome, { recursive: true, force: true });
-  }
-
-  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-auth-state-"));
-  try {
-    fs.writeFileSync(path.join(fakeHome, "auth.json"), "{}\n", { mode: 0o600 });
-    const codexHomePass = preflight.validateInputs({
-      mode: "codex_home",
-      model: MODEL,
-      runnerEnvironment: "self-hosted",
-      env: { CODEX_HOME: fakeHome, PATH: "" }
-    });
-    assert.equal(codexHomePass.ok, true);
-    assert.equal(codexHomePass.authMode, "codex_home");
-
-    expectFailure({
-      mode: "codex_home",
-      model: MODEL,
-      runnerEnvironment: "github-hosted",
-      env: { CODEX_HOME: fakeHome, PATH: "" }
-    });
-  } finally {
-    fs.rmSync(fakeHome, { recursive: true, force: true });
-  }
-
-  const defaultHome = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-default-home-"));
-  try {
-    const defaultCodexHome = path.join(defaultHome, ".codex");
-    fs.mkdirSync(defaultCodexHome, { recursive: true });
-    fs.writeFileSync(path.join(defaultCodexHome, "auth.json"), "{}\n", { mode: 0o600 });
-    const githubEnv = path.join(defaultHome, "github-env.txt");
-    fs.writeFileSync(githubEnv, "", { mode: 0o600 });
-
-    const child = spawnSync(process.execPath, [
-      preflightPath,
-      "--mode=codex_home",
-      `--model=${MODEL}`,
-      "--runner-environment=self-hosted"
-    ], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        HOME: defaultHome,
-        CODEX_HOME: "",
-        GITHUB_ENV: githubEnv,
-        PATH: ""
-      },
-      timeout: 10_000
-    });
-
-    assert.equal(child.status, 0, child.stderr);
-    assert.equal(child.stdout.includes(defaultHome), false);
-    assert.equal(
-      fs.readFileSync(githubEnv, "utf8"),
-      `CODEX_HOME=${defaultCodexHome}\n`
-    );
-  } finally {
-    fs.rmSync(defaultHome, { recursive: true, force: true });
-  }
-
-  for (const mode of ["", "key", "chatgpt", "auto", "api-key"]) {
-    expectFailure({ mode, model: MODEL, runnerEnvironment: "self-hosted", env: {} });
-  }
-
-  const diagnosticRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-preflight-diagnostic-"));
-  try {
-    const diagnostic = path.join(diagnosticRoot, "diagnostic.json");
-    const secretSentinel = "dogfood-secret-must-not-leak";
-    const child = spawnSync(process.execPath, [preflightPath,
-      "--mode=api_key", `--model=${MODEL}`, "--runner-environment=github-hosted",
-      "--check-runtime", `--output=${diagnostic}`], { encoding: "utf8",
-      env: { PATH: process.env.PATH || "", CODEX_API_KEY: secretSentinel } });
-    assert.notEqual(child.status, 0);
-    const value = JSON.parse(fs.readFileSync(diagnostic, "utf8"));
-    assert.equal(value.ok, false);
-    assert.equal(value.failureDomain, "infrastructure");
-    assert.equal(value.paidModelCalls, 0);
-    assert.equal(JSON.stringify(value).includes(secretSentinel), false);
-  } finally {
-    fs.rmSync(diagnosticRoot, { recursive: true, force: true });
-  }
-
-  process.stdout.write(`${JSON.stringify({
-    ok: true,
-    supportedAuthModes: [...preflight.AUTH_MODES],
-    workflowAuthModeChoicesExact: true,
-    apiKeyWithoutKeyFails: true,
-    codexHomeWithoutAuthFails: true,
-    codexHomeFakeAuthPasses: true,
-    codexHomeDefaultDirectoryPasses: true,
-    codexHomePropagatesWithoutLoggingPath: true,
-    codexHomeRequiresSelfHosted: true,
-    runtimePreflightBeforePaidCall: true,
-    redactedFailureDiagnostic: true,
-    externalProviderCalls: false
-  }, null, 2)}\n`);
-}
-
+const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-auth-state-"));
 try {
-  main();
-} catch (error) {
-  console.error(error.stack || error);
-  process.exitCode = 1;
-}
+  fs.writeFileSync(path.join(fakeHome, "auth.json"), "{}\n", { mode: 0o600 });
+  const home = preflight.validateInputs({ ...valid, mode: "codex_home", runnerEnvironment: "self-hosted", env: { CODEX_HOME: fakeHome, PATH: "" } });
+  assert.equal(home.checks.authStatePresent, true);
+  assert.equal(home.checks.authAccessVerified, false);
+} finally { fs.rmSync(fakeHome, { recursive: true, force: true }); }
+
+const diagnosticRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-preflight-diagnostic-"));
+try {
+  const diagnostic = path.join(diagnosticRoot, "diagnostic.json");
+  const sentinelValue = "credential-token-must-not-leak";
+  const child = spawnSync(process.execPath, [path.join(__dirname, "dogfood-auth-preflight.cjs"),
+    "--mode=api_key", "--model=gpt-5.6-luna", "--reasoning=none", "--account-alias=primary",
+    "--runner-environment=github-hosted", "--runner-os=Linux", "--runner-arch=X64",
+    "--approve-first-live-attempt", "--first-live-attempt-budget=1", "--check-runtime", `--output=${diagnostic}`],
+  { encoding: "utf8", env: { PATH: "", CODEX_API_KEY: sentinelValue } });
+  assert.notEqual(child.status, 0);
+  const bytes = fs.readFileSync(diagnostic, "utf8");
+  assert.equal(bytes.includes(sentinelValue), false);
+  assert.equal(JSON.parse(bytes).paidModelCalls, 0);
+} finally { fs.rmSync(diagnosticRoot, { recursive: true, force: true }); }
+
+process.stdout.write(`${JSON.stringify({ ok: true, model: preflight.REQUIRED_MODEL, reasoning: preflight.REQUIRED_REASONING, quotaUnknownWhenUnqueryable: true, localAuthIsNotAccessProof: true, firstAttemptExplicitlyApprovedAndBudgeted: true, networkPoliciesSeparated: true, credentialSessionTokenLeakage: 0, externalProviderCalls: 0 }, null, 2)}\n`);

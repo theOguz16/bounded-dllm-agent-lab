@@ -27,6 +27,12 @@ The live report is evidence, not a success-only report: failed or non-comparable
 
 ## Live authentication modes
 
+Future P7.6 runs pin `gpt-5.6-luna` with reasoning `none`. The API model page documents `none` as a supported API reasoning value, but that does not prove the installed Codex CLI path or the selected account can use it. Preflight therefore requires the installed path to accept the exact configuration and forbids silent Sol fallback. Local API-key/login state is recorded only as present, never as proof of provider access.
+
+The first provider access attempt requires an explicit workflow approval and has a one-invocation discovery budget. When no reliable free quota query exists, quota remains `unknown`; API pricing is not converted into a Plus allowance. Provider endpoint access is a separate policy from agent and validation network access, which remain disabled. A stable non-secret account alias is pinned for the run.
+
+Provider failures are classified as `auth`, `quota`, `capacity`, or `unknown`. Auth and quota open a terminal circuit: subsequent invocation reservations are zero. Capacity and unknown remain distinguishable and are not mislabeled as quota. Diagnostics persist only bounded codes/hashes and never credentials, sessions, or tokens.
+
 Manual `workflow_dispatch` supports exactly two authentication paths:
 
 - `api_key`: runs on GitHub-hosted `ubuntu-latest` and requires `CODEX_API_KEY` or `OPENAI_API_KEY` in GitHub Actions secrets.
