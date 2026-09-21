@@ -2,6 +2,7 @@ import type {
   AgentProcessBudgetOverrides,
   AgentProcessFailureCode
 } from "./agent-process-control.js";
+import type { CodexProviderFailureCode } from "./codex-provider-access.js";
 
 export type AgentRunStatus =
   | "completed"
@@ -89,7 +90,9 @@ export interface AgentRunRequest {
 
 export interface AgentRunResult {
   status: AgentRunStatus;
-  failureCode?: AgentProcessFailureCode | null;
+  failureCode?: AgentProcessFailureCode | CodexProviderFailureCode | null;
+  /** Absence of a trusted quota endpoint is never interpreted as availability. */
+  quotaStatus?: "unknown";
   agentId: string;
   agentVersion: string;
   modelId: string;
