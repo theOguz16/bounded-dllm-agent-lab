@@ -51,7 +51,7 @@ import {
 
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
 export const BOUNDED_COMPARE_RUNTIME_VERSION = "canonical-bounded-compare/v1" as const;
-export const BOUNDED_COMPARE_REASONING = "medium" as const;
+export const BOUNDED_COMPARE_REASONING = "none" as const;
 export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
@@ -710,6 +710,15 @@ export async function compareCodexCommand(
 
   let normalExecution: ArmExecution | null = null;
   let boundedExecution: ArmExecution | null = null;
+  const stopAfterProviderFailure = (code: string | null): void => {
+    if (code === "codex_provider_auth" || code === "codex_provider_quota") {
+      throw new CliError(
+        code,
+        "Provider authentication or quota failure stopped the comparison before any later arm invocation.",
+        4
+      );
+    }
+  };
   try {
     for (const arm of executionOrder) {
       if (arm === "baseline") {
@@ -755,6 +764,7 @@ export async function compareCodexCommand(
           repairRounds: 0,
           durationMs: Math.max(0, Date.now() - started - validation.durationMs)
         });
+        stopAfterProviderFailure(runtimeFailureCode);
         continue;
       }
 
@@ -834,6 +844,7 @@ export async function compareCodexCommand(
           Date.now() - started - validation.durationMs + discoveryDurationMs
         )
       });
+      stopAfterProviderFailure(boundedFailureCode);
     }
   } finally {
     await rm(baselineWorkspace.workspacePath, { recursive: true, force: true });

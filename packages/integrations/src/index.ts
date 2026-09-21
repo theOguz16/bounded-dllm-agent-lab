@@ -3,6 +3,8 @@ export * from "./agent-environment.js";
 export * from "./agent-isolation-policy.js";
 export * from "./agent-output-redaction.js";
 export * from "./agent-process-control.js";
+export * from "./durable-invocation-journal.js";
+export * from "./owned-worker-supervisor.js";
 export * from "./agent-mutation-capture.js";
 export * from "./agent-telemetry.js";
 export * from "./codex-agent-adapter.js";

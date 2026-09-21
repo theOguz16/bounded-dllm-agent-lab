@@ -70,7 +70,7 @@ async function main() {
     sameModel: true,
     sameReasoning: true,
     sameValidation: true,
-    reasoningEffort: "medium",
+    reasoningEffort: "none",
     networkPolicy: "disabled",
     retryOnArmFailure: false,
     mutatePromptAfterFailure: false,
