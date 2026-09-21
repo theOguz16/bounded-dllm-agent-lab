@@ -310,7 +310,9 @@ export function createAgentProcessControl(input: Readonly<{
       forcedTermination = true;
     },
     markWorkerTerminationFailed(message = "Isolated agent worker could not be confirmed terminated.") {
-      setFailure("worker_termination_failed", message);
+      // Termination failure supersedes the original timeout/budget reason: the worker is not confirmed dead.
+      processFailure = Object.freeze({ code: "worker_termination_failed", message });
+      requestAbort(new AgentProcessControlError("worker_termination_failed", message));
     },
     lifecycle() {
       return Object.freeze({
