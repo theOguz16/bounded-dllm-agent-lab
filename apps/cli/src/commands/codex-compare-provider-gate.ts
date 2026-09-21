@@ -21,7 +21,8 @@ const FAILURE_CODES = new Set<string>([
   "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
 ]);
 const WORKER_TERMINAL_FAILURES = new Set<string>([
-  "provider_outcome_ambiguous", "worker_termination_failed"
+  "provider_outcome_ambiguous", "worker_termination_failed",
+  "invocation_replay_forbidden", "invocation_journal_unavailable"
 ]);
 
 function failure(code: CompareProviderStopCode): Error & { code: CompareProviderStopCode } {

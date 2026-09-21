@@ -57,7 +57,8 @@ export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
-const P7_7_TERMINAL_FAILURES = new Set(["provider_outcome_ambiguous", "worker_termination_failed"]);
+const P7_7_TERMINAL_FAILURES = new Set(["provider_outcome_ambiguous", "worker_termination_failed",
+  "invocation_replay_forbidden", "invocation_journal_unavailable"]);
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
@@ -664,6 +665,10 @@ export async function compareCodexCommand(
     } else {
       throw error;
     }
+  }
+  if (discoveryFailure !== null && P7_7_TERMINAL_FAILURES.has(discoveryFailure.failureCode)) {
+    // A possibly charged discovery must never be followed by either arm.
+    throw new CliError(discoveryFailure.failureCode, "Discovery invocation outcome blocks further provider calls.", 4);
   }
   const discoveryDurationMs = Math.max(0, Date.now() - discoveryStarted);
 

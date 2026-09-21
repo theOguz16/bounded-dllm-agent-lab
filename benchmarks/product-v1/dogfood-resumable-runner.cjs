@@ -414,7 +414,7 @@ function main() {
       "--live",
       `--model=${args.model}`,
       `--task-id=${task.taskId}`
-    ]);
+    ], { env: { ...process.env, BOUNDED_CODEX_INVOCATION_JOURNAL_PATH: `${checkpointFile}.invocations.sqlite` } });
 
     const childReport = parseChildReport(child.stdout);
     if (child.error || child.status !== 0 || !childReport) {

@@ -1,4 +1,7 @@
 import { fileURLToPath } from "node:url";
+import os from "node:os";
+import path from "node:path";
+import { createDurableInvocationJournal, InvocationJournalError } from "./durable-invocation-journal.js";
 import type {
   ModelReasoningEffort,
   ThreadOptions,
@@ -74,6 +77,8 @@ export type CodexAgentAdapterOptions = Readonly<{
   workerEntrypoint?: string;
   workerGraceMs?: number;
   workerForceGraceMs?: number;
+  /** Parent-owned durable provider-call authority; never forwarded to the worker. */
+  invocationJournalPath?: string;
 }>;
 
 type CommandTiming = { startedAtMs: number | null; completedAtMs: number | null };
@@ -234,6 +239,7 @@ export class CodexAgentAdapter implements AgentAdapter {
   private readonly workerEntrypoint: string;
   private readonly workerGraceMs: number;
   private readonly workerForceGraceMs: number;
+  private readonly invocationJournalPath: string | null;
   private readonly now: () => number;
   private readonly redactor: AgentOutputRedactor;
   private readonly providerGate: CodexProviderAccessGate;
@@ -247,6 +253,11 @@ export class CodexAgentAdapter implements AgentAdapter {
     this.workerEntrypoint = options.workerEntrypoint ?? fileURLToPath(new URL("./codex-agent-worker.js", import.meta.url));
     this.workerGraceMs = options.workerGraceMs ?? DEFAULT_AGENT_WORKER_GRACE_MS;
     this.workerForceGraceMs = options.workerForceGraceMs ?? DEFAULT_AGENT_WORKER_FORCE_GRACE_MS;
+    const configuredJournal = options.invocationJournalPath ?? environmentSource.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH;
+    // Fakes are journal-free by default unless their test provides a path. All
+    // real SDK invocations have a persistent parent-owned journal.
+    this.invocationJournalPath = configuredJournal ?? (options.clientFactory || options.workerEntrypoint
+      ? null : path.join(environmentSource.HOME || os.homedir(), ".bounded-agent", "provider-invocations.sqlite"));
     this.now = options.now ?? Date.now;
     // Injected SDK clients are deterministic fakes in the offline conformance suite.
     // The real client always performs the free local auth/config check.
@@ -326,6 +337,31 @@ export class CodexAgentAdapter implements AgentAdapter {
         ], failure.code);
       }
       throw error;
+    }
+
+    // Reserve and durably mark a possibly chargeable invocation BEFORE the
+    // real SDK or isolated worker can start. No local preflight proves quota.
+    let invocationJournal: ReturnType<typeof createDurableInvocationJournal> | null = null;
+    let invocationKey: string | null = null;
+    try {
+      if (this.invocationJournalPath !== null) {
+        invocationJournal = createDurableInvocationJournal(this.invocationJournalPath);
+        const reservation = invocationJournal.reserve({
+          runId: request.runId, stage: request.mode, task: request.task,
+          model: request.model, deadlineAt: this.now() + processControl.limits.totalTimeoutMs
+        });
+        invocationKey = reservation.invocationKey;
+        invocationJournal.start(invocationKey);
+      }
+    } catch (error) {
+      if (invocationJournal !== null && invocationKey !== null) {
+        try { invocationJournal.recover(invocationKey); } catch { /* Deny even if recovery cannot be persisted. */ }
+      }
+      processControl.close();
+      const code = error instanceof InvocationJournalError ? error.code : "invocation_journal_unavailable";
+      return emptyResult(request, "rejected", Math.max(0, this.now() - startedAtMs), [
+        diagnostic(code, "error", code)
+      ], code);
     }
 
     const threadOptions: ThreadOptions = {
@@ -466,6 +502,28 @@ export class CodexAgentAdapter implements AgentAdapter {
     ];
     const commands = mapCommands(parsed, commandTimings, finalTermination,
       request.workingDirectory, diagnostics, this.redactor);
+
+    if (invocationJournal !== null && invocationKey !== null) {
+      const successObserved = finalTermination === "none" && processFailure === null &&
+        providerFailure === null && parsed.status === "completed";
+      const knownFailure = providerFailure === "authentication_failed" || providerFailure === "usage_limit_exceeded";
+      const lifecycle = processControl.lifecycle();
+      try {
+        invocationJournal.finish(invocationKey, successObserved ? "completed" :
+          knownFailure ? "failed" : "outcome_unknown", {
+            failureCode: processFailure?.code ?? providerFailure ??
+              (successObserved ? null : "provider_outcome_ambiguous"),
+            abortRequestedAt: lifecycle.abortRequestedAt,
+            workerExitedAt: lifecycle.workerExitedAt,
+            exitSignal: lifecycle.exitSignal,
+            sessionEvidence: "unknown"
+          });
+      } catch {
+        return emptyResult(request, "failed", Math.max(0, this.now() - startedAtMs), [
+          diagnostic("invocation_journal_unavailable", "error", "invocation_journal_unavailable")
+        ], "invocation_journal_unavailable");
+      }
+    }
 
     return {
       status: providerFailure !== null && finalTermination === "none"

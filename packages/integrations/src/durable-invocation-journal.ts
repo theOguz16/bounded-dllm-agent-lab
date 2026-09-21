@@ -141,7 +141,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
   return Object.freeze({
     reserve(input: InvocationIdentity): InvocationRecord {
       assertIdentity(input);
-      return transaction((db) => {
+      const reservation = transaction((db) => {
         const key = keyOf(input);
         const current = get(db, key);
         if (current) {
@@ -149,7 +149,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
             store(db, Object.freeze({ ...current, state: "outcome_unknown", terminalAt: now(),
               failureCode: "process_interrupted" }));
           }
-          throw new InvocationJournalError("invocation_replay_forbidden", "Provider invocation already reserved; no automatic replay.");
+          return null;
         }
         const record: InvocationRecord = Object.freeze({
           version: DURABLE_INVOCATION_JOURNAL_VERSION, invocationKey: key, runId: input.runId,
@@ -163,6 +163,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           .run(key, input.runId, input.stage, json, hash(json));
         return record;
       });
+      if (reservation === null) throw new InvocationJournalError("invocation_replay_forbidden", "Provider invocation already reserved; no automatic replay.");
+      return reservation;
     },
     start(key: string): InvocationRecord {
       return transition(key, ["prepared"], (row) => ({ ...row, state: "started", startedAt: now() }));
