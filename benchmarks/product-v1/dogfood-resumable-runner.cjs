@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { classifyProviderFailure } = require("./dogfood-provider-budget.cjs");
 
 const repoRoot = path.resolve(__dirname, "../..");
 const canonicalRunner = path.join(repoRoot, "benchmarks/product-v1/dogfood-runner.cjs");
@@ -256,11 +257,12 @@ function parseChildReport(stdout) {
   }
 }
 
-function validateChildReport(report, task, suite, model) {
+function validateChildReport(report, task, suite, model, accountAlias) {
   assert.equal(report && typeof report === "object" && !Array.isArray(report), true);
   assert.equal(report.schemaVersion, "product-dogfood-live-run/v1");
   assert.equal(report.suiteId, suite.suiteId);
   assert.equal(report.model, model);
+  assert.equal(report.accountAlias, accountAlias);
   assert.equal(report.reasoningEffort, suite.comparison.reasoningEffort);
   assert.equal(report.taskCount, 1);
   assert.equal(report.expectedAgentRuns, 2);
@@ -288,7 +290,7 @@ function validateChildReport(report, task, suite, model) {
   return entry;
 }
 
-function finalReport({ suite, tasks, model, startedAt, results }) {
+function finalReport({ suite, tasks, model, accountAlias, startedAt, results }) {
   const completedPairCount = results.filter((entry) => entry.pairCompleted).length;
   return {
     schemaVersion: "product-dogfood-live-run/v1",
@@ -296,6 +298,7 @@ function finalReport({ suite, tasks, model, startedAt, results }) {
     startedAt,
     completedAt: new Date().toISOString(),
     model,
+    accountAlias,
     reasoningEffort: suite.comparison.reasoningEffort,
     taskCount: tasks.length,
     completedPairCount,
@@ -336,6 +339,13 @@ function main() {
   }
   if (!args.model) {
     throw new Error("resumable live dogfood requires --model or BOUNDED_CODEX_MODEL/CODEX_MODEL");
+  }
+  if (args.model !== "gpt-5.6-luna") {
+    throw new Error("resumable live dogfood requires exactly gpt-5.6-luna; fallback is forbidden");
+  }
+  const accountAlias = process.env.DOGFOOD_ACCOUNT_ALIAS?.trim();
+  if (!accountAlias || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(accountAlias)) {
+    throw new Error("resumable live dogfood requires a stable non-secret DOGFOOD_ACCOUNT_ALIAS");
   }
   if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY && !process.env.CODEX_HOME) {
     throw new Error("resumable live dogfood requires Codex authentication configuration");
@@ -433,12 +443,18 @@ function main() {
           processError: child.error,
           stdoutHash: sha256(child.stdout),
           stderrHash: sha256(child.stderr)
-        }
+        },
+        providerFailureClass: classifyProviderFailure({
+          code: reportedFailure?.code,
+          diagnosticCode: reportedFailure?.diagnosticCode
+        }),
+        providerCircuit: ["auth", "quota"].includes(classifyProviderFailure({ code: reportedFailure?.code, diagnosticCode: reportedFailure?.diagnosticCode }))
+          ? "stopped_no_further_invocations" : "stopped_on_task_failure"
       });
       throw new Error(`${task.taskId} failed; checkpoint preserved and retry is forbidden`);
     }
 
-    const entry = validateChildReport(childReport, task, suite, args.model);
+    const entry = validateChildReport(childReport, task, suite, args.model, accountAlias);
     results.push(entry);
     progress(`DONE ${index + 1}/${tasks.length} ${task.taskId}`);
 
@@ -454,7 +470,7 @@ function main() {
     progress(`SAVED ${results.length}/${tasks.length}`);
   }
 
-  const report = finalReport({ suite, tasks, model: args.model, startedAt, results });
+  const report = finalReport({ suite, tasks, model: args.model, accountAlias, startedAt, results });
   atomicWriteJson(args.output, report);
   fs.rmSync(checkpointFile, { force: true });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
