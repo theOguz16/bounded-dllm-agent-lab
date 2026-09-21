@@ -17,6 +17,7 @@ import {
   type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
+import { CodexCompareProviderGate, type CompareProviderIdentity } from "./codex-compare-provider-gate.js";
 import {
   createDisposableAgentWorkspace,
   executionOrderForTaskHash,
@@ -107,6 +108,11 @@ export type CompareCodexOutput = Readonly<{
   task: string;
   comparable: boolean;
   identityMismatchFields: readonly string[];
+  /** The full v2 comparison contract contains only non-secret operator aliases. */
+  providerComparison: ReturnType<typeof createAgentComparisonContract>;
+  providerIdentity: CompareProviderIdentity | null;
+  quotaStatus: "unknown";
+  providerFailureCode: string | null;
   executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
@@ -148,6 +154,8 @@ export type CompareCodexOutput = Readonly<{
 export type CompareCodexDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
+  /** Injected only by deterministic offline tests; live CLI builds its own gate. */
+  providerGate?: CodexCompareProviderGate;
   discover?: typeof discoverCodexScope;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
 }>;
@@ -620,7 +628,20 @@ export async function compareCodexCommand(
   const model = await resolveCodexModel(dependencies.model);
   const sourceCommitSha = gitHead(repositoryRoot);
   const sourceBefore = createCanonicalRepositoryContentSnapshot(repositoryRoot);
-  const adapter = dependencies.adapter ?? new CodexAgentAdapter();
+  // One shared gate covers discovery and both arms. Fake adapters keep the
+  // legacy v1 path unless an offline test explicitly injects a gate.
+  let providerGate: CodexCompareProviderGate | null;
+  try {
+    providerGate = dependencies.providerGate ??
+      (dependencies.adapter ? null : new CodexCompareProviderGate(model, BOUNDED_COMPARE_REASONING));
+    providerGate?.preflight(); // Local filesystem/env only; no paid SDK call.
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error &&
+      typeof error.code === "string" ? error.code : "authentication_failed";
+    throw new CliError(code, "Codex local provider access/identity preflight failed.", 5);
+  }
+  const rawAdapter = dependencies.adapter ?? new CodexAgentAdapter();
+  const adapter = providerGate ? providerGate.wrap(rawAdapter) : rawAdapter;
 
   let discovery: CodexScopeDiscoveryResult | null = null;
   let discoveryFailure: CodexScopeDiscoveryError | null = null;
@@ -691,9 +712,9 @@ export async function compareCodexCommand(
     reasoningEffort: BOUNDED_COMPARE_REASONING,
     validationSpecHash,
     networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
-    timeoutBudget: BOUNDED_COMPARE_AGENT_TIMEOUT_MS
+    timeoutBudget: BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
+    ...(providerGate ? providerGate.identity : {})
   });
-  const comparison = createAgentComparisonContract({ baseline: identity, bounded: identity });
   const executionOrder = executionOrderForTaskHash(identity.taskHash);
 
   const baselineWorkspace = await createDisposableAgentWorkspace({
@@ -709,6 +730,9 @@ export async function compareCodexCommand(
   let boundedExecution: ArmExecution | null = null;
   try {
     for (const arm of executionOrder) {
+      // Stop BEFORE starting the other arm, even when the first arm has already
+      // consumed quota or returned a partial/ambiguous provider stream.
+      if (providerGate?.stoppedCode()) break;
       if (arm === "baseline") {
         const started = Date.now();
         const run = await adapter.run({
@@ -836,6 +860,21 @@ export async function compareCodexCommand(
     await rm(baselineWorkspace.workspacePath, { recursive: true, force: true });
   }
 
+  const providerFailureCode = providerGate?.stoppedCode() ?? null;
+  if (providerFailureCode !== null) {
+    // Preserve an explicit non-comparable receipt for the arm that was never
+    // invoked. No fake success and no extra paid invocation.
+    const blocked = evaluateArm({
+      runtimeCompleted: false, runtimeStatus: "blocked",
+      runtimeFailureCode: providerFailureCode, validation: emptyValidation(),
+      changedFiles: [], approvedMutableFiles, controlAvailable: discovery !== null,
+      forbiddenFiles, runs: [], exposedFiles: 0, exposedBytes: 0,
+      repairRounds: 0, durationMs: 0
+    });
+    normalExecution ??= blocked;
+    boundedExecution ??= blocked;
+  }
+
   if (normalExecution === null || boundedExecution === null) {
     throw new CliError(
       "cli_compare_execution_failed",
@@ -853,15 +892,25 @@ export async function compareCodexCommand(
     );
   }
 
+  const comparison = createAgentComparisonContract({
+    baseline: { ...identity, ...(providerGate ? providerGate.armIdentity("baseline") : {}) },
+    bounded: { ...identity, ...(providerGate ? providerGate.armIdentity("bounded") : {}) }
+  });
+  const comparable = comparison.comparable && providerFailureCode === null;
+
   const output: CompareCodexOutput = Object.freeze({
-    ok: comparison.comparable,
+    ok: comparable,
     command: "compare",
     target: "codex",
     compareVersion: BOUNDED_COMPARE_CODEX_VERSION,
     comparisonRuntimeVersion: BOUNDED_COMPARE_RUNTIME_VERSION,
     task,
-    comparable: comparison.comparable,
+    comparable,
     identityMismatchFields: Object.freeze([...comparison.identityMismatchFields]),
+    providerComparison: comparison,
+    providerIdentity: providerGate?.identity ?? null,
+    quotaStatus: "unknown",
+    providerFailureCode,
     executionOrder,
     model,
     reasoning: BOUNDED_COMPARE_REASONING,
@@ -900,5 +949,5 @@ export async function compareCodexCommand(
     sourceRepositoryUnchanged: true
   });
 
-  return { output, exitCode: comparison.comparable ? 0 : 4 };
+  return { output, exitCode: comparable ? 0 : 4 };
 }
