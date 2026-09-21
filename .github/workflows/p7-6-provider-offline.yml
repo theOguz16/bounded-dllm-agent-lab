@@ -5,8 +5,9 @@ on:
     paths:
       - "packages/integrations/src/**"
       - "benchmarks/product-v1/provider-access*.cjs"
+      - "benchmarks/product-v1/p7-6-codex-provider-smoke.cjs"
       - "benchmarks/product-v1/dogfood-*.cjs"
-      - "scripts/smoke/p7-6-codex-provider-smoke.cjs"
+      - "scripts/smoke/agent-output-redaction-smoke.cjs"
       - ".github/workflows/p7-6-provider-offline.yml"
   workflow_dispatch:
 
@@ -35,5 +36,7 @@ jobs:
       - name: Deterministic fake-provider smokes (no paid calls)
         run: |
           node benchmarks/product-v1/provider-access-smoke.cjs
-          node scripts/smoke/p7-6-codex-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
           node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node scripts/smoke/agent-output-redaction-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
