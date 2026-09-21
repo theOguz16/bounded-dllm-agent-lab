@@ -1,4 +1,4 @@
-export const AGENT_PROCESS_CONTROL_VERSION = "agent-process-control/v1" as const;
+export const AGENT_PROCESS_CONTROL_VERSION = "agent-process-control/v2" as const;
 
 export type AgentProcessFailureCode =
   | "agent_timeout"
@@ -7,7 +7,8 @@ export type AgentProcessFailureCode =
   | "agent_command_budget_exceeded"
   | "agent_repair_budget_exceeded"
   | "agent_provider_call_budget_exceeded"
-  | "agent_model_call_budget_exceeded";
+  | "agent_model_call_budget_exceeded"
+  | "worker_termination_failed";
 
 export type AgentProcessBudgetLimits = Readonly<{
   totalTimeoutMs: number;
@@ -37,6 +38,14 @@ export type AgentProcessFailure = Readonly<{
   message: string;
 }>;
 
+export type AgentWorkerLifecycle = Readonly<{
+  deadlineTriggeredAt: number | null;
+  abortRequestedAt: number | null;
+  workerExitedAt: number | null;
+  exitSignal: NodeJS.Signals | null;
+  forcedTermination: boolean;
+}>;
+
 export type AgentProcessControl = Readonly<{
   version: typeof AGENT_PROCESS_CONTROL_VERSION;
   limits: AgentProcessBudgetLimits;
@@ -48,6 +57,11 @@ export type AgentProcessControl = Readonly<{
   recordRepairRound(count?: number): void;
   recordProviderCall(count?: number): void;
   recordModelCall(count?: number): void;
+  markAbortRequested(): void;
+  markWorkerExited(signal: NodeJS.Signals | null): void;
+  markForcedTermination(): void;
+  markWorkerTerminationFailed(message?: string): void;
+  lifecycle(): AgentWorkerLifecycle;
   failure(): AgentProcessFailure | null;
   usage(): AgentProcessBudgetUsage;
   throwIfFailed(): void;
@@ -148,10 +162,12 @@ export function createAgentProcessControl(input: Readonly<{
   totalTimeoutMs: number;
   budget?: AgentProcessBudgetOverrides;
   parentSignal?: AbortSignal;
+  now?: () => number;
 }>): AgentProcessControl {
   const limits = resolveAgentProcessBudget(input.totalTimeoutMs, input.budget);
   const controller = new AbortController();
   const commandIds = new Set<string>();
+  const now = input.now ?? Date.now;
 
   let stdoutBytes = 0;
   let stderrBytes = 0;
@@ -161,11 +177,21 @@ export function createAgentProcessControl(input: Readonly<{
   let modelCalls = 0;
   let processFailure: AgentProcessFailure | null = null;
   let closed = false;
+  let deadlineTriggeredAt: number | null = null;
+  let abortRequestedAt: number | null = null;
+  let workerExitedAt: number | null = null;
+  let exitSignal: NodeJS.Signals | null = null;
+  let forcedTermination = false;
+
+  const requestAbort = (reason?: unknown): void => {
+    if (abortRequestedAt === null) abortRequestedAt = now();
+    if (!controller.signal.aborted) controller.abort(reason);
+  };
 
   const setFailure = (code: AgentProcessFailureCode, message: string): AgentProcessControlError => {
     if (processFailure === null) {
       processFailure = Object.freeze({ code, message });
-      controller.abort(new AgentProcessControlError(code, message));
+      requestAbort(new AgentProcessControlError(code, message));
     }
     return new AgentProcessControlError(processFailure.code, processFailure.message);
   };
@@ -175,13 +201,14 @@ export function createAgentProcessControl(input: Readonly<{
   };
 
   const abortFromParent = (): void => {
-    if (!controller.signal.aborted) controller.abort(input.parentSignal?.reason);
+    requestAbort(input.parentSignal?.reason);
   };
   if (input.parentSignal?.aborted === true) abortFromParent();
   else input.parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
   const timeoutHandle = setTimeout(() => {
     if (closed || controller.signal.aborted) return;
+    deadlineTriggeredAt = now();
     setFailure(
       "agent_timeout",
       `Agent exceeded the total timeout budget of ${limits.totalTimeoutMs} ms.`
@@ -271,6 +298,28 @@ export function createAgentProcessControl(input: Readonly<{
           `Agent model calls exceeded the limit of ${limits.maxModelCalls}.`
         );
       }
+    },
+    markAbortRequested() {
+      requestAbort(controller.signal.reason);
+    },
+    markWorkerExited(signal) {
+      if (workerExitedAt === null) workerExitedAt = now();
+      if (signal !== null) exitSignal = signal;
+    },
+    markForcedTermination() {
+      forcedTermination = true;
+    },
+    markWorkerTerminationFailed(message = "Isolated agent worker could not be confirmed terminated.") {
+      setFailure("worker_termination_failed", message);
+    },
+    lifecycle() {
+      return Object.freeze({
+        deadlineTriggeredAt,
+        abortRequestedAt,
+        workerExitedAt,
+        exitSignal,
+        forcedTermination
+      });
     },
     failure() {
       return processFailure;
