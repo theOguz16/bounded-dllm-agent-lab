@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - "packages/integrations/src/**"
+      - "packages/product-runtime/src/agent-comparison-contract.ts"
+      - "apps/cli/src/commands/compare.ts"
+      - "apps/cli/src/commands/codex-compare-provider-gate.ts"
       - "benchmarks/product-v1/provider-access*.cjs"
-      - "benchmarks/product-v1/p7-6-codex-provider-smoke.cjs"
+      - "benchmarks/product-v1/p7-6-*.cjs"
       - "benchmarks/product-v1/dogfood-*.cjs"
       - "scripts/smoke/agent-output-redaction-smoke.cjs"
       - ".github/workflows/p7-6-provider-offline.yml"
@@ -33,10 +36,12 @@ jobs:
         run: |
           npm run typecheck
           npm run build
-      - name: Deterministic fake-provider smokes (no paid calls)
+      - name: Deterministic fake-provider and comparison smokes (no paid calls)
         run: |
           node benchmarks/product-v1/provider-access-smoke.cjs
           node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node scripts/smoke/agent-comparison-contract-smoke.cjs
           node scripts/smoke/codex-agent-adapter-smoke.cjs
           node scripts/smoke/agent-output-redaction-smoke.cjs
           node benchmarks/product-v1/dogfood-smoke.cjs
