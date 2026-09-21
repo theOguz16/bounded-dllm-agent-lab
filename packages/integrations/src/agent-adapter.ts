@@ -2,7 +2,6 @@ import type {
   AgentProcessBudgetOverrides,
   AgentProcessFailureCode
 } from "./agent-process-control.js";
-import type { CodexProviderFailureCode } from "./codex-provider-access.js";
 
 export type AgentRunStatus =
   | "completed"
@@ -29,6 +28,13 @@ export type AgentSandboxMode =
   | "read_only"
   | "workspace_write"
   | "full_access";
+
+/** Provider-neutral terminal failure categories; provider-specific adapters normalize into them. */
+export type AgentProviderFailureCode =
+  | "usage_limit_exceeded"
+  | "authentication_failed"
+  | "provider_overloaded"
+  | "provider_stream_error_unknown";
 
 export interface AgentUsage {
   inputTokens: number | null;
@@ -90,7 +96,7 @@ export interface AgentRunRequest {
 
 export interface AgentRunResult {
   status: AgentRunStatus;
-  failureCode?: AgentProcessFailureCode | CodexProviderFailureCode | null;
+  failureCode?: AgentProcessFailureCode | AgentProviderFailureCode | null;
   /** Absence of a trusted quota endpoint is never interpreted as availability. */
   quotaStatus?: "unknown";
   agentId: string;
