@@ -1,0 +1,50 @@
+name: P7.6 Isolated Fixup and Verification
+on:
+  push:
+    branches: [product/p7-6-final-review]
+permissions:
+  contents: write
+jobs:
+  fix-and-test:
+    if: ${{ !contains(github.event.head_commit.message, '[P7.6 PATCHED]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: product/p7-6-final-review
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Apply strict P7.6 fixup (no live model calls)
+        run: node scripts/product/p7-6-finalize-fixup.cjs
+      - name: Typecheck and build
+        run: npm run typecheck && npm run build
+      - name: Offline P7.6 safety and regression smokes
+        run: |
+          node benchmarks/product-v1/provider-access-smoke.cjs
+          node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs
+          node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs
+          node scripts/smoke/agent-comparison-contract-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node scripts/smoke/bounded-compare-codex-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
+      - name: Commit only verified P7.6 files
+        run: |
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add packages/integrations/src/codex-agent-adapter.ts apps/cli/src/commands/codex-compare-provider-gate.ts apps/cli/src/commands/codex.ts apps/cli/src/commands/compare.ts benchmarks/product-v1/p7-6-compare-provider-smoke.cjs benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          git diff --cached --check
+          git commit -m 'fix(P7.6): propagate exact Luna none and stop on discovery failure [P7.6 PATCHED]'
+          git push origin HEAD:refs/heads/product/p7-6-final-review
