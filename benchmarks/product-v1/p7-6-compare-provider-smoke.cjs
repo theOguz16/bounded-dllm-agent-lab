@@ -16,7 +16,7 @@ assert.match(source, /providerFailureCode !== null/);
 function request(mode) {
   return {
     runId: `offline.${mode}`, agentId: "codex", workingDirectory: "/tmp/p7-6-fake",
-    task: "fixture", model: "fake-model", reasoningEffort: "medium", mode,
+    task: "fixture", model: "fake-model", reasoningEffort: "none", mode,
     timeoutMs: 10000, networkAllowed: false, sandboxMode: "workspace_write"
   };
 }
@@ -31,7 +31,7 @@ function result(code) {
 const common = {
   taskHash: hash("a"), sourceRepositorySnapshotHash: hash("b"),
   sourceCommitSha: "c".repeat(40), agentId: "codex", agentVersion: "fake-sdk",
-  modelId: "fake-model", reasoningEffort: "medium", validationSpecHash: hash("d"),
+  modelId: "fake-model", reasoningEffort: "none", validationSpecHash: hash("d"),
   networkPolicy: "disabled", timeoutBudget: 300000
 };
 
@@ -48,7 +48,7 @@ async function main() {
     for (const failureCode of ["usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"]) {
       const env = { BOUNDED_CODEX_ACCOUNT_ALIAS: "personal-a", BOUNDED_CODEX_AUTH_MODE: "api_key", CODEX_API_KEY: "fixture-token", BOUNDED_CODEX_MODEL: "fake-model" };
       let paid = 0;
-      const gate = new CodexCompareProviderGate("fake-model", "medium", () => env);
+      const gate = new CodexCompareProviderGate("fake-model", "none", () => env);
       assert.equal(gate.quota, "unknown");
       gate.preflight();
       const fake = { agentId: "codex", agentVersion: "fake-sdk", async run() { paid += 1; return result(failureCode); } };
@@ -68,7 +68,7 @@ async function main() {
 
   const env = { BOUNDED_CODEX_ACCOUNT_ALIAS: "personal-a", BOUNDED_CODEX_AUTH_MODE: "api_key", CODEX_API_KEY: "fixture-token", BOUNDED_CODEX_MODEL: "fake-model" };
   let paid = 0;
-  const gate = new CodexCompareProviderGate("fake-model", "medium", () => env);
+  const gate = new CodexCompareProviderGate("fake-model", "none", () => env);
   const adapter = gate.wrap({ agentId: "codex", agentVersion: "fake-sdk", async run() { paid += 1; return result(null); } });
   assert.equal((await adapter.run(request("baseline"))).status, "completed");
   env.BOUNDED_CODEX_ACCOUNT_ALIAS = "personal-b";
@@ -90,7 +90,7 @@ async function main() {
 
   const altered = { ...env, BOUNDED_CODEX_ACCOUNT_ALIAS: "personal-a", CODEX_API_KEY: "replaced-token" };
   let authPaid = 0;
-  const authGate = new CodexCompareProviderGate("fake-model", "medium", () => altered);
+  const authGate = new CodexCompareProviderGate("fake-model", "none", () => altered);
   const authAdapter = authGate.wrap({ agentId: "codex", agentVersion: "fake-sdk", async run() { authPaid++; return result(null); } });
   assert.equal((await authAdapter.run(request("baseline"))).status, "completed");
   altered.CODEX_API_KEY = "switched-token";
@@ -98,7 +98,7 @@ async function main() {
   assert.equal(authGate.stoppedCode(), "provider_identity_changed");
   assert.equal(authPaid, 1);
 
-  assert.throws(() => new CodexCompareProviderGate("fake-model", "medium", () => ({
+  assert.throws(() => new CodexCompareProviderGate("fake-model", "none", () => ({
     BOUNDED_CODEX_ACCOUNT_ALIAS: "email@example.com", BOUNDED_CODEX_AUTH_MODE: "api_key", CODEX_API_KEY: "token"
   })), /authentication_failed/);
   assert.equal(JSON.stringify(mismatch).includes("fixture-token"), false);

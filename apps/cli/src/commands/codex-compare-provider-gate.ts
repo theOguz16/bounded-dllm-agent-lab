@@ -88,7 +88,7 @@ export class CodexCompareProviderGate {
     private readonly reasoning: string,
     private readonly environment: () => NodeJS.ProcessEnv = () => process.env
   ) {
-    if (!MODEL.test(model) || reasoning !== "medium") throw failure("authentication_failed");
+    if (!MODEL.test(model) || reasoning !== "none") throw failure("authentication_failed");
     const env = environment();
     this.identity = identityOf(env);
     this.initialAuth = authState(env, this.identity.authMode);
@@ -150,11 +150,14 @@ export class CodexCompareProviderGate {
         }
         // A provider exception or stream may have started a charge. Never repeat an
         // uncertain invocation or attempt the other arm after a terminal failure.
-        if (result.status === "failed" || (result.status === "rejected" && result.failureCode)) {
-          const code = result.failureCode && FAILURE_CODES.has(result.failureCode)
-            ? result.failureCode as CompareProviderStopCode
-            : "provider_stream_error_unknown";
-          this.terminal = code;
+        if (result.status !== "completed" || result.diagnostics.some((item) => item.severity === "error")) {
+          const observed = result.failureCode ?? result.diagnostics.find((item) => item.severity === "error")?.code ?? "";
+          const canonical = observed === "codex_provider_auth" ? "authentication_failed"
+            : observed === "codex_provider_quota" ? "usage_limit_exceeded"
+            : observed === "codex_provider_capacity" ? "provider_overloaded"
+            : observed;
+          this.terminal = FAILURE_CODES.has(canonical)
+            ? canonical as CompareProviderStopCode : "provider_stream_error_unknown";
         }
         if (!this.terminal) {
           try { this.verify(); }
