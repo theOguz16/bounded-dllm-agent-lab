@@ -70,6 +70,7 @@ jobs:
           node scripts/smoke/p7-7-worker-termination-smoke.cjs
           node scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
           node benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
       - name: Commit scoped port to its own branch
         shell: bash
         run: |
