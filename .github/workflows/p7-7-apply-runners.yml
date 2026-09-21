@@ -1,0 +1,47 @@
+name: P7.7 One-shot Dogfood Runner Integration
+on:
+  push:
+    branches:
+      - product/p7-7-deadline-worker-termination
+    paths:
+      - .github/workflows/p7-7-apply-runners.yml
+permissions:
+  contents: write
+jobs:
+  apply-once:
+    if: github.repository == 'theOguz16/bounded-dllm-agent-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: product/p7-7-deadline-worker-termination
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply guarded dogfood patch
+        run: node benchmarks/product-v1/p7-7-apply-runners.cjs
+      - run: npm ci
+      - name: Compile and verify fake workers only
+        run: |
+          npm run typecheck
+          npm run build
+          node benchmarks/product-v1/p7-7-worker-smoke.cjs
+          node scripts/smoke/agent-process-control-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+      - name: Commit tested dogfood changes only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- benchmarks/product-v1/dogfood-runner.cjs benchmarks/product-v1/dogfood-resumable-runner.cjs
+          git diff --cached --quiet && exit 1
+          git commit -m 'feat(P7.7): verify child shutdown before continuing dogfood tasks'
+          git push origin HEAD:refs/heads/product/p7-7-deadline-worker-termination
