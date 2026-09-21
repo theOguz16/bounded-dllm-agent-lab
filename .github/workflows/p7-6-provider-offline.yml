@@ -7,12 +7,11 @@ on:
       - "packages/product-runtime/src/agent-comparison-contract.ts"
       - "apps/cli/src/commands/**"
       - "benchmarks/product-v1/**"
-      - "scripts/product/p7-6-finalize-fixup.cjs"
       - ".github/workflows/p7-6-provider-offline.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   offline-provider:
@@ -25,16 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Apply exact Luna none and shared provider gate patch
-        if: ${{ github.head_ref == 'product/p7-6-final-review' }}
-        run: node scripts/product/p7-6-finalize-fixup.cjs
       - name: Typecheck and build (no provider invocation)
         run: npm run typecheck && npm run build
       - name: Deterministic offline provider smokes
@@ -49,13 +45,3 @@ jobs:
           node scripts/smoke/codex-agent-adapter-smoke.cjs
           node scripts/smoke/bounded-compare-codex-smoke.cjs
           node benchmarks/product-v1/dogfood-smoke.cjs
-      - name: Commit reviewed changes only after all checks pass
-        if: ${{ github.head_ref == 'product/p7-6-final-review' }}
-        run: |
-          git diff --check
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add packages/integrations/src/codex-agent-adapter.ts apps/cli/src/commands/codex-compare-provider-gate.ts apps/cli/src/commands/codex.ts apps/cli/src/commands/compare.ts benchmarks/product-v1/p7-6-compare-provider-smoke.cjs benchmarks/product-v1/p7-6-compare-command-smoke.cjs
-          git diff --cached --check
-          git commit -m 'fix(P7.6): propagate Luna none and stop provider on discovery failure [P7.6 PATCHED]'
-          git push origin HEAD:refs/heads/product/p7-6-final-review
