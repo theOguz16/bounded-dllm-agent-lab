@@ -37,6 +37,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       DOGFOOD_MODEL: gpt-5.6-luna
       DOGFOOD_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_AUTH_MODE: api_key
       DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
       DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
       DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
@@ -131,6 +133,8 @@ jobs:
       OPENAI_API_KEY: ""
       DOGFOOD_MODEL: gpt-5.6-luna
       DOGFOOD_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_AUTH_MODE: codex_home
       DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
       DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
       DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
