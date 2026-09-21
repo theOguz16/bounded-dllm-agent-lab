@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "product-dogfood-trusted-acceptance/v3",
+  "suiteId": "product-v1-supported-20-dogfood-v2",
+  "providerVisible": false,
+  "acceptanceFilesMutableByAgent": false,
+  "coverage": "one_historical_task_of_twenty",
+  "entries": [
+    {
+      "taskId": "dogfood.v2.bugfix.failed-resume",
+      "sourceCommitSha": "351aea5db624ecad05a2fc7b096629f61dd379aa",
+      "referenceCommitSha": "a83cf3618a87d8305db1424885acf704fff44a23",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "failed_resume_denied",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-failed-resume-check.cjs",
+          "preloadFile": "benchmarks/product-v1/evaluator/p7-14-provider-block.cjs"
+        }
+      ]
+    }
+  ]
+}
