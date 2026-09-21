@@ -1,0 +1,58 @@
+name: P7.7 One-shot CI Reconcile
+on:
+  push:
+    branches:
+      - product/p7-7-worker-deadline-termination
+    paths:
+      - .github/workflows/p7-7-one-shot-ci-reconcile.yml
+permissions:
+  contents: write
+jobs:
+  reconcile-once:
+    if: github.repository == 'theOguz16/bounded-dllm-agent-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: product/p7-7-worker-deadline-termination
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Reconcile timeout failure contract with hash guard
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const cp = require('node:child_process');
+          const file = 'scripts/product/adversarial-agent-suite.cjs';
+          const expectedBlob = 'd3bb85b3e4e46bde41347a6ae1f4b81dc8af22fe';
+          const actualBlob = cp.execFileSync('git', ['hash-object', file], { encoding: 'utf8' }).trim();
+          if (actualBlob !== expectedBlob) throw Error('Adversarial suite changed; refuse stale one-shot edit.');
+          const before = fs.readFileSync(file, 'utf8');
+          const oldText = 'assert.equal(result.status, "timed_out");\n      assert.equal(result.failureCode, "agent_timeout");\n      assert.equal(aborted, true);\n      return "agent_timeout";';
+          const newText = 'assert.equal(result.status, "timed_out");\n      assert.equal(result.failureCode, "provider_outcome_ambiguous");\n      assert.equal(aborted, true);\n      return "provider_outcome_ambiguous";';
+          if (before.split(oldText).length !== 2) throw Error('Missing or ambiguous timeout assertion; refuse edit.');
+          fs.writeFileSync(file, before.replace(oldText, newText));
+          NODE
+      - run: npm ci
+      - name: Full Product V1 deterministic checks without provider credentials
+        run: npm run product:v1-check
+      - name: P7.7 fake-hang regression
+        run: |
+          node scripts/smoke/p7-7-worker-termination-smoke.cjs
+          node scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
+          node benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
+      - name: Commit only reconciled test when offline checks pass
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- scripts/product/adversarial-agent-suite.cjs
+          git diff --cached --quiet && exit 1
+          git commit -m 'test(P7.7): expect ambiguous provider outcome in adversarial timeout'
+          git push origin HEAD:refs/heads/product/p7-7-worker-deadline-termination
