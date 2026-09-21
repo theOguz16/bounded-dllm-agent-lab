@@ -8,13 +8,20 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
+const {
+  createProviderGate,
+  normalizeProviderFailure,
+  assertSameIdentity
+} = require("./provider-access.cjs");
 
 const repoRoot = path.resolve(__dirname, "../..");
 const suitePath = path.join(repoRoot, "benchmarks/product-v1/dogfood-v1.json");
 const cliPath = path.join(repoRoot, "dist/apps/cli/src/index.js");
-// Coarse outer kill switch only. The comparison runtime owns the authoritative
-// discovery, agent, and validation phase budgets; this envelope must not expire first.
+// Coarse outer kill switch only. The comparison runtime owns phase budgets.
 const DEFAULT_TASK_TIMEOUT_MS = 60 * 60 * 1000;
+const PROVIDER_FAILURES = new Set([
+  "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
+]);
 
 function sha256(value) {
   return `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
@@ -28,30 +35,16 @@ function parseArgs(argv) {
     taskId: null
   };
   for (const arg of argv) {
-    if (arg === "--live") {
-      args.live = true;
-      continue;
-    }
-    if (arg.startsWith("--output=")) {
-      args.output = path.resolve(arg.slice("--output=".length));
-      continue;
-    }
-    if (arg.startsWith("--model=")) {
-      args.model = arg.slice("--model=".length).trim();
-      continue;
-    }
-    if (arg.startsWith("--task-id=")) {
-      args.taskId = arg.slice("--task-id=".length).trim();
-      continue;
-    }
+    if (arg === "--live") { args.live = true; continue; }
+    if (arg.startsWith("--output=")) { args.output = path.resolve(arg.slice("--output=".length)); continue; }
+    if (arg.startsWith("--model=")) { args.model = arg.slice("--model=".length).trim(); continue; }
+    if (arg.startsWith("--task-id=")) { args.taskId = arg.slice("--task-id=".length).trim(); continue; }
     throw new Error(`unknown argument: ${arg}`);
   }
   return args;
 }
 
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"));
-}
+function readJson(file) { return JSON.parse(fs.readFileSync(file, "utf8")); }
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -79,12 +72,9 @@ function requireSuccess(result, label) {
 
 function providerTaskText(task) {
   return [
-    task.objective,
-    "",
-    "Acceptance criteria:",
+    task.objective, "", "Acceptance criteria:",
     ...task.acceptanceCriteria.map((criterion) => `- ${criterion}`),
-    "",
-    "Validation commands:",
+    "", "Validation commands:",
     ...task.validationCommands.map((command) => `- ${command}`)
   ].join("\n");
 }
@@ -94,7 +84,6 @@ function validateSuiteShape(suite, tasks) {
   assert.equal(suite.suiteId, "product-v1-first-20-real-dogfood");
   assert.equal(tasks.length, 20);
   assert.equal(new Set(tasks.map((task) => task.taskId)).size, 20);
-
   const expectedCategories = ["bug_fix", "behavior_change", "regression_test", "small_multi_file"];
   for (const category of expectedCategories) {
     assert.equal(Array.isArray(suite.categories[category]), true);
@@ -103,7 +92,6 @@ function validateSuiteShape(suite, tasks) {
   const listed = expectedCategories.flatMap((category) => suite.categories[category]);
   assert.equal(new Set(listed).size, 20);
   assert.deepEqual([...listed].sort(), tasks.map((task) => task.taskId).sort());
-
   assert.equal(suite.comparison.normalArm, "baseline");
   assert.equal(suite.comparison.boundedArm, "bounded");
   assert.equal(suite.comparison.freshWorkspacePerArm, true);
@@ -123,28 +111,40 @@ function validateSuiteShape(suite, tasks) {
 function parseCliJson(stdout) {
   const text = stdout.trim();
   if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
+  try { return JSON.parse(text); } catch {
     const start = text.lastIndexOf("\n{");
     if (start >= 0) {
-      try {
-        return JSON.parse(text.slice(start + 1));
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(text.slice(start + 1)); } catch { return null; }
     }
     return null;
   }
 }
 
-function redactedFailure(result) {
+function providerCodeFromCompare(parsed, result) {
+  const runtime = parsed?.runtime;
+  const candidates = [
+    runtime?.normal?.failureCode,
+    runtime?.bounded?.failureCode,
+    parsed?.failureCode,
+    parsed?.providerCode
+  ];
+  for (const code of candidates) {
+    if (typeof code === "string" && PROVIDER_FAILURES.has(code)) return code;
+  }
+  // stderr is inspected only in memory. Never persist the stream or a credential hash.
+  if (result.status !== 0 || result.error) {
+    const extracted = normalizeProviderFailure({ message: result.stderr, cause: result.error });
+    if (extracted !== "provider_stream_error_unknown") return extracted;
+  }
+  return null;
+}
+
+function redactedFailure(result, providerCode = null) {
   return {
+    code: providerCode || "dogfood_compare_failed",
     exitCode: result.status,
     signal: result.signal,
-    processError: result.error,
-    stdoutHash: sha256(result.stdout),
-    stderrHash: sha256(result.stderr),
+    processError: result.error ? "process_error" : null,
     stdoutBytes: Buffer.byteLength(result.stdout),
     stderrBytes: Buffer.byteLength(result.stderr)
   };
@@ -152,21 +152,14 @@ function redactedFailure(result) {
 
 function cloneFixedTask(task, root) {
   const checkout = path.join(root, "source");
-  const clone = run("git", [
-    "clone",
-    "--quiet",
-    "--no-checkout",
-    `https://github.com/${task.repo}.git`,
-    checkout
-  ], { timeout: 120_000 });
+  const clone = run("git", ["clone", "--quiet", "--no-checkout", `https://github.com/${task.repo}.git`, checkout], {
+    timeout: 120_000
+  });
   requireSuccess(clone, `clone ${task.taskId}`);
-
   const checkoutResult = run("git", ["checkout", "--quiet", "--detach", task.commitSha], {
-    cwd: checkout,
-    timeout: 60_000
+    cwd: checkout, timeout: 60_000
   });
   requireSuccess(checkoutResult, `checkout ${task.taskId}`);
-
   const head = run("git", ["rev-parse", "HEAD"], { cwd: checkout, timeout: 10_000 });
   requireSuccess(head, `head ${task.taskId}`);
   assert.equal(head.stdout.trim().toLowerCase(), task.commitSha);
@@ -175,9 +168,7 @@ function cloneFixedTask(task, root) {
 
 function initializeBounded(checkout, env) {
   const result = run(process.execPath, [cliPath, "init", "--json"], {
-    cwd: checkout,
-    env,
-    timeout: 60_000
+    cwd: checkout, env, timeout: 60_000
   });
   requireSuccess(result, "bounded init");
 }
@@ -198,48 +189,38 @@ async function loadTasks() {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const { suite, tasks: allTasks } = await loadTasks();
-  const tasks = args.taskId
-    ? allTasks.filter((task) => task.taskId === args.taskId)
-    : allTasks;
-  if (args.taskId && tasks.length !== 1) {
-    throw new Error(`unknown task id: ${args.taskId}`);
-  }
+  const tasks = args.taskId ? allTasks.filter((task) => task.taskId === args.taskId) : allTasks;
+  if (args.taskId && tasks.length !== 1) throw new Error(`unknown task id: ${args.taskId}`);
 
   if (!args.live) {
     const plan = {
-      ok: true,
-      mode: "check",
-      schemaVersion: "product-dogfood-run-plan/v1",
-      suiteId: suite.suiteId,
-      taskCount: allTasks.length,
-      distribution: Object.fromEntries(
-        Object.entries(suite.categories).map(([key, value]) => [key, value.length])
-      ),
-      comparison: suite.comparison,
-      liveProviderCalls: false
+      ok: true, mode: "check", schemaVersion: "product-dogfood-run-plan/v1",
+      suiteId: suite.suiteId, taskCount: allTasks.length,
+      distribution: Object.fromEntries(Object.entries(suite.categories).map(([key, value]) => [key, value.length])),
+      comparison: suite.comparison, liveProviderCalls: false
     };
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return;
   }
 
-  if (!args.model) {
-    throw new Error("live dogfood requires --model or BOUNDED_CODEX_MODEL/CODEX_MODEL");
-  }
-  if (!process.env.CODEX_API_KEY && !process.env.OPENAI_API_KEY && !process.env.CODEX_HOME) {
-    throw new Error("live dogfood requires Codex authentication configuration");
-  }
-  if (!fs.existsSync(cliPath)) {
-    throw new Error("live dogfood requires a built CLI");
-  }
+  if (!args.model) throw new Error("live dogfood requires --model or BOUNDED_CODEX_MODEL/CODEX_MODEL");
+  // Explicit account alias and auth mode are mandatory; no credential-derived IDs.
+  const baseEnv = { ...process.env, BOUNDED_CODEX_MODEL: args.model };
+  const access = createProviderGate({
+    model: args.model,
+    reasoning: suite.comparison.reasoningEffort,
+    env: baseEnv
+  });
+  if (!fs.existsSync(cliPath)) throw new Error("live dogfood requires a built CLI");
 
   const startedAt = new Date().toISOString();
   const results = [];
-  const baseEnv = {
-    ...process.env,
-    BOUNDED_CODEX_MODEL: args.model
-  };
+  const providerIdentity = access.identity;
+  let stoppedProviderCode = null;
 
   for (const task of tasks) {
+    // A prior auth/quota failure prevents every subsequent paid invocation.
+    if (access.stopCode() !== null) { stoppedProviderCode = access.stopCode(); break; }
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-dogfood-"));
     const prompt = providerTaskText(task);
     const record = {
@@ -249,6 +230,8 @@ async function main() {
       validationHash: sha256(JSON.stringify(task.validationCommands)),
       model: args.model,
       reasoningEffort: suite.comparison.reasoningEffort,
+      providerIdentity,
+      quotaStatus: "unknown",
       attempt: 1,
       retryCount: 0,
       hiddenHintsInjected: false,
@@ -259,27 +242,21 @@ async function main() {
     };
 
     try {
+      assertSameIdentity(providerIdentity, access.beforeInvocation());
       const checkout = cloneFixedTask(task, tempRoot);
       initializeBounded(checkout, baseEnv);
-
-      // Exactly one comparison invocation per task. The comparison runner creates
-      // one fresh Normal workspace and one fresh Bounded workspace. There is no
-      // retry, prompt mutation, or evaluator/oracle input on either arm.
+      // Exactly one comparison invocation; no automatic retry or prompt mutation.
+      assertSameIdentity(providerIdentity, access.beforeInvocation());
       const compare = run(process.execPath, [
-        cliPath,
-        "compare",
-        "codex",
-        "--task",
-        prompt,
-        "--json"
-      ], {
-        cwd: checkout,
-        env: baseEnv,
-        timeout: DEFAULT_TASK_TIMEOUT_MS
-      });
+        cliPath, "compare", "codex", "--task", prompt, "--json"
+      ], { cwd: checkout, env: baseEnv, timeout: DEFAULT_TASK_TIMEOUT_MS });
 
       const parsed = parseCliJson(compare.stdout);
-      if (compare.error || compare.status !== 0 || !parsed) {
+      const providerCode = providerCodeFromCompare(parsed, compare);
+      if (providerCode !== null) {
+        record.failure = redactedFailure(compare, access.observeFailure({ code: providerCode }));
+        stoppedProviderCode = providerCode;
+      } else if (compare.error || compare.status !== 0 || !parsed) {
         record.failure = redactedFailure(compare);
       } else {
         assert.equal(parsed.task, prompt);
@@ -293,20 +270,27 @@ async function main() {
         record.pairCompleted = true;
         record.result = parsed;
       }
-
+      // Catch a CODEX_HOME login switch during the comparison process.
+      access.afterInvocation();
       const headAfter = run("git", ["rev-parse", "HEAD"], { cwd: checkout, timeout: 10_000 });
       requireSuccess(headAfter, `post-run head ${task.taskId}`);
       assert.equal(headAfter.stdout.trim().toLowerCase(), task.commitSha);
     } catch (error) {
+      record.pairCompleted = false;
+      record.result = null;
       record.failure = {
-        code: "dogfood_task_infrastructure_failure",
-        message: error instanceof Error ? error.message : String(error)
+        code: typeof error?.code === "string" ? error.code : "dogfood_task_infrastructure_failure"
       };
+      if (record.failure.code === "authentication_failed" || record.failure.code === "usage_limit_exceeded" ||
+          record.failure.code === "provider_identity_changed") {
+        stoppedProviderCode = record.failure.code;
+      }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });
     }
 
     results.push(record);
+    if (stoppedProviderCode !== null) break;
   }
 
   const completedPairCount = results.filter((entry) => entry.pairCompleted).length;
@@ -317,6 +301,10 @@ async function main() {
     completedAt: new Date().toISOString(),
     model: args.model,
     reasoningEffort: suite.comparison.reasoningEffort,
+    providerIdentity,
+    quotaStatus: "unknown",
+    stoppedProviderCode,
+    plannedTaskCount: tasks.length,
     taskCount: results.length,
     completedPairCount,
     expectedAgentRuns: results.length * 2,
@@ -334,13 +322,12 @@ async function main() {
     fs.writeFileSync(args.output, serialized, { mode: 0o600 });
   }
   process.stdout.write(serialized);
-
-  if (completedPairCount !== results.length) {
-    process.exitCode = 2;
-  }
+  if (completedPairCount !== tasks.length) process.exitCode = 2;
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  // Do not print auth file paths, tokens, account emails, or credential hashes.
+  console.error(error && typeof error.code === "string" ? error.code :
+    error instanceof Error ? error.message : "dogfood_runner_failed");
   process.exitCode = 1;
 });
