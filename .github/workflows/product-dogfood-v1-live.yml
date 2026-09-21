@@ -70,11 +70,14 @@ jobs:
             --output="${DOGFOOD_PREFLIGHT}"
 
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: First approved live access probe (maximum one SDK invocation)
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ env.DOGFOOD_ACCOUNT_ALIAS }}
+          BOUNDED_CODEX_AUTH_MODE: api_key
           BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
+          BOUNDED_CODEX_PROVIDER_INVOCATION_BUDGET: "1"
         run: |
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
@@ -155,11 +158,14 @@ jobs:
             --output="${DOGFOOD_PREFLIGHT}"
 
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: First approved live access probe (maximum one SDK invocation)
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ env.DOGFOOD_ACCOUNT_ALIAS }}
+          BOUNDED_CODEX_AUTH_MODE: codex_home
           BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
+          BOUNDED_CODEX_PROVIDER_INVOCATION_BUDGET: "1"
         run: |
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
