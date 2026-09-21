@@ -5,6 +5,7 @@ on:
       - product/p7-7-worker-deadline-termination
     paths:
       - benchmarks/product-v1/p7-7-apply-revision.cjs
+      - .github/workflows/p7-7-apply-revision.yml
 permissions:
   contents: write
 jobs:
