@@ -15,9 +15,14 @@ on:
         required: true
         type: string
       approve_first_live_attempt:
-        description: Explicitly approve one budgeted provider access attempt
+        description: Explicitly approve exactly one first-live SDK turn (no automatic replay)
         required: true
         type: boolean
+      approve_full_dogfood_run:
+        description: SEPARATE consent for up to 20 Normal/Bounded pairs after the single first-live probe succeeds
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +40,7 @@ jobs:
       DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
       DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
       DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
+      DOGFOOD_PROBE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-first-live-probe.json
 
     steps:
       - name: Initialize redacted startup diagnostic
@@ -56,6 +62,7 @@ jobs:
       - name: Fail-closed live auth preflight
         run: |
           test "${{ inputs.approve_first_live_attempt }}" = "true"
+          test "${{ github.run_attempt }}" = "1"
           node benchmarks/product-v1/dogfood-auth-preflight.cjs \
             --mode=api_key \
             --model="${DOGFOOD_MODEL}" \
@@ -69,40 +76,47 @@ jobs:
             --check-runtime \
             --output="${DOGFOOD_PREFLIGHT}"
 
+      - name: One approved first-live SDK turn (not the 20-pair run)
+        run: node benchmarks/product-v1/dogfood-first-live-probe.cjs "${DOGFOOD_PREFLIGHT}" "${DOGFOOD_PROBE}"
+
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: Run separately approved 20 fresh Normal/Bounded dogfood pairs
+        if: ${{ inputs.approve_full_dogfood_run }}
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
           BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
+          test "${{ inputs.approve_full_dogfood_run }}" = "true"
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
             --model="${DOGFOOD_MODEL}" \
             --output="${DOGFOOD_EVIDENCE}"
 
       - name: Enforce P7.2 live completion gate
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node benchmarks/product-v1/dogfood-live-gate.cjs \
             --input="${DOGFOOD_EVIDENCE}"
 
       - name: Build P7.3 dogfood report
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node scripts/product/build-dogfood-report.cjs \
             --input="${DOGFOOD_EVIDENCE}" \
             --output-dir="${DOGFOOD_REPORT_DIR}"
 
-      - name: Upload dogfood evidence and report
+      - name: Upload bounded probe, dogfood evidence and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: product-dogfood-v1-live-api-key
           path: |
+            ${{ env.DOGFOOD_PREFLIGHT }}
+            ${{ env.DOGFOOD_PROBE }}
+            ${{ env.DOGFOOD_PROBE }}.reservation.json
             ${{ env.DOGFOOD_EVIDENCE }}
             ${{ env.DOGFOOD_EVIDENCE }}.checkpoint.json
-            ${{ env.DOGFOOD_PREFLIGHT }}
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.md
           if-no-files-found: error
@@ -120,6 +134,7 @@ jobs:
       DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
       DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
       DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
+      DOGFOOD_PROBE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-first-live-probe.json
 
     steps:
       - name: Initialize redacted startup diagnostic
@@ -141,6 +156,7 @@ jobs:
       - name: Fail-closed pre-authenticated Codex preflight
         run: |
           test "${{ inputs.approve_first_live_attempt }}" = "true"
+          test "${{ github.run_attempt }}" = "1"
           node benchmarks/product-v1/dogfood-auth-preflight.cjs \
             --mode=codex_home \
             --model="${DOGFOOD_MODEL}" \
@@ -154,40 +170,47 @@ jobs:
             --check-runtime \
             --output="${DOGFOOD_PREFLIGHT}"
 
+      - name: One approved first-live SDK turn (not the 20-pair run)
+        run: node benchmarks/product-v1/dogfood-first-live-probe.cjs "${DOGFOOD_PREFLIGHT}" "${DOGFOOD_PROBE}"
+
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: Run separately approved 20 fresh Normal/Bounded dogfood pairs
+        if: ${{ inputs.approve_full_dogfood_run }}
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
           BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
+          test "${{ inputs.approve_full_dogfood_run }}" = "true"
           node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
             --model="${DOGFOOD_MODEL}" \
             --output="${DOGFOOD_EVIDENCE}"
 
       - name: Enforce P7.2 live completion gate
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node benchmarks/product-v1/dogfood-live-gate.cjs \
             --input="${DOGFOOD_EVIDENCE}"
 
       - name: Build P7.3 dogfood report
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node scripts/product/build-dogfood-report.cjs \
             --input="${DOGFOOD_EVIDENCE}" \
             --output-dir="${DOGFOOD_REPORT_DIR}"
 
-      - name: Upload dogfood evidence and report
+      - name: Upload bounded probe, dogfood evidence and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: product-dogfood-v1-live-codex-home
           path: |
+            ${{ env.DOGFOOD_PREFLIGHT }}
+            ${{ env.DOGFOOD_PROBE }}
+            ${{ env.DOGFOOD_PROBE }}.reservation.json
             ${{ env.DOGFOOD_EVIDENCE }}
             ${{ env.DOGFOOD_EVIDENCE }}.checkpoint.json
-            ${{ env.DOGFOOD_PREFLIGHT }}
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.md
           if-no-files-found: error
