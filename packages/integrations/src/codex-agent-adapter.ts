@@ -38,9 +38,12 @@ import {
   type CodexEventParserResult,
   type CodexNormalizedCommandEvent
 } from "./codex-event-parser.js";
+import { normalizeCodexProviderFailure } from "./codex-provider-access.js";
 
 export const CODEX_AGENT_ID = "codex" as const;
 export const CODEX_SDK_VERSION = "0.153.4" as const;
+// A single top-level SDK invocation is allowed for the separately approved first-access probe.
+let firstAccessInvocationCount = 0;
 
 export interface CodexSdkStreamLike {
   readonly events: AsyncIterable<unknown>;
@@ -79,7 +82,9 @@ function diagnostic(
 function mapReasoningEffort(effort: AgentReasoningEffort): ModelReasoningEffort {
   switch (effort) {
     case "none":
-      return "minimal";
+      // SDK typing is narrower than the installed Codex CLI config; exact runtime
+      // compatibility is separately checked by the offline preflight. No fallback.
+      return "none" as unknown as ModelReasoningEffort;
     case "low":
       return "low";
     case "medium":
@@ -348,6 +353,18 @@ export class CodexAgentAdapter implements AgentAdapter {
       throw error;
     }
 
+    if (process.env.BOUNDED_CODEX_PROVIDER_INVOCATION_BUDGET === "1") {
+      if (firstAccessInvocationCount >= 1) {
+        processControl.close();
+        return emptyResult(request, "rejected", Math.max(0, this.now() - startedAtMs), [
+          diagnostic("codex_first_live_attempt_budget_exhausted", "error",
+            "The approved first access was limited to one SDK invocation.")
+        ]);
+      }
+      // Reserve before constructing a client or starting a provider stream.
+      firstAccessInvocationCount += 1;
+    }
+
     const threadOptions: ThreadOptions = {
       workingDirectory: request.workingDirectory,
       model: request.model,
@@ -395,14 +412,13 @@ export class CodexAgentAdapter implements AgentAdapter {
           streamError = budgetError;
         }
         if (processControl.failure() === null) {
-          adapterDiagnostics.push(
-            diagnostic(
-              "codex_sdk_error",
-              "error",
-              message,
-              true
-            )
-          );
+          const providerFailure = normalizeCodexProviderFailure(error);
+          const code = providerFailure === "authentication_failed" ? "codex_provider_auth"
+            : providerFailure === "usage_limit_exceeded" ? "codex_provider_quota"
+            : providerFailure === "provider_overloaded" ? "codex_provider_capacity"
+            : "codex_sdk_error";
+          adapterDiagnostics.push(diagnostic(code, "error",
+            "Codex provider invocation failed; raw error details were not persisted.", false));
         }
       }
     } finally {
