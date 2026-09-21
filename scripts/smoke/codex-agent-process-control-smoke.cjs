@@ -167,7 +167,9 @@ async function main() {
     timeoutMs: 1_000,
     processBudget: { totalTimeoutMs: 15 }
   }));
-  assertFailure(timedOut, "agent_timeout", "timed_out");
+  assert.equal(timedOut.status, "timed_out");
+  assert.equal(timedOut.failureCode, "provider_outcome_ambiguous");
+  assert.equal(timedOut.diagnostics.some((entry) => entry.code === "agent_timeout"), true);
   assert.equal(timeoutCapture.aborted, true);
   assert.equal(timeoutCapture.turnOptions.signal.aborted, true);
 
@@ -175,8 +177,9 @@ async function main() {
     ok: true,
     adapter: "CodexAgentAdapter",
     timeoutViaAbortSignal: true,
+    timeoutProviderOutcome: "provider_outcome_ambiguous",
     deterministicFailures: [
-      "agent_timeout",
+      "provider_outcome_ambiguous",
       "agent_output_limit",
       "agent_event_budget_exceeded",
       "agent_command_budget_exceeded",
