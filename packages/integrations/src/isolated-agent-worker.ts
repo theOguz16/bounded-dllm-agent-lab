@@ -151,7 +151,7 @@ export function runIsolatedAgentWorker(input: IsolatedAgentWorkerInput): Promise
     try {
       child = fork(input.workerPath, [], {
         detached: true, stdio: ["ignore", "ignore", "ignore", "ipc"],
-        env: input.environment, execArgv: [], windowsHide: true
+        env: input.environment, execArgv: []
       });
     } catch {
       // Fork failure is a failed invocation, never an assumption of clean shutdown.

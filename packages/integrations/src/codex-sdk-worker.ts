@@ -25,7 +25,7 @@ function send(value: Readonly<Record<string, unknown>>): Promise<void> {
 process.on("disconnect", () => controller.abort());
 process.on("message", (message: unknown) => {
   if (!message || typeof message !== "object") return;
-  const envelope = message as Partial<StartMessage> & { type?: string };
+  const envelope = message as { type?: string; payload?: StartMessage["payload"] };
   if (envelope.type === "abort") { controller.abort(); return; }
   if (envelope.type !== "start" || started || !envelope.payload) return;
   started = true;

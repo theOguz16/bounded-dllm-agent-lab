@@ -2,6 +2,7 @@ import type {
   AgentProcessBudgetOverrides,
   AgentProcessFailureCode
 } from "./agent-process-control.js";
+import type { AgentWorkerLifecycle } from "./isolated-agent-worker.js";
 
 export type AgentRunStatus =
   | "completed"
@@ -108,6 +109,8 @@ export interface AgentRunResult {
   commands: AgentCommandEvent[];
   fileChanges: AgentFileChangeEvent[];
   diagnostics: AgentDiagnostic[];
+  /** Non-secret timestamps and confirmed worker exit, or absent for legacy fakes. */
+  workerLifecycle?: AgentWorkerLifecycle;
 }
 
 export interface AgentAdapter {
