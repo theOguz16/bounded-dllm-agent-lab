@@ -17,6 +17,7 @@ import {
   type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
+import { CodexCompareProviderGate, type CompareProviderIdentity } from "./codex-compare-provider-gate.js";
 import {
   createDisposableAgentWorkspace,
   executionOrderForTaskHash,
@@ -51,11 +52,13 @@ import {
 
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
 export const BOUNDED_COMPARE_RUNTIME_VERSION = "canonical-bounded-compare/v1" as const;
-export const BOUNDED_COMPARE_REASONING = "medium" as const;
+export const BOUNDED_COMPARE_REASONING = "none" as const;
 export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
+const P7_7_TERMINAL_FAILURES = new Set(["provider_outcome_ambiguous", "worker_termination_failed",
+  "invocation_replay_forbidden", "invocation_journal_unavailable"]);
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
@@ -107,6 +110,12 @@ export type CompareCodexOutput = Readonly<{
   task: string;
   comparable: boolean;
   identityMismatchFields: readonly string[];
+  /** The full v2 comparison contract contains only non-secret operator aliases. */
+  providerComparison: ReturnType<typeof createAgentComparisonContract>;
+  providerIdentity: CompareProviderIdentity | null;
+  quotaStatus: "unknown";
+  providerFailureCode: string | null;
+  terminalFailureCode: string | null;
   executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
@@ -148,6 +157,8 @@ export type CompareCodexOutput = Readonly<{
 export type CompareCodexDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
+  /** Injected only by deterministic offline tests; live CLI builds its own gate. */
+  providerGate?: CodexCompareProviderGate;
   discover?: typeof discoverCodexScope;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
 }>;
@@ -440,12 +451,12 @@ function evaluateArm(input: Readonly<{
   const evaluation = evaluateProductComparison({
     correctness: {
       controlPassed: controls,
-      behaviorSatisfied: behavior,
-      taskSucceeded: succeeded,
+      taskSucceeded: succeeded === false ? false : null,
       testsPassed: behavior,
       buildPassed: build,
       typecheckPassed: typecheck
     },
+    behaviorEvidence: null,
     control: {
       scopeViolationCount,
       forbiddenTouchCount,
@@ -620,7 +631,20 @@ export async function compareCodexCommand(
   const model = await resolveCodexModel(dependencies.model);
   const sourceCommitSha = gitHead(repositoryRoot);
   const sourceBefore = createCanonicalRepositoryContentSnapshot(repositoryRoot);
-  const adapter = dependencies.adapter ?? new CodexAgentAdapter();
+  // One shared gate covers discovery and both arms. Fake adapters keep the
+  // legacy v1 path unless an offline test explicitly injects a gate.
+  let providerGate: CodexCompareProviderGate | null;
+  try {
+    providerGate = dependencies.providerGate ??
+      (dependencies.adapter ? null : new CodexCompareProviderGate(model, BOUNDED_COMPARE_REASONING));
+    providerGate?.preflight(); // Local filesystem/env only; no paid SDK call.
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error &&
+      typeof error.code === "string" ? error.code : "authentication_failed";
+    throw new CliError(code, "Codex local provider access/identity preflight failed.", 5);
+  }
+  const rawAdapter = dependencies.adapter ?? new CodexAgentAdapter();
+  const adapter = providerGate ? providerGate.wrap(rawAdapter) : rawAdapter;
 
   let discovery: CodexScopeDiscoveryResult | null = null;
   let discoveryFailure: CodexScopeDiscoveryError | null = null;
@@ -641,6 +665,10 @@ export async function compareCodexCommand(
     } else {
       throw error;
     }
+  }
+  if (discoveryFailure !== null && P7_7_TERMINAL_FAILURES.has(discoveryFailure.failureCode)) {
+    // A possibly charged discovery must never be followed by either arm.
+    throw new CliError(discoveryFailure.failureCode, "Discovery invocation outcome blocks further provider calls.", 4);
   }
   const discoveryDurationMs = Math.max(0, Date.now() - discoveryStarted);
 
@@ -691,9 +719,9 @@ export async function compareCodexCommand(
     reasoningEffort: BOUNDED_COMPARE_REASONING,
     validationSpecHash,
     networkPolicy: BOUNDED_COMPARE_NETWORK_POLICY,
-    timeoutBudget: BOUNDED_COMPARE_AGENT_TIMEOUT_MS
+    timeoutBudget: BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
+    ...(providerGate ? providerGate.identity : {})
   });
-  const comparison = createAgentComparisonContract({ baseline: identity, bounded: identity });
   const executionOrder = executionOrderForTaskHash(identity.taskHash);
 
   const baselineWorkspace = await createDisposableAgentWorkspace({
@@ -707,8 +735,12 @@ export async function compareCodexCommand(
 
   let normalExecution: ArmExecution | null = null;
   let boundedExecution: ArmExecution | null = null;
+  let terminalFailureCode: string | null = null;
   try {
     for (const arm of executionOrder) {
+      // Stop BEFORE starting the other arm, even when the first arm has already
+      // consumed quota or returned a partial/ambiguous provider stream.
+      if (providerGate?.stoppedCode() || terminalFailureCode !== null) break;
       if (arm === "baseline") {
         const started = Date.now();
         const run = await adapter.run({
@@ -752,6 +784,10 @@ export async function compareCodexCommand(
           repairRounds: 0,
           durationMs: Math.max(0, Date.now() - started - validation.durationMs)
         });
+        if (runtimeFailureCode !== null && P7_7_TERMINAL_FAILURES.has(runtimeFailureCode)) {
+          terminalFailureCode = runtimeFailureCode;
+          break;
+        }
         continue;
       }
 
@@ -768,6 +804,7 @@ export async function compareCodexCommand(
             {
               adapter: boundedAdapter,
               model,
+              reasoningEffort: BOUNDED_COMPARE_REASONING,
               validationProfile: "structural_draft",
               runTask: async (input) => {
                 capture.input = input;
@@ -831,9 +868,32 @@ export async function compareCodexCommand(
           Date.now() - started - validation.durationMs + discoveryDurationMs
         )
       });
+      const boundedTerminal = boundedRuns.find((entry) =>
+        typeof entry.failureCode === "string" && P7_7_TERMINAL_FAILURES.has(entry.failureCode)
+      )?.failureCode ?? null;
+      if (boundedTerminal !== null) {
+        terminalFailureCode = boundedTerminal;
+        break;
+      }
     }
   } finally {
     await rm(baselineWorkspace.workspacePath, { recursive: true, force: true });
+  }
+
+  const providerFailureCode = providerGate?.stoppedCode() ?? null;
+  const stopFailureCode = providerFailureCode ?? terminalFailureCode;
+  if (stopFailureCode !== null) {
+    // Preserve an explicit non-comparable receipt for the arm that was never
+    // invoked. No fake success and no extra paid invocation.
+    const blocked = evaluateArm({
+      runtimeCompleted: false, runtimeStatus: "blocked",
+      runtimeFailureCode: stopFailureCode, validation: emptyValidation(),
+      changedFiles: [], approvedMutableFiles, controlAvailable: discovery !== null,
+      forbiddenFiles, runs: [], exposedFiles: 0, exposedBytes: 0,
+      repairRounds: 0, durationMs: 0
+    });
+    normalExecution ??= blocked;
+    boundedExecution ??= blocked;
   }
 
   if (normalExecution === null || boundedExecution === null) {
@@ -853,15 +913,26 @@ export async function compareCodexCommand(
     );
   }
 
+  const comparison = createAgentComparisonContract({
+    baseline: { ...identity, ...(providerGate ? providerGate.armIdentity("baseline") : {}) },
+    bounded: { ...identity, ...(providerGate ? providerGate.armIdentity("bounded") : {}) }
+  });
+  const comparable = comparison.comparable && stopFailureCode === null;
+
   const output: CompareCodexOutput = Object.freeze({
-    ok: comparison.comparable,
+    ok: comparable,
     command: "compare",
     target: "codex",
     compareVersion: BOUNDED_COMPARE_CODEX_VERSION,
     comparisonRuntimeVersion: BOUNDED_COMPARE_RUNTIME_VERSION,
     task,
-    comparable: comparison.comparable,
+    comparable,
     identityMismatchFields: Object.freeze([...comparison.identityMismatchFields]),
+    providerComparison: comparison,
+    providerIdentity: providerGate?.identity ?? null,
+    quotaStatus: "unknown",
+    providerFailureCode,
+    terminalFailureCode: stopFailureCode,
     executionOrder,
     model,
     reasoning: BOUNDED_COMPARE_REASONING,
@@ -900,5 +971,5 @@ export async function compareCodexCommand(
     sourceRepositoryUnchanged: true
   });
 
-  return { output, exitCode: comparison.comparable ? 0 : 4 };
+  return { output, exitCode: comparable ? 0 : 4 };
 }

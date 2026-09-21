@@ -27,6 +27,12 @@ The live report is evidence, not a success-only report: failed or non-comparable
 
 ## Live authentication modes
 
+Future P7.6 runs pin `gpt-5.6-luna` with reasoning `none`. The API model page documents `none` as a supported API reasoning value, but that does not prove the installed Codex CLI path or the selected account can use it. Preflight therefore requires the installed path to accept the exact configuration and forbids silent Sol fallback. Local API-key/login state is recorded only as present, never as proof of provider access.
+
+The first provider access attempt requires an explicit workflow approval and has a one-invocation discovery budget. When no reliable free quota query exists, quota remains `unknown`; API pricing is not converted into a Plus allowance. Provider endpoint access is a separate policy from agent and validation network access, which remain disabled. A stable non-secret account alias is pinned for the run.
+
+Provider failures are classified as `auth`, `quota`, `capacity`, or `unknown`. Auth and quota open a terminal circuit: subsequent invocation reservations are zero. Capacity and unknown remain distinguishable and are not mislabeled as quota. Diagnostics persist only bounded codes/hashes and never credentials, sessions, or tokens.
+
 Manual `workflow_dispatch` supports exactly two authentication paths:
 
 - `api_key`: runs on GitHub-hosted `ubuntu-latest` and requires `CODEX_API_KEY` or `OPENAI_API_KEY` in GitHub Actions secrets.
@@ -35,6 +41,8 @@ Manual `workflow_dispatch` supports exactly two authentication paths:
 The benchmark does not require every user to own a separate API key. A self-hosted runner that is already authenticated with Codex can run P7.2 through `auth_mode=codex_home`.
 
 Credential contents are not copied into the repository, Actions secrets, logs, or live evidence artifacts. The self-hosted preflight checks only whether usable local Codex auth state is available and carries forward the resolved Codex home path for the live runner.
+
+The live workflow creates a redacted diagnostic before checkout or dependency preparation. Before any paid agent invocation it then verifies authentication, the exact configured model and provider reachability through `codex doctor`, runner OS/architecture identity, the npm lockfile, `npm ci` output, the built CLI, and the Codex CLI. A failed or skipped agent execution cannot satisfy the live completion gate. Interrupted runs retain a checkpoint: completed task pairs are not replayed, while an in-flight or failed invocation is treated as ambiguous and cannot be silently retried. Failures are recorded separately as `infrastructure`, `agent`, or `acceptance`.
 
 ## P7.2 live completion gate
 

@@ -10,10 +10,19 @@ on:
         options:
           - api_key
           - codex_home
-      model:
-        description: Exact Codex model id for all 20 Normal/Bounded pairs
+      account_alias:
+        description: Stable non-secret account alias pinned for the complete run
         required: true
         type: string
+      approve_first_live_attempt:
+        description: Explicitly approve exactly one first-live SDK turn (no automatic replay)
+        required: true
+        type: boolean
+      approve_full_dogfood_run:
+        description: SEPARATE consent for up to 20 Normal/Bounded pairs after the single first-live probe succeeds
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,16 +31,27 @@ jobs:
   api-key-live:
     if: ${{ inputs.auth_mode == 'api_key' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 600
     env:
       CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      DOGFOOD_MODEL: ${{ inputs.model }}
-      DOGFOOD_EVIDENCE: ${{ runner.temp }}/product-dogfood-v1-live.json
-      DOGFOOD_REPORT_DIR: ${{ runner.temp }}/product-dogfood-report
+      DOGFOOD_MODEL: gpt-5.6-luna
+      DOGFOOD_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_AUTH_MODE: api_key
+      DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
+      DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
+      DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
+      DOGFOOD_PROBE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-first-live-probe.json
 
     steps:
+      - name: Initialize redacted startup diagnostic
+        run: |
+          node -e 'require("node:fs").writeFileSync(process.env.DOGFOOD_PREFLIGHT, JSON.stringify({schemaVersion:"product-dogfood-preflight-diagnostic/v2",ok:false,failureDomain:"infrastructure",failureCode:"workflow_startup_incomplete",message:"Workflow did not complete paid-call preflight.",quota:{status:"unknown"},paidModelCalls:0},null,2)+"\n",{mode:0o600})'
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -43,42 +63,62 @@ jobs:
 
       - name: Fail-closed live auth preflight
         run: |
+          test "${{ inputs.approve_first_live_attempt }}" = "true"
+          test "${{ github.run_attempt }}" = "1"
           node benchmarks/product-v1/dogfood-auth-preflight.cjs \
             --mode=api_key \
             --model="${DOGFOOD_MODEL}" \
-            --runner-environment="${{ runner.environment }}"
+            --reasoning=none \
+            --account-alias="${DOGFOOD_ACCOUNT_ALIAS}" \
+            --approve-first-live-attempt \
+            --first-live-attempt-budget=1 \
+            --runner-environment="${{ runner.environment }}" \
+            --runner-os="${{ runner.os }}" \
+            --runner-arch="${{ runner.arch }}" \
+            --check-runtime \
+            --output="${DOGFOOD_PREFLIGHT}"
+
+      - name: One approved first-live SDK turn (not the 20-pair run)
+        run: node benchmarks/product-v1/dogfood-first-live-probe.cjs "${DOGFOOD_PREFLIGHT}" "${DOGFOOD_PROBE}"
 
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: Run separately approved 20 fresh Normal/Bounded dogfood pairs
+        if: ${{ inputs.approve_full_dogfood_run }}
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
-          node benchmarks/product-v1/dogfood-runner.cjs \
+          test "${{ inputs.approve_full_dogfood_run }}" = "true"
+          node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
             --model="${DOGFOOD_MODEL}" \
             --output="${DOGFOOD_EVIDENCE}"
 
       - name: Enforce P7.2 live completion gate
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node benchmarks/product-v1/dogfood-live-gate.cjs \
             --input="${DOGFOOD_EVIDENCE}"
 
       - name: Build P7.3 dogfood report
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node scripts/product/build-dogfood-report.cjs \
             --input="${DOGFOOD_EVIDENCE}" \
             --output-dir="${DOGFOOD_REPORT_DIR}"
 
-      - name: Upload dogfood evidence and report
+      - name: Upload bounded probe, dogfood evidence and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: product-dogfood-v1-live-api-key
           path: |
+            ${{ env.DOGFOOD_PREFLIGHT }}
+            ${{ env.DOGFOOD_PROBE }}
+            ${{ env.DOGFOOD_PROBE }}.reservation.json
             ${{ env.DOGFOOD_EVIDENCE }}
+            ${{ env.DOGFOOD_EVIDENCE }}.checkpoint.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.md
           if-no-files-found: error
@@ -87,16 +127,27 @@ jobs:
   codex-home-live:
     if: ${{ inputs.auth_mode == 'codex_home' }}
     runs-on: self-hosted
-    timeout-minutes: 240
+    timeout-minutes: 600
     env:
       CODEX_API_KEY: ""
       OPENAI_API_KEY: ""
-      DOGFOOD_MODEL: ${{ inputs.model }}
-      DOGFOOD_EVIDENCE: ${{ runner.temp }}/product-dogfood-v1-live.json
-      DOGFOOD_REPORT_DIR: ${{ runner.temp }}/product-dogfood-report
+      DOGFOOD_MODEL: gpt-5.6-luna
+      DOGFOOD_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_ACCOUNT_ALIAS: ${{ inputs.account_alias }}
+      BOUNDED_CODEX_AUTH_MODE: codex_home
+      DOGFOOD_EVIDENCE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-live.json
+      DOGFOOD_REPORT_DIR: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-report
+      DOGFOOD_PREFLIGHT: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-preflight.json
+      DOGFOOD_PROBE: /tmp/product-dogfood-${{ github.run_id }}-${{ github.run_attempt }}-first-live-probe.json
 
     steps:
+      - name: Initialize redacted startup diagnostic
+        run: |
+          node -e 'require("node:fs").writeFileSync(process.env.DOGFOOD_PREFLIGHT, JSON.stringify({schemaVersion:"product-dogfood-preflight-diagnostic/v2",ok:false,failureDomain:"infrastructure",failureCode:"workflow_startup_incomplete",message:"Workflow did not complete paid-call preflight.",quota:{status:"unknown"},paidModelCalls:0},null,2)+"\n",{mode:0o600})'
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -108,42 +159,62 @@ jobs:
 
       - name: Fail-closed pre-authenticated Codex preflight
         run: |
+          test "${{ inputs.approve_first_live_attempt }}" = "true"
+          test "${{ github.run_attempt }}" = "1"
           node benchmarks/product-v1/dogfood-auth-preflight.cjs \
             --mode=codex_home \
             --model="${DOGFOOD_MODEL}" \
-            --runner-environment="${{ runner.environment }}"
+            --reasoning=none \
+            --account-alias="${DOGFOOD_ACCOUNT_ALIAS}" \
+            --approve-first-live-attempt \
+            --first-live-attempt-budget=1 \
+            --runner-environment="${{ runner.environment }}" \
+            --runner-os="${{ runner.os }}" \
+            --runner-arch="${{ runner.arch }}" \
+            --check-runtime \
+            --output="${DOGFOOD_PREFLIGHT}"
+
+      - name: One approved first-live SDK turn (not the 20-pair run)
+        run: node benchmarks/product-v1/dogfood-first-live-probe.cjs "${DOGFOOD_PREFLIGHT}" "${DOGFOOD_PROBE}"
 
       - id: live-run
-        name: Run 20 fresh Normal/Bounded dogfood pairs
+        name: Run separately approved 20 fresh Normal/Bounded dogfood pairs
+        if: ${{ inputs.approve_full_dogfood_run }}
         continue-on-error: true
         env:
           BOUNDED_CODEX_MODEL: ${{ env.DOGFOOD_MODEL }}
+          BOUNDED_COMPARE_PREPARE_DEPENDENCIES: "1"
         run: |
-          node benchmarks/product-v1/dogfood-runner.cjs \
+          test "${{ inputs.approve_full_dogfood_run }}" = "true"
+          node benchmarks/product-v1/dogfood-resumable-runner.cjs \
             --live \
             --model="${DOGFOOD_MODEL}" \
             --output="${DOGFOOD_EVIDENCE}"
 
       - name: Enforce P7.2 live completion gate
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node benchmarks/product-v1/dogfood-live-gate.cjs \
             --input="${DOGFOOD_EVIDENCE}"
 
       - name: Build P7.3 dogfood report
-        if: always()
+        if: ${{ always() && inputs.approve_full_dogfood_run }}
         run: |
           node scripts/product/build-dogfood-report.cjs \
             --input="${DOGFOOD_EVIDENCE}" \
             --output-dir="${DOGFOOD_REPORT_DIR}"
 
-      - name: Upload dogfood evidence and report
+      - name: Upload bounded probe, dogfood evidence and report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: product-dogfood-v1-live-codex-home
           path: |
+            ${{ env.DOGFOOD_PREFLIGHT }}
+            ${{ env.DOGFOOD_PROBE }}
+            ${{ env.DOGFOOD_PROBE }}.reservation.json
             ${{ env.DOGFOOD_EVIDENCE }}
+            ${{ env.DOGFOOD_EVIDENCE }}.checkpoint.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.json
             ${{ env.DOGFOOD_REPORT_DIR }}/dogfood-report.md
           if-no-files-found: error

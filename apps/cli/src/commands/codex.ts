@@ -23,6 +23,7 @@ import {
 } from "../../../../packages/integrations/src/codex-agent-adapter.js";
 import type {
   AgentAdapter,
+  AgentReasoningEffort,
   AgentRunRequest,
   AgentRunResult
 } from "../../../../packages/integrations/src/agent-adapter.js";
@@ -66,6 +67,7 @@ type RecordedAgentRun = Readonly<{
 export type CodexCommandDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
+  reasoningEffort?: AgentReasoningEffort;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
   validationProfile?: ValidationProfileId;
 }>;
@@ -458,8 +460,8 @@ export async function codexCommand(
     forbiddenFiles: [],
     model,
     adapter,
-    plannerReasoningEffort: BOUNDED_CODEX_REASONING,
-    coderReasoningEffort: BOUNDED_CODEX_REASONING,
+    plannerReasoningEffort: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
+    coderReasoningEffort: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
     providerTimeoutMs: 120_000
   });
   const validationProfile = dependencies.validationProfile ?? BOUNDED_CODEX_VALIDATION_PROFILE;
@@ -565,7 +567,7 @@ export async function codexCommand(
     taskId,
     agent: "Codex",
     model: actualModel,
-    reasoning: BOUNDED_CODEX_REASONING,
+    reasoning: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
     recovery: {
       checkpointVersion: BOUNDED_CODEX_CHECKPOINT_VERSION,
       authority: "canonical_bounded_task_state",

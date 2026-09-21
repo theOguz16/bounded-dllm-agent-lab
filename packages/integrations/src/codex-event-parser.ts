@@ -113,6 +113,14 @@ function protocolError(
   return new CodexProtocolError(message, line, eventType);
 }
 
+function providerFailureCode(message: string, fallback: string): string {
+  const value = message.toLowerCase();
+  if (/usage_limit|usage limit|quota|credits?|rate.limit|\b429\b/.test(value)) return "codex_provider_quota";
+  if (/\b401\b|unauthori[sz]ed|missing authorization|invalid (api )?(key|token)|authentication/.test(value)) return "codex_provider_auth";
+  if (/overload|capacity|server busy|\b503\b/.test(value)) return "codex_provider_capacity";
+  return fallback;
+}
+
 function requireString(
   object: JsonObject,
   field: string,
@@ -483,7 +491,7 @@ export function parseCodexJsonl(
           turnFailed = true;
           diagnostics.push(
             diagnostic(
-              "codex_turn_failed",
+              providerFailureCode(parsed.error.message, "codex_turn_failed"),
               "error",
               parsed.error.message,
               line,
@@ -498,7 +506,7 @@ export function parseCodexJsonl(
           streamFailed = true;
           diagnostics.push(
             diagnostic(
-              "codex_stream_error",
+              providerFailureCode(parsed.message, "codex_stream_error"),
               "error",
               parsed.message,
               line,

@@ -14,6 +14,7 @@ export * from "./agent-event-cost-binding.js";
 export * from "./comparative-evidence-contract.js";
 export * from "./agent-comparison-contract.js";
 export * from "./product-comparison-evaluator.js";
+export * from "./product-behavior-evidence.js";
 export * from "./product-stats.js";
 export * from "./product-task-contract.js";
 export * from "./external-repository-task-contract.js";

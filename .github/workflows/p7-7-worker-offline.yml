@@ -1,0 +1,59 @@
+name: P7.7 Worker Offline
+
+on:
+  pull_request:
+    paths:
+      - "packages/integrations/src/agent-process-control.ts"
+      - "packages/integrations/src/isolated-agent-worker.ts"
+      - "packages/integrations/src/codex-agent-worker.ts"
+      - "packages/integrations/src/codex-agent-adapter.ts"
+      - "packages/integrations/src/durable-invocation-journal.ts"
+      - "packages/integrations/src/agent-adapter.ts"
+      - "apps/cli/src/commands/compare.ts"
+      - "apps/cli/src/commands/codex-compare-provider-gate.ts"
+      - "benchmarks/product-v1/dogfood-runner.cjs"
+      - "benchmarks/product-v1/dogfood-resumable-runner.cjs"
+      - "benchmarks/product-v1/p7-7-*.cjs"
+      - "scripts/fixtures/p7-7-hanging-worker.cjs"
+      - "scripts/smoke/p7-7-*.cjs"
+      - ".github/workflows/p7-7-worker-offline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  worker-lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Durable invocation recovery and owned worker lifecycle
+        run: |
+          node scripts/smoke/p7-7-invocation-journal-smoke.cjs
+          node scripts/smoke/agent-process-control-smoke.cjs
+          node scripts/smoke/p7-7-worker-termination-smoke.cjs
+          node scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
+      - name: Compare fail-closed and P7.6 regression
+        run: |
+          node benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
+          node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs

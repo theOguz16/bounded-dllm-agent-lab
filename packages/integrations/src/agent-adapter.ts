@@ -1,6 +1,7 @@
 import type {
   AgentProcessBudgetOverrides,
-  AgentProcessFailureCode
+  AgentProcessFailureCode,
+  AgentWorkerLifecycle
 } from "./agent-process-control.js";
 
 export type AgentRunStatus =
@@ -28,6 +29,14 @@ export type AgentSandboxMode =
   | "read_only"
   | "workspace_write"
   | "full_access";
+
+/** Provider-neutral terminal failure categories; provider-specific adapters normalize into them. */
+export type AgentProviderFailureCode =
+  | "usage_limit_exceeded"
+  | "authentication_failed"
+  | "provider_overloaded"
+  | "provider_stream_error_unknown"
+  | "provider_outcome_ambiguous";
 
 export interface AgentUsage {
   inputTokens: number | null;
@@ -89,7 +98,11 @@ export interface AgentRunRequest {
 
 export interface AgentRunResult {
   status: AgentRunStatus;
-  failureCode?: AgentProcessFailureCode | null;
+  failureCode?: AgentProcessFailureCode | AgentProviderFailureCode | null;
+  /** Absence of a trusted quota endpoint is never interpreted as availability. */
+  quotaStatus?: "unknown";
+  /** Present for isolated worker executions; timestamps are distinct by contract. */
+  workerLifecycle?: AgentWorkerLifecycle | null;
   agentId: string;
   agentVersion: string;
   modelId: string;

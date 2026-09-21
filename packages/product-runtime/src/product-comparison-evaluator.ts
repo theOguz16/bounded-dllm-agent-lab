@@ -1,5 +1,7 @@
 export const PRODUCT_COMPARISON_EVALUATION_VERSION =
-  "product-comparison-evaluation/v1" as const;
+  "product-comparison-evaluation/v2" as const;
+
+import { evaluateProductBehaviorEvidence } from "./product-behavior-evidence.js";
 
 export type ProductComparisonBooleanMetric = boolean | null;
 export type ProductComparisonNumericMetric = number | null;
@@ -45,7 +47,8 @@ export type ProductComparisonEfficiencyMetrics = Readonly<{
 }>;
 
 export type ProductComparisonEvaluatorInput = Readonly<{
-  correctness: ProductComparisonCorrectnessMetrics;
+  correctness: Omit<ProductComparisonCorrectnessMetrics, "behaviorSatisfied">;
+  behaviorEvidence: unknown | null;
   control: Readonly<{
     scopeViolationCount: number;
     forbiddenTouchCount: number;
@@ -161,13 +164,15 @@ function canonicalRepositoryPath(value: unknown, field: string): string {
   return path;
 }
 
-function correctnessMetrics(value: unknown): ProductComparisonCorrectnessMetrics {
+function correctnessMetrics(
+  value: unknown,
+  behaviorSatisfied: ProductComparisonBooleanMetric
+): ProductComparisonCorrectnessMetrics {
   const record = plainObject(value, "correctness");
   exactFields(
     record,
     [
       "controlPassed",
-      "behaviorSatisfied",
       "taskSucceeded",
       "testsPassed",
       "buildPassed",
@@ -178,10 +183,7 @@ function correctnessMetrics(value: unknown): ProductComparisonCorrectnessMetrics
 
   const result: ProductComparisonCorrectnessMetrics = Object.freeze({
     controlPassed: optionalBoolean(record.controlPassed, "correctness.controlPassed"),
-    behaviorSatisfied: optionalBoolean(
-      record.behaviorSatisfied,
-      "correctness.behaviorSatisfied"
-    ),
+    behaviorSatisfied,
     taskSucceeded: optionalBoolean(record.taskSucceeded, "correctness.taskSucceeded"),
     testsPassed: optionalBoolean(record.testsPassed, "correctness.testsPassed"),
     buildPassed: optionalBoolean(record.buildPassed, "correctness.buildPassed"),
@@ -199,7 +201,7 @@ function correctnessMetrics(value: unknown): ProductComparisonCorrectnessMetrics
       ["buildPassed", result.buildPassed],
       ["typecheckPassed", result.typecheckPassed]
     ] as const;
-    const contradictory = requiredTrue.find(([, metric]) => metric === false);
+    const contradictory = requiredTrue.find(([, metric]) => metric !== true);
     if (contradictory !== undefined) {
       fail(
         `correctness.taskSucceeded cannot be true when correctness.${contradictory[0]} is false.`
@@ -407,9 +409,10 @@ export function evaluateProductComparison(
   input: ProductComparisonEvaluatorInput
 ): ProductComparisonEvaluation {
   const record = plainObject(input, "Product comparison evaluator input");
-  exactFields(record, ["correctness", "control", "efficiency"], "Product comparison evaluator input");
+  exactFields(record, ["correctness", "behaviorEvidence", "control", "efficiency"], "Product comparison evaluator input");
 
-  const correctness = correctnessMetrics(record.correctness);
+  const behavior = evaluateProductBehaviorEvidence(record.behaviorEvidence);
+  const correctness = correctnessMetrics(record.correctness, behavior.behaviorSatisfied);
   const control = controlMetrics(record.control, correctness);
   const efficiency = efficiencyMetrics(record.efficiency);
 

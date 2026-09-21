@@ -84,6 +84,15 @@ async function main() {
   assert.equal(streamError.status, "failed");
   assert.ok(streamError.diagnostics.some((item) => item.code === "codex_stream_error"));
 
+  for (const [message, code] of [
+    ["You've hit your usage limit.", "codex_provider_quota"],
+    ["HTTP 401 missing Authorization header.", "codex_provider_auth"],
+    ["Server overloaded; capacity unavailable.", "codex_provider_capacity"]
+  ]) {
+    const classified = parser.parseCodexJsonl(JSON.stringify({ type: "error", message }));
+    assert.ok(classified.diagnostics.some((item) => item.code === code));
+  }
+
   console.log(JSON.stringify({
     ok: true,
     parser: "codex-jsonl",
@@ -100,7 +109,7 @@ async function main() {
     ],
     futureEventsIgnoredWithDiagnostic: true,
     malformedCanonicalEvent: "agent_protocol_invalid",
-    cases: 9
+    cases: 12
   }, null, 2));
 }
 

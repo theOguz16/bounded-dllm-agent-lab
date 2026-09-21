@@ -20,6 +20,15 @@ function validateLiveEvidence(report) {
   assert.equal(report.retryPolicy, "none");
   assert.equal(report.promptMutationAfterFailure, false);
   assert.equal(report.hiddenHintInjection, false);
+  assert.equal(report.frozenExecution?.model, report.model);
+  assert.equal(report.frozenExecution?.reasoningEffort, report.reasoningEffort);
+  assert.deepEqual(report.frozenExecution?.phaseBudgetsMs, {
+    discovery: 180_000, agent: 300_000, validationCommand: 120_000, taskEnvelope: 3_600_000
+  });
+  assert.deepEqual(report.frozenExecution?.costAccountingPhases,
+    ["discovery", "planner", "coder", "repair", "validation"]);
+  assert.equal(report.frozenExecution?.taskOrder?.length, EXPECTED_PAIR_COUNT);
+  assert.equal(report.frozenExecution?.tasks?.length, EXPECTED_PAIR_COUNT);
   assert.equal(Array.isArray(report.results), true);
   assert.equal(report.results.length, EXPECTED_PAIR_COUNT);
   assert.equal(new Set(report.results.map((entry) => entry.taskId)).size, EXPECTED_PAIR_COUNT);
@@ -30,12 +39,20 @@ function validateLiveEvidence(report) {
     assert.equal(entry.hiddenHintsInjected, false, `${entry.taskId}: hidden hints are forbidden`);
     assert.equal(entry.promptMutatedAfterFailure, false, `${entry.taskId}: prompt mutation is forbidden`);
     assert.equal(entry.pairCompleted, true, `${entry.taskId}: Normal/Bounded pair is incomplete`);
-    assert.equal(entry.failure, null, `${entry.taskId}: completed pair must not carry a failure`);
+    if (entry.failure !== null) {
+      assert.equal(["infrastructure", "agent", "acceptance"].includes(entry.failure?.domain), true,
+        `${entry.taskId}: invalid failure domain`);
+      assert.equal(typeof entry.failure.code, "string", `${entry.taskId}: failure code missing`);
+    }
     assert.ok(entry.result && typeof entry.result === "object", `${entry.taskId}: comparison result missing`);
     assert.equal(entry.result.comparable, true, `${entry.taskId}: comparison identity is not comparable`);
     assert.deepEqual(entry.result.identityMismatchFields, [], `${entry.taskId}: comparison identity mismatch`);
     assert.ok(entry.result.normal && typeof entry.result.normal === "object", `${entry.taskId}: Normal arm missing`);
     assert.ok(entry.result.bounded && typeof entry.result.bounded === "object", `${entry.taskId}: Bounded arm missing`);
+    const frozenTask = report.frozenExecution.tasks.find((task) => task.taskId === entry.taskId);
+    assert.ok(frozenTask, `${entry.taskId}: frozen execution task missing`);
+    assert.deepEqual(entry.result.executionOrder, frozenTask.armOrder,
+      `${entry.taskId}: actual arm order differs from frozen order`);
   }
 
   return Object.freeze({
@@ -51,6 +68,22 @@ function validateLiveEvidence(report) {
 }
 
 function validFixture() {
+  const results = Array.from({ length: EXPECTED_PAIR_COUNT }, (_, index) => ({
+    taskId: `fixture-${String(index + 1).padStart(2, "0")}`,
+    attempt: 1,
+    retryCount: 0,
+    hiddenHintsInjected: false,
+    promptMutatedAfterFailure: false,
+    pairCompleted: true,
+    failure: null,
+    result: {
+      comparable: true,
+      identityMismatchFields: [],
+      executionOrder: ["baseline", "bounded"],
+      normal: {},
+      bounded: {}
+    }
+  }));
   return {
     schemaVersion: "product-dogfood-live-run/v1",
     suiteId: "product-v1-first-20-real-dogfood",
@@ -62,21 +95,17 @@ function validFixture() {
     retryPolicy: "none",
     promptMutationAfterFailure: false,
     hiddenHintInjection: false,
-    results: Array.from({ length: EXPECTED_PAIR_COUNT }, (_, index) => ({
-      taskId: `fixture-${String(index + 1).padStart(2, "0")}`,
-      attempt: 1,
-      retryCount: 0,
-      hiddenHintsInjected: false,
-      promptMutatedAfterFailure: false,
-      pairCompleted: true,
-      failure: null,
-      result: {
-        comparable: true,
-        identityMismatchFields: [],
-        normal: {},
-        bounded: {}
-      }
-    }))
+    frozenExecution: {
+      model: undefined,
+      reasoningEffort: undefined,
+      phaseBudgetsMs: { discovery: 180_000, agent: 300_000,
+        validationCommand: 120_000, taskEnvelope: 3_600_000 },
+      costAccountingPhases: ["discovery", "planner", "coder", "repair", "validation"],
+      taskOrder: results.map((entry) => entry.taskId),
+      tasks: results.map((entry) => ({ taskId: entry.taskId,
+        armOrder: ["baseline", "bounded"], validationCommands: ["fixture"] }))
+    },
+    results
   };
 }
 
@@ -96,6 +125,12 @@ function selfTest() {
     (report) => { report.results[0].hiddenHintsInjected = true; },
     (report) => { report.results[0].promptMutatedAfterFailure = true; }
   ];
+
+  const preservedFailure = JSON.parse(JSON.stringify(valid));
+  preservedFailure.results[0].failure = {
+    domain: "acceptance", code: "fixture_acceptance_failed", arm: "bounded"
+  };
+  assert.equal(validateLiveEvidence(preservedFailure).ok, true);
 
   for (const mutate of mutations) {
     const candidate = JSON.parse(JSON.stringify(valid));

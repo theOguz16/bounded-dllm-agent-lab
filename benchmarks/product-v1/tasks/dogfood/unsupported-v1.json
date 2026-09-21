@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "product-dogfood-unsupported-set/v1",
+  "sourceSuiteId": "product-v1-first-20-real-dogfood",
+  "reason": "Reference change requires create/add operations outside the Product V1 existing-file update contract.",
+  "taskIds": [
+    "dogfood.bugfix.runpod-error-classification",
+    "dogfood.behavior.bounded-init-local-config",
+    "dogfood.behavior.codex-explicit-scope",
+    "dogfood.behavior.codex-scope-discovery",
+    "dogfood.behavior.human-approved-apply",
+    "dogfood.regression.acceptance-chain-smoke",
+    "dogfood.regression.gate5-live-ablation-contract",
+    "dogfood.regression.external-repository-runner",
+    "dogfood.regression.hidden-oracle-harness",
+    "dogfood.regression.gate6-task-schema",
+    "dogfood.multifile.local-run-artifact-format",
+    "dogfood.multifile.report-history",
+    "dogfood.multifile.agent-comparison-contract",
+    "dogfood.multifile.twin-workspace-comparison-runner",
+    "dogfood.multifile.product-comparison-evaluator"
+  ]
+}
