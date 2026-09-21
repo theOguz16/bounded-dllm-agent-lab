@@ -8,6 +8,7 @@ on:
       - "apps/cli/src/commands/**"
       - "benchmarks/product-v1/**"
       - ".github/workflows/p7-6-provider-offline.yml"
+      - ".github/workflows/product-dogfood-v1-live.yml"
   workflow_dispatch:
 
 permissions:
@@ -37,6 +38,7 @@ jobs:
         run: |
           node benchmarks/product-v1/provider-access-smoke.cjs
           node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs
+          node benchmarks/product-v1/dogfood-first-live-probe-smoke.cjs
           node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
           node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
           node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
