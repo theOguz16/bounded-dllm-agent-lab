@@ -48,15 +48,15 @@ try {
 const diagnosticRoot = fs.mkdtempSync(path.join(os.tmpdir(), "dogfood-preflight-diagnostic-"));
 try {
   const diagnostic = path.join(diagnosticRoot, "diagnostic.json");
-  const secret = "credential-token-must-not-leak";
+  const sentinelValue = "credential-token-must-not-leak";
   const child = spawnSync(process.execPath, [path.join(__dirname, "dogfood-auth-preflight.cjs"),
     "--mode=api_key", "--model=gpt-5.6-luna", "--reasoning=none", "--account-alias=primary",
     "--runner-environment=github-hosted", "--runner-os=Linux", "--runner-arch=X64",
     "--approve-first-live-attempt", "--first-live-attempt-budget=1", "--check-runtime", `--output=${diagnostic}`],
-  { encoding: "utf8", env: { PATH: "", CODEX_API_KEY: secret } });
+  { encoding: "utf8", env: { PATH: "", CODEX_API_KEY: sentinelValue } });
   assert.notEqual(child.status, 0);
   const bytes = fs.readFileSync(diagnostic, "utf8");
-  assert.equal(bytes.includes(secret), false);
+  assert.equal(bytes.includes(sentinelValue), false);
   assert.equal(JSON.parse(bytes).paidModelCalls, 0);
 } finally { fs.rmSync(diagnosticRoot, { recursive: true, force: true }); }
 
