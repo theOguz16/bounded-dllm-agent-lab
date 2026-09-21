@@ -34,7 +34,9 @@ edit("apps/cli/src/commands/codex.ts", [
 ]);
 edit("apps/cli/src/commands/compare.ts", [
   ['export const BOUNDED_COMPARE_REASONING = "medium" as const;', 'export const BOUNDED_COMPARE_REASONING = "none" as const;'],
-  ['              adapter: boundedAdapter,\n              model,\n              validationProfile:', '              adapter: boundedAdapter,\n              model,\n              reasoningEffort: BOUNDED_COMPARE_REASONING,\n              validationProfile:']
+  ['              adapter: boundedAdapter,\n              model,\n              validationProfile:', '              adapter: boundedAdapter,\n              model,\n              reasoningEffort: BOUNDED_COMPARE_REASONING,\n              validationProfile:'],
+  ['      behaviorSatisfied: behavior,\n      taskSucceeded: succeeded,', '      taskSucceeded: succeeded === false ? false : null,'],
+  ['      typecheckPassed: typecheck\n    },\n    control: {', '      typecheckPassed: typecheck\n    },\n    behaviorEvidence: null,\n    control: {']
 ]);
 for (const file of ["benchmarks/product-v1/p7-6-compare-provider-smoke.cjs", "benchmarks/product-v1/p7-6-compare-command-smoke.cjs"]) {
   const original = fs.readFileSync(file, "utf8");
