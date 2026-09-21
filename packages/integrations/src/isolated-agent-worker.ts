@@ -10,6 +10,7 @@ export type WorkerTerminationSignal = "SIGTERM" | "SIGKILL";
 
 export type IsolatedAgentWorkerResult = Readonly<{
   version: typeof ISOLATED_AGENT_WORKER_VERSION;
+  workerPid: number | null;
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
   stderr: string;
@@ -83,6 +84,7 @@ export async function runIsolatedAgentWorker(
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true
   });
+  const workerPid = child.pid ?? null;
 
   let exited = false;
   let exitCode: number | null = null;
@@ -91,17 +93,14 @@ export async function runIsolatedAgentWorker(
   let stdoutRemainder = "";
   let graceTimer: NodeJS.Timeout | null = null;
   let forceTimer: NodeJS.Timeout | null = null;
-  let settleTimer: NodeJS.Timeout | null = null;
   let settle!: () => void;
   const settled = new Promise<void>((resolve) => { settle = resolve; });
 
   const clearTimers = (): void => {
     if (graceTimer) clearTimeout(graceTimer);
     if (forceTimer) clearTimeout(forceTimer);
-    if (settleTimer) clearTimeout(settleTimer);
     graceTimer = null;
     forceTimer = null;
-    settleTimer = null;
   };
 
   const finish = (code: number | null, signal: NodeJS.Signals | null): void => {
@@ -172,6 +171,7 @@ export async function runIsolatedAgentWorker(
 
   return Object.freeze({
     version: ISOLATED_AGENT_WORKER_VERSION,
+    workerPid,
     exitCode,
     exitSignal,
     stderr,
