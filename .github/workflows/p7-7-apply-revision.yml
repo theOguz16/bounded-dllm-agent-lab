@@ -1,0 +1,52 @@
+name: P7.7 One-shot Worker Revision
+on:
+  push:
+    branches:
+      - product/p7-7-worker-deadline-termination
+    paths:
+      - benchmarks/product-v1/p7-7-apply-revision.cjs
+permissions:
+  contents: write
+jobs:
+  apply-once:
+    if: github.repository == 'theOguz16/bounded-dllm-agent-lab'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: product/p7-7-worker-deadline-termination
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply exact P7.7 patch
+        run: node benchmarks/product-v1/p7-7-apply-revision.cjs
+      - run: npm ci
+      - name: Compile and offline worker checks
+        run: |
+          npm run typecheck
+          npm run build
+          node scripts/smoke/agent-process-control-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node scripts/smoke/p7-7-worker-termination-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+      - name: Commit revision only after offline checks pass
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- \
+            packages/integrations/src/agent-process-control.ts \
+            packages/integrations/src/codex-agent-adapter.ts \
+            apps/cli/src/commands/compare.ts \
+            benchmarks/product-v1/dogfood-runner.cjs \
+            benchmarks/product-v1/dogfood-resumable-runner.cjs \
+            scripts/smoke/agent-process-control-smoke.cjs
+          git diff --cached --quiet && exit 1
+          git commit -m 'feat(P7.7): enforce deadline and worker termination lifecycle'
+          git push origin HEAD:refs/heads/product/p7-7-worker-deadline-termination
