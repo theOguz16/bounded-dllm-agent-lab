@@ -20,7 +20,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Apply only the prior P7.7 worker delta and reconcile scoped conflicts
+      - name: Apply prior P7.7 worker delta and reconcile scoped conflicts
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +53,18 @@ jobs:
             exit 1
           fi
           node scripts/product/p7-7-port-helper.cjs
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = 'benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs';
+          let text = fs.readFileSync(file, 'utf8');
+          const original = 'new CodexCompareProviderGate("gpt-5.6-luna", "medium", () => env)';
+          if ((text.match(/"fake-model"/g) || []).length !== 3) throw Error('Unexpected fake model fixture count');
+          text = text.replaceAll('"fake-model"', '"gpt-5.6-luna"');
+          if (!text.includes(original)) throw Error('Expected old reasoning fixture');
+          text = text.replace(original, 'new CodexCompareProviderGate("gpt-5.6-luna", "none", () => env)');
+          fs.writeFileSync(file, text);
+          NODE
+          git add benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
           git diff --cached --check
       - uses: actions/setup-node@v4
         with:
