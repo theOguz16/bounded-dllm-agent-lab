@@ -32,6 +32,7 @@ jobs:
         run: |
           npm run typecheck
           npm run build
+          node benchmarks/product-v1/p7-7-diagnose.cjs
           node benchmarks/product-v1/p7-7-worker-smoke.cjs
           node scripts/smoke/agent-process-control-smoke.cjs
           node scripts/smoke/codex-agent-adapter-smoke.cjs
