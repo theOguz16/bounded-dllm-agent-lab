@@ -46,6 +46,19 @@ jobs:
           output-dir: reports/product-runtime
           fail-on: high
 
+      - name: Diagnose review finding IDs without exposing credential values
+        if: failure()
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const dir = 'reports/product-runtime';
+          for (const name of fs.readdirSync(dir).filter(name => name.endsWith('-product-review.json'))) {
+            const report = JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+            console.log(JSON.stringify(report.findings.map(({id,category,files}) => ({id,category,files}))));
+          }
+          NODE
+
       - name: Verify deterministic artifact maintenance regression
         run: node scripts/bounded-review-deterministic-artifact-maintenance-smoke.cjs
 
@@ -95,6 +108,7 @@ jobs:
           echo "Viewer: ${{ steps.bounded-review.outputs.viewer-path }}"
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: bounded-agent-review
           path: reports/product-runtime
