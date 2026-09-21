@@ -1,0 +1,39 @@
+name: P7.6 Provider Offline
+
+on:
+  pull_request:
+    paths:
+      - "packages/integrations/src/**"
+      - "benchmarks/product-v1/provider-access*.cjs"
+      - "benchmarks/product-v1/dogfood-*.cjs"
+      - "scripts/smoke/p7-6-codex-provider-smoke.cjs"
+      - ".github/workflows/p7-6-provider-offline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build (no provider invocation)
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Deterministic fake-provider smokes (no paid calls)
+        run: |
+          node benchmarks/product-v1/provider-access-smoke.cjs
+          node scripts/smoke/p7-6-codex-provider-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
