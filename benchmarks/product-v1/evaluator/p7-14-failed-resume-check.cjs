@@ -17,13 +17,20 @@ function inspectFailedResume(workspace) {
   assert.equal(fs.statSync(runner).isFile(), true);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "p7-14-check-"));
   fs.chmodSync(temp, 0o755);
+  // /home/runner is not traversable by nobody on hosted CI. Stage only the
+  // independently hashed preload, never a signer/key/checker, in an immutable
+  // evaluator-owned location outside every candidate workspace.
+  const readablePreload = path.join(temp, "provider-block.cjs");
+  fs.copyFileSync(preload, readablePreload);
+  fs.chmodSync(readablePreload, 0o444);
+  assert.equal(sha(fs.readFileSync(readablePreload)), sha(fs.readFileSync(preload)));
   const output = path.join(temp, "result.json");
   const checkpoint = `${output}.raw.json.checkpoint.json`;
   const execute = (failed) => {
     if (failed) fs.writeFileSync(checkpoint,
       JSON.stringify({ failedTaskId: "fixture.failed", failure: { code: "expected" } }), { mode: 0o644 });
     else fs.writeFileSync(checkpoint, JSON.stringify({ completedTasks: [] }), { mode: 0o644 });
-    const args = ["-n", "-u", "nobody", "--", process.execPath, "--require", preload, runner,
+    const args = ["-n", "-u", "nobody", "--", process.execPath, "--require", readablePreload, runner,
       "--live", "--resume", `--output=${output}`, "--model=fixture-model"];
     const result = spawnSync("sudo", args, {
       cwd: workspace,
