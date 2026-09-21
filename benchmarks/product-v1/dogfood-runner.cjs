@@ -318,6 +318,10 @@ async function main() {
       const parsed = parseCliJson(compare.stdout);
       if (compare.error || compare.status !== 0 || !parsed) {
         record.failure = redactedFailure(compare);
+        const terminal = parsed?.terminalFailureCode;
+        if (terminal === "provider_outcome_ambiguous" || terminal === "worker_termination_failed") {
+          record.failure.code = terminal;
+        }
       } else {
         assert.equal(parsed.task, prompt);
         assert.equal(parsed.model, args.model);
@@ -348,6 +352,9 @@ async function main() {
     }
 
     results.push(record);
+    // A prior task may have consumed provider quota or left an unknown outcome.
+    // Never launch the next task in this process after any failure.
+    if (record.failure !== null) break;
   }
 
   const completedPairCount = results.filter((entry) => entry.pairCompleted).length;

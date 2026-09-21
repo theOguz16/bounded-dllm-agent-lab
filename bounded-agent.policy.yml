@@ -116,6 +116,10 @@ allowed_paths:
   - scripts/smoke/product-stats-smoke.cjs
   - scripts/smoke/product-task-contract-smoke.cjs
   - scripts/smoke/bounded-compare-codex-smoke.cjs
+  - scripts/smoke/p7-7-worker-termination-smoke.cjs
+  - scripts/smoke/p7-7-invocation-journal-smoke.cjs
+  - scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
+  - scripts/fixtures/p7-7-hanging-worker.cjs
   - scripts/product/product-v1-smoke.cjs
   - scripts/product/adversarial-agent-suite.cjs
   - scripts/product/build-dogfood-report.cjs

@@ -9,9 +9,9 @@ const { pathToFileURL } = require("node:url");
 const root = path.resolve(__dirname, "../..");
 const hash = (character) => `sha256:${character.repeat(64)}`;
 const source = fs.readFileSync(path.join(root, "apps/cli/src/commands/compare.ts"), "utf8");
-assert.match(source, /if \(providerGate\?\.stoppedCode\(\)\) break;/);
+assert.equal(source.includes("if (providerGate?.stoppedCode() || terminalFailureCode !== null) break;"), true);
 assert.match(source, /providerComparison: comparison/);
-assert.match(source, /providerFailureCode !== null/);
+assert.equal(source.includes("terminalFailureCode !== null"), true);
 
 function request(mode) {
   return {

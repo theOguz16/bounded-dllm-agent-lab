@@ -505,9 +505,10 @@ async function main() {
         processBudget: { totalTimeoutMs: 25 }
       }));
       assert.equal(result.status, "timed_out");
-      assert.equal(result.failureCode, "agent_timeout");
+      assert.equal(result.failureCode, "provider_outcome_ambiguous");
+      assert.equal(result.diagnostics.some((entry) => entry.code === "agent_timeout"), true);
       assert.equal(aborted, true);
-      return "agent_timeout";
+      return "provider_outcome_ambiguous";
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }
