@@ -5,6 +5,7 @@ on:
       - product/p7-7-deadline-worker-termination
     paths:
       - .github/workflows/p7-7-apply-runners.yml
+      - benchmarks/product-v1/p7-7-diagnose.cjs
 permissions:
   contents: write
 jobs:
