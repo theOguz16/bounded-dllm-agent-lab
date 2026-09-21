@@ -57,7 +57,7 @@ function observations(checker, directory, evidenceDir, side, expectedHash) {
   const result = checker.inspectFailedResume(directory);
   const raw = JSON.stringify(result.output);
   const rawFile = path.join(evidenceDir, `${side}.json`);
-  fs.writeFileSync(rawFile, raw, { mode: 0o600 });
+  fs.writeFileSync(rawFile, raw, { mode: 0o600, flag: "wx" });
   assert.equal(sha(fs.readFileSync(rawFile)), result.outputHash,
     "The separately stored execution artifact must match its observed hash");
   const observation = {
@@ -100,9 +100,11 @@ async function main() {
   const check = entry.requiredCriteria[0];
   assert.equal(path.resolve(root, check.checkFile), checkerFile);
   assert.equal(path.resolve(root, check.preloadFile), shimFile);
+  const unprivilegedUid = Number(probe.stdout.trim());
   for (const file of [checkerFile, shimFile, catalogFile]) {
     const stat = fs.statSync(file);
     assert.equal(stat.isFile(), true);
+    assert.notEqual(stat.uid, unprivilegedUid, "Candidate must not own the trusted evaluator");
     assert.equal((stat.mode & 0o022), 0, `Trusted file is writable by the candidate: ${file}`);
   }
   for (const commit of [task.commitSha, entry.referenceCommitSha]) {
@@ -117,8 +119,17 @@ async function main() {
   const wrongBytes = Buffer.from(reference.replace(anchor, "if (args.resume) { /* intentionally incomplete */ }"), "utf8");
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "p7-14-triad-"));
   fs.chmodSync(temp, 0o755);
-  const evidenceDir = path.join(temp, "trusted-artifacts");
+  const externalEvidence = process.env.P7_14_EVIDENCE_DIR;
+  const evidenceDir = externalEvidence ? path.resolve(externalEvidence) : path.join(temp, "trusted-artifacts");
+  if (externalEvidence) {
+    assert.equal(path.isAbsolute(externalEvidence), true, "Host artifact path must be absolute");
+    assert.equal(path.relative(root, evidenceDir).startsWith(".."), true,
+      "Host artifacts cannot be placed inside the repository or candidate workspace");
+    assert.equal(path.relative(temp, evidenceDir).startsWith(".."), true,
+      "Host artifacts cannot be placed inside candidate workspace parent");
+  }
   fs.mkdirSync(evidenceDir, { mode: 0o700 });
+  fs.chmodSync(evidenceDir, 0o700);
   try {
     const source = workspace(temp, "source", sourceBytes);
     const referenceDir = workspace(temp, "reference", referenceBytes);
@@ -195,7 +206,7 @@ async function main() {
       catalogHash: common.catalogHash, checkHash, receipt,
       artifactFiles: ["source.json", "reference.json", "wrong.json", "candidate.json", "candidate-wrong.json"],
       coverage: { historicallyExecutedTasks: 1, suiteTasks: 20, r03FullyClosed: false } };
-    fs.writeFileSync(path.join(evidenceDir, "receipt.json"), JSON.stringify(record, null, 2), { mode: 0o600 });
+    fs.writeFileSync(path.join(evidenceDir, "receipt.json"), JSON.stringify(record, null, 2), { mode: 0o600, flag: "wx" });
     console.log(JSON.stringify({ ok: true, taskId: task.taskId,
       triad: [sourceResult.verdict, referenceResult.verdict, wrongResult.verdict],
       actualCandidate: candidateResult.verdict, wrongCandidate: wrongExecution.verdict,
