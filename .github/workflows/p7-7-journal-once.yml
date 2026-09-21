@@ -26,6 +26,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           node scripts/product/p7-7-journal-wire.cjs
+          node scripts/product/p7-7-legacy-smoke-update.cjs
           git diff --cached --check
       - uses: actions/setup-node@v4
         with:
