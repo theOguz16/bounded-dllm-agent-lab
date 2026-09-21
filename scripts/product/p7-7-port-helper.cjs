@@ -63,11 +63,11 @@ adapter = once(adapter,
 write(paths[2], adapter);
 let environmentSmoke = stage(2, paths[3]);
 environmentSmoke = once(environmentSmoke,
-  '    "new Codex({ env: { ...environment }, config: { model_reasoning_effort: "none" } })"',
-  '    "this.environment = { ...environment };"', 'environment smoke worker boundary');
+  `  assert.equal(adapterSource.includes('new Codex({ env: { ...environment }, config: { model_reasoning_effort: "none" } })'), true);`,
+  '  assert.equal(adapterSource.includes("this.environment = { ...environment };"), true);', 'environment smoke worker boundary');
 environmentSmoke = once(environmentSmoke,
   '  process.stdout.write(`${JSON.stringify({',
-  '  assert.equal(adapterSource.includes("env: this.environment"), true);\n  const workerSource = readFileSync(resolve(repoRoot, "packages/integrations/src/codex-agent-worker.ts"), "utf8");\n  assert.equal(workerSource.includes("model_reasoning_effort: \\"none\\""), true);\n  assert.equal(workerSource.includes("process.env"), false);\n  process.stdout.write(`${JSON.stringify({', 'environment worker smoke');
+  `  assert.equal(adapterSource.includes("env: this.environment"), true);\n  const workerSource = readFileSync(resolve(repoRoot, "packages/integrations/src/codex-agent-worker.ts"), "utf8");\n  assert.equal(workerSource.includes('model_reasoning_effort: "none"'), true);\n  assert.equal(workerSource.includes("process.env"), false);\n  process.stdout.write(\`\${JSON.stringify({`, 'environment worker smoke');
 write(paths[3], environmentSmoke);
 // P7.6 requires the actual child SDK constructor to carry none; no minimal
 // replacement and no widened environment in the worker.
