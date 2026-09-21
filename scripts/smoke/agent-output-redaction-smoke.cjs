@@ -68,13 +68,9 @@ async function main() {
   ].join("\n");
 
   const redactor = integrations.createAgentOutputRedactor({
-    environment: {
-      DATABASE_PASSWORD: knownEnvSecret,
-      SAFE_LABEL: "keep-me"
-    },
+    environment: { DATABASE_PASSWORD: knownEnvSecret, SAFE_LABEL: "keep-me" },
     secrets: [explicitSecret]
   });
-
   const rawText = [
     `known=${knownEnvSecret}`,
     `explicit=${explicitSecret}`,
@@ -113,10 +109,7 @@ async function main() {
   redactor.redactText(rawText);
   const rawHashAfterRedactionCall = createHash("sha256").update(rawText).digest("hex");
   assert.equal(rawHashAfterRedactionCall, rawHashBeforeRedaction);
-  assert.notEqual(
-    createHash("sha256").update(redactedText).digest("hex"),
-    rawHashBeforeRedaction
-  );
+  assert.notEqual(createHash("sha256").update(redactedText).digest("hex"), rawHashBeforeRedaction);
 
   const events = [
     { type: "thread.started", thread_id: "thread-redaction" },
@@ -124,36 +117,27 @@ async function main() {
     {
       type: "item.started",
       item: {
-        id: "cmd-secret",
-        type: "command_execution",
-        command: `printf '${knownEnvSecret}'`,
-        aggregated_output: "",
-        status: "in_progress"
+        id: "cmd-secret", type: "command_execution",
+        command: `printf '${knownEnvSecret}'`, aggregated_output: "", status: "in_progress"
       }
     },
     {
       type: "item.completed",
       item: {
-        id: "cmd-secret",
-        type: "command_execution",
+        id: "cmd-secret", type: "command_execution",
         command: `printf '${knownEnvSecret}'`,
         aggregated_output: `stderr Authorization: Bearer ${bearer}\n${openAiKey}\n${knownEnvSecret}`,
-        exit_code: 0,
-        status: "completed"
+        exit_code: 0, status: "completed"
       }
     },
     {
       type: "item.completed",
       item: {
-        id: "msg-secret",
-        type: "agent_message",
+        id: "msg-secret", type: "agent_message",
         text: `Completed with ${knownEnvSecret} and Bearer ${bearer}`
       }
     },
-    {
-      type: "turn.completed",
-      usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3 }
-    }
+    { type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3 } }
   ];
   let clock = 1000;
   const adapter = new integrations.CodexAgentAdapter({
@@ -189,7 +173,9 @@ async function main() {
   const diagnosticText = errorResult.diagnostics.map((entry) => entry.message).join("\n");
   assert.equal(diagnosticText.includes(knownEnvSecret), false);
   assert.equal(diagnosticText.includes(bearer), false);
-  assert.match(diagnosticText, /\[REDACTED\]/);
+  // Provider exceptions are intentionally replaced by terminal codes, not persisted in redacted form.
+  assert.equal(errorResult.failureCode, "provider_stream_error_unknown");
+  assert.match(diagnosticText, /provider_stream_error_unknown/);
 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-redaction-artifact-"));
   try {
@@ -219,7 +205,6 @@ async function main() {
     };
     const stored = await store.storeProductRunArtifact(artifactInput);
     assert.equal(artifactInput.run.message, knownEnvSecret, "artifact redaction must not mutate caller input");
-
     const files = await fs.readdir(stored.directoryPath);
     const persisted = (await Promise.all(
       files.map((file) => fs.readFile(path.join(stored.directoryPath, file), "utf8"))
