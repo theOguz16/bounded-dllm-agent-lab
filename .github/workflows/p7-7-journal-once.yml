@@ -1,13 +1,13 @@
-name: P7.7 Journal Offline Integration
+name: P7.7 Scoped Finalization (one shot)
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [synchronize]
     branches: [product/p7-4-human-decision-capture]
-    paths: ['.github/workflows/p7-7-journal-once.yml', 'scripts/product/p7-7-legacy-smoke-update.cjs']
+    paths: ['.github/workflows/p7-7-journal-once.yml']
 permissions:
   contents: write
 jobs:
-  integrate:
+  finalize:
     if: github.event.pull_request.head.ref == 'product/p7-7-after-p7-6-review' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -20,20 +20,29 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Wire the existing adapter to the transactional invocation authority
+      - name: Stage narrowly scoped cleanup and allowlist correction
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          node scripts/product/p7-7-journal-wire.cjs
-          node scripts/product/p7-7-legacy-smoke-update.cjs
+          git rm -- .github/workflows/p7-7-journal-once.yml .github/workflows/p7-7-port-once.yml scripts/product/p7-7-journal-wire.cjs scripts/product/p7-7-port-helper.cjs scripts/product/p7-7-legacy-smoke-update.cjs
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const file = 'bounded-agent.policy.yml';
+          let text = fs.readFileSync(file, 'utf8');
+          const anchor = '  - scripts/smoke/p7-7-worker-termination-smoke.cjs\n';
+          if (text.split(anchor).length !== 2 || text.includes('  - scripts/smoke/p7-7-invocation-journal-smoke.cjs\n')) throw Error('Unexpected policy state');
+          text = text.replace(anchor, anchor + '  - scripts/smoke/p7-7-invocation-journal-smoke.cjs\n');
+          fs.writeFileSync(file, text);
+          NODE
+          git add -- bounded-agent.policy.yml
           git diff --cached --check
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Verify integrated P7.6 and P7.7 without credentials
+      - name: Verify cleaned sources with no provider credentials
         shell: bash
         run: |
           set -euo pipefail
@@ -46,12 +55,12 @@ jobs:
           node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
           node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
           node benchmarks/product-v1/dogfood-smoke.cjs
-      - name: Commit verified integration only to the P7.7 draft branch
+      - name: Commit only after verification
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git diff --cached --quiet && { echo 'No integration changes staged'; exit 1; }
-          git commit -m 'feat(P7.7): durably reserve provider calls and deny crash replay'
+          test "$(git diff --cached --name-only | wc -l | tr -d ' ')" = 6
+          git commit -m 'chore(P7.7): retain reviewed runtime and offline evidence only'
           git push origin HEAD:refs/heads/product/p7-7-after-p7-6-review
