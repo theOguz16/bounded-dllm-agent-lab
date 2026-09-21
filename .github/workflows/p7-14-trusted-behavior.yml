@@ -35,4 +35,14 @@ jobs:
           npm run typecheck
           npm run build
       - name: Execute immutable historical acceptance and evidence attacks
+        env:
+          P7_14_EVIDENCE_DIR: ${{ runner.temp }}/p7-14-trusted-artifacts
         run: node benchmarks/product-v1/p7-14-trusted-triad-smoke.cjs
+      - name: Preserve raw per-criterion execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-14-historical-triad-evidence
+          path: ${{ runner.temp }}/p7-14-trusted-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
