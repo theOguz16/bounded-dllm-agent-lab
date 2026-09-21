@@ -47,6 +47,9 @@ function inspectFailedResume(workspace) {
     const verdict = healthyReachedBlockedChild && failedRejectedCorrectly ? "pass" :
       healthyReachedBlockedChild && failedReachedBlockedChild ? "assertion_fail" : "infrastructure_fail";
     const rawOutput = { failed, healthy };
+    if (verdict === "infrastructure_fail") {
+      console.error("P7.14 trusted checker infrastructure diagnosis:", JSON.stringify(rawOutput));
+    }
     return { verdict, exitCode: failed.status, outputHash: sha(JSON.stringify(rawOutput)),
       output: rawOutput };
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
