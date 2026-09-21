@@ -7,7 +7,9 @@ export type AgentProcessFailureCode =
   | "agent_command_budget_exceeded"
   | "agent_repair_budget_exceeded"
   | "agent_provider_call_budget_exceeded"
-  | "agent_model_call_budget_exceeded";
+  | "agent_model_call_budget_exceeded"
+  | "provider_outcome_ambiguous"
+  | "worker_termination_failed";
 
 export type AgentProcessBudgetLimits = Readonly<{
   totalTimeoutMs: number;
@@ -49,6 +51,7 @@ export type AgentProcessControl = Readonly<{
   recordProviderCall(count?: number): void;
   recordModelCall(count?: number): void;
   failure(): AgentProcessFailure | null;
+  timeline(): Readonly<{ deadlineTriggeredAt: number | null; abortRequestedAt: number | null }>;
   usage(): AgentProcessBudgetUsage;
   throwIfFailed(): void;
   close(): void;
@@ -160,11 +163,14 @@ export function createAgentProcessControl(input: Readonly<{
   let providerCalls = 0;
   let modelCalls = 0;
   let processFailure: AgentProcessFailure | null = null;
+  let deadlineTriggeredAt: number | null = null;
+  let abortRequestedAt: number | null = null;
   let closed = false;
 
   const setFailure = (code: AgentProcessFailureCode, message: string): AgentProcessControlError => {
     if (processFailure === null) {
       processFailure = Object.freeze({ code, message });
+      abortRequestedAt ??= Date.now();
       controller.abort(new AgentProcessControlError(code, message));
     }
     return new AgentProcessControlError(processFailure.code, processFailure.message);
@@ -175,13 +181,17 @@ export function createAgentProcessControl(input: Readonly<{
   };
 
   const abortFromParent = (): void => {
-    if (!controller.signal.aborted) controller.abort(input.parentSignal?.reason);
+    if (!controller.signal.aborted) {
+      abortRequestedAt ??= Date.now();
+      controller.abort(input.parentSignal?.reason);
+    }
   };
   if (input.parentSignal?.aborted === true) abortFromParent();
   else input.parentSignal?.addEventListener("abort", abortFromParent, { once: true });
 
   const timeoutHandle = setTimeout(() => {
     if (closed || controller.signal.aborted) return;
+    deadlineTriggeredAt = Date.now();
     setFailure(
       "agent_timeout",
       `Agent exceeded the total timeout budget of ${limits.totalTimeoutMs} ms.`
@@ -274,6 +284,9 @@ export function createAgentProcessControl(input: Readonly<{
     },
     failure() {
       return processFailure;
+    },
+    timeline() {
+      return Object.freeze({ deadlineTriggeredAt, abortRequestedAt });
     },
     usage() {
       return Object.freeze({

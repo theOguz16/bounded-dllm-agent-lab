@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import {
   Codex,
   type ModelReasoningEffort,
@@ -32,6 +33,7 @@ import {
   createAgentProcessControl,
   type AgentProcessControl
 } from "./agent-process-control.js";
+import { runIsolatedAgentWorker, type AgentWorkerLifecycle } from "./isolated-agent-worker.js";
 import {
   CodexProviderAccessGate,
   codexLocalAuthCheck,
@@ -224,12 +226,16 @@ export class CodexAgentAdapter implements AgentAdapter {
   private readonly now: () => number;
   private readonly redactor: AgentOutputRedactor;
   private readonly providerGate: CodexProviderAccessGate;
+  private readonly isolatedWorker: boolean;
+  private readonly workerEnvironment: NodeJS.ProcessEnv;
 
   constructor(options: CodexAgentAdapterOptions = {}) {
     const environmentSource = options.environment ?? process.env;
     const environment = createAgentEnvironment(environmentSource);
     this.redactor = createAgentOutputRedactor({ environment: environmentSource });
     this.clientFactory = options.clientFactory ?? (() => new Codex({ env: { ...environment } }));
+    this.isolatedWorker = options.clientFactory === undefined;
+    this.workerEnvironment = { ...environment };
     this.now = options.now ?? Date.now;
     // Injected SDK clients are deterministic fakes in the offline conformance suite.
     // The real client always performs the free local auth/config check.
@@ -328,17 +334,39 @@ export class CodexAgentAdapter implements AgentAdapter {
     const adapterDiagnostics: AgentDiagnostic[] = [];
     let streamError: unknown = null;
     let providerFailure: CodexProviderFailureCode | null = null;
+    let lifecycleFailure: "provider_outcome_ambiguous" | "worker_termination_failed" | null = null;
+    let workerLifecycle: AgentWorkerLifecycle | undefined;
+    const observeEvent = (event: unknown): void => {
+      processControl.observeEvent();
+      const serialized = serializeStreamEvent(event);
+      processControl.observeStdout(serialized);
+      observeCommandTiming(event, this.now(), commandTimings, processControl);
+      lines.push(serialized);
+    };
 
     try {
-      const client = this.clientFactory();
-      const thread = client.startThread(threadOptions);
-      const streamed = await thread.runStreamed(request.task, turnOptions);
-      for await (const event of streamed.events) {
-        processControl.observeEvent();
-        const serialized = serializeStreamEvent(event);
-        processControl.observeStdout(serialized);
-        observeCommandTiming(event, this.now(), commandTimings, processControl);
-        lines.push(serialized);
+      if (this.isolatedWorker) {
+        const worker = await runIsolatedAgentWorker({
+          workerPath: fileURLToPath(new URL("./codex-sdk-worker.js", import.meta.url)),
+          environment: this.workerEnvironment,
+          payload: { task: request.task, threadOptions, outputSchema: request.outputSchema },
+          signal: processControl.signal,
+          deadlineTriggeredAt: () => processControl.timeline().deadlineTriggeredAt,
+          onEvent: observeEvent
+        });
+        workerLifecycle = worker.lifecycle;
+        if (worker.failureCode === "provider_outcome_ambiguous" ||
+            worker.failureCode === "worker_termination_failed") {
+          lifecycleFailure = worker.failureCode;
+        } else if (worker.failureCode !== null) {
+          providerFailure = this.providerGate.observe({ code: worker.failureCode });
+        }
+      } else {
+        // Explicit clientFactory is test-only: no live SDK instance is created here.
+        const client = this.clientFactory();
+        const thread = client.startThread(threadOptions);
+        const streamed = await thread.runStreamed(request.task, turnOptions);
+        for await (const event of streamed.events) observeEvent(event);
       }
     } catch (error) {
       streamError = error;
@@ -360,7 +388,8 @@ export class CodexAgentAdapter implements AgentAdapter {
     }
 
     const processFailure = processControl.failure();
-    const finalTermination: RunTermination = processFailure?.code === "agent_timeout"
+    const finalTermination: RunTermination = lifecycleFailure === "worker_termination_failed"
+      ? "budget_failed" : processFailure?.code === "agent_timeout"
       ? "timed_out"
       : processFailure !== null ? "budget_failed"
         : Boolean(request.abortSignal?.aborted) ? "aborted" : "none";
@@ -388,7 +417,7 @@ export class CodexAgentAdapter implements AgentAdapter {
 
     if (processFailure !== null) {
       adapterDiagnostics.push(diagnostic(processFailure.code, "error", processFailure.message,
-        processFailure.code === "agent_timeout"));
+        false));
     } else if (streamError !== null && finalTermination === "aborted") {
       adapterDiagnostics.push(diagnostic("codex_aborted", "info", "Codex run was aborted by the caller."));
     }
@@ -398,6 +427,9 @@ export class CodexAgentAdapter implements AgentAdapter {
       ));
     }
 
+    if (lifecycleFailure !== null) {
+      adapterDiagnostics.push(diagnostic(lifecycleFailure, "error", lifecycleFailure, false));
+    }
     const diagnostics: AgentDiagnostic[] = [
       ...parsed.diagnostics.map(({ code, severity, message, retryable }) => ({
         code: code === "codex_stream_error" || code === "codex_turn_failed"
@@ -417,9 +449,9 @@ export class CodexAgentAdapter implements AgentAdapter {
       request.workingDirectory, diagnostics, this.redactor);
 
     return {
-      status: providerFailure !== null && finalTermination === "none"
+      status: (providerFailure !== null || lifecycleFailure !== null) && finalTermination === "none"
         ? "failed" : mapRunStatus(parsed, finalTermination),
-      failureCode: processFailure?.code ?? providerFailure,
+      failureCode: lifecycleFailure ?? processFailure?.code ?? providerFailure,
       quotaStatus: "unknown",
       agentId: CODEX_AGENT_ID,
       agentVersion: CODEX_SDK_VERSION,
@@ -435,7 +467,8 @@ export class CodexAgentAdapter implements AgentAdapter {
       },
       commands,
       fileChanges: mapFileChanges(parsed),
-      diagnostics
+      diagnostics,
+      ...(workerLifecycle ? { workerLifecycle } : {})
     };
   }
 }

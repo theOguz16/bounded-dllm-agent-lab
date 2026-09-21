@@ -12,13 +12,15 @@ export type CompareProviderIdentity = Readonly<{
 }>;
 export type CompareProviderStopCode =
   | "usage_limit_exceeded" | "authentication_failed" | "provider_overloaded"
-  | "provider_stream_error_unknown" | "provider_identity_changed";
+  | "provider_stream_error_unknown" | "provider_identity_changed"
+  | "provider_outcome_ambiguous" | "worker_termination_failed";
 type Arm = "baseline" | "bounded";
 type AuthState = string | Readonly<{ home: string; ino: number; size: number; mtimeMs: number; ctimeMs: number }>;
 const ALIAS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const FAILURE_CODES = new Set<string>([
-  "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
+  "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown",
+  "provider_outcome_ambiguous", "worker_termination_failed"
 ]);
 
 function failure(code: CompareProviderStopCode): Error & { code: CompareProviderStopCode } {
@@ -150,10 +152,10 @@ export class CodexCompareProviderGate {
         }
         // A provider exception or stream may have started a charge. Never repeat an
         // uncertain invocation or attempt the other arm after a terminal failure.
-        if (result.status === "failed" || (result.status === "rejected" && result.failureCode)) {
+        if (result.status !== "completed" || result.workerLifecycle?.workerTerminationVerified === false) {
           const code = result.failureCode && FAILURE_CODES.has(result.failureCode)
             ? result.failureCode as CompareProviderStopCode
-            : "provider_stream_error_unknown";
+            : "provider_outcome_ambiguous";
           this.terminal = code;
         }
         if (!this.terminal) {

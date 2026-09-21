@@ -1,0 +1,46 @@
+name: P7.7 Worker Lifecycle Offline
+on:
+  pull_request:
+    paths:
+      - 'packages/integrations/src/agent-process-control.ts'
+      - 'packages/integrations/src/agent-adapter.ts'
+      - 'packages/integrations/src/isolated-agent-worker.ts'
+      - 'packages/integrations/src/codex-sdk-worker.ts'
+      - 'packages/integrations/src/codex-agent-adapter.ts'
+      - 'apps/cli/src/commands/compare.ts'
+      - 'apps/cli/src/commands/codex-compare-provider-gate.ts'
+      - 'benchmarks/product-v1/dogfood-*.cjs'
+      - 'benchmarks/product-v1/isolated-command-*.cjs'
+      - 'benchmarks/product-v1/p7-7-*.cjs'
+      - '.github/workflows/p7-7-worker-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build and verify fake-only worker boundary
+        run: |
+          npm run typecheck
+          npm run build
+          node benchmarks/product-v1/p7-7-worker-smoke.cjs
+          node scripts/smoke/agent-process-control-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs

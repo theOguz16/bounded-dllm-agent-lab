@@ -84,6 +84,7 @@ type ArmRuntimeObservation = Readonly<{
   status: string;
   failureCode: string | null;
   validationFailureCode: string | null;
+  workerLifecycle: AgentRunResult["workerLifecycle"] | null;
 }>;
 
 type UsageObservation = Readonly<{
@@ -514,7 +515,8 @@ function evaluateArm(input: Readonly<{
     runtime: Object.freeze({
       status: input.runtimeStatus,
       failureCode: input.runtimeFailureCode,
-      validationFailureCode: input.validation.infrastructureFailure?.code ?? null
+      validationFailureCode: input.validation.infrastructureFailure?.code ?? null,
+      workerLifecycle: input.runs.at(-1)?.workerLifecycle ?? null
     })
   });
 }
