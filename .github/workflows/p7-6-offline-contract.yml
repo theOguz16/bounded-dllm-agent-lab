@@ -1,0 +1,53 @@
+name: P7.6 Provider Access Offline Contract
+
+on:
+  push:
+    branches:
+      - product/p7-6-integrated-review
+  pull_request:
+    paths:
+      - apps/cli/src/commands/compare.ts
+      - apps/cli/src/commands/codex.ts
+      - apps/cli/src/commands/codex-compare-provider-gate.ts
+      - packages/integrations/src/**
+      - packages/product-runtime/src/agent-comparison-contract.ts
+      - benchmarks/product-v1/**
+      - .github/workflows/p7-6-offline-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+      RUNPOD_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Zero-provider-call P7.6 regressions
+        run: |
+          node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs
+          node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs
+          node benchmarks/product-v1/p7-6-first-access-budget-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          node scripts/smoke/codex-event-parser-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node scripts/smoke/agent-comparison-contract-smoke.cjs
+          node scripts/smoke/bounded-compare-codex-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs
+      - name: Product V1 offline integration
+        run: npm run product:v1-check
