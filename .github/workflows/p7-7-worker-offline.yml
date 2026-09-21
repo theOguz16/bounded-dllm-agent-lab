@@ -9,6 +9,7 @@ on:
       - "packages/integrations/src/codex-agent-adapter.ts"
       - "packages/integrations/src/agent-adapter.ts"
       - "apps/cli/src/commands/compare.ts"
+      - "apps/cli/src/commands/codex-compare-provider-gate.ts"
       - "benchmarks/product-v1/dogfood-runner.cjs"
       - "benchmarks/product-v1/dogfood-resumable-runner.cjs"
       - "benchmarks/product-v1/p7-7-*.cjs"
