@@ -19,7 +19,7 @@ async function main() {
     resolveAgentProcessBudget
   } = processControl;
 
-  assert.equal(AGENT_PROCESS_CONTROL_VERSION, "agent-process-control/v1");
+  assert.equal(AGENT_PROCESS_CONTROL_VERSION, "agent-process-control/v2");
   assert.equal(DEFAULT_AGENT_PROCESS_BUDGET.maxRepairRounds, 1);
 
   const resolved = resolveAgentProcessBudget(5_000, { totalTimeoutMs: 2_000, maxCommands: 3 });
@@ -97,6 +97,11 @@ async function main() {
   await new Promise((resolvePromise) => setTimeout(resolvePromise, 30));
   assert.equal(timeout.signal.aborted, true);
   assert.equal(timeout.failure().code, "agent_timeout");
+  const timeoutLifecycle = timeout.lifecycle();
+  assert.equal(typeof timeoutLifecycle.deadlineTriggeredAt, "number");
+  assert.equal(typeof timeoutLifecycle.abortRequestedAt, "number");
+  assert.equal(timeoutLifecycle.workerExitedAt, null);
+  assert.equal(timeoutLifecycle.forcedTermination, false);
   assert.throws(
     () => timeout.throwIfFailed(),
     (error) => error instanceof AgentProcessControlError && error.code === "agent_timeout"

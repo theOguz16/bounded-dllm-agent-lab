@@ -20,6 +20,9 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const FAILURE_CODES = new Set<string>([
   "usage_limit_exceeded", "authentication_failed", "provider_overloaded", "provider_stream_error_unknown"
 ]);
+const WORKER_TERMINAL_FAILURES = new Set<string>([
+  "provider_outcome_ambiguous", "worker_termination_failed"
+]);
 
 function failure(code: CompareProviderStopCode): Error & { code: CompareProviderStopCode } {
   return Object.assign(new Error(code), { code });
@@ -148,6 +151,14 @@ export class CodexCompareProviderGate {
           this.terminal = code;
           return rejected(request, adapter, code);
         }
+
+        // P7.7 worker-lifecycle failures are orchestration terminal states, not
+        // provider error categories. Preserve them verbatim so compare can stop
+        // the opposite arm without manufacturing provider_stream_error_unknown.
+        if (result.failureCode && WORKER_TERMINAL_FAILURES.has(result.failureCode)) {
+          return result;
+        }
+
         // A provider exception or stream may have started a charge. Never repeat an
         // uncertain invocation or attempt the other arm after a terminal failure.
         if (result.status === "failed" || (result.status === "rejected" && result.failureCode)) {

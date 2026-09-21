@@ -57,6 +57,7 @@ export const BOUNDED_COMPARE_DISCOVERY_TIMEOUT_MS = 180_000;
 export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
+const P7_7_TERMINAL_FAILURES = new Set(["provider_outcome_ambiguous", "worker_termination_failed"]);
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
@@ -113,6 +114,7 @@ export type CompareCodexOutput = Readonly<{
   providerIdentity: CompareProviderIdentity | null;
   quotaStatus: "unknown";
   providerFailureCode: string | null;
+  terminalFailureCode: string | null;
   executionOrder: ComparativeAgentExecutionOrder;
   model: string;
   reasoning: typeof BOUNDED_COMPARE_REASONING;
@@ -728,11 +730,12 @@ export async function compareCodexCommand(
 
   let normalExecution: ArmExecution | null = null;
   let boundedExecution: ArmExecution | null = null;
+  let terminalFailureCode: string | null = null;
   try {
     for (const arm of executionOrder) {
       // Stop BEFORE starting the other arm, even when the first arm has already
       // consumed quota or returned a partial/ambiguous provider stream.
-      if (providerGate?.stoppedCode()) break;
+      if (providerGate?.stoppedCode() || terminalFailureCode !== null) break;
       if (arm === "baseline") {
         const started = Date.now();
         const run = await adapter.run({
@@ -776,6 +779,10 @@ export async function compareCodexCommand(
           repairRounds: 0,
           durationMs: Math.max(0, Date.now() - started - validation.durationMs)
         });
+        if (runtimeFailureCode !== null && P7_7_TERMINAL_FAILURES.has(runtimeFailureCode)) {
+          terminalFailureCode = runtimeFailureCode;
+          break;
+        }
         continue;
       }
 
@@ -856,18 +863,26 @@ export async function compareCodexCommand(
           Date.now() - started - validation.durationMs + discoveryDurationMs
         )
       });
+      const boundedTerminal = boundedRuns.find((entry) =>
+        typeof entry.failureCode === "string" && P7_7_TERMINAL_FAILURES.has(entry.failureCode)
+      )?.failureCode ?? null;
+      if (boundedTerminal !== null) {
+        terminalFailureCode = boundedTerminal;
+        break;
+      }
     }
   } finally {
     await rm(baselineWorkspace.workspacePath, { recursive: true, force: true });
   }
 
   const providerFailureCode = providerGate?.stoppedCode() ?? null;
-  if (providerFailureCode !== null) {
+  const stopFailureCode = providerFailureCode ?? terminalFailureCode;
+  if (stopFailureCode !== null) {
     // Preserve an explicit non-comparable receipt for the arm that was never
     // invoked. No fake success and no extra paid invocation.
     const blocked = evaluateArm({
       runtimeCompleted: false, runtimeStatus: "blocked",
-      runtimeFailureCode: providerFailureCode, validation: emptyValidation(),
+      runtimeFailureCode: stopFailureCode, validation: emptyValidation(),
       changedFiles: [], approvedMutableFiles, controlAvailable: discovery !== null,
       forbiddenFiles, runs: [], exposedFiles: 0, exposedBytes: 0,
       repairRounds: 0, durationMs: 0
@@ -897,7 +912,7 @@ export async function compareCodexCommand(
     baseline: { ...identity, ...(providerGate ? providerGate.armIdentity("baseline") : {}) },
     bounded: { ...identity, ...(providerGate ? providerGate.armIdentity("bounded") : {}) }
   });
-  const comparable = comparison.comparable && providerFailureCode === null;
+  const comparable = comparison.comparable && stopFailureCode === null;
 
   const output: CompareCodexOutput = Object.freeze({
     ok: comparable,
@@ -912,6 +927,7 @@ export async function compareCodexCommand(
     providerIdentity: providerGate?.identity ?? null,
     quotaStatus: "unknown",
     providerFailureCode,
+    terminalFailureCode: stopFailureCode,
     executionOrder,
     model,
     reasoning: BOUNDED_COMPARE_REASONING,
