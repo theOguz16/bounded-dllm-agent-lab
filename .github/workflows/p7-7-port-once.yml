@@ -20,7 +20,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-      - name: Apply only the previously reviewed P7.7 worker delta
+      - name: Apply only the prior P7.7 worker delta and reconcile scoped conflicts
         shell: bash
         run: |
           set -euo pipefail
@@ -48,11 +48,11 @@ jobs:
             scripts/smoke/codex-agent-process-control-smoke.cjs \
             scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs \
             scripts/smoke/p7-7-worker-termination-smoke.cjs > /tmp/p7-7-delta.patch
-          if ! git apply --3way --index /tmp/p7-7-delta.patch; then
-            git status --short
-            echo 'Scoped P7.7 port conflicts with verified P7.6; refusing automatic integration.' >&2
+          if git apply --3way --index /tmp/p7-7-delta.patch; then
+            echo 'Unexpectedly no overlapping changes: refusing unreviewed merge.' >&2
             exit 1
           fi
+          node scripts/product/p7-7-port-helper.cjs
           git diff --cached --check
       - uses: actions/setup-node@v4
         with:
@@ -65,6 +65,8 @@ jobs:
           set -euo pipefail
           npm run typecheck
           npm run build
+          node scripts/smoke/agent-environment-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
           node scripts/smoke/p7-7-worker-termination-smoke.cjs
           node scripts/smoke/p7-7-codex-adapter-worker-smoke.cjs
           node benchmarks/product-v1/p7-7-compare-worker-stop-smoke.cjs
