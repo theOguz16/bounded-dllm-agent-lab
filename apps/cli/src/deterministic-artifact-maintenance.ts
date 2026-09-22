@@ -1,13 +1,18 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import type { PatchDiff, RepoPolicy } from "../../../packages/product-runtime/src/index.js";
+import {
+  evaluateCanonicalScopePatterns,
+  type PatchDiff,
+  type RepoPolicy
+} from "../../../packages/product-runtime/src/index.js";
 
 export const DETERMINISTIC_AG_ARTIFACT_PATHS = Object.freeze([
+  "reports/ag/AG1B_REPO_INTELLIGENCE_CONTEXT_BINDING.json",
   "reports/ag/AG2B_OPENAI_COMPATIBLE_PLANNER_PROVIDER.json",
   "reports/ag/AG3C_OPENAI_COMPATIBLE_PLANNER_MINIMALITY_PROVIDER.json"
 ] as const);
 
-export const DETERMINISTIC_AG_SEMANTIC_VERIFIER = "npm run verify:ag3c" as const;
+export const DETERMINISTIC_AG_SEMANTIC_VERIFIER = "npm run verify:ag1b && npm run verify:ag3c" as const;
 export const DETERMINISTIC_AG_BYTE_VERIFIER = "canonical-json-serialization/v1" as const;
 const REPORTS_FORBIDDEN_PATTERN = "reports/**";
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -40,14 +45,27 @@ export function resolveDeterministicArtifactMaintenancePolicy(input: Readonly<{
   const reportChanges = [...new Set(input.diff.changedFiles.filter((file) => file.startsWith("reports/")))].sort();
   const exact = new Set<string>(DETERMINISTIC_AG_ARTIFACT_PATHS);
   const verifiedCandidates = reportChanges.filter((file): file is ArtifactPath => exact.has(file));
+  const otherReportChanges = reportChanges.filter((file) => !exact.has(file));
 
-  if (verifiedCandidates.length === 0 || verifiedCandidates.length !== reportChanges.length) {
+  if (verifiedCandidates.length === 0) {
     return unchanged(input.policy);
   }
   if (!input.policy.forbidden_paths.includes(REPORTS_FORBIDDEN_PATTERN)) {
     return unchanged(input.policy);
   }
   if (verifiedCandidates.some((file) => !input.policy.allowed_paths.includes(file))) {
+    return unchanged(input.policy);
+  }
+  // Removing the blanket reports/** deny is safe only when every accompanying
+  // report path is independently and explicitly admitted by allowed_paths.
+  // Unknown report paths remain fail-closed; they cannot borrow the verified
+  // deterministic AG maintenance exception.
+  if (evaluateCanonicalScopePatterns({
+    changedFiles: otherReportChanges,
+    allowedPatterns: input.policy.allowed_paths,
+    forbiddenPatterns: [],
+    allowUnlistedWhenEmpty: false
+  }).length > 0) {
     return unchanged(input.policy);
   }
 
@@ -100,7 +118,7 @@ export function validateDeterministicArtifactVerificationReceipt(
   const expectedPaths = [...DETERMINISTIC_AG_ARTIFACT_PATHS].sort((a, b) => a.localeCompare(b, "en"));
   if (artifacts.length !== expectedPaths.length ||
       artifacts.some((artifact, index) => artifact.path !== expectedPaths[index])) {
-    throw new Error("Deterministic artifact receipt must cover exactly the AG2B and AG3C maintenance artifacts.");
+    throw new Error("Deterministic artifact receipt must cover exactly the AG1B, AG2B, and AG3C maintenance artifacts.");
   }
 
   return value as DeterministicArtifactVerificationReceipt;

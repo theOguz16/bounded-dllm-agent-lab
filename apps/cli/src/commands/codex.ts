@@ -23,6 +23,7 @@ import {
 } from "../../../../packages/integrations/src/codex-agent-adapter.js";
 import type {
   AgentAdapter,
+  AgentReasoningEffort,
   AgentRunRequest,
   AgentRunResult
 } from "../../../../packages/integrations/src/agent-adapter.js";
@@ -66,6 +67,7 @@ type RecordedAgentRun = Readonly<{
 export type CodexCommandDependencies = Readonly<{
   adapter?: AgentAdapter;
   model?: string;
+  reasoningEffort?: AgentReasoningEffort;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
   validationProfile?: ValidationProfileId;
 }>;
@@ -92,6 +94,10 @@ function requireTask(value: string): string {
   return value;
 }
 
+function acceptanceDescription(task: string): string {
+  return task.replace(/[ \t\r\n]+/g, " ").slice(0, 1000).trim();
+}
+
 function normalizeAllowFiles(values: readonly string[]): string[] {
   if (!Array.isArray(values) || values.length === 0 || values.length > MAX_ALLOW_FILES) {
     throw new CliError(
@@ -116,7 +122,7 @@ function normalizeAllowFiles(values: readonly string[]): string[] {
 }
 
 function looksLikeTestPath(file: string): boolean {
-  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/i.test(file);
+  return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec|[-_.]smoke)\.[^/]+$/i.test(file);
 }
 
 function selectScript(values: readonly string[], preferred: readonly string[]): string | null {
@@ -438,7 +444,7 @@ export async function codexCommand(
     objectiveHash,
     criteria: [{
       id: "requested_behavior",
-      description: task.slice(0, 1000),
+      description: acceptanceDescription(task),
       required: true,
       evidence: { kind: "test", commandId: "validation.test" }
     }]
@@ -454,8 +460,8 @@ export async function codexCommand(
     forbiddenFiles: [],
     model,
     adapter,
-    plannerReasoningEffort: BOUNDED_CODEX_REASONING,
-    coderReasoningEffort: BOUNDED_CODEX_REASONING,
+    plannerReasoningEffort: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
+    coderReasoningEffort: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
     providerTimeoutMs: 120_000
   });
   const validationProfile = dependencies.validationProfile ?? BOUNDED_CODEX_VALIDATION_PROFILE;
@@ -561,7 +567,7 @@ export async function codexCommand(
     taskId,
     agent: "Codex",
     model: actualModel,
-    reasoning: BOUNDED_CODEX_REASONING,
+    reasoning: dependencies.reasoningEffort ?? BOUNDED_CODEX_REASONING,
     recovery: {
       checkpointVersion: BOUNDED_CODEX_CHECKPOINT_VERSION,
       authority: "canonical_bounded_task_state",

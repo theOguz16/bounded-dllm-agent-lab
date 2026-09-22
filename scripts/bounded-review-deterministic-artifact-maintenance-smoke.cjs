@@ -40,8 +40,16 @@ async function main() {
   assert(policy.forbidden_paths.includes("reports/**"));
   assert(!resolved.policy.forbidden_paths.includes("reports/**"));
   assert.deepEqual(resolved.policy.allowed_paths, policy.allowed_paths);
-  assert.equal(resolved.receipt.semanticVerifier, "npm run verify:ag3c");
+  assert.equal(resolved.receipt.semanticVerifier, "npm run verify:ag1b && npm run verify:ag3c");
   assert.equal(resolved.receipt.sourceMutationDetected, false);
+
+  const mixedAllowed = maintenance.resolveDeterministicArtifactMaintenancePolicy({
+    policy: { ...policy, allowed_paths: [...policy.allowed_paths, "reports/product-v1/**"] },
+    diff: { raw: "", changedFiles: [exact[0], "reports/product-v1/README.md"] },
+    verifier: validReceipt
+  });
+  assert.equal(mixedAllowed.applied, true);
+  assert(!mixedAllowed.policy.forbidden_paths.includes("reports/**"));
 
   const wildcardOnly = maintenance.resolveDeterministicArtifactMaintenancePolicy({
     policy: { ...policy, allowed_paths: ["reports/ag/**", "docs/**"] },
@@ -50,6 +58,14 @@ async function main() {
   });
   assert.equal(wildcardOnly.applied, false);
   assert(wildcardOnly.policy.forbidden_paths.includes("reports/**"));
+
+  const mixedUnlisted = maintenance.resolveDeterministicArtifactMaintenancePolicy({
+    policy,
+    diff: { raw: "", changedFiles: [exact[0], "reports/private/untrusted.json"] },
+    verifier: () => { throw new Error("unlisted mixed report must not reach verifier"); }
+  });
+  assert.equal(mixedUnlisted.applied, false);
+  assert(mixedUnlisted.policy.forbidden_paths.includes("reports/**"));
 
   const thirdReport = maintenance.resolveDeterministicArtifactMaintenancePolicy({
     policy,
@@ -82,7 +98,7 @@ async function main() {
   });
   assert.equal(real.status, 0, `${real.stdout}\n${real.stderr}`);
   const receipt = maintenance.validateDeterministicArtifactVerificationReceipt(JSON.parse(real.stdout));
-  assert.equal(receipt.semanticVerifier, "npm run verify:ag3c");
+  assert.equal(receipt.semanticVerifier, "npm run verify:ag1b && npm run verify:ag3c");
   assert.equal(receipt.byteVerifier, "canonical-json-serialization/v1");
   assert.equal(receipt.sourceMutationDetected, false);
   assert.deepEqual(receipt.artifacts.map((entry) => entry.path), exact);

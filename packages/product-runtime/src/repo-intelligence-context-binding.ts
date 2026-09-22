@@ -298,9 +298,9 @@ function buildBinding(
   requiredSymbols: readonly string[],
   evidence: readonly InitialCoderContextEvidence[]
 ): RepoIntelligenceContextBindingReceipt {
-  const requiredSourceFiles = uniqueSorted(intelligence.dependencyClosure);
+  const requiredSourceFiles = uniqueSorted(intelligence.seedFiles);
   const allowedContextFiles = uniqueSorted([
-    ...requiredSourceFiles,
+    ...intelligence.dependencyClosure,
     ...requiredTestFiles
   ]);
   const initialEvidence = [...evidence]
@@ -334,7 +334,7 @@ function buildBoundBaseContext(
   intelligence: CanonicalRepoIntelligence,
   binding: RepoIntelligenceContextBindingReceipt
 ): RepoIntelligenceBoundBaseContext {
-  const closure = new Set(binding.requiredSourceFiles);
+  const closure = new Set(intelligence.dependencyClosure);
   const files = intelligence.scannedFiles
     .filter((file) => closure.has(file.path))
     .map((file) => ({
@@ -357,7 +357,7 @@ function buildBoundBaseContext(
       intelligenceHash: intelligence.intelligenceHash,
       repositoryIdentityHash: intelligence.repositoryIdentityHash,
       seedFiles: binding.seedFiles,
-      dependencyClosure: binding.requiredSourceFiles,
+      dependencyClosure: intelligence.dependencyClosure,
       dependencyEdges,
       files
     }
@@ -454,6 +454,16 @@ function validateCompletedAdaptiveResult<T>(
     )];
   }
   const issues: RepoIntelligenceContextBindingIssue[] = [];
+  for (const filePath of result.coderResult.context.readableFiles ?? []) {
+    if (!allowed.has(filePath)) {
+      issues.push(issue(
+        "repo_context_coder_readable_file_outside_boundary",
+        "Coder-readable file is outside the intelligence boundary.",
+        "error",
+        { filePath }
+      ));
+    }
+  }
   for (const evidence of result.coderResult.context.evidence) {
     if (!allowed.has(evidence.path)) {
       issues.push(issue(
@@ -693,6 +703,7 @@ export async function runRepoIntelligenceBoundCoderFlow<T>(
       requiredSymbols: binding.requiredSymbols,
       authorityPresent: input.authorityPresent,
       policyPresent: input.policyPresent,
+      readableFiles: binding.allowedContextFiles,
       allowedContextFiles: binding.allowedContextFiles,
       forbiddenFiles,
       hardTotalBudgetTokens: input.hardTotalBudgetTokens,

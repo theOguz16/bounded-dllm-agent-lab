@@ -1,0 +1,49 @@
+name: P7.6 Provider Offline
+
+on:
+  pull_request:
+    paths:
+      - "packages/integrations/src/**"
+      - "packages/product-runtime/src/agent-comparison-contract.ts"
+      - "apps/cli/src/commands/**"
+      - "benchmarks/product-v1/**"
+      - ".github/workflows/p7-6-provider-offline.yml"
+      - ".github/workflows/product-dogfood-v1-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-provider:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CODEX_API_KEY: ""
+      OPENAI_API_KEY: ""
+      CODEX_ACCESS_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build (no provider invocation)
+        run: npm run typecheck && npm run build
+      - name: Deterministic offline provider smokes
+        run: |
+          node benchmarks/product-v1/provider-access-smoke.cjs
+          node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs
+          node benchmarks/product-v1/dogfood-first-live-probe-smoke.cjs
+          node benchmarks/product-v1/p7-6-codex-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-provider-smoke.cjs
+          node benchmarks/product-v1/p7-6-compare-command-smoke.cjs
+          node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs
+          node scripts/smoke/agent-comparison-contract-smoke.cjs
+          node scripts/smoke/codex-agent-adapter-smoke.cjs
+          node scripts/smoke/bounded-compare-codex-smoke.cjs
+          node benchmarks/product-v1/dogfood-smoke.cjs

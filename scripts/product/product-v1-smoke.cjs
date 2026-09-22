@@ -114,6 +114,18 @@ const childStages = [
     script: "scripts/smoke/product-task-contract-smoke.cjs"
   },
   {
+    name: "Product V1 supported dogfood v2 smoke",
+    script: "benchmarks/product-v1/dogfood-v2-smoke.cjs"
+  },
+  {
+    name: "dogfood preflight smoke",
+    script: "benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs"
+  },
+  {
+    name: "dogfood provider budget smoke",
+    script: "benchmarks/product-v1/dogfood-provider-budget-smoke.cjs"
+  },
+  {
     name: "bounded compare Codex smoke",
     script: "scripts/smoke/bounded-compare-codex-smoke.cjs"
   },

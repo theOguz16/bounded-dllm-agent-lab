@@ -25,7 +25,7 @@ function evaluation({
   scopeViolationCount
 }) {
   return {
-    schemaVersion: "product-comparison-evaluation/v1",
+    schemaVersion: "product-comparison-evaluation/v2",
     correctness: {
       controlPassed,
       behaviorSatisfied,
