@@ -28,6 +28,8 @@ export type CanonicalRepoIntelligenceIssue = {
   field?: string;
   filePath?: string;
   specifier?: string;
+  resolverCandidates?: readonly string[];
+  rejectionReason?: CanonicalRepoUnresolvedImport["reason"];
 };
 
 export type CanonicalRepoSymbolKind =
@@ -56,6 +58,7 @@ export type CanonicalRepoUnresolvedImport = {
   from: string;
   specifier: string;
   reason: "outside_repository" | "target_not_found";
+  candidates: readonly string[];
 };
 
 export type CanonicalRepoFileFact = {
@@ -805,6 +808,20 @@ function resolutionCandidates(from: string, specifier: string): string[] {
       candidates.add(`${joined}/index${candidateExtension}`);
     }
   }
+
+  // Repository scripts execute compiled modules below dist/, but canonical
+  // intelligence intentionally excludes generated output. Resolve only that
+  // repository-root build layout back to its checked-in source counterpart.
+  // The normalized path check above remains the traversal boundary.
+  if (joined.startsWith("dist/")) {
+    const sourcePath = joined.slice("dist/".length);
+    const sourceExtension = path.posix.extname(sourcePath);
+    const mappedExtensions = extensionMap[sourceExtension];
+    if (mappedExtensions) {
+      const stem = sourcePath.slice(0, -sourceExtension.length);
+      for (const mapped of mappedExtensions) candidates.add(`${stem}${mapped}`);
+    }
+  }
   return [...candidates];
 }
 
@@ -828,7 +845,8 @@ function buildGraph(
         unresolved.push({
           from: parsed.fact.path,
           specifier: reference.specifier,
-          reason: "outside_repository"
+          reason: "outside_repository",
+          candidates
         });
         continue;
       }
@@ -837,7 +855,8 @@ function buildGraph(
         unresolved.push({
           from: parsed.fact.path,
           specifier: reference.specifier,
-          reason: "target_not_found"
+          reason: "target_not_found",
+          candidates
         });
         continue;
       }
@@ -1044,7 +1063,9 @@ export async function analyzeCanonicalRepository(
           message: "A relative import reachable from a seed file could not be resolved.",
           severity: "error" as const,
           filePath: item.from,
-          specifier: item.specifier
+          specifier: item.specifier,
+          resolverCandidates: item.candidates,
+          rejectionReason: item.reason
         }))
       );
       return finish("repo_intelligence_blocked", issues, intelligence, summary);

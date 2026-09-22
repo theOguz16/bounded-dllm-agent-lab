@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "p7-8-relative-import-fixtures/v1",
+  "cases": [
+    {
+      "taskId": "dogfood.regression.gate5-live-ablation-contract",
+      "sourceCommit": "92d49b4118843508584fa8e01b914ff77a416827",
+      "sourceFile": "scripts/gate5-ablation-evidence-schema-smoke.cjs",
+      "sourceFileSha256": "d54c72ffad435852716003eff04bd8ec118f186b3e08d201aa29abb2b191d6f2",
+      "specifier": "../dist/packages/product-runtime/src/canonical-runtime.js",
+      "sourceTarget": "packages/product-runtime/src/canonical-runtime.ts"
+    },
+    {
+      "taskId": "dogfood.regression.external-repository-runner",
+      "sourceCommit": "8c9404e8cc3a8aac0d41904cd82b77283bea6441",
+      "sourceFile": "scripts/gate5-external-repository-contract-smoke.cjs",
+      "sourceFileSha256": "91084d339956603f3f308ab9e06d236bd1771575a78de66093359c96c4fb316d",
+      "specifier": "../dist/packages/product-runtime/src/canonical-runtime.js",
+      "sourceTarget": "packages/product-runtime/src/canonical-runtime.ts"
+    },
+    {
+      "taskId": "dogfood.regression.gate6-task-schema",
+      "sourceCommit": "44ec4f2b8631f7719abf249120a1f9b11c4f4942",
+      "sourceFile": "scripts/ag1c-task-to-seed-implementation-contract-smoke.cjs",
+      "sourceFileSha256": "6ef36801d5a7ef5bceabd1c71a2188d4d48ba50da79a80bc07b7c4204a47299b",
+      "specifier": "../dist/packages/product-runtime/src/task-to-seed-implementation-contract.js",
+      "sourceTarget": "packages/product-runtime/src/task-to-seed-implementation-contract.ts"
+    }
+  ]
+}

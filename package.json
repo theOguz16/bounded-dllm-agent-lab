@@ -17,6 +17,7 @@
     "test:product-release-gate": "node scripts/product/release-gate-smoke.cjs",
     "product:release-gate": "node scripts/product/release-gate.cjs",
     "test:r06-arm-diagnostic": "node scripts/product/r06-arm-diagnostic-smoke.cjs",
+    "test:p7-8-relative-imports": "npm run build && node scripts/ag1a-canonical-repo-intelligence-smoke.cjs && node scripts/product/p7-8-relative-import-fixtures-smoke.cjs && node scripts/product/p7-8-relative-import-evidence-smoke.cjs",
     "report:r06-arm-diagnostic": "node scripts/product/r06-arm-diagnostic.cjs",
     "test:dogfood-provider-budget": "node benchmarks/product-v1/dogfood-provider-budget-smoke.cjs",
     "test:p7-15-eligibility": "npm run build && node scripts/product/p7-15-eligibility-audit.cjs --output=reports/p7-15/eligibility-audit.json",
