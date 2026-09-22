@@ -111,6 +111,14 @@ function inspectBehavior(workspace, definition) {
   const env = { ...process.env, HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "",
     NO_PROXY: "*", P7_14_NETWORK_DISABLED: "1" };
   delete env.CI;
+  if (definition.taskId === "dogfood.v2.bugfix.macos-temp-realpath" && process.platform !== "darwin") {
+    const output = { taskId: definition.taskId, criterionId: definition.criterionId,
+      assertionId: definition.assertionId, behaviorCommand: definition.behaviorCommand,
+      networkPolicy: "disabled", networkIsolation: { verified: false, reason: "macos_runner_required" },
+      build: { status: null, error: "platform_not_observable" },
+      assertion: { status: null, error: "macos_runner_required" }, result: "blocked" };
+    return { verdict: "blocked", exitCode: null, output, outputHash: hash(JSON.stringify(output)) };
+  }
   let cleanup = null;
   if (definition.taskId === "dogfood.v2.bugfix.macos-temp-realpath") {
     const physical = fs.mkdtempSync(path.join(os.tmpdir(), "p7-14-physical-"));

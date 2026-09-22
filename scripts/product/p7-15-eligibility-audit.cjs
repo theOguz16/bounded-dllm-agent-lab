@@ -60,6 +60,7 @@ function main() {
       const assertionAttacksCaught = evidence.assertionAttacksCaught === true;
       const preparationSucceeded = evidence.preparation?.status === 0;
       const networkIsolationVerified = evidence.networkIsolationVerified === true;
+      const executionBlocked = evidence.triad.includes("blocked") || evidence.candidateVerdict === "blocked";
       const auditClass = task.taskId.includes(".multifile.") ? "small_multifile_change" : task.family;
       familyCounts[auditClass] = (familyCounts[auditClass] || 0) + 1;
       const sourceLock = gitMaybe(task.commitSha, "package-lock.json");
@@ -85,7 +86,7 @@ function main() {
         },
         validation: {
           status: onlyExistingFiles && wrongCaught && behaviorProven && assertionAttacksCaught && networkIsolationVerified ? "pass" :
-            networkIsolationVerified ? "fail" : "blocked",
+            executionBlocked || !networkIsolationVerified ? "blocked" : "fail",
           networkPolicy: networkIsolationVerified ? "disabled_verified" : "disabled_unverified",
           changedFilesOnlyExisting: onlyExistingFiles,
           triad: evidence.triad,
@@ -98,12 +99,13 @@ function main() {
           executionReasons: evidence.executionReasons || null,
           wrongImplementationCaught: wrongCaught,
           behaviorProven, assertionAttacksCaught, assertionAttacks: evidence.assertionAttacks,
-          networkIsolationVerified, evidenceCheckHash: evidence.checkHash
+          executionBlocked, networkIsolationVerified, evidenceCheckHash: evidence.checkHash
         },
         reasons: [
           !preparationSucceeded ? "dependency_preparation_blocked" : null,
           !onlyExistingFiles ? "change_scope_ineligible" : null,
           !networkIsolationVerified ? "os_network_isolation_unverified" : null,
+          executionBlocked ? "behavior_execution_blocked" : null,
           !behaviorProven ? "source_reference_wrong_candidate_behavior_not_proven" : null,
           !assertionAttacksCaught ? "noop_or_generic_green_assertion_attack_not_caught" : null,
           !wrongCaught ? "wrong_candidate_not_caught" : null
