@@ -1,0 +1,44 @@
+name: P7.15 Executed Eligibility Audit
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'benchmarks/product-v1/tasks/dogfood/taskset-v2.json'
+      - 'benchmarks/product-v1/evaluator/p7-14-*'
+      - 'benchmarks/product-v1/p7-14-*'
+      - 'scripts/product/p7-15-*'
+      - '.github/workflows/p7-15-eligibility.yml'
+      - 'package.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  eligibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      P7_15_IMAGE_ID: github-hosted/ubuntu-24.04-node-22.14.0
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      ALL_PROXY: ''
+      NO_PROXY: '*'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - name: Dependency preparation (network/cache phase)
+        run: npm ci
+      - name: Validation (provider network disabled)
+        run: npm run test:p7-15-eligibility
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p7-15-eligibility-audit
+          path: reports/p7-15/eligibility-audit.json
+          if-no-files-found: error
+          retention-days: 14
