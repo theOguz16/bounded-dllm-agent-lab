@@ -1,0 +1,48 @@
+name: P7.14 Trusted Behavior Triad
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/product-runtime/src/product-behavior-evidence-v2.ts'
+      - 'packages/product-runtime/src/product-comparison-evaluator-v3.ts'
+      - 'packages/product-runtime/src/canonical-runtime.ts'
+      - 'benchmarks/product-v1/p7-14-*.cjs'
+      - 'benchmarks/product-v1/evaluator/p7-14-*'
+      - '.github/workflows/p7-14-trusted-behavior.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  historical-triad:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CODEX_API_KEY: ''
+      OPENAI_API_KEY: ''
+      CODEX_ACCESS_TOKEN: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and build the actual checked-out sources
+        run: |
+          npm run typecheck
+          npm run build
+      - name: Execute immutable historical acceptance and evidence attacks
+        env:
+          P7_14_EVIDENCE_DIR: ${{ runner.temp }}/p7-14-trusted-artifacts
+        run: node benchmarks/product-v1/p7-14-trusted-triad-smoke.cjs
+      - name: Preserve raw per-criterion execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p7-14-historical-triad-evidence
+          path: ${{ runner.temp }}/p7-14-trusted-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

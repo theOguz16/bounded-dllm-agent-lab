@@ -1,0 +1,269 @@
+{
+  "schemaVersion": "product-dogfood-trusted-acceptance/v3",
+  "suiteId": "product-v1-supported-20-dogfood-v2",
+  "providerVisible": false,
+  "acceptanceFilesMutableByAgent": false,
+  "coverage": "twenty_historical_tasks",
+  "entries": [
+    {
+      "taskId": "dogfood.v2.bugfix.macos-temp-realpath",
+      "sourceCommitSha": "5f44d2826e8e8c7b59ea8918bcaf5c63eba2e62a",
+      "referenceCommitSha": "6f612fab366a54116486d4176cd37e5f2288b824",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "bugfix_macos_temp_realpath",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-apply-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.bugfix.failed-resume",
+      "sourceCommitSha": "351aea5db624ecad05a2fc7b096629f61dd379aa",
+      "referenceCommitSha": "a83cf3618a87d8305db1424885acf704fff44a23",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "bugfix_failed_resume",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node benchmarks/product-v1/dogfood-post-fix-runner.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.bugfix.compare-failure-typing",
+      "sourceCommitSha": "ea0445c47ce868a2dfadbd2fd69d5d5e04399db6",
+      "referenceCommitSha": "690e780ec5cbe5a85516af737c5a030dac9e0a9b",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "bugfix_compare_failure_typing",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-compare-codex-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.bugfix.non-tty-smoke-typing",
+      "sourceCommitSha": "02b437f5aa0768790a000b08ff7d5f1aff25099a",
+      "referenceCommitSha": "0a5e53ee56cdab0a972db8606bac27c25e3c83ed",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "bugfix_non_tty_smoke_typing",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node dist/apps/cli/src/human-decision-smoke.js"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.bugfix.report-validation",
+      "sourceCommitSha": "ef940ac200c6d9b5a3897dc639b818ed595b6021",
+      "referenceCommitSha": "9ce52a8dc0cdaafc8ac1705882fcad4d1da9eb94",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "bugfix_report_validation",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/product/build-dogfood-report.cjs --self-test"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.behavior.discovery-cost",
+      "sourceCommitSha": "690e780ec5cbe5a85516af737c5a030dac9e0a9b",
+      "referenceCommitSha": "07e3ce07686e1c36658b2b3cae01b01e19ab64ac",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "behavior_discovery_cost",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-compare-codex-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.behavior.non-tty-evidence",
+      "sourceCommitSha": "b04e289a51059a8c929f093f259eed2f863c6b16",
+      "referenceCommitSha": "02b437f5aa0768790a000b08ff7d5f1aff25099a",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "behavior_non_tty_evidence",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node dist/apps/cli/src/human-decision-smoke.js"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.behavior.blank-decision",
+      "sourceCommitSha": "21156d252d64aa63f767b6c0449a00d5471e1949",
+      "referenceCommitSha": "b04e289a51059a8c929f093f259eed2f863c6b16",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "behavior_blank_decision",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node dist/apps/cli/src/human-decision-smoke.js"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.behavior.human-decision-capture",
+      "sourceCommitSha": "0979ba1cdd1d3337bf2583f79c204fc8569c3b6a",
+      "referenceCommitSha": "a11313b58df7ca37205aa75b421cedeca83457a7",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "behavior_human_decision_capture",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node dist/apps/cli/src/human-decision-smoke.js"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.behavior.provider-neutral-requirement",
+      "sourceCommitSha": "43c27603ee492791bf2a12dbdd22992c2402558e",
+      "referenceCommitSha": "5f44d2826e8e8c7b59ea8918bcaf5c63eba2e62a",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "behavior_provider_neutral_requirement",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/codex-bounded-provider-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.regression.failed-resume-smoke",
+      "sourceCommitSha": "a83cf3618a87d8305db1424885acf704fff44a23",
+      "referenceCommitSha": "7e57479172b58345122843cb15dfd892bc970600",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "regression_failed_resume_smoke",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node benchmarks/product-v1/dogfood-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.regression.discovery-budget-smoke",
+      "sourceCommitSha": "07e3ce07686e1c36658b2b3cae01b01e19ab64ac",
+      "referenceCommitSha": "351aea5db624ecad05a2fc7b096629f61dd379aa",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "regression_discovery_budget_smoke",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-compare-codex-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.regression.compare-contract-smoke",
+      "sourceCommitSha": "9a91a9193b9cb5b7d0e99ad06fa0a6e8c8c8cee3",
+      "referenceCommitSha": "ff766ab8b25bc56c94b566b5fd0c377ad8de9017",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "regression_compare_contract_smoke",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-compare-codex-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.regression.non-tty-decision-smoke",
+      "sourceCommitSha": "b04e289a51059a8c929f093f259eed2f863c6b16",
+      "referenceCommitSha": "02b437f5aa0768790a000b08ff7d5f1aff25099a",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "regression_non_tty_decision_smoke",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node dist/apps/cli/src/human-decision-smoke.js"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.regression.auth-home-smoke",
+      "sourceCommitSha": "714784aa67965ba70b24e74b8ed873aecc24af5b",
+      "referenceCommitSha": "b81fa53006c1e963d4f94cb798d9dac67a8aeefb",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "regression_auth_home_smoke",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node benchmarks/product-v1/dogfood-auth-preflight-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.multifile.timeout-budgets",
+      "sourceCommitSha": "1970240429e4a2ca834fa7defbe0935324eca2e3",
+      "referenceCommitSha": "9531a28634884982dbdf6b436d0f4d8c0106bbd4",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "multifile_timeout_budgets",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node benchmarks/product-v1/dogfood-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.multifile.ag1b-artifact",
+      "sourceCommitSha": "6f612fab366a54116486d4176cd37e5f2288b824",
+      "referenceCommitSha": "111146af06166a7adbc32c66f1162e3fd1d58afc",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "multifile_ag1b_artifact",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "npm run verify:ag1b"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.multifile.scope-live-compat",
+      "sourceCommitSha": "b81fa53006c1e963d4f94cb798d9dac67a8aeefb",
+      "referenceCommitSha": "06170919771ddcaa2edb54584b62620cc14e68c9",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "multifile_scope_live_compat",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/codex-scope-discovery-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.multifile.crash-recovery",
+      "sourceCommitSha": "f2e1a5c1a3056166df266368e0b9fe0837e11e67",
+      "referenceCommitSha": "60b0088a33c7472c436bc1b46bd9026232c92e05",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "multifile_crash_recovery",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/bounded-codex-explicit-scope-smoke.cjs"
+        }
+      ]
+    },
+    {
+      "taskId": "dogfood.v2.multifile.comparison-order",
+      "sourceCommitSha": "fc54a11f2b8b96fcf9a033dabffec45695ec6f2d",
+      "referenceCommitSha": "9767e609135c105a62cd139f2e2b0dc84eeeb328",
+      "requiredCriteria": [
+        {
+          "criterionIndex": 0,
+          "criterionId": "multifile_comparison_order",
+          "checkFile": "benchmarks/product-v1/evaluator/p7-14-independent-behavior-check.cjs",
+          "behaviorCommand": "node scripts/smoke/comparative-agent-runner-smoke.cjs"
+        }
+      ]
+    }
+  ]
+}
