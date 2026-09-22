@@ -41,6 +41,10 @@ function main() {
         stderr: String(run.stderr || "").slice(-64 * 1024) }));
     const triadReceiptBytes = fs.readFileSync(path.join(triadDir, "receipt.json"));
     const triad = JSON.parse(triadReceiptBytes);
+    const evaluatedCheckoutCommit = git("rev-parse", "HEAD");
+    const candidateCommitSha = process.env.P7_CANDIDATE_COMMIT || evaluatedCheckoutCommit;
+    assert.equal(triad.candidateCommitSha, candidateCommitSha);
+    assert.equal(triad.evaluatedCheckoutCommit, evaluatedCheckoutCommit);
     assert.equal(triad.coverage.historicallyExecutedTasks, 20);
     assert.equal(triad.coverage.suiteTasks, 20);
     const familyCounts = {};
@@ -115,7 +119,7 @@ function main() {
     assert.deepEqual(familyCounts, expectedFamilies);
     const audit = {
       schemaVersion: "product-dogfood-eligibility-audit/v1",
-      suiteId: taskset.suiteId, sourceCommit: git("rev-parse", "HEAD"),
+      suiteId: taskset.suiteId, sourceCommit: candidateCommitSha, evaluatedCheckoutCommit,
       identities: {
         tasksetHash: sha(tasksetBytes), trustedCatalogHash: sha(catalogBytes),
         triadEvidenceHash: sha(triadReceiptBytes), node: process.version,

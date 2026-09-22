@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
+      P7_CANDIDATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
       P7_15_IMAGE_ID: github-hosted/ubuntu-24.04-node-22.14.0
       HTTP_PROXY: ''
       HTTPS_PROXY: ''

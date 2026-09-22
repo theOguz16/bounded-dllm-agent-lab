@@ -98,6 +98,11 @@ async function main() {
   const { evaluateTrustedBehaviorEvidence, evaluateTrustedProductComparison } =
     await import(pathToFileURL(path.join(root, "dist/packages/product-runtime/src/canonical-runtime.js")).href);
   const catalogBytes = fs.readFileSync(catalogFile);
+  const evaluatedCheckoutCommit = git("rev-parse", "HEAD");
+  const candidateCommitSha = process.env.P7_CANDIDATE_COMMIT || evaluatedCheckoutCommit;
+  assert.equal(git("cat-file", "-t", candidateCommitSha), "commit");
+  assert.equal(cp.spawnSync("git", ["merge-base", "--is-ancestor", candidateCommitSha, evaluatedCheckoutCommit],
+    { cwd: root }).status, 0, "candidate commit must be contained in the evaluated checkout");
   const catalog = JSON.parse(catalogBytes);
   const taskset = JSON.parse(fs.readFileSync(path.join(__dirname, "tasks/dogfood/taskset-v2.json"), "utf8"));
   assert.equal(catalog.schemaVersion, "product-dogfood-trusted-acceptance/v3");
@@ -146,8 +151,11 @@ async function main() {
       const taskDir = path.join(temp, stem);
       const source = workspace(taskDir, "source", entry.sourceCommitSha, files, null, entry.taskId);
       const reference = workspace(taskDir, "reference", entry.referenceCommitSha, files, null, entry.taskId);
-      const wrong = workspace(taskDir, "wrong", entry.referenceCommitSha, files,
-        { path: files[0], bytes: gitBytes(entry.sourceCommitSha, files[0]) }, entry.taskId);
+      const wrong = workspace(taskDir, "wrong", entry.referenceCommitSha, files, null, entry.taskId);
+      // A multi-file fix can leave the behavior intact when only an incidental
+      // file is reverted. The negative control is the complete pre-fix behavior,
+      // reconstructed inside the reference dependency environment.
+      for (const file of files) fs.writeFileSync(path.join(wrong, file), gitBytes(entry.sourceCommitSha, file));
       const candidate = workspace(taskDir, "candidate", entry.referenceCommitSha, files, null, entry.taskId);
       const preparation = prepareDependencies(source, [reference, wrong, candidate]);
       const sourceResult = observe(checker, source, definition, evidenceDir, `${stem}-source`);
@@ -216,7 +224,8 @@ async function main() {
         networkIsolationVerified: [sourceResult, referenceResult, wrongResult, candidateResult, wrongCandidateResult]
           .every((item) => item.networkIsolationVerified === true) });
     }
-    const record = { version: "p7-14-triad-execution/v2", catalogHash: sha(catalogBytes),
+    const record = { version: "p7-14-triad-execution/v2", candidateCommitSha, evaluatedCheckoutCommit,
+      catalogHash: sha(catalogBytes),
       coverage: { historicallyExecutedTasks: records.length, suiteTasks: 20,
         passingTriads: records.filter((item) => item.triadSatisfied && item.candidateSatisfied && item.assertionAttacksCaught).length,
         r03FullyClosed: records.length === 20 &&
