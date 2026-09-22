@@ -30,7 +30,10 @@ function isolatedRun(file, argv, workspace, env, timeout = 120_000) {
   if (process.platform === "darwin") {
     return run("/usr/bin/sandbox-exec", ["-p", "(version 1)(deny network*)", file, ...argv], workspace, env, timeout);
   }
-  return run("sudo", ["-n", "unshare", "-n", "--", file, ...argv], workspace, env, timeout);
+  // sudo is needed only to create the network namespace. Drop back to the
+  // runner identity before exec so validation cannot leave root-owned output.
+  return run("sudo", ["-n", "unshare", "-n", `--setuid=${process.getuid()}`,
+    `--setgid=${process.getgid()}`, "--", file, ...argv], workspace, env, timeout);
 }
 function verifyNetworkIsolation(workspace, env) {
   const port = 20_000 + (process.pid % 20_000);
