@@ -1,8 +1,17 @@
 # P7.15 — executed eligibility audit
 
-The v2 task set is immutable and separately versioned. The audit executes all 20 P7.14 source/reference/wrong triads and emits one eligibility record per task. It requires the audited 5/5/5/5 distribution, immutable commit objects, modified-existing-file-only diffs, package and lockfile identities, task-specific target behavior, the independent checker hash, and a wrong implementation that is observed to fail.
+The v2 task set is immutable and separately versioned. The audit executes all 20
+P7.14 source/reference/wrong/candidate checks and emits one eligibility record per
+task. A record is eligible only when dependency preparation succeeds, the executed
+semantic triad is fail/pass/fail, the real candidate passes, the wrong candidate is
+caught, and the OS network canary proves validation isolation. File/hash equality is
+identity evidence only; it is never behavior evidence.
 
-Dependency preparation and validation are separate phases. `npm ci` may use the configured package cache or registry before validation. The validation process clears proxy variables, declares network disabled, makes no provider calls, and records that policy rather than treating local authentication as reachability. The workflow pins Node 22.14.0 and records the GitHub Ubuntu 24.04 image label; the produced audit also records Node, npm, platform, taskset, catalog, triad artifact, package and lockfile hashes.
+Dependency preparation and validation are separate executed phases. `npm ci` may use
+the configured package cache or registry before validation. Build and assertions run
+under `unshare -n` on Linux or a deny-network sandbox on supported macOS hosts, with
+a network canary that must observe denial. Clearing proxy variables or declaring a
+policy is not accepted as isolation proof.
 
 An unaudited task is never eligible. Missing package/lockfile bytes, a non-`M` diff, incomplete triad, or a wrong implementation that escapes the checker makes the record non-eligible. The historical taskset is not rewritten to make a failing task pass; any future selection change requires a new taskset version and an explicit reason.
 

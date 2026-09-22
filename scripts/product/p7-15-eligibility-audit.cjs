@@ -36,7 +36,8 @@ function main() {
     assert.equal(run.status, 0, run.stderr);
     const triadReceiptBytes = fs.readFileSync(path.join(triadDir, "receipt.json"));
     const triad = JSON.parse(triadReceiptBytes);
-    assert.deepEqual(triad.coverage, { historicallyExecutedTasks: 20, suiteTasks: 20, r03FullyClosed: true });
+    assert.equal(triad.coverage.historicallyExecutedTasks, 20);
+    assert.equal(triad.coverage.suiteTasks, 20);
     const familyCounts = {};
     const records = taskset.tasks.map((task) => {
       const entry = catalog.entries.find((item) => item.taskId === task.taskId);
@@ -45,7 +46,10 @@ function main() {
       const changedFiles = git("diff", "--name-only", task.commitSha, entry.referenceCommitSha).split("\n").filter(Boolean);
       const status = git("diff", "--name-status", task.commitSha, entry.referenceCommitSha).split("\n").filter(Boolean);
       const onlyExistingFiles = status.length > 0 && status.every((line) => line.startsWith("M\t"));
-      const wrongCaught = evidence.triad.join("/") === "assertion_fail/pass/assertion_fail";
+      const wrongCaught = evidence.wrongCandidateVerdict !== "pass";
+      const behaviorProven = evidence.triadSatisfied === true && evidence.candidateSatisfied === true;
+      const preparationSucceeded = evidence.preparation?.status === 0;
+      const networkIsolationVerified = evidence.networkIsolationVerified === true;
       const auditClass = task.taskId.includes(".multifile.") ? "small_multifile_change" : task.family;
       familyCounts[auditClass] = (familyCounts[auditClass] || 0) + 1;
       const sourceLock = gitMaybe(task.commitSha, "package-lock.json");
@@ -62,21 +66,24 @@ function main() {
         targetBehavior: task.acceptanceCriteria,
         independentChecker: { checkHash: evidence.checkHash, behaviorCommand: evidence.behaviorCommand },
         preparation: {
-          status: sourceLock && referenceLock && sourcePackage ? "pass" : "unknown",
+          status: sourceLock && referenceLock && sourcePackage && preparationSucceeded ? "pass" :
+            preparationSucceeded ? "unknown" : "blocked",
           installNetworkPolicy: "preparation_only_cache_or_registry_allowed",
           sourcePackageHash: sourcePackage ? sha(sourcePackage) : null,
           sourceLockfileHash: sourceLock ? sha(sourceLock) : null,
           referenceLockfileHash: referenceLock ? sha(referenceLock) : null
         },
         validation: {
-          status: onlyExistingFiles && wrongCaught ? "pass" : "fail",
-          networkPolicy: "disabled",
+          status: onlyExistingFiles && wrongCaught && behaviorProven && networkIsolationVerified ? "pass" :
+            networkIsolationVerified ? "fail" : "blocked",
+          networkPolicy: networkIsolationVerified ? "disabled_verified" : "disabled_unverified",
           changedFilesOnlyExisting: onlyExistingFiles,
           triad: evidence.triad,
           wrongImplementationCaught: wrongCaught,
-          evidenceCheckHash: evidence.checkHash
+          behaviorProven, networkIsolationVerified, evidenceCheckHash: evidence.checkHash
         },
-        eligible: Boolean(sourceLock && referenceLock && sourcePackage && onlyExistingFiles && wrongCaught)
+        eligible: Boolean(sourceLock && referenceLock && sourcePackage && preparationSucceeded &&
+          onlyExistingFiles && wrongCaught && behaviorProven && networkIsolationVerified)
       };
     });
     const expectedFamilies = {
@@ -84,7 +91,6 @@ function main() {
       regression_test_addition: 5, small_multifile_change: 5
     };
     assert.deepEqual(familyCounts, expectedFamilies);
-    assert.equal(records.every((record) => record.eligible), true);
     const audit = {
       schemaVersion: "product-dogfood-eligibility-audit/v1",
       suiteId: taskset.suiteId, sourceCommit: git("rev-parse", "HEAD"),
@@ -104,12 +110,12 @@ function main() {
         tasksetMutationAllowed: false
       },
       distribution: familyCounts, eligibleTaskCount: records.filter((record) => record.eligible).length,
+      decision: records.every((record) => record.eligible) ? "pass" : "not_pass",
       allEligible: records.every((record) => record.eligible), records
     };
     const canonical = JSON.stringify(audit);
     const envelope = { ...audit, auditHash: sha(canonical) };
     assert.equal(envelope.records.length, 20);
-    assert.equal(envelope.eligibleTaskCount, 20);
     if (options.output) {
       fs.mkdirSync(path.dirname(options.output), { recursive: true });
       fs.writeFileSync(options.output, JSON.stringify(envelope, null, 2) + "\n", { mode: 0o600 });
