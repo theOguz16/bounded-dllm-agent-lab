@@ -348,7 +348,10 @@ export class CodexAgentAdapter implements AgentAdapter {
         invocationJournal = createDurableInvocationJournal(this.invocationJournalPath);
         const reservation = invocationJournal.reserve({
           runId: request.runId, stage: request.mode, task: request.task,
-          model: request.model, deadlineAt: this.now() + processControl.limits.totalTimeoutMs
+          model: request.model, deadlineAt: this.now() + processControl.limits.totalTimeoutMs,
+          ...(request.invocationRetryDecision === undefined
+            ? {}
+            : { retryDecision: request.invocationRetryDecision })
         });
         invocationKey = reservation.invocationKey;
         invocationJournal.start(invocationKey);
@@ -513,6 +516,10 @@ export class CodexAgentAdapter implements AgentAdapter {
           knownFailure ? "failed" : "outcome_unknown", {
             failureCode: processFailure?.code ?? providerFailure ??
               (successObserved ? null : "provider_outcome_ambiguous"),
+            failureDetail: successObserved ? null : this.redactor.redactText(
+              diagnostics.map((entry) => `${entry.code}: ${entry.message}`).join("; ") ||
+              "Provider invocation ended without an observed successful outcome."
+            ),
             abortRequestedAt: lifecycle.abortRequestedAt,
             workerExitedAt: lifecycle.workerExitedAt,
             exitSignal: lifecycle.exitSignal,
