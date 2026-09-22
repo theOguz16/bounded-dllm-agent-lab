@@ -32,7 +32,7 @@ function main() {
       // The trusted suite prepares and executes five isolated variants for each
       // of 20 historical tasks. A short child timeout turns a slow, valid audit
       // into a null exit status before an evidence file can be written.
-      cwd: root, encoding: "utf8", timeout: 25 * 60_000, maxBuffer: 20_000_000,
+      cwd: root, encoding: "utf8", timeout: 28 * 60_000, maxBuffer: 20_000_000,
       env: { ...process.env, P7_14_EVIDENCE_DIR: triadDir,
         HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", NO_PROXY: "*" }
     });
@@ -85,6 +85,12 @@ function main() {
           networkPolicy: networkIsolationVerified ? "disabled_verified" : "disabled_unverified",
           changedFilesOnlyExisting: onlyExistingFiles,
           triad: evidence.triad,
+          executions: evidence.receipt?.criteria?.[0] ? {
+            source: evidence.receipt.criteria[0].source,
+            reference: evidence.receipt.criteria[0].reference,
+            wrong: evidence.receipt.criteria[0].wrong,
+            candidate: evidence.receipt.criteria[0].candidate
+          } : null,
           wrongImplementationCaught: wrongCaught,
           behaviorProven, assertionAttacksCaught, assertionAttacks: evidence.assertionAttacks,
           networkIsolationVerified, evidenceCheckHash: evidence.checkHash

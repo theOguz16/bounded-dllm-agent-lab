@@ -122,7 +122,9 @@ function inspectBehavior(workspace, definition) {
   const networkIsolation = verifyNetworkIsolation(workspace, env);
   const isolationVerified = networkIsolation.verified;
   const build = isolationVerified
-    ? isolatedRun("npm", ["run", "build"], workspace, env)
+    ? definition.reusePreparedBuild === true
+      ? { status: 0, signal: null, error: null, stdout: "", stderr: "", reusedPreparedBuild: true }
+      : isolatedRun("npm", ["run", "build"], workspace, env)
     : { status: null, signal: null, error: "network_isolation_unavailable", stdout: "", stderr: "" };
   const attackCommand = definition.attack === "noop" ? [process.execPath, ["-e", "process.exit(0)"]] :
     definition.attack === "generic_green" ? [process.execPath, ["-e", "process.stdout.write(JSON.stringify({ok:true}))"]] : null;

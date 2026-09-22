@@ -67,8 +67,15 @@ function observe(checker, directory, definition, evidenceDir, stem) {
   const rawFile = path.join(evidenceDir, `${stem}.json`);
   fs.writeFileSync(rawFile, raw, { mode: 0o600, flag: "wx" });
   assert.equal(sha(fs.readFileSync(rawFile)), result.outputHash);
+  const reason = result.verdict === "pass" ? "task_specific_assertion_satisfied" :
+    result.verdict === "blocked" ?
+      (result.output.networkIsolation?.verified !== true ? "os_network_isolation_unverified" :
+        result.output.build?.status !== 0 ? "build_or_runtime_environment_unavailable" : "infrastructure_blocked") :
+      result.output.build?.status !== 0 ? "criterion_compile_assertion_failed" :
+        result.output.assertion?.status !== 0 ? "task_assertion_process_failed" :
+          "task_specific_semantic_predicate_failed";
   const observation = { workspaceHash: snapshot(directory), verdict: result.verdict,
-    exitCode: result.exitCode, outputHash: result.outputHash };
+    reason, exitCode: result.exitCode, outputHash: result.outputHash };
   const execution = { ...observation, artifactHash: sha(JSON.stringify(observation)) };
   Object.defineProperty(execution, "networkIsolationVerified", {
     value: result.output.networkIsolation?.verified === true, enumerable: false
@@ -147,8 +154,10 @@ async function main() {
       const wrongResult = observe(checker, wrong, definition, evidenceDir, `${stem}-wrong`);
       const candidateResult = observe(checker, candidate, definition, evidenceDir, `${stem}-candidate`);
       const wrongCandidateResult = observe(checker, wrong, definition, evidenceDir, `${stem}-candidate-wrong`);
-      const noOpResult = observe(checker, candidate, { ...definition, attack: "noop" }, evidenceDir, `${stem}-attack-noop`);
-      const genericGreenResult = observe(checker, candidate, { ...definition, attack: "generic_green" },
+      const noOpResult = observe(checker, candidate,
+        { ...definition, attack: "noop", reusePreparedBuild: true }, evidenceDir, `${stem}-attack-noop`);
+      const genericGreenResult = observe(checker, candidate,
+        { ...definition, attack: "generic_green", reusePreparedBuild: true },
         evidenceDir, `${stem}-attack-generic-green`);
       const triad = [sourceResult.verdict, referenceResult.verdict, wrongResult.verdict];
       const triadSatisfied = JSON.stringify(triad) === JSON.stringify(["assertion_fail", "pass", "assertion_fail"]);
