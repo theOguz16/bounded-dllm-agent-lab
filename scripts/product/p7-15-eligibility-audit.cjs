@@ -29,11 +29,16 @@ function main() {
   const triadDir = fs.mkdtempSync(path.join(os.tmpdir(), "p7-15-triads-"));
   try {
     const run = cp.spawnSync(process.execPath, [path.join(root, "benchmarks/product-v1/p7-14-trusted-triad-smoke.cjs")], {
-      cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: 20_000_000,
+      // The trusted suite prepares and executes five isolated variants for each
+      // of 20 historical tasks. A short child timeout turns a slow, valid audit
+      // into a null exit status before an evidence file can be written.
+      cwd: root, encoding: "utf8", timeout: 25 * 60_000, maxBuffer: 20_000_000,
       env: { ...process.env, P7_14_EVIDENCE_DIR: triadDir,
         HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", NO_PROXY: "*" }
     });
-    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.status, 0,
+      JSON.stringify({ status: run.status, signal: run.signal, error: run.error?.message || null,
+        stderr: String(run.stderr || "").slice(-64 * 1024) }));
     const triadReceiptBytes = fs.readFileSync(path.join(triadDir, "receipt.json"));
     const triad = JSON.parse(triadReceiptBytes);
     assert.equal(triad.coverage.historicallyExecutedTasks, 20);
