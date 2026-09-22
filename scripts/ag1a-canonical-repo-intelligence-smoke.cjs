@@ -130,7 +130,51 @@ async function main() {
       });
       assert.equal(result.decision, "repo_intelligence_blocked");
       assert(result.intelligence);
-      assert(result.issues.some((issue) => issue.code === "reachable_relative_import_unresolved"));
+      const issue = result.issues.find((item) => item.code === "reachable_relative_import_unresolved");
+      assert(issue);
+      assert.equal(issue.rejectionReason, "target_not_found");
+      assert.deepEqual(issue.resolverCandidates, [
+        "src/missing.js",
+        "src/missing.ts",
+        "src/missing.tsx",
+        "src/missing.jsx"
+      ]);
+    });
+
+    await check("root dist imports resolve to checked-in build sources", async () => {
+      const buildRoot = await fixture({
+        "scripts/check.cjs": 'const runtime = await import("../dist/packages/runtime/src/index.js");\n',
+        "packages/runtime/src/index.ts": "export const ready = true;\n"
+      });
+      const beforeBuildResolution = treeDigest(buildRoot);
+      const result = await analyzeCanonicalRepository({
+        repositoryPath: buildRoot,
+        seedFiles: ["scripts/check.cjs"]
+      });
+      assert.equal(result.decision, "repo_intelligence_ready", JSON.stringify(result));
+      assert(result.intelligence.dependencyEdges.some((edge) =>
+        edge.from === "scripts/check.cjs" &&
+        edge.specifier === "../dist/packages/runtime/src/index.js" &&
+        edge.to === "packages/runtime/src/index.ts"
+      ));
+      assert.equal(treeDigest(buildRoot), beforeBuildResolution);
+    });
+
+    await check("ignored dist artifacts cannot satisfy missing checked-in sources", async () => {
+      const generatedOnlyRoot = await fixture({
+        "scripts/check.cjs": 'const runtime = await import("../dist/packages/runtime/src/index.js");\n',
+        "dist/packages/runtime/src/index.js": "export const generated = true;\n"
+      });
+      const result = await analyzeCanonicalRepository({
+        repositoryPath: generatedOnlyRoot,
+        seedFiles: ["scripts/check.cjs"]
+      });
+      assert.equal(result.decision, "repo_intelligence_blocked");
+      assert(result.issues.some((issue) =>
+        issue.code === "reachable_relative_import_unresolved" &&
+        issue.filePath === "scripts/check.cjs" &&
+        issue.specifier === "../dist/packages/runtime/src/index.js"
+      ));
     });
 
     await check("file byte and total byte budgets fail closed", async () => {
