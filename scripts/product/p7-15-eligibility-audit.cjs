@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+"use strict";
+const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const cp = require("node:child_process");
+const root = path.resolve(__dirname, "../..");
+const sha = (value) => `sha256:${crypto.createHash("sha256").update(value).digest("hex")}`;
+const git = (...args) => cp.execFileSync("git", args, { cwd: root, encoding: "utf8", timeout: 20_000, maxBuffer: 20_000_000 }).trim();
+const gitMaybe = (commit, file) => {
+  const result = cp.spawnSync("git", ["show", `${commit}:${file}`], { cwd: root, maxBuffer: 20_000_000 });
+  return result.status === 0 ? result.stdout : null;
+};
+function args(argv) {
+  const output = argv.find((item) => item.startsWith("--output="));
+  return { output: output ? path.resolve(output.slice(9)) : null };
+}
+function main() {
+  const options = args(process.argv.slice(2));
+  const tasksetPath = path.join(root, "benchmarks/product-v1/tasks/dogfood/taskset-v2.json");
+  const catalogPath = path.join(root, "benchmarks/product-v1/evaluator/p7-14-trusted-catalog-v3.json");
+  const tasksetBytes = fs.readFileSync(tasksetPath);
+  const catalogBytes = fs.readFileSync(catalogPath);
+  const taskset = JSON.parse(tasksetBytes), catalog = JSON.parse(catalogBytes);
+  assert.equal(taskset.tasks.length, 20);
+  assert.equal(catalog.entries.length, 20);
+  const triadDir = fs.mkdtempSync(path.join(os.tmpdir(), "p7-15-triads-"));
+  try {
+    const run = cp.spawnSync(process.execPath, [path.join(root, "benchmarks/product-v1/p7-14-trusted-triad-smoke.cjs")], {
+      cwd: root, encoding: "utf8", timeout: 120_000, maxBuffer: 20_000_000,
+      env: { ...process.env, P7_14_EVIDENCE_DIR: triadDir,
+        HTTP_PROXY: "", HTTPS_PROXY: "", ALL_PROXY: "", NO_PROXY: "*" }
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const triadReceiptBytes = fs.readFileSync(path.join(triadDir, "receipt.json"));
+    const triad = JSON.parse(triadReceiptBytes);
+    assert.deepEqual(triad.coverage, { historicallyExecutedTasks: 20, suiteTasks: 20, r03FullyClosed: true });
+    const familyCounts = {};
+    const records = taskset.tasks.map((task) => {
+      const entry = catalog.entries.find((item) => item.taskId === task.taskId);
+      const evidence = triad.records.find((item) => item.taskId === task.taskId);
+      assert.ok(entry && evidence);
+      const changedFiles = git("diff", "--name-only", task.commitSha, entry.referenceCommitSha).split("\n").filter(Boolean);
+      const status = git("diff", "--name-status", task.commitSha, entry.referenceCommitSha).split("\n").filter(Boolean);
+      const onlyExistingFiles = status.length > 0 && status.every((line) => line.startsWith("M\t"));
+      const wrongCaught = evidence.triad.join("/") === "assertion_fail/pass/assertion_fail";
+      const auditClass = task.taskId.includes(".multifile.") ? "small_multifile_change" : task.family;
+      familyCounts[auditClass] = (familyCounts[auditClass] || 0) + 1;
+      const sourceLock = gitMaybe(task.commitSha, "package-lock.json");
+      const referenceLock = gitMaybe(entry.referenceCommitSha, "package-lock.json");
+      const sourcePackage = gitMaybe(task.commitSha, "package.json");
+      return {
+        taskId: task.taskId, family: task.family, auditClass, sourceCommit: task.commitSha,
+        referenceCommit: entry.referenceCommitSha, sourceFiles: changedFiles,
+        allowedChanges: changedFiles, dependencyArchitectureNeeds: {
+          packageManifestChanged: changedFiles.includes("package.json"),
+          lockfileChanged: changedFiles.includes("package-lock.json"),
+          crossSubsystem: new Set(changedFiles.map((file) => file.split("/")[0])).size > 1
+        },
+        targetBehavior: task.acceptanceCriteria,
+        independentChecker: { checkHash: evidence.checkHash, behaviorCommand: evidence.behaviorCommand },
+        preparation: {
+          status: sourceLock && referenceLock && sourcePackage ? "pass" : "unknown",
+          installNetworkPolicy: "preparation_only_cache_or_registry_allowed",
+          sourcePackageHash: sourcePackage ? sha(sourcePackage) : null,
+          sourceLockfileHash: sourceLock ? sha(sourceLock) : null,
+          referenceLockfileHash: referenceLock ? sha(referenceLock) : null
+        },
+        validation: {
+          status: onlyExistingFiles && wrongCaught ? "pass" : "fail",
+          networkPolicy: "disabled",
+          changedFilesOnlyExisting: onlyExistingFiles,
+          triad: evidence.triad,
+          wrongImplementationCaught: wrongCaught,
+          evidenceCheckHash: evidence.checkHash
+        },
+        eligible: Boolean(sourceLock && referenceLock && sourcePackage && onlyExistingFiles && wrongCaught)
+      };
+    });
+    const expectedFamilies = {
+      existing_function_bug_fix: 5, bounded_behavior_change: 5,
+      regression_test_addition: 5, small_multifile_change: 5
+    };
+    assert.deepEqual(familyCounts, expectedFamilies);
+    assert.equal(records.every((record) => record.eligible), true);
+    const audit = {
+      schemaVersion: "product-dogfood-eligibility-audit/v1",
+      suiteId: taskset.suiteId, sourceCommit: git("rev-parse", "HEAD"),
+      identities: {
+        tasksetHash: sha(tasksetBytes), trustedCatalogHash: sha(catalogBytes),
+        triadEvidenceHash: sha(triadReceiptBytes), node: process.version,
+        npm: cp.execFileSync("npm", ["--version"], { encoding: "utf8" }).trim(),
+        platform: `${process.platform}-${process.arch}`,
+        imageIdentity: process.env.P7_15_IMAGE_ID || sha(JSON.stringify({
+          platform: process.platform, arch: process.arch, release: os.release(), node: process.version
+        }))
+      },
+      policy: {
+        dependencyPreparationNetwork: "cache_or_registry_allowed_before_validation",
+        validationNetwork: "disabled",
+        unauditedTasksEligible: false,
+        tasksetMutationAllowed: false
+      },
+      distribution: familyCounts, eligibleTaskCount: records.filter((record) => record.eligible).length,
+      allEligible: records.every((record) => record.eligible), records
+    };
+    const canonical = JSON.stringify(audit);
+    const envelope = { ...audit, auditHash: sha(canonical) };
+    assert.equal(envelope.records.length, 20);
+    assert.equal(envelope.eligibleTaskCount, 20);
+    if (options.output) {
+      fs.mkdirSync(path.dirname(options.output), { recursive: true });
+      fs.writeFileSync(options.output, JSON.stringify(envelope, null, 2) + "\n", { mode: 0o600 });
+    }
+    process.stdout.write(JSON.stringify({ ok: true, tasks: 20, distribution: familyCounts,
+      auditHash: envelope.auditHash, triadEvidenceHash: envelope.identities.triadEvidenceHash }) + "\n");
+  } finally {
+    fs.rmSync(triadDir, { recursive: true, force: true });
+  }
+}
+main();
