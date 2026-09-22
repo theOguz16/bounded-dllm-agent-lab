@@ -1,7 +1,7 @@
 name: P7.14 Trusted Behavior Triad
 on:
   pull_request:
-    branches: [product/p7-4-human-decision-capture]
+    branches: [main]
     paths:
       - 'packages/product-runtime/src/product-behavior-evidence-v2.ts'
       - 'packages/product-runtime/src/product-comparison-evaluator-v3.ts'
