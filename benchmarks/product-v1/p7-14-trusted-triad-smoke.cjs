@@ -75,8 +75,9 @@ function observe(checker, directory, definition, evidenceDir, stem) {
         result.output.assertion?.status !== 0 ? "task_assertion_process_failed" :
           "task_specific_semantic_predicate_failed";
   const observation = { workspaceHash: snapshot(directory), verdict: result.verdict,
-    reason, exitCode: result.exitCode, outputHash: result.outputHash };
+    exitCode: result.exitCode, outputHash: result.outputHash };
   const execution = { ...observation, artifactHash: sha(JSON.stringify(observation)) };
+  Object.defineProperty(execution, "reason", { value: reason, enumerable: false });
   Object.defineProperty(execution, "networkIsolationVerified", {
     value: result.output.networkIsolation?.verified === true, enumerable: false
   });
@@ -206,6 +207,9 @@ async function main() {
         referenceCommitSha: entry.referenceCommitSha, changedFiles: files, behaviorCommand: criterion.behaviorCommand,
         checkHash, preparation: { ...preparation, outputHash: sha(JSON.stringify(preparation)) }, receipt,
         triad, triadSatisfied, candidateVerdict: candidateResult.verdict, candidateSatisfied,
+        executionReasons: { source: sourceResult.reason, reference: referenceResult.reason,
+          wrong: wrongResult.reason, candidate: candidateResult.reason,
+          wrongCandidate: wrongCandidateResult.reason },
         assertionAttacks: { noOp: noOpResult, genericGreen: genericGreenResult }, assertionAttacksCaught,
         trustedBehaviorSatisfied: trustedAssessment.behaviorSatisfied,
         wrongCandidateVerdict: wrongCandidateResult.verdict,

@@ -91,6 +91,7 @@ function main() {
             wrong: evidence.receipt.criteria[0].wrong,
             candidate: evidence.receipt.criteria[0].candidate
           } : null,
+          executionReasons: evidence.executionReasons || null,
           wrongImplementationCaught: wrongCaught,
           behaviorProven, assertionAttacksCaught, assertionAttacks: evidence.assertionAttacks,
           networkIsolationVerified, evidenceCheckHash: evidence.checkHash
