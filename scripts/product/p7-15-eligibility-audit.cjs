@@ -53,6 +53,7 @@ function main() {
       const onlyExistingFiles = status.length > 0 && status.every((line) => line.startsWith("M\t"));
       const wrongCaught = evidence.wrongCandidateVerdict !== "pass";
       const behaviorProven = evidence.triadSatisfied === true && evidence.candidateSatisfied === true;
+      const assertionAttacksCaught = evidence.assertionAttacksCaught === true;
       const preparationSucceeded = evidence.preparation?.status === 0;
       const networkIsolationVerified = evidence.networkIsolationVerified === true;
       const auditClass = task.taskId.includes(".multifile.") ? "small_multifile_change" : task.family;
@@ -79,16 +80,25 @@ function main() {
           referenceLockfileHash: referenceLock ? sha(referenceLock) : null
         },
         validation: {
-          status: onlyExistingFiles && wrongCaught && behaviorProven && networkIsolationVerified ? "pass" :
+          status: onlyExistingFiles && wrongCaught && behaviorProven && assertionAttacksCaught && networkIsolationVerified ? "pass" :
             networkIsolationVerified ? "fail" : "blocked",
           networkPolicy: networkIsolationVerified ? "disabled_verified" : "disabled_unverified",
           changedFilesOnlyExisting: onlyExistingFiles,
           triad: evidence.triad,
           wrongImplementationCaught: wrongCaught,
-          behaviorProven, networkIsolationVerified, evidenceCheckHash: evidence.checkHash
+          behaviorProven, assertionAttacksCaught, assertionAttacks: evidence.assertionAttacks,
+          networkIsolationVerified, evidenceCheckHash: evidence.checkHash
         },
+        reasons: [
+          !preparationSucceeded ? "dependency_preparation_blocked" : null,
+          !onlyExistingFiles ? "change_scope_ineligible" : null,
+          !networkIsolationVerified ? "os_network_isolation_unverified" : null,
+          !behaviorProven ? "source_reference_wrong_candidate_behavior_not_proven" : null,
+          !assertionAttacksCaught ? "noop_or_generic_green_assertion_attack_not_caught" : null,
+          !wrongCaught ? "wrong_candidate_not_caught" : null
+        ].filter(Boolean),
         eligible: Boolean(sourceLock && referenceLock && sourcePackage && preparationSucceeded &&
-          onlyExistingFiles && wrongCaught && behaviorProven && networkIsolationVerified)
+          onlyExistingFiles && wrongCaught && behaviorProven && assertionAttacksCaught && networkIsolationVerified)
       };
     });
     const expectedFamilies = {

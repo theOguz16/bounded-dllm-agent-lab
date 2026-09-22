@@ -147,9 +147,14 @@ async function main() {
       const wrongResult = observe(checker, wrong, definition, evidenceDir, `${stem}-wrong`);
       const candidateResult = observe(checker, candidate, definition, evidenceDir, `${stem}-candidate`);
       const wrongCandidateResult = observe(checker, wrong, definition, evidenceDir, `${stem}-candidate-wrong`);
+      const noOpResult = observe(checker, candidate, { ...definition, attack: "noop" }, evidenceDir, `${stem}-attack-noop`);
+      const genericGreenResult = observe(checker, candidate, { ...definition, attack: "generic_green" },
+        evidenceDir, `${stem}-attack-generic-green`);
       const triad = [sourceResult.verdict, referenceResult.verdict, wrongResult.verdict];
       const triadSatisfied = JSON.stringify(triad) === JSON.stringify(["assertion_fail", "pass", "assertion_fail"]);
       const candidateSatisfied = candidateResult.verdict === "pass";
+      const assertionAttacksCaught = noOpResult.verdict === "assertion_fail" &&
+        genericGreenResult.verdict === "assertion_fail";
       const checkHash = sha(JSON.stringify([sha(fs.readFileSync(checkerFile)), definition]));
       const common = {
         taskId: task.taskId, taskHash: sha(JSON.stringify(task)), sourceCommitSha: entry.sourceCommitSha,
@@ -167,7 +172,7 @@ async function main() {
       const expected = { ...common, requiredCriteria: [{ criterionId: criterion.criterionId, checkHash }] };
       const trustedAssessment = evaluateTrustedBehaviorEvidence(receipt, expected, key);
       const trustedComparison = evaluateTrustedProductComparison(comparisonInput(receipt), expected, key);
-      if (triadSatisfied && candidateSatisfied) {
+      if (triadSatisfied && candidateSatisfied && assertionAttacksCaught) {
         assert.equal(trustedAssessment.behaviorSatisfied, true);
         assert.equal(trustedComparison.correctness.taskSucceeded, true);
       } else {
@@ -192,6 +197,7 @@ async function main() {
         referenceCommitSha: entry.referenceCommitSha, changedFiles: files, behaviorCommand: criterion.behaviorCommand,
         checkHash, preparation: { ...preparation, outputHash: sha(JSON.stringify(preparation)) }, receipt,
         triad, triadSatisfied, candidateVerdict: candidateResult.verdict, candidateSatisfied,
+        assertionAttacks: { noOp: noOpResult, genericGreen: genericGreenResult }, assertionAttacksCaught,
         trustedBehaviorSatisfied: trustedAssessment.behaviorSatisfied,
         wrongCandidateVerdict: wrongCandidateResult.verdict,
         networkIsolationVerified: [sourceResult, referenceResult, wrongResult, candidateResult, wrongCandidateResult]
@@ -199,13 +205,15 @@ async function main() {
     }
     const record = { version: "p7-14-triad-execution/v2", catalogHash: sha(catalogBytes),
       coverage: { historicallyExecutedTasks: records.length, suiteTasks: 20,
-        passingTriads: records.filter((item) => item.triadSatisfied && item.candidateSatisfied).length,
+        passingTriads: records.filter((item) => item.triadSatisfied && item.candidateSatisfied && item.assertionAttacksCaught).length,
         r03FullyClosed: records.length === 20 &&
-          records.every((item) => item.triadSatisfied && item.candidateSatisfied) && !process.env.P7_14_ONLY_TASK },
-      negatives: ["missing", "forged", "partial", "cross-candidate", "stale", "wrong-implementation"], records };
+          records.every((item) => item.triadSatisfied && item.candidateSatisfied && item.assertionAttacksCaught) &&
+          !process.env.P7_14_ONLY_TASK },
+      negatives: ["missing", "forged", "partial", "cross-candidate", "stale", "wrong-implementation",
+        "noop-assertion", "generic-green-assertion"], records };
     fs.writeFileSync(path.join(evidenceDir, "receipt.json"), JSON.stringify(record, null, 2), { mode: 0o600, flag: "wx" });
     console.log(JSON.stringify({ ok: true, coverage: record.coverage, taskIds: records.map((item) => item.taskId),
-      evidenceHash: sha(JSON.stringify(record)), artifactCount: records.length * 5 + 1 }));
+      evidenceHash: sha(JSON.stringify(record)), artifactCount: records.length * 7 + 1 }));
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 main().catch((error) => { console.error(error.stack || error); process.exitCode = 1; });
