@@ -1,6 +1,8 @@
 # P7.14 — executed behavior evidence (v3)
 
-**Status: 20/20 historical triads implemented. This is not by itself a product release PASS.**
+**Status: 20 tasks are executed, but only tasks with an observed source/reference/wrong
+`assertion_fail/pass/assertion_fail` triad and a passing candidate are proven. The
+suite is `not_pass` while any task is failed, blocked, or unknown.**
 
 ## Trust and source of truth
 
@@ -12,9 +14,20 @@ The trusted historical checker and catalog live in the evaluator checkout, **out
 
 ## Historical execution covered
 
-The v3 catalog covers **20/20** supported dogfood-v2 tasks and exactly matches the separately versioned 5/5/5/5 task set. For every task it resolves both immutable commits, derives the existing-file-only changed set, materializes source/reference/wrong/candidate workspaces, executes the trusted independent assertion, and requires the observed `assertion_fail/pass/assertion_fail` triad. The task-specific historical behavior command is retained in the signed definition and raw output. No provider call is made or authorized.
+The v3 catalog executes all 20 dogfood-v2 tasks. Each variant is a full immutable
+repository snapshot, dependencies are prepared with `npm ci`, and validation is
+run inside an OS network sandbox. The reference file bytes are never used as the
+acceptance oracle. Task-specific assertions execute build/runtime behavior; trusted
+later regression tests may be overlaid as hidden assertions and are hashed into the
+check identity. A reference that does not build or does not exhibit the behavior is
+recorded as failed, never promoted because its bytes match a historical patch.
 
-The runner writes 100 raw bounded execution records (five per task) in a host-owned directory outside candidate workspaces and hashes their bytes into each criterion observation. The suite receipt includes real workspace hashes, task hashes, source/reference commit SHAs, catalog/check hashes, criterion identities, issue times and host-held HMACs. Missing, partial, forged, stale, cross-candidate and wrong-implementation cases cannot pass.
+The runner writes 100 raw bounded execution records (five per task) in a host-owned
+directory outside candidate workspaces. Each record includes dependency preparation,
+OS network-isolation canary, build, assertion, exit status, bounded stdout/stderr and
+hashes. Missing, partial, forged, stale, cross-candidate, unisolated and wrong-
+implementation cases cannot pass. An unavailable OS sandbox is `blocked`; an
+executed behavior mismatch is `assertion_fail`.
 
 ## Remaining production integration limits
 
