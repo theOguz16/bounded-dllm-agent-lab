@@ -38,9 +38,24 @@ async function main(){
   assert.equal(journal.read(reservation.invocationKey).state,'outcome_unknown');
   assert.throws(()=>journal.finish(reservation.invocationKey,'completed'),{code:'invocation_replay_forbidden'});
   assert.throws(()=>journal.reserve({...id,task:'modified prompt'}),{code:'invocation_replay_forbidden'});
-  assert.equal(journal.reserve(fixture('fixture.new-run')).state,'prepared');
+  assert.throws(()=>journal.reserve(fixture('fixture.new-run')),{code:'invocation_replay_forbidden'});
+  assert.equal(journal.reserve({...fixture('fixture.new-run'),retryDecision:{
+    decisionId:'decision-new-run',supersedesRunId:id.runId
+  }}).state,'prepared');
+  const failed=fixture('fixture.failed','planner');
+  const failedReservation=journal.reserve(failed);
+  journal.start(failedReservation.invocationKey);
+  const failedRecord=journal.finish(failedReservation.invocationKey,'failed',{
+    failureCode:'provider_error',
+    failureDetail:'request rejected; Authorization: Bearer secret-token-value; sk-12345678901234567890'
+  });
+  assert.equal(failedRecord.state,'failed');
+  assert.match(failedRecord.failureDetail,/\[REDACTED\]/);
+  assert.doesNotMatch(JSON.stringify(failedRecord),/secret-token-value|sk-12345678901234567890/);
   // Recovery after a process crash must never turn a possibly charged attempt into a fresh slot.
-  const crashed=fixture('fixture.crashed');
+  const crashed={...fixture('fixture.crashed'),retryDecision:{
+    decisionId:'decision-crash',supersedesRunId:'fixture.new-run'
+  }};
   const exit=spawnSync(process.execPath,['--input-type=module','-e',
     `import {createDurableInvocationJournal} from ${JSON.stringify(url)};`+
     `const j=createDurableInvocationJournal(${JSON.stringify(file)});`+
@@ -48,7 +63,9 @@ async function main(){
     {encoding:'utf8',env:{...process.env,CODEX_API_KEY:'',OPENAI_API_KEY:''}});
   assert.equal(exit.status,0,exit.stderr);
   assert.throws(()=>journal.reserve(crashed),{code:'invocation_replay_forbidden'});
-  assert.equal(journal.read(journal.reserve(fixture('fixture.lookup')).invocationKey).state,'prepared');
+  assert.equal(journal.read(journal.reserve({...fixture('fixture.lookup'),retryDecision:{
+    decisionId:'decision-lookup',supersedesRunId:'fixture.crashed'
+  }}).invocationKey).state,'prepared');
   assert.equal(journal.read('sha256:invalid'),null);
   // Distinct processes compete for exactly one transactional claim, never a read/rename race.
   const concurrent=fixture('fixture.concurrent');
@@ -79,8 +96,15 @@ async function main(){
   assert.equal(second.status,'rejected');
   assert.equal(second.failureCode,'invocation_replay_forbidden');
   assert.equal(chargeableCalls,1);
-  // Different runId is an independent operator decision, never automatic retry of the old run.
-  assert.equal((await adapter.run({...request,runId:'adapter.two'})).status,'completed');
+  // A different runId alone is not an operator decision and cannot create a new slot.
+  const undecided=await adapter.run({...request,runId:'adapter.two'});
+  assert.equal(undecided.status,'rejected');
+  assert.equal(undecided.failureCode,'invocation_replay_forbidden');
+  assert.equal(chargeableCalls,1);
+  // A new run is allowed only with an explicit decision bound to the persisted prior run.
+  assert.equal((await adapter.run({...request,runId:'adapter.two',invocationRetryDecision:{
+    decisionId:'operator-decision-1',supersedesRunId:'adapter.one'
+  }})).status,'completed');
   assert.equal(chargeableCalls,2);
   const confirmed=createDurableInvocationJournal(adapterFile);
   const db=new DatabaseSync(adapterFile);
@@ -90,7 +114,7 @@ async function main(){
    db.prepare('UPDATE provider_invocations SET record_hash = ? WHERE run_id = ?').run('sha256:tampered','adapter.one');
   } finally {db.close();}
   assert.throws(()=>confirmed.reserve({...fixture('adapter.one','baseline')}),{code:'invocation_journal_unavailable'});
-  console.log('P7.7 durable invocation PASS: concurrent claim, crash recovery, adapter replay denial, integrity failure; fake SDK only');
+  console.log('P7.7 durable invocation PASS: concurrent claim, crash recovery, adapter replay denial, explicit retry decision, redacted failure detail, integrity failure; fake SDK only');
  } finally {fs.rmSync(temp,{recursive:true,force:true});}
 }
 main().catch(error=>{console.error(error.stack||error);process.exitCode=1;});

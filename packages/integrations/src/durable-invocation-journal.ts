@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createAgentOutputRedactor } from "./agent-output-redaction.js";
 
 /** One transactional authority for a provider invocation, never a retry queue. */
-export const DURABLE_INVOCATION_JOURNAL_VERSION = "durable-invocation-journal/v2" as const;
+export const DURABLE_INVOCATION_JOURNAL_VERSION = "durable-invocation-journal/v3" as const;
 export type InvocationState = "prepared" | "started" | "completed" | "failed" | "outcome_unknown";
 export type InvocationStage = "discovery" | "planner" | "coder" | "repair" | "baseline";
 export type InvocationIdentity = Readonly<{
@@ -13,6 +14,10 @@ export type InvocationIdentity = Readonly<{
   task: string;
   model: string;
   deadlineAt: number;
+  retryDecision?: Readonly<{
+    decisionId: string;
+    supersedesRunId: string;
+  }>;
 }>;
 export type InvocationRecord = Readonly<{
   version: typeof DURABLE_INVOCATION_JOURNAL_VERSION;
@@ -32,6 +37,9 @@ export type InvocationRecord = Readonly<{
   sessionEvidence: "unknown" | "present" | "absent";
   invocationOccurred: boolean | null;
   failureCode: string | null;
+  failureDetail: string | null;
+  retryDecisionId: string | null;
+  supersedesRunId: string | null;
 }>;
 
 export class InvocationJournalError extends Error {
@@ -55,6 +63,11 @@ function assertIdentity(input: InvocationIdentity): void {
   if (!ID.test(input.runId) || !STAGES.includes(input.stage) || !MODEL.test(input.model) ||
     typeof input.task !== "string" || !Number.isSafeInteger(input.deadlineAt) || input.deadlineAt <= 0) {
     throw new InvocationJournalError("invocation_journal_unavailable", "Invalid provider invocation identity.");
+  }
+  if (input.retryDecision !== undefined &&
+      (!ID.test(input.retryDecision.decisionId) || !ID.test(input.retryDecision.supersedesRunId) ||
+       input.retryDecision.supersedesRunId === input.runId)) {
+    throw new InvocationJournalError("invocation_journal_unavailable", "Invalid explicit invocation retry decision.");
   }
 }
 function keyOf(input: Pick<InvocationIdentity, "runId" | "stage">): string {
@@ -81,6 +94,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
   }
   const path = resolve(file);
   const parent = dirname(path);
+  const redactor = createAgentOutputRedactor();
   const openDatabase = (): DatabaseSync => {
     try {
       mkdirSync(parent, { recursive: true, mode: 0o700 });
@@ -143,6 +157,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       assertIdentity(input);
       const reservation = transaction((db) => {
         const key = keyOf(input);
+        const taskHash = hash(input.task);
         const current = get(db, key);
         if (current) {
           if (current.state === "prepared" || current.state === "started") {
@@ -151,12 +166,33 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           }
           return null;
         }
+        const prior = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE stage = ?")
+          .all(input.stage)
+          .map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
+          .filter((record) => record.taskHash === taskHash && record.runId !== input.runId);
+        if (prior.length > 0) {
+          const decision = input.retryDecision;
+          if (!decision || !prior.some((record) => record.runId === decision.supersedesRunId)) {
+            throw new InvocationJournalError(
+              "invocation_replay_forbidden",
+              "A new run for the same task and stage requires an explicit decision bound to a persisted prior run."
+            );
+          }
+        } else if (input.retryDecision !== undefined) {
+          throw new InvocationJournalError(
+            "invocation_journal_unavailable",
+            "Explicit retry decision does not identify a persisted prior invocation."
+          );
+        }
         const record: InvocationRecord = Object.freeze({
           version: DURABLE_INVOCATION_JOURNAL_VERSION, invocationKey: key, runId: input.runId,
           stage: input.stage, taskHash: hash(input.task), model: input.model,
           state: "prepared", preparedAt: now(), startedAt: null, deadlineAt: input.deadlineAt,
           abortRequestedAt: null, workerExitedAt: null, exitSignal: null, terminalAt: null,
-          sessionEvidence: "unknown", invocationOccurred: null, failureCode: null
+          sessionEvidence: "unknown", invocationOccurred: null, failureCode: null,
+          failureDetail: null,
+          retryDecisionId: input.retryDecision?.decisionId ?? null,
+          supersedesRunId: input.retryDecision?.supersedesRunId ?? null
         });
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")
@@ -171,6 +207,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
     },
     finish(key: string, state: "completed" | "failed" | "outcome_unknown", details: Readonly<{
       failureCode?: string | null;
+      failureDetail?: string | null;
       abortRequestedAt?: number | null;
       workerExitedAt?: number | null;
       exitSignal?: string | null;
@@ -178,6 +215,9 @@ export function createDurableInvocationJournal(file: string, now: () => number =
     }> = {}): InvocationRecord {
       return transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
         failureCode: safeCode(details.failureCode ?? null),
+        failureDetail: typeof details.failureDetail === "string"
+          ? redactor.redactText(details.failureDetail).slice(0, 4_096)
+          : null,
         abortRequestedAt: details.abortRequestedAt ?? null,
         workerExitedAt: details.workerExitedAt ?? null,
         exitSignal: details.exitSignal ?? null,
