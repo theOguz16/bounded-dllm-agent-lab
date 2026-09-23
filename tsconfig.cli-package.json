@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/cli-package",
+    "noEmitOnError": true
+  },
+  "files": [
+    "apps/cli/src/index.ts",
+    "packages/integrations/src/codex-agent-worker.ts"
+  ],
+  "include": []
+}

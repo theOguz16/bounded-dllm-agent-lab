@@ -1,8 +1,15 @@
 {
   "name": "bounded-dllm-agent-lab",
   "version": "0.2.0-dev.6",
-  "private": false,
+  "private": true,
   "type": "module",
+  "bin": {
+    "bounded": "dist/cli-package/apps/cli/src/index.js",
+    "bounded-agent": "dist/cli-package/apps/cli/src/index.js"
+  },
+  "files": [
+    "dist/cli-package"
+  ],
   "description": "Provider-independent agentic-coding runtime prototype with bounded repository context, explicit authority, deterministic verification, controlled apply, and tamper-evident evidence.",
   "license": "MIT",
   "scripts": {
@@ -13,6 +20,8 @@
     "test:bounded-task-operations": "npm run build && node scripts/bounded-task-operations-smoke.cjs",
     "test:bounded-task-cross-process-recovery": "npm run build && node scripts/smoke/bounded-task-cross-process-recovery-suite.cjs",
     "build": "tsc -p tsconfig.json",
+    "build:cli-package": "node scripts/product/prepare-cli-package.cjs && tsc -p tsconfig.cli-package.json",
+    "prepack": "npm run build:cli-package",
     "product:v1-check": "npm run typecheck && npm run build && node scripts/product/product-v1-smoke.cjs",
     "test:codex-v1-core-e2e": "npm run build && node scripts/smoke/codex-v1-core-e2e-smoke.cjs",
     "test:bounded-compare-trusted-behavior": "npm run build && node scripts/smoke/bounded-compare-trusted-behavior-smoke.cjs",
@@ -301,13 +310,13 @@
     "packages/*"
   ],
   "devDependencies": {
-    "@types/node": "^25.9.3",
-    "typescript": "^5.6.3"
+    "@types/node": "^25.9.3"
   },
   "dependencies": {
     "@openai/codex-sdk": "0.153.4",
     "minimatch": "^10.2.6",
     "openai": "^7.4.0",
+    "typescript": "^5.6.3",
     "yaml": "^2.9.0"
   },
   "optionalDependencies": {
