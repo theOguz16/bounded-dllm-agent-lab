@@ -220,6 +220,83 @@ async function main() {
   const sourceSnapshotHash = snapshotHash(files);
 
   try {
+    const liveMinimalityFixture = JSON.parse(fs.readFileSync(path.join(
+      __dirname, "fixtures/luna-planner-minimality-invalid.json"
+    ), "utf8"));
+    for (const field of ["planVersion", "riskClass", "taskExplicitlyRequestsRefactor"]) {
+      assert.equal(Object.hasOwn(liveMinimalityFixture, field), false);
+    }
+    for (const field of ["version", "policyId", "expansionAttempts"]) {
+      assert.equal(Object.hasOwn(liveMinimalityFixture, field), true);
+    }
+    assert.equal(typeof liveMinimalityFixture.plannedFiles[0], "string");
+    const minimalityPolicyContract = minimalityPolicy(runtime);
+    const planIdentity = {
+      taskId: "task.codex.bridge.minimality-regression",
+      objectiveHash: runtime.hashCanonicalJson({ objective: "Fix calculate safely." }),
+      plannerProposalHash: runtime.hashCanonicalJson({ proposal: "fixture" }),
+      intelligenceHash: runtime.hashCanonicalJson({ intelligence: "fixture" }),
+      policyHash: minimalityPolicyContract.policyHash
+    };
+    const createPlan = (rawPlan) => runtime.createPreventiveMinimalityPlan({
+      rawPlan,
+      ...planIdentity
+    });
+    assert.throws(() => createPlan(liveMinimalityFixture), (error) =>
+      error.code === "minimality_structure_invalid" && error.field === "expansionAttempts"
+    );
+    process.stdout.write("[ok] sanitized live Luna minimality fixture rejected: expansionAttempts\n");
+
+    const validRawPlan = {
+      planVersion: "1",
+      riskClass: "low",
+      taskExplicitlyRequestsRefactor: false,
+      plannedFiles: [{
+        path: "src/calculate.ts",
+        changeKind: "bugfix",
+        requested: true,
+        justification: null
+      }],
+      newDependencies: [],
+      newAbstractions: []
+    };
+    const validPlan = createPlan(validRawPlan);
+    const evaluatePlan = (plan) => runtime.evaluatePreventiveMinimalityPlan({
+      repositoryPath: sourceRoot,
+      expectedTaskId: planIdentity.taskId,
+      expectedObjectiveHash: planIdentity.objectiveHash,
+      expectedPlannerProposalHash: planIdentity.plannerProposalHash,
+      expectedIntelligenceHash: planIdentity.intelligenceHash,
+      policy: minimalityPolicyContract,
+      plan,
+      allowedFiles: ["src/calculate.ts"],
+      forbiddenFiles: []
+    });
+    assert.equal((await evaluatePlan(validPlan)).decision, "minimality_plan_ready");
+    const missingRefactorField = { ...validRawPlan };
+    delete missingRefactorField.taskExplicitlyRequestsRefactor;
+    assert.throws(() => createPlan(missingRefactorField), (error) =>
+      error.code === "minimality_field_missing" &&
+      error.field === "taskExplicitlyRequestsRefactor");
+    assert.throws(() => createPlan({
+      ...validRawPlan, policyId: "unexpected"
+    }), (error) => error.code === "minimality_structure_invalid" && error.field === "policyId");
+    assert.throws(() => createPlan({
+      ...validRawPlan, plannedFiles: ["src/calculate.ts"]
+    }), (error) => error.code === "minimality_structure_invalid");
+    const broadPlan = createPlan({
+      ...validRawPlan,
+      plannedFiles: [...validRawPlan.plannedFiles, {
+        path: "src/hidden.ts", changeKind: "refactor", requested: false,
+        justification: null
+      }]
+    });
+    const broadResult = await evaluatePlan(broadPlan);
+    assert.equal(broadResult.decision, "minimality_replan_required");
+    assert.ok(broadResult.issues.some((issue) =>
+      issue.code === "minimality_file_outside_allowed_scope"));
+    process.stdout.write("[ok] valid plan accepted; missing, extra, wrong-type and broad plans rejected\n");
+
     const taskId = "task.codex.bridge.direct";
     const objectiveHash = runtime.hashCanonicalJson({ objective: "Fix calculate safely." });
     const acceptanceContract = acceptance(runtime, taskId, objectiveHash);
@@ -255,6 +332,15 @@ async function main() {
     assert.equal(plannerReports[0].totalTokens, 150);
     assert.match(plannerOutput.proposal.proposalHash, /^sha256:[0-9a-f]{64}$/);
     assert.match(plannerOutput.proposal.seedRationales[0].reasonHash, /^sha256:[0-9a-f]{64}$/);
+    const plannerPromptLines = adapter.requests[0].task.split("\n").slice(0, -1);
+    assert.equal(providerModule.CODEX_BOUNDED_PLANNER_PROMPT_VERSION,
+      "codex-bounded-planner/v2");
+    assert.equal(providerModule.CODEX_BOUNDED_PLANNER_PROMPT_HASH,
+      runtime.hashCanonicalJson(plannerPromptLines));
+    assert.match(adapter.requests[0].task,
+      /minimalityPlan must contain exactly: planVersion, riskClass, taskExplicitlyRequestsRefactor, plannedFiles, newDependencies, newAbstractions/);
+    assert.match(adapter.requests[0].task,
+      /Each plannedFiles entry must be exactly \{path, changeKind, requested, justification\}/);
 
     const coderReports = [];
     const mutation = await bridge.coderProvider({
@@ -380,7 +466,12 @@ async function main() {
       estimatedUsageFabricated: false,
       costBudgetReconciled: true,
       realCodexCalls: false,
-      fakeAdapterOnly: true
+      fakeAdapterOnly: true,
+      liveInvalidFixtureRejected: true,
+      validMinimalityPlanAccepted: true,
+      invalidAndBroadMinimalityPlansRejected: true,
+      plannerPromptVersion: providerModule.CODEX_BOUNDED_PLANNER_PROMPT_VERSION,
+      plannerPromptHash: providerModule.CODEX_BOUNDED_PLANNER_PROMPT_HASH
     }, null, 2)}\n`);
   } finally {
     fs.rmSync(sourceRoot, { recursive: true, force: true });

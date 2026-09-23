@@ -31,6 +31,26 @@ import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-a
 import { createDisposableAgentWorkspace } from "../../../../packages/integrations/src/disposable-agent-workspace.js";
 
 export const CODEX_BOUNDED_PROVIDER_VERSION = "codex-bounded-provider/v1" as const;
+export const CODEX_BOUNDED_PLANNER_PROMPT_VERSION = "codex-bounded-planner/v2" as const;
+
+const PLANNER_PROMPT_LINES = Object.freeze([
+  `Planner prompt version: ${CODEX_BOUNDED_PLANNER_PROMPT_VERSION}.`,
+  "You are the bounded Codex planner provider for an existing canonical coordinator.",
+  "Return ONLY one JSON object with exactly proposal and minimalityPlan. No markdown.",
+  "Do not compute or return proposalHash, reasonHash, content hashes, or any cryptographic hash.",
+  "proposal must contain exactly proposalVersion, taskId, objectiveHash, acceptanceContractHash, authorityHash, policyHash, seedFiles, seedRationales, requiredSymbols, requiredTestFiles, maxExpansionAttempts.",
+  "Each seedRationale must be exactly {path, reason}. Copy all identity hashes from the input exactly.",
+  "minimalityPlan must contain exactly: planVersion, riskClass, taskExplicitlyRequestsRefactor, plannedFiles, newDependencies, newAbstractions.",
+  "planVersion must be the string \"1\"; riskClass must be one of \"low\", \"medium\", \"high\", \"critical\"; taskExplicitlyRequestsRefactor must be a boolean, true only if the task explicitly requests refactoring.",
+  "plannedFiles must be a nonempty array of objects. Each plannedFiles entry must be exactly {path, changeKind, requested, justification}: path is an authorized repository-relative string; changeKind is one of \"bugfix\", \"config\", \"dependency\", \"docs\", \"feature\", \"refactor\", \"test\"; requested is a boolean; justification is a nonempty string or null.",
+  "newDependencies must be an array. Each entry, if any, must be exactly {name, requested, purpose, justification, standardLibraryConsidered, nativePlatformConsidered, existingDependenciesConsidered, whyExistingInsufficient}: name and purpose are strings; requested, standardLibraryConsidered, nativePlatformConsidered are booleans; existingDependenciesConsidered is a string array; justification and whyExistingInsufficient are nonempty strings or null. Use [] when none are needed.",
+  "newAbstractions must be an array. Each entry, if any, must be exactly {abstractionId, filePath, requested, purpose, justification, reuseSites, whyInlineInsufficient}: abstractionId, filePath and purpose are strings; requested is a boolean; reuseSites is a string array; justification and whyInlineInsufficient are nonempty strings or null. Use [] when none are needed.",
+  "Do not add any other minimalityPlan or nested fields. Do not substitute version for planVersion or string paths for plannedFiles objects.",
+  "Use only repository-relative paths already present in taskContext or allowedChangeFiles.",
+  "Prefer the smallest defensible existing-code change set and never request new files for Product V1."
+]);
+
+export const CODEX_BOUNDED_PLANNER_PROMPT_HASH = hashCanonicalJson(PLANNER_PROMPT_LINES);
 
 export type CodexBoundedProviderOptions = Readonly<{
   repositoryPath: string;
@@ -393,14 +413,7 @@ function validateOptions(options: CodexBoundedProviderOptions): Required<Pick<
 
 function plannerPrompt(context: PlannerMinimalityProviderContext): string {
   return [
-    "You are the bounded Codex planner provider for an existing canonical coordinator.",
-    "Return ONLY one JSON object with exactly proposal and minimalityPlan. No markdown.",
-    "Do not compute or return proposalHash, reasonHash, content hashes, or any cryptographic hash.",
-    "proposal must contain exactly proposalVersion, taskId, objectiveHash, acceptanceContractHash, authorityHash, policyHash, seedFiles, seedRationales, requiredSymbols, requiredTestFiles, maxExpansionAttempts.",
-    "Each seedRationale must be exactly {path, reason}. Copy all identity hashes from the input exactly.",
-    "minimalityPlan must follow the existing preventive-minimality v1 draft contract.",
-    "Use only repository-relative paths already present in taskContext or allowedChangeFiles.",
-    "Prefer the smallest defensible existing-code change set and never request new files for Product V1.",
+    ...PLANNER_PROMPT_LINES,
     JSON.stringify(context)
   ].join("\n");
 }

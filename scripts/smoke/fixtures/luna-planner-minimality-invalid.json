@@ -1,0 +1,14 @@
+{
+  "expansionAttempts": 0,
+  "newAbstractions": [],
+  "newDependencies": [],
+  "plannedFiles": [
+    "src/calculate.js"
+  ],
+  "policyId": "bounded-codex-explicit-scope-v0",
+  "refactors": [],
+  "verificationFiles": [
+    "test/calculate.test.js"
+  ],
+  "version": "1"
+}
