@@ -14,6 +14,7 @@
     "test:bounded-task-cross-process-recovery": "npm run build && node scripts/smoke/bounded-task-cross-process-recovery-suite.cjs",
     "build": "tsc -p tsconfig.json",
     "product:v1-check": "npm run typecheck && npm run build && node scripts/product/product-v1-smoke.cjs",
+    "test:codex-v1-core-e2e": "npm run build && node scripts/smoke/codex-v1-core-e2e-smoke.cjs",
     "test:product-release-gate": "node scripts/product/release-gate-smoke.cjs",
     "product:release-gate": "node scripts/product/release-gate.cjs",
     "test:r06-arm-diagnostic": "node scripts/product/r06-arm-diagnostic-smoke.cjs",
