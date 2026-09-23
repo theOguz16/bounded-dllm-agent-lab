@@ -63,7 +63,7 @@ async function createTrustedChecker(parent) {
   return checker;
 }
 
-async function executeAcceptance(checker, workspace, evidenceDirectory, label) {
+async function executeAcceptance(checker, workspace, evidenceDirectory, label, workspaceHash = snapshot) {
   const result = spawnSync(process.execPath, [checker, workspace], {
     cwd: path.dirname(checker),
     encoding: "utf8",
@@ -84,7 +84,7 @@ async function executeAcceptance(checker, workspace, evidenceDirectory, label) {
     mode: 0o600
   });
   const observation = {
-    workspaceHash: await snapshot(workspace),
+    workspaceHash: await workspaceHash(workspace),
     verdict: result.status === null ? "infrastructure_fail" : result.status === 0 ? "pass" : "assertion_fail",
     exitCode: result.status,
     outputHash: sha256(bytes)

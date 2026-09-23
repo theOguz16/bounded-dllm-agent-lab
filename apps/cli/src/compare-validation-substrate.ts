@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDisposableAgentWorkspace } from "../../../packages/integrations/src/disposable-agent-workspace.js";
+import { createCanonicalRepositoryContentSnapshot } from "../../../packages/product-runtime/src/canonical-runtime.js";
 import { CliError } from "./cli-errors.js";
 
 export const COMPARE_VALIDATION_SUBSTRATE_VERSION =
@@ -351,6 +352,7 @@ export async function runCompareValidation(input: Readonly<{
   substrate: CompareValidationSubstrate;
   spec: CompareValidationSpec;
   changes: readonly CompareCandidateChange[];
+  inspectCandidate?: (candidate: Readonly<{ workspacePath: string; candidateTreeHash: string }>) => Promise<void>;
 }>): Promise<CompareValidationResult> {
   const workspace = await createDisposableAgentWorkspace({
     repositoryPath: input.repositoryRoot,
@@ -362,6 +364,9 @@ export async function runCompareValidation(input: Readonly<{
   });
   try {
     await applyChanges(workspace.workspacePath, input.changes);
+    const candidateTreeHash = input.inspectCandidate
+      ? createCanonicalRepositoryContentSnapshot(workspace.workspacePath).snapshotHash
+      : null;
     const build = observation(workspace.workspacePath, input.substrate.dependencyRoot, input.spec.build);
     if (build.infrastructureFailure !== null) {
       return Object.freeze({
@@ -387,6 +392,15 @@ export async function runCompareValidation(input: Readonly<{
       });
     }
     const tests = observation(workspace.workspacePath, input.substrate.dependencyRoot, input.spec.tests);
+    if (input.inspectCandidate && candidateTreeHash !== null && tests.infrastructureFailure === null) {
+      if (createCanonicalRepositoryContentSnapshot(workspace.workspacePath).snapshotHash !== candidateTreeHash) {
+        throw new CliError("cli_compare_candidate_changed_during_validation", "Candidate changed during validation.", 4);
+      }
+      await input.inspectCandidate({ workspacePath: workspace.workspacePath, candidateTreeHash });
+      if (createCanonicalRepositoryContentSnapshot(workspace.workspacePath).snapshotHash !== candidateTreeHash) {
+        throw new CliError("cli_compare_candidate_changed_during_inspection", "Candidate changed during trusted inspection.", 4);
+      }
+    }
     return Object.freeze({
       tests: { passed: tests.passed, durationMs: tests.durationMs },
       build: { passed: build.passed, durationMs: build.durationMs },

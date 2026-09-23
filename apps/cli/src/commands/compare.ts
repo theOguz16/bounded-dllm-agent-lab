@@ -9,10 +9,14 @@ import {
   createAgentComparisonContract,
   createCanonicalRepositoryContentSnapshot,
   evaluateProductComparison,
+  evaluateTrustedProductComparison,
   hashCanonicalJson,
   parseTextFileUpdates,
   runBoundedTask,
   type ProductComparisonEvaluation,
+  type TrustedProductComparisonEvaluation,
+  type TrustedBehaviorReceipt,
+  type TrustedBehaviorExpectation,
   type RunBoundedTaskInput,
   type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
@@ -47,7 +51,8 @@ import {
   runCompareValidation,
   type CompareCandidateChange,
   type CompareValidationResult,
-  type CompareValidationSpec
+  type CompareValidationSpec,
+  type CompareValidationSubstrate
 } from "../compare-validation-substrate.js";
 
 export const BOUNDED_COMPARE_CODEX_VERSION = "bounded-compare-codex/v1" as const;
@@ -96,7 +101,7 @@ type UsageObservation = Readonly<{
 }>;
 
 type ArmExecution = Readonly<{
-  evaluation: ProductComparisonEvaluation;
+  evaluation: ProductComparisonEvaluation | TrustedProductComparisonEvaluation;
   display: ArmDisplayMetrics;
   runtime: ArmRuntimeObservation;
 }>;
@@ -147,9 +152,10 @@ export type CompareCodexOutput = Readonly<{
     bounded: ArmRuntimeObservation;
   }>;
   evaluations: Readonly<{
-    normal: ProductComparisonEvaluation;
-    bounded: ProductComparisonEvaluation;
+    normal: ProductComparisonEvaluation | TrustedProductComparisonEvaluation;
+    bounded: ProductComparisonEvaluation | TrustedProductComparisonEvaluation;
   }>;
+  boundedCandidate: Readonly<{ taskId: string; taskHash: string; handoffHash: string; candidateTreeHash: string }> | null;
   table: string;
   sourceRepositoryUnchanged: true;
 }>;
@@ -161,6 +167,17 @@ export type CompareCodexDependencies = Readonly<{
   providerGate?: CodexCompareProviderGate;
   discover?: typeof discoverCodexScope;
   runTask?: (input: RunBoundedTaskInput) => Promise<RunBoundedTaskResult>;
+  /** Host-owned authority; never supplied by candidate content. Missing authority fails closed. */
+  trustedBehavior?: (candidate: Readonly<{
+    workspacePath: string; candidateTreeHash: string; taskId: string; taskHash: string;
+    sourceCommitSha: string; sourceTreeHash: string;
+  }>) => Promise<Readonly<{
+    receipt: TrustedBehaviorReceipt | null;
+    expectation: Omit<TrustedBehaviorExpectation, "taskId" | "taskHash" | "sourceCommitSha" | "sourceTreeHash" | "candidateTreeHash">;
+    hostKey: Buffer;
+  }>>;
+  /** Offline fixture seam; normal CLI still performs the canonical preflight. */
+  prepareValidationSubstrate?: (repositoryRoot: string, options: Readonly<{ allowPreparation?: boolean }>) => Promise<CompareValidationSubstrate>;
 }>;
 
 function requireTask(value: string): string {
@@ -422,6 +439,7 @@ function evaluateArm(input: Readonly<{
   exposedBytes: number;
   repairRounds: number;
   durationMs: number;
+  trustedBehavior?: Readonly<{ receipt: TrustedBehaviorReceipt | null; expectation: TrustedBehaviorExpectation; hostKey: Buffer }>;
 }>): ArmExecution {
   const approved = new Set(input.approvedMutableFiles);
   const scopeViolationCount = input.controlAvailable
@@ -448,7 +466,7 @@ function evaluateArm(input: Readonly<{
     [controls, behavior, build, typecheck],
     input.runtimeCompleted && validationInfrastructureOk
   );
-  const evaluation = evaluateProductComparison({
+  const evaluationInput = {
     correctness: {
       controlPassed: controls,
       taskSucceeded: succeeded === false ? false : null,
@@ -493,7 +511,14 @@ function evaluateArm(input: Readonly<{
       repairRounds: input.repairRounds,
       durationMs: Math.max(0, input.durationMs + input.validation.durationMs)
     }
-  });
+  };
+  const evaluation = input.trustedBehavior
+    ? evaluateTrustedProductComparison(
+        { ...evaluationInput, behaviorEvidence: input.trustedBehavior.receipt },
+        input.trustedBehavior.expectation,
+        input.trustedBehavior.hostKey
+      )
+    : evaluateProductComparison(evaluationInput);
   const display: ArmDisplayMetrics = Object.freeze({
     behavior: evaluation.correctness.behaviorSatisfied,
     controls: evaluation.correctness.controlPassed,
@@ -627,7 +652,7 @@ export async function compareCodexCommand(
   }
 
   const allowPreparation = process.env.BOUNDED_COMPARE_PREPARE_DEPENDENCIES === "1";
-  const substrate = await prepareCompareValidationSubstrate(repositoryRoot, { allowPreparation });
+  const substrate = await (dependencies.prepareValidationSubstrate ?? prepareCompareValidationSubstrate)(repositoryRoot, { allowPreparation });
   const model = await resolveCodexModel(dependencies.model);
   const sourceCommitSha = gitHead(repositoryRoot);
   const sourceBefore = createCanonicalRepositoryContentSnapshot(repositoryRoot);
@@ -735,6 +760,7 @@ export async function compareCodexCommand(
 
   let normalExecution: ArmExecution | null = null;
   let boundedExecution: ArmExecution | null = null;
+  let boundedCandidateIdentity: { taskId: string; taskHash: string; handoffHash: string; candidateTreeHash: string } | null = null;
   let terminalFailureCode: string | null = null;
   try {
     for (const arm of executionOrder) {
@@ -827,6 +853,7 @@ export async function compareCodexCommand(
       }
       let boundedChanges: CompareCandidateChange[] = [];
       let boundedChangedFiles: string[] = [];
+      let trustedBehavior: { receipt: TrustedBehaviorReceipt | null; expectation: TrustedBehaviorExpectation; hostKey: Buffer } | undefined;
       if (runtimeCompleted && boundedInput !== null && boundedResult !== null) {
         const candidate = createCandidateHandoffFromBoundedRun(repositoryRoot, boundedInput, boundedResult);
         if (candidate === null) {
@@ -836,6 +863,15 @@ export async function compareCodexCommand(
             Object.freeze({ path: entry.file, content: entry.newContent })
           );
           boundedChangedFiles = [...candidate.candidateFiles].sort((left, right) => left.localeCompare(right, "en"));
+          const candidateTaskHash = hashCanonicalJson({
+            taskId: candidate.taskId,
+            objectiveHash: candidate.objectiveHash,
+            handoffHash: candidate.handoffHash
+          });
+          boundedCandidateIdentity = {
+            taskId: candidate.taskId, taskHash: candidateTaskHash,
+            handoffHash: candidate.handoffHash, candidateTreeHash: ""
+          };
         }
       }
       const boundedCandidateReady = runtimeCompleted && boundedFailureCode === null;
@@ -845,7 +881,30 @@ export async function compareCodexCommand(
             sourceSnapshotHash: sourceBefore.snapshotHash,
             substrate,
             spec,
-            changes: boundedChanges
+            changes: boundedChanges,
+            inspectCandidate: async ({ workspacePath, candidateTreeHash }) => {
+              if (boundedCandidateIdentity === null) return;
+              boundedCandidateIdentity.candidateTreeHash = candidateTreeHash;
+              if (!dependencies.trustedBehavior) return;
+              const proof = await dependencies.trustedBehavior({
+                workspacePath, candidateTreeHash,
+                taskId: boundedCandidateIdentity.taskId,
+                taskHash: boundedCandidateIdentity.taskHash,
+                sourceCommitSha, sourceTreeHash: sourceBefore.snapshotHash
+              });
+              trustedBehavior = {
+                receipt: proof.receipt,
+                hostKey: proof.hostKey,
+                expectation: {
+                  ...proof.expectation,
+                  taskId: boundedCandidateIdentity.taskId,
+                  taskHash: boundedCandidateIdentity.taskHash,
+                  sourceCommitSha,
+                  sourceTreeHash: sourceBefore.snapshotHash,
+                  candidateTreeHash
+                }
+              };
+            }
           })
         : emptyValidation();
       const exposure = boundedContext(boundedResult);
@@ -866,7 +925,8 @@ export async function compareCodexCommand(
         durationMs: Math.max(
           0,
           Date.now() - started - validation.durationMs + discoveryDurationMs
-        )
+        ),
+        trustedBehavior
       });
       const boundedTerminal = boundedRuns.find((entry) =>
         typeof entry.failureCode === "string" && P7_7_TERMINAL_FAILURES.has(entry.failureCode)
@@ -967,6 +1027,7 @@ export async function compareCodexCommand(
       normal: normalExecution.evaluation,
       bounded: boundedExecution.evaluation
     }),
+    boundedCandidate: boundedCandidateIdentity?.candidateTreeHash ? Object.freeze(boundedCandidateIdentity) : null,
     table: formatCodexComparisonTable(normalExecution.display, boundedExecution.display),
     sourceRepositoryUnchanged: true
   });
