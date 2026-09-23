@@ -10,7 +10,6 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const projectRoot = process.cwd();
-const cliPath = path.join(projectRoot, "dist/apps/cli/src/index.js");
 const autoScopeUrl = pathToFileURL(
   path.join(projectRoot, "dist/apps/cli/src/commands/codex-auto-scope.js")
 ).href;
@@ -23,287 +22,32 @@ const candidateUrl = pathToFileURL(
 const runtimeUrl = pathToFileURL(
   path.join(projectRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
 ).href;
+const comparisonUrl = pathToFileURL(
+  path.join(projectRoot, "dist/packages/product-runtime/src/product-comparison-evaluator-v3.js")
+).href;
+const decisionUrl = pathToFileURL(
+  path.join(projectRoot, "dist/apps/cli/src/human-decision.js")
+).href;
 
-const sourceOriginal = [
-  "export function calculate(value) {",
-  "  return value * 2;",
-  "}",
-  ""
-].join("\n");
-const sourceChanged = [
-  "export function calculate(value) {",
-  "  return value * 3;",
-  "}",
-  ""
-].join("\n");
-const testSource = [
-  "import test from 'node:test';",
-  "import assert from 'node:assert/strict';",
-  "import { calculate } from '../src/calculate.js';",
-  "test('calculate uses the accepted multiplier', () => assert.equal(calculate(4), 12));",
-  ""
-].join("\n");
-const snapshotExclusions = new Set([".git", ".bounded", "node_modules", "dist"]);
-
-function sha256(bytes) {
-  return `sha256:${crypto.createHash("sha256").update(bytes).digest("hex")}`;
-}
-
-function git(cwd, args) {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8", timeout: 10_000 });
-  assert.equal(result.status, 0, result.stderr);
-  return result.stdout.trim();
-}
-
-function runCli(cwd, args) {
-  return spawnSync(process.execPath, [cliPath, ...args], {
-    cwd,
-    encoding: "utf8",
-    timeout: 20_000,
-    env: { ...process.env, CI: "", CODEX_API_KEY: "", OPENAI_API_KEY: "", CODEX_MODEL: "" }
-  });
-}
+const { sourceOriginal, sourceChanged, createRepository, fakeDiscoveryAdapter, fakeExecutionAdapter } =
+  require("./codex-v1-fixture.cjs");
+const { sha256, snapshot, copyFixtureWorkspace, materializeCandidate, createTrustedChecker,
+  executeAcceptance, executeFixtureCheck } = require("./codex-v1-trusted-host.cjs");
 
 async function writeJson(file, value) {
   await fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-async function createRepository(parent) {
-  const repository = path.join(parent, "repository");
-  await fs.mkdir(path.join(repository, "src"), { recursive: true });
-  await fs.mkdir(path.join(repository, "test"), { recursive: true });
-  git(repository, ["init", "-q"]);
-  await writeJson(path.join(repository, "package.json"), {
-    name: "codex-v1-real-controlled-apply-fixture",
-    private: true,
-    type: "module",
-    scripts: {
-      test: "node --test",
-      build: "node --check src/calculate.js",
-      typecheck: "node --check src/calculate.js"
-    }
-  });
-  await fs.writeFile(path.join(repository, "package-lock.json"), "fixture\n", "utf8");
-  await fs.writeFile(path.join(repository, "src/calculate.js"), sourceOriginal, "utf8");
-  await fs.writeFile(path.join(repository, "test/calculate.test.js"), testSource, "utf8");
-  git(repository, ["add", "package.json", "package-lock.json", "src", "test"]);
-  git(repository, [
-    "-c", "user.name=Codex V1 Fixture",
-    "-c", "user.email=codex-v1@example.invalid",
-    "commit", "-q", "-m", "fixture"
-  ]);
-  const initialized = runCli(repository, ["init", "--json"]);
-  assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
-  git(repository, ["add", "."]);
-  git(repository, [
-    "-c", "user.name=Codex V1 Fixture",
-    "-c", "user.email=codex-v1@example.invalid",
-    "commit", "-q", "-m", "bounded fixture config"
-  ]);
-  return { repository, sourceCommitSha: git(repository, ["rev-parse", "HEAD"]) };
-}
-
-function discoveryProposal() {
-  return {
-    schemaVersion: "scope-discovery/v1",
-    candidateSourceFiles: ["src/calculate.js"],
-    candidateTestFiles: ["test/calculate.test.js"],
-    candidateSymbols: ["calculate"],
-    reason: "The implementation and focused regression test are the smallest grounded scope."
-  };
-}
-
-function completedAgentResult(version, modelId, finalMessage, fileChanges = []) {
-  return {
-    status: "completed",
-    agentId: "codex",
-    agentVersion: version,
-    modelId,
-    durationMs: 1,
-    finalMessage,
-    usage: {
-      inputTokens: 10,
-      cachedInputTokens: 0,
-      outputTokens: 10,
-      totalTokens: 20,
-      toolCalls: null
-    },
-    commands: [],
-    fileChanges,
-    diagnostics: []
-  };
-}
-
-function fakeDiscoveryAdapter(repository, counters) {
-  return {
-    agentId: "codex",
-    agentVersion: "fake-discovery/v1",
-    async run(request) {
-      counters.discovery += 1;
-      assert.equal(request.mode, "discovery");
-      assert.equal(request.networkAllowed, false);
-      assert.equal(request.sandboxMode, "read_only");
-      assert.notEqual(path.resolve(request.workingDirectory), path.resolve(repository));
-      return completedAgentResult(
-        "fake-discovery/v1",
-        "fixture-model",
-        JSON.stringify(discoveryProposal())
-      );
-    }
-  };
-}
-
-function plannerDraft(context) {
-  return {
-    proposal: {
-      proposalVersion: "1",
-      taskId: context.taskId,
-      objectiveHash: context.objectiveHash,
-      acceptanceContractHash: context.acceptanceContractHash,
-      authorityHash: context.authorityHash,
-      policyHash: context.policyHash,
-      seedFiles: ["src/calculate.js", "test/calculate.test.js"],
-      seedRationales: [
-        { path: "src/calculate.js", reason: "Approved implementation scope." },
-        { path: "test/calculate.test.js", reason: "Approved regression evidence." }
-      ],
-      requiredSymbols: [],
-      requiredTestFiles: ["test/calculate.test.js"],
-      maxExpansionAttempts: 1
-    },
-    minimalityPlan: {
-      planVersion: "1",
-      riskClass: "low",
-      taskExplicitlyRequestsRefactor: false,
-      plannedFiles: [{
-        path: "src/calculate.js",
-        changeKind: "bugfix",
-        requested: true,
-        justification: null
-      }],
-      newDependencies: [],
-      newAbstractions: []
-    }
-  };
-}
-
-function fakeExecutionAdapter(repository, counters) {
-  return {
-    agentId: "codex",
-    agentVersion: "fake-execution/v1",
-    async run(request) {
-      counters.execution += 1;
-      assert.equal(request.networkAllowed, false);
-      assert.notEqual(path.resolve(request.workingDirectory), path.resolve(repository));
-      if (request.mode === "planner") {
-        const context = JSON.parse(request.task.split("\n").at(-1));
-        return completedAgentResult(
-          "fake-execution/v1",
-          "fixture-model",
-          JSON.stringify(plannerDraft(context))
-        );
-      }
-      assert.equal(request.mode, "coder");
-      await fs.writeFile(path.join(request.workingDirectory, "src/calculate.js"), sourceChanged, "utf8");
-      return completedAgentResult(
-        "fake-execution/v1",
-        "fixture-model",
-        "Updated the approved source file in the disposable workspace.",
-        [{ sequence: 1, path: "src/calculate.js", operation: "modify" }]
-      );
-    }
-  };
-}
-
-async function snapshot(root) {
-  const entries = [];
-  async function walk(directory, prefix = "") {
-    for (const name of (await fs.readdir(directory)).sort()) {
-      if (prefix === "" && snapshotExclusions.has(name)) continue;
-      const absolute = path.join(directory, name);
-      const relative = prefix ? `${prefix}/${name}` : name;
-      const stat = await fs.lstat(absolute);
-      assert.equal(stat.isSymbolicLink(), false, `snapshot symlink: ${relative}`);
-      if (stat.isDirectory()) await walk(absolute, relative);
-      else if (stat.isFile()) entries.push([relative, sha256(await fs.readFile(absolute))]);
-    }
-  }
-  await walk(root);
-  return sha256(JSON.stringify(entries));
-}
-
-async function copyFixtureWorkspace(repository, target) {
-  await fs.cp(repository, target, {
-    recursive: true,
-    filter: (source) => !snapshotExclusions.has(path.basename(source))
-  });
-}
-
-async function materializeCandidate(repository, candidate, target) {
-  await copyFixtureWorkspace(repository, target);
-  const claim = candidate.coderMutation.claims.find((item) => item.file === "src/calculate.js");
-  assert.ok(claim && typeof claim.newContent === "string");
-  await fs.writeFile(path.join(target, claim.file), claim.newContent, "utf8");
-}
-
-async function createTrustedChecker(parent) {
-  const trustedRoot = path.join(parent, "trusted-host");
-  const checker = path.join(trustedRoot, "calculate-acceptance.mjs");
-  await fs.mkdir(trustedRoot, { recursive: true, mode: 0o700 });
-  await fs.writeFile(checker, [
-    "import assert from 'node:assert/strict';",
-    "import { pathToFileURL } from 'node:url';",
-    "const workspace = process.argv[2];",
-    "const moduleUrl = pathToFileURL(`${workspace}/src/calculate.js`);",
-    "moduleUrl.searchParams.set('run', `${process.pid}-${Date.now()}`);",
-    "const { calculate } = await import(moduleUrl.href);",
-    "const actual = calculate(4);",
-    "assert.equal(actual, 12);",
-    "process.stdout.write(JSON.stringify({ criterionId: 'calculate.multiplies-by-three', actual, expected: 12 }));",
-    ""
-  ].join("\n"), { encoding: "utf8", mode: 0o400 });
-  assert.equal(path.relative(parent, checker).startsWith("trusted-host/"), true);
-  return checker;
-}
-
-async function executeAcceptance(checker, workspace, evidenceDirectory, label) {
-  const result = spawnSync(process.execPath, [checker, workspace], {
-    cwd: path.dirname(checker),
-    encoding: "utf8",
-    timeout: 20_000,
-    env: { ...process.env, CI: "1" },
-    maxBuffer: 1024 * 1024
-  });
-  const output = {
-    label,
-    exitCode: result.status,
-    signal: result.signal,
-    stdout: String(result.stdout ?? "").slice(0, 32_768),
-    stderr: String(result.stderr ?? "").slice(0, 32_768)
-  };
-  const bytes = Buffer.from(`${JSON.stringify(output, null, 2)}\n`, "utf8");
-  await fs.writeFile(path.join(evidenceDirectory, `${label}.json`), bytes, {
-    flag: "wx",
-    mode: 0o600
-  });
-  const observation = {
-    workspaceHash: await snapshot(workspace),
-    verdict: result.status === 0 ? "pass" : "assertion_fail",
-    exitCode: result.status,
-    outputHash: sha256(bytes)
-  };
-  return {
-    log: { ...output, outputHash: observation.outputHash },
-    execution: { ...observation, artifactHash: sha256(JSON.stringify(observation)) }
-  };
-}
-
 async function main() {
   const originalCi = process.env.CI;
   process.env.CI = "";
+  const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" });
+  assert.equal(head.status, 0, head.stderr);
   const parent = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "codex-v1-real-apply-")));
   try {
-    const { repository, sourceCommitSha } = await createRepository(parent);
+    const { repository, sourceCommitSha } = await createRepository(
+      parent, projectRoot, "codex-v1-real-controlled-apply-fixture"
+    );
     const trustedChecker = await createTrustedChecker(parent);
     assert.equal(path.relative(repository, trustedChecker).startsWith(".."), true);
     const evidenceDirectory = path.join(parent, "trusted-evidence");
@@ -316,6 +60,8 @@ async function main() {
     const apply = await import(applyUrl);
     const candidateModule = await import(candidateUrl);
     const runtime = await import(runtimeUrl);
+    const comparison = await import(comparisonUrl);
+    const decisions = await import(decisionUrl);
 
     const generated = await autoScope.codexAutoScopeCommand(
       { task: "Make calculate multiply by three." },
@@ -348,6 +94,9 @@ async function main() {
     await copyFixtureWorkspace(repository, sourceWorkspace);
     await materializeCandidate(repository, candidate, referenceWorkspace);
     await copyFixtureWorkspace(repository, wrongWorkspace);
+    await fs.writeFile(
+      path.join(wrongWorkspace, "src/calculate.js"), sourceChanged.replace("* 3", "* 4"), "utf8"
+    );
     await materializeCandidate(repository, candidate, candidateWorkspace);
 
     const sourceExecution = await executeAcceptance(
@@ -427,6 +176,59 @@ async function main() {
     assert.equal(receipt.candidateTreeHash, candidateTreeHash);
     await writeJson(path.join(evidenceDirectory, "trusted-receipt.json"), receipt);
 
+    const buildCheck = executeFixtureCheck(candidateWorkspace, "build");
+    const typecheckCheck = executeFixtureCheck(candidateWorkspace, "typecheck");
+    assert.equal(buildCheck.exitCode, 0, JSON.stringify(buildCheck));
+    assert.equal(typecheckCheck.exitCode, 0, JSON.stringify(typecheckCheck));
+    const reportInput = {
+      correctness: {
+        controlPassed: generated.exitCode === 0 && generated.output.candidatePersisted === true,
+        taskSucceeded: null,
+        testsPassed: candidateExecution.execution.verdict === "pass",
+        buildPassed: buildCheck.exitCode === 0,
+        typecheckPassed: typecheckCheck.exitCode === 0
+      },
+      behaviorEvidence: receipt,
+      control: {
+        scopeViolationCount: 0,
+        forbiddenTouchCount: 0,
+        unsupportedMutationCount: 0,
+        changedFiles: ["src/calculate.js"],
+        changedFileNecessityAssessments: [{
+          path: "src/calculate.js",
+          source: "acceptance",
+          decision: "necessary",
+          evidenceReference: checkerHash
+        }]
+      },
+      efficiency: {
+        inputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: null,
+        reasoningTokens: null,
+        totalTokens: null,
+        exposedFiles: 0,
+        exposedBytes: 0,
+        commandCount: 0,
+        failedCommandCount: 0,
+        repairRounds: 0,
+        durationMs: 0
+      }
+    };
+    const canonicalReport = comparison.evaluateTrustedProductComparison(reportInput, expectation, hostKey);
+    assert.equal(canonicalReport.schemaVersion, "product-comparison-evaluation/v3");
+    assert.equal(canonicalReport.correctness.behaviorSatisfied, true);
+    assert.equal(canonicalReport.correctness.taskSucceeded, true);
+    assert.equal(canonicalReport.behavior.reason, "trusted_acceptance_passed");
+    const missingReport = comparison.evaluateTrustedProductComparison(
+      { ...reportInput, behaviorEvidence: null }, expectation, hostKey
+    );
+    assert.equal(missingReport.correctness.taskSucceeded, null);
+    const wrongReport = comparison.evaluateTrustedProductComparison(
+      { ...reportInput, behaviorEvidence: { ...receipt, seal: "0".repeat(64) } }, expectation, hostKey
+    );
+    assert.equal(wrongReport.correctness.taskSucceeded, null);
+
     const beforeUnauthorizedHash = sha256(
       await fs.readFile(path.join(repository, "src/calculate.js"))
     );
@@ -442,13 +244,80 @@ async function main() {
       beforeUnauthorizedHash
     );
 
+    const approvalA = await decisions.recordHumanDecision(
+      repository, candidate, { decision: "accept", reason: null }
+    );
+    assert.equal(approvalA.candidateHandoffHash, candidate.handoffHash);
+    assert.equal((await decisions.readHumanDecision(repository, candidate.handoffHash)).decision, "accept");
+    const candidateBSource = sourceChanged.replace(
+      "  return value * 3;", "  // The accepted multiplier is three.\n  return value * 3;"
+    );
+    const generatedB = await autoScope.codexAutoScopeCommand(
+      { task: "Make calculate multiply by three and document the accepted multiplier." },
+      repository,
+      {
+        discoveryAdapter: fakeDiscoveryAdapter(repository, counters),
+        discoveryModel: "fixture-model",
+        approveScope: async (proposal) => {
+          scopeApprovals += 1;
+          assert.deepEqual(proposal.candidateSourceFiles, ["src/calculate.js"]);
+          return true;
+        },
+        explicit: {
+          adapter: fakeExecutionAdapter(repository, counters, candidateBSource),
+          model: "fixture-model",
+          validationProfile: "structural_draft"
+        }
+      }
+    );
+    assert.equal(generatedB.exitCode, 0, JSON.stringify(generatedB.output));
+    assert.equal(generatedB.output.candidatePersisted, true);
+    assert.equal(scopeApprovals, 2);
+    const candidateB = await candidateModule.readCandidateHandoff(repository);
+    assert.notEqual(candidateB.handoffHash, candidate.handoffHash);
+    const candidateBWorkspace = path.join(parent, "behavior-candidate-b");
+    await materializeCandidate(repository, candidateB, candidateBWorkspace);
+    assert.equal(await fs.readFile(path.join(candidateBWorkspace, "src/calculate.js"), "utf8"), candidateBSource);
+    const candidateBExecution = await executeAcceptance(
+      trustedChecker, candidateBWorkspace, evidenceDirectory, "candidate-b"
+    );
+    assert.equal(candidateBExecution.execution.verdict, "pass");
+    const candidateBTreeHash = await snapshot(candidateBWorkspace);
+    assert.notEqual(candidateBTreeHash, candidateTreeHash);
+    assert.equal(await decisions.readHumanDecision(repository, candidateB.handoffHash), null);
+    const expectationB = {
+      ...expectation,
+      taskId: candidateB.taskId,
+      taskHash: sha256(JSON.stringify({
+        taskId: candidateB.taskId,
+        objectiveHash: candidateB.objectiveHash,
+        candidateHandoffHash: candidateB.handoffHash
+      })),
+      candidateTreeHash: candidateBTreeHash
+    };
+    const staleEvidenceReport = comparison.evaluateTrustedProductComparison(
+      reportInput, expectationB, hostKey
+    );
+    assert.equal(staleEvidenceReport.correctness.behaviorSatisfied, null);
+    assert.equal(staleEvidenceReport.correctness.taskSucceeded, null);
+    const staleApproval = await apply.applyCommand(
+      { nonInteractive: true }, repository, { runtimeRoot: path.join(parent, "runtime-stale") }
+    );
+    assert.equal(staleApproval.output.candidateHandoffHash, candidateB.handoffHash);
+    assert.equal(staleApproval.output.decision, "approval_required");
+    assert.equal(staleApproval.output.mutationStarted, false);
+    assert.equal(staleApproval.output.apply, "NOT_RUN");
+    assert.equal(await fs.stat(path.join(parent, "runtime-stale")).catch(() => null), null);
+    assert.equal(sha256(await fs.readFile(path.join(repository, "src/calculate.js"))), sourceFileHash);
+    await candidateModule.writeCandidateHandoff(repository, candidate);
+
     const applied = await apply.applyCommand(
       {},
       repository,
       {
         decide: async (approvedCandidate) => {
           assert.equal(approvedCandidate.handoffHash, candidate.handoffHash);
-          assert.equal(assessment.behaviorSatisfied, true);
+          assert.equal(canonicalReport.correctness.taskSucceeded, true);
           return { decision: "accept", reason: null };
         },
         runtimeRoot: path.join(parent, "runtime-applied")
@@ -471,11 +340,11 @@ async function main() {
     assert.equal(postApplyExecution.execution.workspaceHash, candidateTreeHash);
 
     const callsAtTerminal = counters.discovery + counters.execution;
-    assert.equal(callsAtTerminal, 3, "one discovery, one planner and one coder call are expected");
+    assert.equal(callsAtTerminal, 6, "two candidates require two discovery, planner and coder calls");
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
-      targetCommit: "b8562927fdf4b06609b96c31e4fd3f6abd41029a",
+      integrationHead: head.stdout.trim(),
       liveProviderCalls: 0,
       fakeProviderCalls: { count: callsAtTerminal, discovery: counters.discovery, execution: counters.execution },
       source: { commitSha: sourceCommitSha, treeHash: sourceTreeHash, fileHash: sourceFileHash },
@@ -488,10 +357,31 @@ async function main() {
         checkerHash,
         receiptHash: sha256(JSON.stringify(receipt))
       },
+      canonicalReport: {
+        schemaVersion: canonicalReport.schemaVersion,
+        candidateHandoffHash: candidate.handoffHash,
+        candidateTreeHash: receipt.candidateTreeHash,
+        behaviorSatisfied: canonicalReport.correctness.behaviorSatisfied,
+        taskSucceeded: canonicalReport.correctness.taskSucceeded,
+        missingTaskSucceeded: missingReport.correctness.taskSucceeded,
+        wrongTaskSucceeded: wrongReport.correctness.taskSucceeded,
+        staleTaskSucceeded: staleEvidenceReport.correctness.taskSucceeded
+      },
       unauthorizedApply: {
         decision: unauthorized.output.decision,
         mutationStarted: unauthorized.output.mutationStarted,
         sourceFileHash: beforeUnauthorizedHash
+      },
+      staleApproval: {
+        approvedCandidateHash: approvalA.candidateHandoffHash,
+        currentCandidateHash: candidateB.handoffHash,
+        currentCandidateTreeHash: candidateBTreeHash,
+        currentCandidateBehaviorVerdict: candidateBExecution.execution.verdict,
+        decision: staleApproval.output.decision,
+        mutationStarted: staleApproval.output.mutationStarted,
+        apply: staleApproval.output.apply,
+        sourceFileHash: sourceFileHash,
+        oldEvidenceBehaviorSatisfied: staleEvidenceReport.correctness.behaviorSatisfied
       },
       controlledApply: {
         decision: applied.output.decision,
@@ -511,7 +401,10 @@ async function main() {
         reference: referenceExecution.log,
         wrong: wrongExecution.log,
         candidate: candidateExecution.log,
-        postApply: postApplyExecution.log
+        candidateB: candidateBExecution.log,
+        postApply: postApplyExecution.log,
+        build: buildCheck,
+        typecheck: typecheckCheck
       }
     }, null, 2)}\n`);
   } finally {
