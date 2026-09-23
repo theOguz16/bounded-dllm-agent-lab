@@ -16,6 +16,7 @@
     "product:v1-check": "npm run typecheck && npm run build && node scripts/product/product-v1-smoke.cjs",
     "test:codex-v1-core-e2e": "npm run build && node scripts/smoke/codex-v1-core-e2e-smoke.cjs",
     "test:bounded-compare-trusted-behavior": "npm run build && node scripts/smoke/bounded-compare-trusted-behavior-smoke.cjs",
+    "test:bounded-compare-cli-trusted-behavior": "npm run build && node scripts/smoke/bounded-compare-cli-trusted-behavior-smoke.cjs",
     "test:codex-v1-real-controlled-apply": "npm run build && node scripts/smoke/codex-v1-real-controlled-apply-smoke.cjs",
     "test:product-release-gate": "node scripts/product/release-gate-smoke.cjs",
     "product:release-gate": "node scripts/product/release-gate.cjs",

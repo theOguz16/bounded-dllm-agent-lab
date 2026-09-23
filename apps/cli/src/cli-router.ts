@@ -6,6 +6,7 @@ import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js"
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
 import { compareCodexCommand } from "./commands/compare.js";
+import { loadCompareCliDependencies } from "./compare-host-loader.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
@@ -199,7 +200,11 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "history") return historyCommand();
   if (parsed.command === "report") return reportCommand(parsed.runId!);
   if (parsed.command === "stats") return statsCommand({ last: parsed.last });
-  if (parsed.command === "compare") return compareCodexCommand({ task: parsed.task! });
+  if (parsed.command === "compare") {
+    return compareCodexCommand(
+      { task: parsed.task! }, process.cwd(), await loadCompareCliDependencies(process.cwd())
+    );
+  }
   if (parsed.command === "codex") {
     return codexAutoScopeCommand({
       task: parsed.task!,
