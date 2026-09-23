@@ -324,7 +324,7 @@ async function main() {
       limits: { maxSeedFiles: 1, maxRequiredSymbols: 0,
         maxRequiredTests: 0, maxExpansionAttempts: 1 },
       allowedChangeFiles: ["src/calculate.ts"],
-      forbiddenFiles: [],
+      forbiddenScope: runtime.summarizeForbiddenScope([]),
       minimalityPolicy: minimalityPolicy(runtime),
       taskContext: { objective: "Fix calculate safely.", seedFiles: ["src/calculate.ts"] }
     }, control(plannerReports));
@@ -334,7 +334,7 @@ async function main() {
     assert.match(plannerOutput.proposal.seedRationales[0].reasonHash, /^sha256:[0-9a-f]{64}$/);
     const plannerPromptLines = adapter.requests[0].task.split("\n").slice(0, -1);
     assert.equal(providerModule.CODEX_BOUNDED_PLANNER_PROMPT_VERSION,
-      "codex-bounded-planner/v2");
+      "codex-bounded-planner/v3");
     assert.equal(providerModule.CODEX_BOUNDED_PLANNER_PROMPT_HASH,
       runtime.hashCanonicalJson(plannerPromptLines));
     assert.match(adapter.requests[0].task,
@@ -442,7 +442,7 @@ async function main() {
       authorityHash, policyHash,
       limits: { maxSeedFiles: 1, maxRequiredSymbols: 0,
         maxRequiredTests: 0, maxExpansionAttempts: 1 },
-      allowedChangeFiles: ["src/calculate.ts"], forbiddenFiles: [],
+      allowedChangeFiles: ["src/calculate.ts"], forbiddenScope: runtime.summarizeForbiddenScope([]),
       minimalityPolicy: minimalityPolicy(runtime),
       taskContext: { objective: "Fix calculate safely." }
     }, control(noUsageReports));

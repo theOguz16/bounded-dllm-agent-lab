@@ -233,6 +233,9 @@ const HARD_MAX_NEW_DEPENDENCIES = 100;
 const HARD_MAX_NEW_ABSTRACTIONS = 1_000;
 const HARD_MAX_MANIFEST_FILES = 1_000;
 const HARD_MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+// The forbidden set is policy-expanded against the repository inventory (itself
+// capped at 20,000 records), so it is bounded independently of planned files.
+const HARD_MAX_FORBIDDEN_FILES = 20_000;
 const DEFAULT_MAX_MANIFEST_FILES = 100;
 const DEFAULT_MAX_MANIFEST_BYTES = 512 * 1024;
 
@@ -1309,7 +1312,7 @@ export async function evaluatePreventiveMinimalityPlan(
     const forbiddenFiles = normalizePathList(
       input.forbiddenFiles ?? [],
       "forbiddenFiles",
-      HARD_MAX_PLANNED_FILES
+      HARD_MAX_FORBIDDEN_FILES
     );
     const allowedSet = new Set(allowedFiles);
     const forbiddenSet = new Set(forbiddenFiles);

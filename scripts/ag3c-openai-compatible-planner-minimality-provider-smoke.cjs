@@ -54,7 +54,7 @@ async function main() {
     createOpenAICompatiblePlannerMinimalityProvider,
     verifyOpenAICompatiblePlannerMinimalityRunEvidence
   } = adapterApi;
-  const { runPlannerMinimalityBoundCoderFlow } = integrationApi;
+  const { runPlannerMinimalityBoundCoderFlow, summarizeForbiddenScope } = integrationApi;
   const { createPreventiveMinimalityPolicy } = minimalityApi;
   const { createAcceptanceCriteriaContract } = acceptanceApi;
   const { hashCanonicalJson } = ledgerApi;
@@ -161,7 +161,7 @@ async function main() {
     policyHash,
     limits,
     allowedChangeFiles: ["src/service.ts", "tests/service.test.ts"],
-    forbiddenFiles: [],
+    forbiddenScope: summarizeForbiddenScope([]),
     minimalityPolicy,
     taskContext: {
       task: "Change compute through the existing service boundary.",

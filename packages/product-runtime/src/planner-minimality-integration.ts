@@ -24,6 +24,58 @@ import {
 export const PLANNER_MINIMALITY_INTEGRATION_VERSION = "1" as const;
 export const PLANNER_MINIMALITY_EXECUTION_BINDING_VERSION = "1" as const;
 
+export const PLANNER_FORBIDDEN_SCOPE_SUMMARY_VERSION = "1" as const;
+/**
+ * Fail-closed structural maximum for the effective forbidden set. The compiled
+ * canonical policy expands forbidden patterns against the repository inventory,
+ * which is itself capped at 20,000 records, so policy-expanded requests always
+ * fit below this bound; anything larger is a caller error and stays invalid.
+ */
+export const PLANNER_FORBIDDEN_FILES_LIMIT = 20_000 as const;
+/** Up to this size the planner provider still receives the complete forbidden list. */
+export const PLANNER_FORBIDDEN_FULL_ENUMERATION_LIMIT = 1_000 as const;
+const FORBIDDEN_SCOPE_ROOT_LIMIT = 32;
+const FORBIDDEN_SCOPE_SAMPLE_LIMIT = 8;
+
+/**
+ * Bounded model-facing representation of the forbidden repository boundary.
+ * The runtime always enforces the full forbidden set offline; this summary is
+ * only what the planner model sees, so oversized policies never inflate the
+ * provider request and never get silently truncated.
+ */
+export type PlannerForbiddenScopeSummary = Readonly<{
+  summaryVersion: "1";
+  totalForbiddenFiles: number;
+  forbiddenFilesHash: string;
+  /** Complete forbidden list while it fits the enumeration bound, otherwise null. */
+  enumeratedForbiddenFiles: readonly string[] | null;
+  /** Bounded top-level directory names that contain forbidden files; may be partial. */
+  forbiddenRoots: readonly string[];
+  /** Deterministic bounded sample of forbidden paths; advisory only. */
+  sampleForbiddenFiles: readonly string[];
+}>;
+
+export function summarizeForbiddenScope(
+  forbiddenFiles: readonly string[]
+): PlannerForbiddenScopeSummary {
+  if (!Array.isArray(forbiddenFiles)) throw new TypeError("forbiddenFiles must be an array.");
+  const sorted = [...forbiddenFiles].sort((left, right) => left.localeCompare(right));
+  const roots = [...new Set(sorted.map((entry) => entry.split("/")[0] ?? ""))]
+    .filter((root) => root.length > 0)
+    .sort((left, right) => left.localeCompare(right))
+    .slice(0, FORBIDDEN_SCOPE_ROOT_LIMIT);
+  return deepFreeze({
+    summaryVersion: PLANNER_FORBIDDEN_SCOPE_SUMMARY_VERSION,
+    totalForbiddenFiles: sorted.length,
+    forbiddenFilesHash: hashCanonicalJson(sorted),
+    enumeratedForbiddenFiles: sorted.length <= PLANNER_FORBIDDEN_FULL_ENUMERATION_LIMIT
+      ? sorted
+      : null,
+    forbiddenRoots: roots,
+    sampleForbiddenFiles: sorted.slice(0, FORBIDDEN_SCOPE_SAMPLE_LIMIT)
+  });
+}
+
 export type PlannerMinimalityProviderContext = {
   version: "1";
   taskId: string;
@@ -33,7 +85,7 @@ export type PlannerMinimalityProviderContext = {
   policyHash: string;
   limits: BoundedPlannerProposalLimits;
   allowedChangeFiles: readonly string[];
-  forbiddenFiles: readonly string[];
+  forbiddenScope: PlannerForbiddenScopeSummary;
   minimalityPolicy: PreventiveMinimalityPolicy;
   taskContext: unknown;
 };
@@ -223,8 +275,8 @@ function normalizeRequest(input: {
     }
     return normalized;
   };
-  const normalizePaths = (values: readonly string[], field: string): string[] => {
-    if (!Array.isArray(values) || values.length > 1_000) {
+  const normalizePaths = (values: readonly string[], field: string, maximum: number): string[] => {
+    if (!Array.isArray(values) || values.length > maximum) {
       throw new TypeError(`${field} exceeds its bounded count.`);
     }
     const normalized = values.map((entry) => normalizePath(entry, field));
@@ -233,8 +285,18 @@ function normalizeRequest(input: {
     }
     return normalized.sort((left, right) => left.localeCompare(right));
   };
-  const allowedChangeFiles = normalizePaths(input.allowedChangeFiles, "allowedChangeFiles");
-  const forbiddenFiles = normalizePaths(input.forbiddenFiles ?? [], "forbiddenFiles");
+  // The mutable scope stays caller-sized while forbiddenFiles carries the full
+  // policy-expanded forbidden set, so each list is bounded independently.
+  const allowedChangeFiles = normalizePaths(
+    input.allowedChangeFiles,
+    "allowedChangeFiles",
+    1_000
+  );
+  const forbiddenFiles = normalizePaths(
+    input.forbiddenFiles ?? [],
+    "forbiddenFiles",
+    PLANNER_FORBIDDEN_FILES_LIMIT
+  );
   if (allowedChangeFiles.length === 0) {
     throw new TypeError("allowedChangeFiles must contain at least one path.");
   }
@@ -429,7 +491,9 @@ export async function runPlannerMinimalityBoundCoderFlow<T>(
       policyHash: input.policyHash,
       limits: normalizedRequest.limits,
       allowedChangeFiles: normalizedRequest.allowedChangeFiles,
-      forbiddenFiles: normalizedRequest.forbiddenFiles,
+      // The model only needs the bounded scope summary; every offline gate
+      // below keeps validating against the full forbidden set.
+      forbiddenScope: summarizeForbiddenScope(normalizedRequest.forbiddenFiles),
       minimalityPolicy: input.minimalityPolicy,
       taskContext: input.taskContext
     }));

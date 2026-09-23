@@ -794,7 +794,7 @@ function buildPrompt(
     policyHash: context.policyHash,
     limits: context.limits,
     allowedChangeFiles: context.allowedChangeFiles,
-    forbiddenFiles: context.forbiddenFiles,
+    forbiddenScope: context.forbiddenScope,
     minimalityPolicy: context.minimalityPolicy,
     taskContext: normalizedTaskContext,
     ...(repairCode === null ? {} : {
@@ -816,6 +816,7 @@ function buildPrompt(
     "Copy taskId, objectiveHash, acceptanceContractHash, authorityHash, and policyHash exactly.",
     "Never compute or return proposalHash, reasonHash, planHash, receiptHash, or any other cryptographic hash.",
     "Use only repository-relative paths present in taskContext or allowedChangeFiles. Never invent paths.",
+    "forbiddenScope carries the forbidden repository boundary: the complete forbidden list while it is small, otherwise its total count, hash, protected roots, and samples. allowedChangeFiles stays the only authoritative mutable scope; never propose a forbidden path.",
     "Choose the smallest defensible seed set and the smallest complete planned change set.",
     "proposal must contain exactly: proposalVersion, taskId, objectiveHash, acceptanceContractHash, authorityHash, policyHash, seedFiles, seedRationales, requiredSymbols, requiredTestFiles, maxExpansionAttempts.",
     "proposalVersion must be \"1\" and seedRationales must contain exactly one {path, reason} per seed file.",

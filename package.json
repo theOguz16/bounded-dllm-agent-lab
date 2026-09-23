@@ -288,6 +288,7 @@
     "validate:ag2b-live": "npm run build && node scripts/ag2b-openai-compatible-planner-provider-live.cjs",
     "generate:ag2b-live-evidence": "npm run build && node scripts/ag2b-openai-compatible-planner-provider-live.cjs",
     "test:planner-minimality-integration": "npm run build && node scripts/ag3b-planner-minimality-integration-smoke.cjs",
+    "test:planner-forbidden-scope": "npm run build && node scripts/planner-forbidden-scope-smoke.cjs",
     "generate:ag3b-evidence": "npm run build && node scripts/ag3b-planner-minimality-integration-smoke.cjs --report",
     "verify:ag3b": "npm run verify:ag3a && node scripts/ag3b-planner-minimality-integration-smoke.cjs --verify",
     "test:preventive-minimality-contract": "npm run build && node scripts/ag3a-preventive-minimality-contract-smoke.cjs",

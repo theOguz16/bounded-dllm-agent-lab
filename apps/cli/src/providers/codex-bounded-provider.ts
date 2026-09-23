@@ -31,7 +31,7 @@ import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-a
 import { createDisposableAgentWorkspace } from "../../../../packages/integrations/src/disposable-agent-workspace.js";
 
 export const CODEX_BOUNDED_PROVIDER_VERSION = "codex-bounded-provider/v1" as const;
-export const CODEX_BOUNDED_PLANNER_PROMPT_VERSION = "codex-bounded-planner/v2" as const;
+export const CODEX_BOUNDED_PLANNER_PROMPT_VERSION = "codex-bounded-planner/v3" as const;
 
 const PLANNER_PROMPT_LINES = Object.freeze([
   `Planner prompt version: ${CODEX_BOUNDED_PLANNER_PROMPT_VERSION}.`,
@@ -47,6 +47,7 @@ const PLANNER_PROMPT_LINES = Object.freeze([
   "newAbstractions must be an array. Each entry, if any, must be exactly {abstractionId, filePath, requested, purpose, justification, reuseSites, whyInlineInsufficient}: abstractionId, filePath and purpose are strings; requested is a boolean; reuseSites is a string array; justification and whyInlineInsufficient are nonempty strings or null. Use [] when none are needed.",
   "Do not add any other minimalityPlan or nested fields. Do not substitute version for planVersion or string paths for plannedFiles objects.",
   "Use only repository-relative paths already present in taskContext or allowedChangeFiles.",
+  "forbiddenScope summarizes the forbidden repository boundary: the complete forbidden list while it is small, otherwise its total count, hash, protected roots, and samples. allowedChangeFiles is the only authoritative mutable scope; never propose a forbidden path.",
   "Prefer the smallest defensible existing-code change set and never request new files for Product V1."
 ]);
 
