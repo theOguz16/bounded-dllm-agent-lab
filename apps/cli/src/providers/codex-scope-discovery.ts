@@ -76,8 +76,16 @@ export class CodexScopeDiscoveryError extends Error {
 }
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?)$/i;
-const MAX_INVENTORY_PROMPT_BYTES = 2 * 1024 * 1024;
+const MAX_INVENTORY_PROMPT_BYTES = 128 * 1024;
+const MAX_DISCOVERY_FILES = 64;
+const MAX_DIRECT_CANDIDATES = 12;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const TASK_STOP_WORDS = new Set([
+  "about", "after", "another", "before", "behavior", "change", "continue", "could", "ensure",
+  "existing", "files", "from", "have", "into", "keep", "matching", "other", "return",
+  "should", "structurally", "that", "their", "them", "these", "this", "while", "with",
+  "within", "without", "would"
+]);
 
 function looksLikeTestPath(file: string): boolean {
   return /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|(?:\.test|\.spec|[-_.]smoke)\.[^/]+$/i.test(file);
@@ -153,27 +161,96 @@ function safeFacts(files: readonly CanonicalRepoFileFact[]): CanonicalRepoFileFa
   );
 }
 
+function taskTerms(task: string): string[] {
+  return [...new Set((task.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [])
+    .map((term) => term.toLowerCase())
+    .filter((term) => term.length >= 4 && !TASK_STOP_WORDS.has(term)))];
+}
+
+function metadataMatches(file: CanonicalRepoFileFact, term: string): boolean {
+  return file.path.toLowerCase().includes(term) ||
+    file.symbols.some((symbol) => symbol.name.toLowerCase().includes(term)) ||
+    file.exports.some((name) => name.toLowerCase().includes(term));
+}
+
+/** A bounded, metadata-only first pass. An ambiguous inventory blocks instead of silently truncating. */
+export function prefilterCodexDiscoveryFacts(
+  task: string,
+  files: readonly CanonicalRepoFileFact[],
+  dependencyEdges: readonly Readonly<{ from: string; to: string; kind: string; specifier: string }>[]
+): CanonicalRepoFileFact[] {
+  const eligible = safeFacts(files);
+  const terms = taskTerms(task);
+  const rareTerms = terms.filter((term) =>
+    eligible.filter((file) => metadataMatches(file, term)).length > 0 &&
+    eligible.filter((file) => metadataMatches(file, term)).length <= 48
+  );
+  const scored = eligible.map((file) => ({
+    file,
+    score: rareTerms.reduce((score, term) => {
+      const symbols = file.symbols.map((symbol) => symbol.name.toLowerCase());
+      if (symbols.includes(term) || file.exports.some((name) => name.toLowerCase() === term)) return score + 8;
+      if (symbols.some((name) => name.includes(term)) || file.exports.some((name) => name.toLowerCase().includes(term))) return score + 4;
+      return score + (file.path.toLowerCase().includes(term) ? 2 : 0);
+    }, 0)
+  })).filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path, "en"));
+
+  if (scored.length === 0 || scored[0]!.score < 4) {
+    throw new CodexScopeDiscoveryError(
+      "No reliable metadata candidate was found; discovery will not send the whole repository.",
+      "codex_scope_discovery_no_trusted_candidates"
+    );
+  }
+  const cutoff = scored[Math.min(MAX_DIRECT_CANDIDATES, scored.length) - 1]!.score;
+  const direct = scored.filter((entry) => entry.score >= cutoff);
+  if (direct.length > MAX_DISCOVERY_FILES) {
+    throw new CodexScopeDiscoveryError(
+      "Discovery metadata matched too many equally ranked files; narrow the task before retrying.",
+      "codex_scope_discovery_candidates_ambiguous"
+    );
+  }
+  const selected = new Set(direct.map((entry) => entry.file.path));
+  const byPath = new Map(eligible.map((file) => [file.path, file]));
+  const neighbors = new Set<string>();
+  for (const edge of dependencyEdges) {
+    if (selected.has(edge.from) && byPath.has(edge.to)) neighbors.add(edge.to);
+    if (selected.has(edge.to) && byPath.has(edge.from)) neighbors.add(edge.from);
+  }
+  const rankedNeighbors = [...neighbors].filter((path) => !selected.has(path)).sort((a, b) => {
+    const aTest = looksLikeTestPath(a) ? 1 : 0;
+    const bTest = looksLikeTestPath(b) ? 1 : 0;
+    return bTest - aTest || a.localeCompare(b, "en");
+  });
+  if (selected.size + rankedNeighbors.length > MAX_DISCOVERY_FILES) {
+    throw new CodexScopeDiscoveryError(
+      "Discovery dependency neighborhood exceeds the bounded inventory; narrow the task before retrying.",
+      "codex_scope_discovery_candidates_ambiguous"
+    );
+  }
+  for (const path of rankedNeighbors) selected.add(path);
+  return eligible.filter((file) => selected.has(file.path));
+}
+
 function publicInventory(
+  task: string,
   files: readonly CanonicalRepoFileFact[],
   dependencyEdges: readonly Readonly<{ from: string; to: string; kind: string; specifier: string }>[]
 ): Readonly<Record<string, unknown>> {
   const allowed = new Set(files.map((file) => file.path));
+  const terms = taskTerms(task);
   return Object.freeze({
     files: files.map((file) => ({
       path: file.path,
-      language: file.language,
-      bytes: file.bytes,
-      imports: file.imports,
-      exports: file.exports,
-      symbols: file.symbols
+      symbols: file.symbols.filter((symbol) => terms.some((term) => symbol.name.toLowerCase().includes(term)))
+        .map((symbol) => symbol.name)
     })),
     dependencyEdges: dependencyEdges
       .filter((edge) => allowed.has(edge.from) && allowed.has(edge.to))
       .map((edge) => ({
         from: edge.from,
         to: edge.to,
-        kind: edge.kind,
-        specifier: edge.specifier
+        kind: edge.kind
       }))
   });
 }
@@ -186,10 +263,7 @@ function discoveryPrompt(task: string, intelligenceHash: string, inventory: Read
       ...inventory
     }
   });
-  if (Buffer.byteLength(evidence, "utf8") > MAX_INVENTORY_PROMPT_BYTES) {
-    throw new CodexScopeDiscoveryError("Canonical discovery inventory exceeds the bounded prompt limit.");
-  }
-  return [
+  const prompt = [
     "You are the read-only scope discovery phase for Bounded Codex.",
     "Inspect only the provided canonical repository facts and files available in the read-only workspace.",
     "Do not modify, create, delete, rename, or chmod files.",
@@ -200,6 +274,10 @@ function discoveryPrompt(task: string, intelligenceHash: string, inventory: Read
     "Return only the exact structured output required by the supplied JSON schema.",
     evidence
   ].join("\n");
+  if (Buffer.byteLength(prompt, "utf8") > MAX_INVENTORY_PROMPT_BYTES) {
+    throw new CodexScopeDiscoveryError("Canonical discovery prompt exceeds the bounded prompt limit.");
+  }
+  return prompt;
 }
 
 function parseFinalMessage(value: string): ScopeDiscoveryProposal {
@@ -306,8 +384,9 @@ export async function discoverCodexScope(
   if (facts.length === 0) {
     throw new CodexScopeDiscoveryError("No public JavaScript/TypeScript source files are eligible for discovery.");
   }
-  const inventory = publicInventory(facts, intelligence.dependencyEdges);
-  const visibleFiles = facts.map((file) => file.path).sort((left, right) => left.localeCompare(right, "en"));
+  const candidateFacts = prefilterCodexDiscoveryFacts(input.task, facts, intelligence.dependencyEdges);
+  const inventory = publicInventory(input.task, candidateFacts, intelligence.dependencyEdges);
+  const visibleFiles = candidateFacts.map((file) => file.path).sort((left, right) => left.localeCompare(right, "en"));
   const workspace = await createDisposableAgentWorkspace({
     repositoryPath: repositoryRoot,
     sourceSnapshotHash: input.sourceSnapshotHash,
@@ -385,7 +464,7 @@ export async function discoverCodexScope(
     }
 
     try {
-      validateGrounding(proposal, facts);
+      validateGrounding(proposal, candidateFacts);
     } catch (error) {
       if (error instanceof CodexScopeDiscoveryError) {
         throw new CodexScopeDiscoveryError(

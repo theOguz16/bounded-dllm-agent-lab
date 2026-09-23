@@ -151,6 +151,11 @@ function fakeDiscoveryAdapter(sourceRepository) {
       assert.equal(request.task.includes("GROUND_TRUTH_PATCH_MARKER"), false);
       assert.equal(request.task.includes("hidden-oracle.ts"), false);
       assert.equal(request.task.includes("ground-truth-patch.ts"), false);
+      const inventory = JSON.parse(request.task.slice(request.task.indexOf("{"))).canonicalRepository;
+      assert.equal(inventory.files.length, 3);
+      assert.deepEqual(Object.keys(inventory.files[0]).sort(), ["path", "symbols"]);
+      assert.equal(request.task.includes(sourceOriginal), false);
+      assert.equal(request.task.includes(helperSource), false);
       assert.ok(request.outputSchema);
       return {
         status: "completed",
@@ -278,6 +283,73 @@ async function main() {
 
     const parsed = contract.parseScopeDiscoveryProposal(discoveryProposal());
     assert.deepEqual(parsed.candidateSourceFiles, ["src/session.ts"]);
+    const fact = (filePath, symbols = []) => ({
+      path: filePath,
+      language: "typescript",
+      bytes: 100,
+      contentHash: "offline-fixture",
+      imports: [],
+      externalDependencies: [],
+      exports: symbols,
+      symbols: symbols.map((name) => ({ name, kind: "function", exported: true }))
+    });
+    const fixtureFacts = [
+      fact("packages/alpha/src/request.ts", ["resolveConflict"]),
+      fact("packages/beta/src/request.ts", ["resolveConflict"]),
+      fact("packages/core/src/workspace.ts"),
+      fact("tests/smoke/request.ts"),
+      fact("scripts/unrelated.ts", ["unrelated"])
+    ];
+    const fixtureEdges = [
+      { from: "packages/alpha/src/request.ts", to: "packages/core/src/workspace.ts", kind: "import", specifier: "core" },
+      { from: "tests/smoke/request.ts", to: "packages/alpha/src/request.ts", kind: "import", specifier: "alpha" }
+    ];
+    const selected = discoveryModule.prefilterCodexDiscoveryFacts(
+      "Ensure resolveConflict rejects a crossed response", fixtureFacts, fixtureEdges
+    ).map((entry) => entry.path);
+    assert.equal(selected.includes("packages/alpha/src/request.ts"), true);
+    assert.equal(selected.includes("packages/beta/src/request.ts"), true);
+    assert.equal(selected.includes("packages/core/src/workspace.ts"), true);
+    assert.equal(selected.includes("tests/smoke/request.ts"), true);
+    assert.equal(selected.includes("scripts/unrelated.ts"), false);
+    assert.throws(
+      () => discoveryModule.prefilterCodexDiscoveryFacts("Fix the bug", fixtureFacts, fixtureEdges),
+      (error) => error.failureCode === "codex_scope_discovery_no_trusted_candidates"
+    );
+    const direct = discoveryModule.prefilterCodexDiscoveryFacts(
+      "Correct resolveConflict behavior", fixtureFacts, []
+    ).map((entry) => entry.path);
+    assert.deepEqual(direct, ["packages/alpha/src/request.ts", "packages/beta/src/request.ts"]);
+    const broadNeighbors = Array.from({ length: 65 }, (_, index) =>
+      fact(`packages/core/src/dependent-${index}.ts`));
+    assert.throws(
+      () => discoveryModule.prefilterCodexDiscoveryFacts(
+        "Correct resolveConflict", [fixtureFacts[0], ...broadNeighbors],
+        broadNeighbors.map((entry) => ({ from: entry.path, to: fixtureFacts[0].path,
+          kind: "import", specifier: "alpha" }))
+      ),
+      (error) => error.failureCode === "codex_scope_discovery_candidates_ambiguous"
+    );
+    const requestFacts = [
+      fact("packages/worker-contract/src/index.ts", ["assertInfillResponse", "assertResolveConflictResponse"]),
+      fact("packages/providers/src/index.ts", ["createWorkerRequestId"]),
+      fact("packages/workspace-core/src/index.ts"),
+      fact("tests/smoke/contracts.ts"),
+      fact("scripts/controlled-coding-pilot-request-id-check.cjs", ["checkRequestIdAcceptance"])
+    ];
+    const requestEdges = [
+      { from: "packages/providers/src/index.ts", to: "packages/worker-contract/src/index.ts", kind: "import", specifier: "worker-contract" },
+      { from: "packages/worker-contract/src/index.ts", to: "packages/workspace-core/src/index.ts", kind: "import", specifier: "workspace-core" },
+      { from: "tests/smoke/contracts.ts", to: "packages/worker-contract/src/index.ts", kind: "import", specifier: "worker-contract" }
+    ];
+    const requestCandidates = discoveryModule.prefilterCodexDiscoveryFacts(
+      "Ensure refine, infill, and resolveConflict reject crossed worker responses while health continues to work",
+      requestFacts, requestEdges
+    ).map((entry) => entry.path);
+    for (const required of ["packages/worker-contract/src/index.ts", "packages/providers/src/index.ts",
+      "packages/workspace-core/src/index.ts", "tests/smoke/contracts.ts"]) {
+      assert.equal(requestCandidates.includes(required), true, required);
+    }
     await assert.rejects(
       async () => contract.parseScopeDiscoveryProposal({ ...discoveryProposal(), unexpected: true }),
       /exact contract fields/
@@ -286,6 +358,18 @@ async function main() {
     const invalidJsonDiscovery = fakeInvalidJsonDiscoveryAdapter(repository);
     const repositorySnapshot =
       runtime.createCanonicalRepositoryContentSnapshot(repository);
+    const noCandidateAdapter = fakeDiscoveryAdapter(repository);
+    await assert.rejects(
+      () => discoveryModule.discoverCodexScope({
+        repositoryPath: repository,
+        sourceSnapshotHash: repositorySnapshot.snapshotHash,
+        task: "Fix the bug",
+        model: "fixture-discovery-model-configured",
+        adapter: noCandidateAdapter
+      }),
+      (error) => error.failureCode === "codex_scope_discovery_no_trusted_candidates"
+    );
+    assert.equal(noCandidateAdapter.requests.length, 0);
 
     await assert.rejects(
       () => discoveryModule.discoverCodexScope({
