@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { CliError } from "./cli-errors.js";
 import { findGitRepositoryRoot } from "./product-config.js";
 import type { CompareCodexDependencies } from "./commands/compare.js";
+import type { CodexAutoScopeDependencies } from "./commands/codex-auto-scope.js";
 
 type CompareHostExports = Pick<CompareCodexDependencies, "trustedBehavior">;
 type OfflineExports = Pick<CompareCodexDependencies,
@@ -62,4 +63,26 @@ export async function loadCompareCliDependencies(startPath: string): Promise<Com
     dependencies.prepareValidationSubstrate = fixture.prepareValidationSubstrate as OfflineExports["prepareValidationSubstrate"];
   }
   return dependencies;
+}
+
+/** Explicit offline-only fixture for exercising the installed candidate CLI without a provider call. */
+export async function loadOfflineCodexCliDependencies(startPath: string): Promise<CodexAutoScopeDependencies> {
+  const fixturePath = process.env.BOUNDED_CODEX_OFFLINE_FIXTURE_MODULE?.trim();
+  if (!fixturePath) return {};
+  if (process.env.NODE_ENV !== "test" || process.env.CI !== "1") {
+    throw new CliError("cli_codex_offline_fixture_forbidden",
+      "Offline Codex fixture requires the explicit test environment.", 5);
+  }
+  const repositoryRoot = await realpath(await findGitRepositoryRoot(startPath));
+  const fixture = await externalModule(fixturePath, repositoryRoot);
+  if (!fixture.adapter || typeof fixture.adapter !== "object" ||
+      typeof (fixture.adapter as { run?: unknown }).run !== "function" ||
+      typeof fixture.model !== "string") {
+    throw new CliError("cli_codex_offline_fixture_invalid", "Offline Codex fixture is incomplete.", 5);
+  }
+  return { explicit: {
+    adapter: fixture.adapter as NonNullable<NonNullable<CodexAutoScopeDependencies["explicit"]>["adapter"]>,
+    model: fixture.model,
+    validationProfile: "structural_draft"
+  } };
 }

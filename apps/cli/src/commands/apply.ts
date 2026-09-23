@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -125,7 +125,9 @@ async function runtimeConfiguration(
   const root = runtimeDirectory(repositoryRoot, override);
   const registryDirectoryPath = path.join(root, "registry");
   const rollbackBundleParentPath = path.join(root, "rollback");
-  const validationWorkspaceParentPath = path.join(root, "validation");
+  const validationWorkspaceParentPath = override
+    ? path.join(root, "validation")
+    : path.join(await realpath(os.tmpdir()), "bounded", "validation", path.basename(root));
   await Promise.all([
     mkdir(registryDirectoryPath, { recursive: true, mode: 0o700 }),
     mkdir(rollbackBundleParentPath, { recursive: true, mode: 0o700 }),

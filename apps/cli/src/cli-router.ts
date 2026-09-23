@@ -6,7 +6,7 @@ import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js"
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
 import { compareCodexCommand } from "./commands/compare.js";
-import { loadCompareCliDependencies } from "./compare-host-loader.js";
+import { loadCompareCliDependencies, loadOfflineCodexCliDependencies } from "./compare-host-loader.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
@@ -210,7 +210,7 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
       task: parsed.task!,
       allowFiles: parsed.allowFiles ?? [],
       nonInteractive: parsed.json
-    });
+    }, process.cwd(), await loadOfflineCodexCliDependencies(process.cwd()));
   }
 
   const task = await loadTaskFile(parsed.task!);
