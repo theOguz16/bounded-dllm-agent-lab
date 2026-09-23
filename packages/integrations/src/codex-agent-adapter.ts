@@ -16,7 +16,9 @@ import type {
   AgentReasoningEffort,
   AgentRunRequest,
   AgentRunResult,
-  AgentRunStatus
+  AgentRunStatus,
+  AgentProviderFailureClass,
+  AgentWorkerOutcome
 } from "./agent-adapter.js";
 import {
   createAgentEnvironment,
@@ -42,6 +44,7 @@ import {
 } from "./isolated-agent-worker.js";
 import {
   CodexProviderAccessGate,
+  classifyCodexProviderError,
   codexLocalAuthCheck,
   type CodexLocalAuthCheck,
   type CodexProviderFailureCode
@@ -384,6 +387,10 @@ export class CodexAgentAdapter implements AgentAdapter {
     const adapterDiagnostics: AgentDiagnostic[] = [];
     let streamError: unknown = null;
     let providerFailure: CodexProviderFailureCode | "provider_outcome_ambiguous" | null = null;
+    let providerFailureClass: AgentProviderFailureClass = "unknown";
+    let providerHttpStatus: number | null = null;
+    let workerOutcome: AgentWorkerOutcome = this.clientFactory === null ? "not_started" : "not_isolated";
+    let workerExitCode: number | null = null;
 
     try {
       if (this.clientFactory !== null) {
@@ -418,12 +425,24 @@ export class CodexAgentAdapter implements AgentAdapter {
             lines.push(line);
           }
         });
+        workerExitCode = worker.exitCode;
+        workerOutcome = !worker.terminationConfirmed ? "termination_unconfirmed" :
+          worker.exitSignal !== null ? "signaled" :
+            worker.exitCode === 0 ? "exited_zero" : "exited_nonzero";
+        if (worker.stderr.length > 0) {
+          const classified = classifyCodexProviderError(worker.stderr);
+          providerFailureClass = classified.failureClass;
+          providerHttpStatus = classified.httpStatus;
+        }
         if (!worker.terminationConfirmed && processControl.failure()?.code !== "worker_termination_failed") {
           processControl.markWorkerTerminationFailed();
         } else if (processControl.failure()?.code === "agent_timeout") {
           providerFailure = "provider_outcome_ambiguous";
         } else if (worker.exitCode !== 0 && processControl.failure() === null && !request.abortSignal?.aborted) {
           providerFailure = this.providerGate.observe(worker.stderr || { code: "provider_stream_error_unknown" });
+          if (providerFailureClass === "unknown" && worker.stderr.trim().length === 0) {
+            providerFailureClass = "worker_process_failure";
+          }
           adapterDiagnostics.push(diagnostic(providerFailure, "error", providerFailure));
         }
       }
@@ -432,6 +451,9 @@ export class CodexAgentAdapter implements AgentAdapter {
       if (processControl.failure() === null && !Boolean(request.abortSignal?.aborted) &&
           !(error instanceof AgentProcessControlError)) {
         providerFailure = this.providerGate.observe(error);
+        const classified = classifyCodexProviderError(error);
+        providerFailureClass = classified.failureClass;
+        providerHttpStatus = classified.httpStatus;
         const message = error instanceof Error ? error.message : "Codex SDK stream failed.";
         try {
           processControl.observeStderr(message);
@@ -466,6 +488,8 @@ export class CodexAgentAdapter implements AgentAdapter {
       );
       if (providerDiagnostics.length > 0) {
         for (const entry of providerDiagnostics) {
+          const classified = classifyCodexProviderError({ message: entry.message });
+          if (providerFailureClass === "unknown") providerFailureClass = classified.failureClass;
           const candidate = this.providerGate.observe({ code: entry.code === "codex_provider_auth" ? "authentication_failed" : entry.code === "codex_provider_quota" ? "usage_limit_exceeded" : entry.code === "codex_provider_capacity" ? "provider_overloaded" : entry.message });
           if (providerFailure === null || providerFailure === "provider_stream_error_unknown") {
             providerFailure = candidate;
@@ -473,6 +497,16 @@ export class CodexAgentAdapter implements AgentAdapter {
         }
       } else if (parsed.status === "partial") {
         providerFailure = this.providerGate.observe({ code: "provider_stream_error_unknown" });
+      }
+    }
+
+    if (providerFailureClass === "unknown") {
+      if (providerFailure === "authentication_failed") providerFailureClass = "auth";
+      else if (providerFailure === "usage_limit_exceeded") providerFailureClass = "quota";
+      else if (providerFailure === "provider_overloaded") providerFailureClass = "capacity_overload";
+      else if (parsed.status === "partial" &&
+        (workerOutcome === "exited_zero" || workerOutcome === "not_isolated")) {
+        providerFailureClass = "partial_stream";
       }
     }
 
@@ -505,14 +539,22 @@ export class CodexAgentAdapter implements AgentAdapter {
     ];
     const commands = mapCommands(parsed, commandTimings, finalTermination,
       request.workingDirectory, diagnostics, this.redactor);
+    if (processFailure?.code === "agent_timeout") providerFailureClass = "timeout";
+    else if (finalTermination === "aborted") providerFailureClass = "abort";
+    else if (processFailure?.code === "worker_termination_failed" || workerOutcome === "signaled") {
+      if (providerFailureClass === "unknown") providerFailureClass = "worker_process_failure";
+    }
+
+    let invocationOccurred: boolean | null = null;
+    let outcomeKnown: boolean | null = null;
 
     if (invocationJournal !== null && invocationKey !== null) {
       const successObserved = finalTermination === "none" && processFailure === null &&
         providerFailure === null && parsed.status === "completed";
-      const knownFailure = providerFailure === "authentication_failed" || providerFailure === "usage_limit_exceeded";
+      const knownFailure = providerFailureClass === "auth" || providerFailureClass === "quota";
       const lifecycle = processControl.lifecycle();
       try {
-        invocationJournal.finish(invocationKey, successObserved ? "completed" :
+        const finished = invocationJournal.finish(invocationKey, successObserved ? "completed" :
           knownFailure ? "failed" : "outcome_unknown", {
             failureCode: processFailure?.code ?? providerFailure ??
               (successObserved ? null : "provider_outcome_ambiguous"),
@@ -523,8 +565,15 @@ export class CodexAgentAdapter implements AgentAdapter {
             abortRequestedAt: lifecycle.abortRequestedAt,
             workerExitedAt: lifecycle.workerExitedAt,
             exitSignal: lifecycle.exitSignal,
-            sessionEvidence: "unknown"
+            sessionEvidence: "unknown",
+            providerFailureClass,
+            providerHttpStatus,
+            workerOutcome,
+            workerExitCode,
+            terminalTurnObserved: parsed.terminalTurnObserved
           });
+        invocationOccurred = finished.invocationOccurred;
+        outcomeKnown = finished.state !== "outcome_unknown";
       } catch {
         return emptyResult(request, "failed", Math.max(0, this.now() - startedAtMs), [
           diagnostic("invocation_journal_unavailable", "error", "invocation_journal_unavailable")
@@ -540,6 +589,13 @@ export class CodexAgentAdapter implements AgentAdapter {
         : processFailure?.code ?? providerFailure,
       quotaStatus: "unknown",
       workerLifecycle: this.clientFactory === null ? processControl.lifecycle() : null,
+      providerFailureClass,
+      providerHttpStatus,
+      workerOutcome,
+      workerExitCode,
+      terminalTurnObserved: parsed.terminalTurnObserved,
+      invocationOccurred,
+      outcomeKnown,
       agentId: CODEX_AGENT_ID,
       agentVersion: CODEX_SDK_VERSION,
       modelId: request.model,

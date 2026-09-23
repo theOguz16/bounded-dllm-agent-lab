@@ -46,6 +46,16 @@ export type CodexAutoScopeDependencies = Readonly<{
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
+const SAFE_DISCOVERY_FAILURE_CODES = new Set([
+  "codex_scope_discovery_failed", "codex_scope_discovery_invalid_json",
+  "codex_scope_discovery_contract_invalid", "codex_scope_discovery_grounding_invalid",
+  "codex_scope_discovery_mutation_attempt", "authentication_failed",
+  "usage_limit_exceeded", "provider_overloaded", "provider_stream_error_unknown",
+  "provider_outcome_ambiguous", "agent_timeout", "agent_output_limit",
+  "agent_event_budget_exceeded", "agent_command_budget_exceeded",
+  "agent_provider_call_budget_exceeded", "agent_model_call_budget_exceeded",
+  "worker_termination_failed", "invocation_journal_unavailable", "invocation_replay_forbidden"
+]);
 
 function configuredCodexHome(): string {
   const configured = process.env.CODEX_HOME?.trim();
@@ -225,7 +235,27 @@ export async function codexAutoScopeCommand(
     });
   } catch (error) {
     if (error instanceof CodexScopeDiscoveryError) {
-      throw new CliError("cli_codex_scope_discovery_failed", error.message, 3);
+      const observation = error.observation;
+      const providerFailureClass = observation?.providerFailureClass ?? "unknown";
+      const safeFailureCode = SAFE_DISCOVERY_FAILURE_CODES.has(error.failureCode)
+        ? error.failureCode : "codex_scope_discovery_failed";
+      throw new CliError(
+        "cli_codex_scope_discovery_failed",
+        providerFailureClass === "unknown" ? error.message :
+          `${error.message} Provider failure: ${providerFailureClass}.`,
+        3,
+        {
+          stage: "discovery",
+          failureCode: safeFailureCode,
+          providerFailureClass,
+          providerHttpStatus: observation?.providerHttpStatus ?? null,
+          workerOutcome: observation?.workerOutcome ?? "unknown",
+          workerExitCode: observation?.workerExitCode ?? null,
+          terminalTurnObserved: observation?.terminalTurnObserved ?? null,
+          invocationOccurred: observation?.invocationOccurred ?? null,
+          outcomeKnown: observation?.outcomeKnown ?? null
+        }
+      );
     }
     throw error;
   }

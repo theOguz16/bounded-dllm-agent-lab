@@ -38,6 +38,15 @@ export type AgentProviderFailureCode =
   | "provider_stream_error_unknown"
   | "provider_outcome_ambiguous";
 
+/** Safe, bounded observations; never a provider message or worker stderr. */
+export type AgentProviderFailureClass =
+  | "auth" | "quota" | "model_unsupported" | "context_input_too_large"
+  | "capacity_overload" | "timeout" | "abort" | "worker_process_failure"
+  | "partial_stream" | "unknown";
+export type AgentWorkerOutcome =
+  | "exited_zero" | "exited_nonzero" | "signaled" | "termination_unconfirmed"
+  | "not_started" | "not_isolated" | "unknown";
+
 export interface AgentUsage {
   inputTokens: number | null;
   outputTokens: number | null;
@@ -107,6 +116,13 @@ export interface AgentRunResult {
   quotaStatus?: "unknown";
   /** Present for isolated worker executions; timestamps are distinct by contract. */
   workerLifecycle?: AgentWorkerLifecycle | null;
+  providerFailureClass?: AgentProviderFailureClass;
+  providerHttpStatus?: number | null;
+  workerOutcome?: AgentWorkerOutcome;
+  workerExitCode?: number | null;
+  terminalTurnObserved?: boolean | null;
+  invocationOccurred?: boolean | null;
+  outcomeKnown?: boolean | null;
   agentId: string;
   agentVersion: string;
   modelId: string;

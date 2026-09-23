@@ -6,6 +6,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
 const { pathToFileURL } = require("node:url");
 
 const repoRoot = process.cwd();
@@ -21,6 +22,12 @@ const discoveryUrl = pathToFileURL(
 ).href;
 const runtimeUrl = pathToFileURL(
   path.join(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
+).href;
+const adapterUrl = pathToFileURL(
+  path.join(repoRoot, "dist/packages/integrations/src/codex-agent-adapter.js")
+).href;
+const outputUrl = pathToFileURL(
+  path.join(repoRoot, "dist/apps/cli/src/cli-output.js")
 ).href;
 
 const sourceOriginal = [
@@ -264,6 +271,8 @@ async function main() {
     const contract = await import(contractUrl);
     const discoveryModule = await import(discoveryUrl);
     const runtime = await import(runtimeUrl);
+    const { CodexAgentAdapter } = await import(adapterUrl);
+    const { emitCliError } = await import(outputUrl);
     const original = await fs.readFile(path.join(repository, "src/session.ts"), "utf8");
     const statusBefore = git(repository, ["status", "--porcelain=v1", "--untracked-files=all"]);
 
@@ -319,6 +328,100 @@ async function main() {
       }
     );
     assert.equal(invalidJsonDiscovery.requests.length, 1);
+
+    // Exercise the real adapter, journal, discovery command, and CLI error
+    // renderer with disposable workers. None of these workers imports Codex.
+    const canary = "SECRET_CANARY_ABC123";
+    const failures = [
+      { name: "auth", error: { status: 401, code: "authentication_failed", message: `Unauthorized ${canary}` }, expected: "auth", state: "failed" },
+      { name: "quota", error: { status: 429, code: "rate_limit_exceeded", message: `Rate limit exceeded ${canary}` }, expected: "quota", state: "failed" },
+      { name: "model", error: { status: 400, code: "model_not_found", message: `Model not found ${canary}` }, expected: "model_unsupported", state: "outcome_unknown" },
+      { name: "context", error: { status: 413, code: "context_length_exceeded", message: `Input too large ${canary}` }, expected: "context_input_too_large", state: "outcome_unknown" },
+      { name: "overload", error: { status: 503, code: "server_overloaded", message: `Server overloaded ${canary}` }, expected: "capacity_overload", state: "outcome_unknown" },
+      { name: "timeout", expected: "timeout", state: "outcome_unknown" },
+      { name: "crash", expected: "worker_process_failure", state: "outcome_unknown" },
+      { name: "partial", expected: "partial_stream", state: "outcome_unknown" },
+      { name: "unknown", error: { status: 400, code: "mystery", message: `Unclassified failure ${canary}` }, expected: "unknown", state: "outcome_unknown" }
+    ];
+    for (const failure of failures) {
+      const workerPath = path.join(root, `fake-worker-${failure.name}.cjs`);
+      const body = failure.name === "timeout" ? "setInterval(() => {}, 1000);" :
+        failure.name === "partial" ?
+          'process.stdout.write(JSON.stringify({type:"thread.started",thread_id:"fixture"})+"\\n");process.stdout.write(JSON.stringify({type:"turn.started"})+"\\n");' :
+          failure.name === "crash" ? "process.exitCode=2;" :
+            `process.stderr.write(${JSON.stringify(`warning before error\n${JSON.stringify(failure.error)}\n`)});process.exitCode=2;`;
+      await fs.writeFile(workerPath, `process.stdin.on("data",()=>{});process.stdin.on("end",()=>{${body}});\n`, "utf8");
+      const journalPath = path.join(root, `journal-${failure.name}.sqlite`);
+      const adapter = new CodexAgentAdapter({
+        workerEntrypoint: workerPath,
+        invocationJournalPath: journalPath,
+        authCheck: async () => true,
+        workerGraceMs: 50,
+        workerForceGraceMs: 50
+      });
+      const discoveryAdapter = failure.name === "timeout" ? {
+        agentId: "codex",
+        agentVersion: "offline-timeout-fixture/v1",
+        run: (request) => adapter.run({ ...request, timeoutMs: 250 })
+      } : adapter;
+      let cliError;
+      await assert.rejects(
+        () => commandModule.codexAutoScopeCommand(
+          { task: `Fix refresh token expiry ${failure.name}`, nonInteractive: true },
+          repository,
+          { discoveryAdapter, discoveryModel: "fixture-offline-model" }
+        ),
+        (error) => {
+          cliError = error;
+          return error.code === "cli_codex_scope_discovery_failed";
+        }
+      );
+      assert.equal(cliError.exitCode, 3);
+      assert.equal(cliError.details.stage, "discovery");
+      assert.equal(cliError.details.providerFailureClass, failure.expected);
+      assert.equal(cliError.details.providerHttpStatus, failure.error?.status ?? null);
+      assert.equal(cliError.details.invocationOccurred, null);
+      assert.equal(cliError.details.outcomeKnown, failure.state === "outcome_unknown" ? false : true);
+      assert.equal(cliError.details.terminalTurnObserved, false);
+      assert.equal(cliError.details.workerOutcome, failure.name === "timeout" ? "signaled" :
+        failure.name === "partial" ? "exited_zero" : "exited_nonzero");
+      assert.equal(cliError.message.includes(canary), false);
+      const db = new DatabaseSync(journalPath, { readOnly: true });
+      const row = db.prepare("SELECT record_json FROM provider_invocations WHERE stage = 'discovery'").get();
+      db.close();
+      const journal = JSON.parse(row.record_json);
+      assert.equal(journal.state, failure.state);
+      assert.equal(journal.providerFailureClass, cliError.details.providerFailureClass);
+      assert.equal(journal.workerOutcome, cliError.details.workerOutcome);
+      assert.equal(journal.terminalTurnObserved, cliError.details.terminalTurnObserved);
+      assert.equal(journal.invocationOccurred, cliError.details.invocationOccurred);
+      assert.equal(JSON.stringify(journal).includes(canary), false);
+      let rendered = "";
+      const originalWrite = process.stdout.write;
+      process.stdout.write = (chunk) => { rendered += String(chunk); return true; };
+      try {
+        emitCliError({ ok: false, code: cliError.code, message: cliError.message, ...cliError.details }, true, []);
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+      const json = JSON.parse(rendered);
+      assert.equal(json.providerFailureClass, journal.providerFailureClass);
+      assert.equal(json.stage, "discovery");
+      assert.equal(json.ok, false);
+      assert.equal(rendered.includes(canary), false);
+      let human = "";
+      const originalErrorWrite = process.stderr.write;
+      process.stderr.write = (chunk) => { human += String(chunk); return true; };
+      try {
+        emitCliError({ ok: false, code: cliError.code, message: cliError.message, ...cliError.details }, false, []);
+      } finally {
+        process.stderr.write = originalErrorWrite;
+      }
+      assert.equal(human.includes(canary), false);
+      assert.equal(human.includes("cli_codex_scope_discovery_failed"), true);
+      if (failure.expected === "unknown") assert.equal(cliError.message.includes("Provider failure:"), false);
+      else assert.equal(cliError.message.includes(`Provider failure: ${failure.expected}.`), true);
+    }
 
     const nonInteractiveDiscovery = fakeDiscoveryAdapter(repository);
     const nonInteractive = await commandModule.codexAutoScopeCommand(
@@ -427,6 +530,9 @@ async function main() {
       candidateSymbolsGrounded: true,
       invalidJsonFailureCodePreserved: true,
       discoveryFailureTelemetryPreserved: true,
+      providerFailureInjectionCases: failures.map((failure) => failure.name),
+      journalCliFailureConsistent: true,
+      providerSecretsExcluded: true,
       developerConfirmationRequired: true,
       nonInteractiveMutationStarted: false,
       declinedMutationStarted: false,

@@ -300,7 +300,8 @@ export async function runCanonicalCli(argv: readonly string[]): Promise<number> 
     const output = {
       ok: false,
       code: error instanceof CliError ? error.code : "cli_unexpected_failure",
-      message: error instanceof Error ? error.message : "Canonical CLI failed."
+      message: error instanceof Error ? error.message : "Canonical CLI failed.",
+      ...(error instanceof CliError && error.details !== null ? error.details : {})
     };
     emitCliError(output, json, secrets);
     return error instanceof CliError ? error.exitCode : 2;

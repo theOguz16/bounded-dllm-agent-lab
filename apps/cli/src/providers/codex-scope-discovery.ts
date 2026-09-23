@@ -9,8 +9,10 @@ import {
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import type {
   AgentAdapter,
+  AgentProviderFailureClass,
   AgentReasoningEffort,
-  AgentUsage
+  AgentUsage,
+  AgentWorkerOutcome
 } from "../../../../packages/integrations/src/agent-adapter.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
 import { createDisposableAgentWorkspace } from "../../../../packages/integrations/src/disposable-agent-workspace.js";
@@ -51,6 +53,13 @@ export type CodexScopeDiscoveryFailureObservation = Readonly<{
   usage: AgentUsage;
   visibleFileCount: number;
   visibleBytes: number;
+  providerFailureClass: AgentProviderFailureClass;
+  providerHttpStatus: number | null;
+  workerOutcome: AgentWorkerOutcome;
+  workerExitCode: number | null;
+  terminalTurnObserved: boolean | null;
+  invocationOccurred: boolean | null;
+  outcomeKnown: boolean | null;
 }>;
 
 export class CodexScopeDiscoveryError extends Error {
@@ -331,7 +340,14 @@ export async function discoverCodexScope(
       modelId: result.modelId,
       usage: Object.freeze({ ...result.usage }),
       visibleFileCount: workspace.exposedFileCount,
-      visibleBytes: workspace.exposedBytes
+      visibleBytes: workspace.exposedBytes,
+      providerFailureClass: result.providerFailureClass ?? "unknown",
+      providerHttpStatus: result.providerHttpStatus ?? null,
+      workerOutcome: result.workerOutcome ?? "unknown",
+      workerExitCode: result.workerExitCode ?? null,
+      terminalTurnObserved: result.terminalTurnObserved ?? null,
+      invocationOccurred: result.invocationOccurred ?? null,
+      outcomeKnown: result.outcomeKnown ?? null
     });
 
     const afterStatus = workspaceStatus(workspace.workspacePath);

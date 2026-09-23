@@ -45,6 +45,7 @@ export type CodexEventParserOptions = Readonly<{
 
 export type CodexEventParserResult = Readonly<{
   status: CodexEventParserStatus;
+  terminalTurnObserved: boolean;
   threadId: string | null;
   finalMessage: string;
   telemetry: AgentRunTelemetry;
@@ -648,6 +649,7 @@ export function parseCodexJsonl(
 
   return Object.freeze({
     status,
+    terminalTurnObserved: turnCompleted || turnFailed,
     threadId,
     finalMessage,
     telemetry,

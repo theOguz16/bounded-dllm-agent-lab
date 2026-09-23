@@ -3,6 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
+import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
 /** One transactional authority for a provider invocation, never a retry queue. */
 export const DURABLE_INVOCATION_JOURNAL_VERSION = "durable-invocation-journal/v3" as const;
@@ -38,6 +39,11 @@ export type InvocationRecord = Readonly<{
   invocationOccurred: boolean | null;
   failureCode: string | null;
   failureDetail: string | null;
+  providerFailureClass?: AgentProviderFailureClass;
+  providerHttpStatus?: number | null;
+  workerOutcome?: AgentWorkerOutcome;
+  workerExitCode?: number | null;
+  terminalTurnObserved?: boolean | null;
   retryDecisionId: string | null;
   supersedesRunId: string | null;
 }>;
@@ -212,6 +218,11 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       workerExitedAt?: number | null;
       exitSignal?: string | null;
       sessionEvidence?: InvocationRecord["sessionEvidence"];
+      providerFailureClass?: AgentProviderFailureClass;
+      providerHttpStatus?: number | null;
+      workerOutcome?: AgentWorkerOutcome;
+      workerExitCode?: number | null;
+      terminalTurnObserved?: boolean | null;
     }> = {}): InvocationRecord {
       return transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
         failureCode: safeCode(details.failureCode ?? null),
@@ -222,6 +233,11 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         workerExitedAt: details.workerExitedAt ?? null,
         exitSignal: details.exitSignal ?? null,
         sessionEvidence: details.sessionEvidence ?? "unknown",
+        providerFailureClass: details.providerFailureClass ?? "unknown",
+        providerHttpStatus: details.providerHttpStatus ?? null,
+        workerOutcome: details.workerOutcome ?? "unknown",
+        workerExitCode: details.workerExitCode ?? null,
+        terminalTurnObserved: details.terminalTurnObserved ?? null,
         invocationOccurred: state === "completed" ? true : null
       }));
     },
