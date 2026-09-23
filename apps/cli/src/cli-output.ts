@@ -251,6 +251,22 @@ export function emitCliOutput(value: CliJson, json: boolean, secrets: readonly s
       process.stdout.write(`${field}: ${String(safe[field])}\n`);
     }
   }
+  if (safe.command === "apply") {
+    for (const [label, field] of [
+      ["candidateBehavior", "behavior"],
+      ["postApplyBehavior", "postApplyBehavior"]
+    ]) {
+      const report = safe[field];
+      if (report && typeof report === "object" && !Array.isArray(report)) {
+        const observed = report as CliJson;
+        const verdict = observed.behaviorSatisfied === true ? "PASS" :
+          observed.behaviorSatisfied === false ? "FAIL" : "UNVERIFIED";
+        process.stdout.write(`${label}: ${verdict} (${String(observed.reason ?? "unknown")})\n`);
+      }
+    }
+    process.stdout.write(`taskSucceeded: ${safe.taskSucceeded === true ? "true" :
+      safe.taskSucceeded === false ? "false" : "unknown"}\n`);
+  }
   if (safe.failure) {
     process.stdout.write(
       `failure: ${String((safe.failure as CliJson).code)} — ${String((safe.failure as CliJson).message)}\n`

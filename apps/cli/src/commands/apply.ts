@@ -28,6 +28,12 @@ import {
   type HumanDecisionSelection
 } from "../human-decision.js";
 import { doctorBoundedLocalConfig } from "../product-config.js";
+import type { TrustedBehaviorHost } from "../compare-host-loader.js";
+import {
+  createPersistedBehaviorSession,
+  unverifiedCandidateBehavior,
+  type PersistedBehaviorReport
+} from "../persisted-candidate-behavior.js";
 
 export const BOUNDED_APPLY_COMMAND_VERSION = "bounded-apply/v1" as const;
 
@@ -40,6 +46,7 @@ export type ApplyCommandDependencies = Readonly<{
   approve?: (candidate: BoundedCandidateHandoff, diff: string) => Promise<boolean>;
   execute?: typeof executeCanonicalGovernedMutation;
   runtimeRoot?: string;
+  trustedBehavior?: TrustedBehaviorHost;
 }>;
 
 function ciMode(environment: NodeJS.ProcessEnv = process.env): boolean {
@@ -158,7 +165,8 @@ function stoppedOutput(
   candidate: BoundedCandidateHandoff,
   decision: "approval_required" | "approval_declined" | "recovery_required",
   message?: string,
-  humanDecision?: BoundedHumanDecisionRecord
+  humanDecision?: BoundedHumanDecisionRecord,
+  behavior: PersistedBehaviorReport = unverifiedCandidateBehavior(candidate)
 ): CliCommandResult {
   return {
     output: {
@@ -173,6 +181,8 @@ function stoppedOutput(
       mutationStarted: false,
       apply: "NOT_RUN",
       receiptHash: null,
+      behavior,
+      taskSucceeded: null,
       ...humanDecisionOutput(humanDecision),
       ...(message ? { failure: { code: "candidate_source_drift", message } } : {})
     },
@@ -183,7 +193,9 @@ function stoppedOutput(
 function completedOutput(
   candidate: BoundedCandidateHandoff,
   governed: CanonicalGovernedExecutionResult,
-  humanDecision: BoundedHumanDecisionRecord
+  humanDecision: BoundedHumanDecisionRecord,
+  behavior: PersistedBehaviorReport,
+  postApplyBehavior: PersistedBehaviorReport | null
 ): CliCommandResult {
   const integrated = governed.integratedResult;
   const completed = integrated.decision === "integrated_disposable_apply_finalized" &&
@@ -207,6 +219,9 @@ function completedOutput(
         apply: integrated.applyResult?.receipt?.outcome ?? "NOT_COMPLETED",
         postApplyValidation: integrated.postApplyValidation?.finalReceipt?.outcome ?? "NOT_COMPLETED",
         receiptHash: null,
+        behavior,
+        postApplyBehavior,
+        taskSucceeded: null,
         ...humanDecisionOutput(humanDecision),
         failure: integrated.issues[0] ?? null
       },
@@ -227,6 +242,11 @@ function completedOutput(
       apply: "APPLIED",
       postApplyValidation: "PASS",
       receiptHash: integrated.receipt!.receiptHash,
+      behavior,
+      postApplyBehavior,
+      taskSucceeded: behavior.behaviorSatisfied === true &&
+        postApplyBehavior?.behaviorSatisfied === true ? true :
+        behavior.behaviorSatisfied === false || postApplyBehavior?.behaviorSatisfied === false ? false : null,
       controlledApplyReceiptHash: integrated.applyResult!.receipt!.receiptHash,
       postApplyReceiptHash: integrated.postApplyValidation!.finalReceipt!.receiptHash,
       ...humanDecisionOutput(humanDecision)
@@ -254,17 +274,47 @@ export async function applyCommand(
     throw error;
   }
 
+  if (captureCandidateSourceSnapshotHash(repositoryRoot) !== candidate.sourceSnapshotHash) {
+    return stoppedOutput(candidate, "recovery_required",
+      "Repository source snapshot changed since candidate validation; candidate was not applied.");
+  }
+
+  let behavior = unverifiedCandidateBehavior(candidate);
+  let session: Awaited<ReturnType<typeof createPersistedBehaviorSession>> | null = null;
+  if (dependencies.trustedBehavior) {
+    try {
+      session = await createPersistedBehaviorSession(repositoryRoot, candidate);
+      behavior = await session.verifyCandidate(dependencies.trustedBehavior);
+    } catch {
+      return stoppedOutput(candidate, "recovery_required",
+        "Persisted candidate could not be safely materialized for trusted verification.",
+        undefined, unverifiedCandidateBehavior(candidate, "candidate_workspace_unavailable"));
+    }
+  }
+
+  try {
+
   if (input.nonInteractive === true || ciMode()) {
-    return stoppedOutput(candidate, "approval_required");
+    return stoppedOutput(candidate, "approval_required", undefined, undefined, behavior);
   }
   if (!hasInjectedHumanDecision(dependencies) && process.stdin.isTTY !== true) {
-    return stoppedOutput(candidate, "approval_required");
+    return stoppedOutput(candidate, "approval_required", undefined, undefined, behavior);
+  }
+
+  if (!hasInjectedHumanDecision(dependencies)) {
+    process.stdout.write(`Trusted behavior: ${behavior.behaviorSatisfied === true ? "PASS" :
+      behavior.behaviorSatisfied === false ? "FAIL" : "UNVERIFIED"} (${behavior.reason})\n`);
   }
 
   const selection = await resolveHumanDecision(candidate, diff, dependencies);
   const humanDecision = await recordHumanDecision(repositoryRoot, candidate, selection);
   if (humanDecision.decision !== "accept") {
-    return stoppedOutput(candidate, "approval_declined", undefined, humanDecision);
+    return stoppedOutput(candidate, "approval_declined", undefined, humanDecision, behavior);
+  }
+
+  if ((await readCandidateHandoff(repositoryRoot)).handoffHash !== candidate.handoffHash) {
+    return stoppedOutput(candidate, "recovery_required",
+      "Persisted candidate changed after approval; candidate was not applied.", humanDecision, behavior);
   }
 
   const currentSnapshotHash = captureCandidateSourceSnapshotHash(repositoryRoot);
@@ -273,7 +323,8 @@ export async function applyCommand(
       candidate,
       "recovery_required",
       "Repository source snapshot changed after candidate validation; candidate was not applied.",
-      humanDecision
+      humanDecision,
+      behavior
     );
   }
 
@@ -282,7 +333,10 @@ export async function applyCommand(
     const governed = await (dependencies.execute ?? executeCanonicalGovernedMutation)(
       candidateToGovernedInput(repositoryRoot, candidate, configuration)
     );
-    return completedOutput(candidate, governed, humanDecision);
+    const postApplyBehavior = session && dependencies.trustedBehavior &&
+      governed.integratedResult.decision === "integrated_disposable_apply_finalized"
+      ? await session.verifyPostApply(dependencies.trustedBehavior) : null;
+    return completedOutput(candidate, governed, humanDecision, behavior, postApplyBehavior);
   } catch (error) {
     if (error instanceof CanonicalGovernedExecutionError) {
       return {
@@ -298,6 +352,9 @@ export async function applyCommand(
           mutationStarted: true,
           apply: "NOT_COMPLETED",
           receiptHash: null,
+          behavior,
+          postApplyBehavior: null,
+          taskSucceeded: null,
           ...humanDecisionOutput(humanDecision),
           failure: { code: error.code, message: error.message }
         },
@@ -317,6 +374,9 @@ export async function applyCommand(
         mutationStarted: true,
         apply: "NOT_COMPLETED",
         receiptHash: null,
+        behavior,
+        postApplyBehavior: null,
+        taskSucceeded: null,
         ...humanDecisionOutput(humanDecision),
         failure: {
           code: "controlled_apply_unexpected_failure",
@@ -325,5 +385,8 @@ export async function applyCommand(
       },
       exitCode: 4
     };
+  }
+  } finally {
+    await session?.cleanup();
   }
 }

@@ -8,6 +8,7 @@ import type { CompareCodexDependencies } from "./commands/compare.js";
 import type { CodexAutoScopeDependencies } from "./commands/codex-auto-scope.js";
 
 type CompareHostExports = Pick<CompareCodexDependencies, "trustedBehavior">;
+export type TrustedBehaviorHost = NonNullable<CompareHostExports["trustedBehavior"]>;
 type OfflineExports = Pick<CompareCodexDependencies,
   "adapter" | "model" | "prepareValidationSubstrate">;
 
@@ -38,14 +39,7 @@ async function externalModule(configured: string, repositoryRoot: string): Promi
 export async function loadCompareCliDependencies(startPath: string): Promise<CompareCodexDependencies> {
   const repositoryRoot = await realpath(await findGitRepositoryRoot(startPath));
   const dependencies: { -readonly [K in keyof CompareCodexDependencies]?: CompareCodexDependencies[K] } = {};
-  const hostPath = process.env.BOUNDED_COMPARE_TRUSTED_HOST_MODULE?.trim();
-  if (hostPath) {
-    const host = await externalModule(hostPath, repositoryRoot);
-    if (typeof host.trustedBehavior !== "function") {
-      throw new CliError("cli_compare_host_invalid", "Compare host must export trustedBehavior.", 5);
-    }
-    dependencies.trustedBehavior = host.trustedBehavior as CompareHostExports["trustedBehavior"];
-  }
+  dependencies.trustedBehavior = await loadTrustedBehaviorHost(startPath);
   const offlinePath = process.env.BOUNDED_COMPARE_OFFLINE_FIXTURE_MODULE?.trim();
   if (offlinePath) {
     if (process.env.NODE_ENV !== "test" || process.env.CI !== "1") {
@@ -63,6 +57,18 @@ export async function loadCompareCliDependencies(startPath: string): Promise<Com
     dependencies.prepareValidationSubstrate = fixture.prepareValidationSubstrate as OfflineExports["prepareValidationSubstrate"];
   }
   return dependencies;
+}
+
+/** The apply path uses the same owner-controlled host boundary as compare. */
+export async function loadTrustedBehaviorHost(startPath: string): Promise<TrustedBehaviorHost | undefined> {
+  const hostPath = process.env.BOUNDED_COMPARE_TRUSTED_HOST_MODULE?.trim();
+  if (!hostPath) return undefined;
+  const repositoryRoot = await realpath(await findGitRepositoryRoot(startPath));
+  const host = await externalModule(hostPath, repositoryRoot);
+  if (typeof host.trustedBehavior !== "function") {
+    throw new CliError("cli_compare_host_invalid", "Compare host must export trustedBehavior.", 5);
+  }
+  return host.trustedBehavior as TrustedBehaviorHost;
 }
 
 /** Explicit offline-only fixture for exercising the installed candidate CLI without a provider call. */

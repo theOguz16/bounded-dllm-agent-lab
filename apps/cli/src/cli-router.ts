@@ -6,7 +6,7 @@ import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js"
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
 import { compareCodexCommand } from "./commands/compare.js";
-import { loadCompareCliDependencies, loadOfflineCodexCliDependencies } from "./compare-host-loader.js";
+import { loadCompareCliDependencies, loadOfflineCodexCliDependencies, loadTrustedBehaviorHost } from "./compare-host-loader.js";
 import { doctorCommand } from "./commands/doctor.js";
 import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
@@ -196,7 +196,10 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
 async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "init") return initCommand();
   if (parsed.command === "doctor") return doctorCommand();
-  if (parsed.command === "apply") return applyCommand({ nonInteractive: parsed.json });
+  if (parsed.command === "apply") return applyCommand(
+    { nonInteractive: parsed.json }, process.cwd(),
+    { trustedBehavior: await loadTrustedBehaviorHost(process.cwd()) }
+  );
   if (parsed.command === "history") return historyCommand();
   if (parsed.command === "report") return reportCommand(parsed.runId!);
   if (parsed.command === "stats") return statsCommand({ last: parsed.last });

@@ -171,6 +171,9 @@ export type CompareCodexDependencies = Readonly<{
   trustedBehavior?: (candidate: Readonly<{
     workspacePath: string; candidateTreeHash: string; taskId: string; taskHash: string;
     sourceCommitSha: string; sourceTreeHash: string;
+    /** Apply can retain an immutable pre-apply source for post-apply inspection. */
+    sourceWorkspacePath?: string;
+    phase?: "candidate" | "post_apply";
   }>) => Promise<Readonly<{
     receipt: TrustedBehaviorReceipt | null;
     expectation: Omit<TrustedBehaviorExpectation, "taskId" | "taskHash" | "sourceCommitSha" | "sourceTreeHash" | "candidateTreeHash">;
