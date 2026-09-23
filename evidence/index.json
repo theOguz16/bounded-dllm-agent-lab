@@ -130,7 +130,31 @@
       "artifactHashKind": null,
       "status": "pending",
       "statusReason": "Two V2 tasks and immutable observed-evidence tooling exist; real provider runs are deferred while RunPod is unavailable."
+    },
+    {
+      "experimentId": "codex-v1-luna-planner-v2-paired-2026-09-23",
+      "family": "codex_v1_live_paired_task",
+      "sourceCommit": "7cdbf4e798675d98a41ec69baf4cbabbbae85b47",
+      "tasksetHash": "sha256:c1e082ab68ce22ad0f26b729ca1e96139f8740ef5631bb12a1438b5529178235",
+      "tasksetHashKind": "index_taskset_identity_v1",
+      "tasksetIdentity": {
+        "kind": "codex_v1_live_paired_task/v1",
+        "tasks": [
+          {
+            "taskId": "codex.d09df789490a869fb58d861bc4bf62fe",
+            "fixtureCommit": "5c9a9b678d17c20293c7af4dd20d09e446e4ab60"
+          }
+        ]
+      },
+      "evidenceClass": "live",
+      "provider": "codex-cli",
+      "model": "gpt-5.6-luna",
+      "artifactPath": "evidence/live/codex-v1-luna-planner-v2-paired.json",
+      "artifactHash": "sha256:f9853183cfe3cdf8c8d8cce85fca9e1a6ea2b5a99a7b8f877d4cb56444c84c07",
+      "artifactHashKind": "json_field:evidenceHash",
+      "status": "observed",
+      "statusReason": "One paired live Codex task completed candidate, trusted behavior, controlled apply, and separate post-apply verification; it does not satisfy a release gate."
     }
   ],
-  "indexHash": "sha256:578e70c085870c0696f27020e318063129a9d1407a4bb298fa5b2d23fd3286dc"
+  "indexHash": "sha256:87bcc1f95d0f1a03098ccccf13c62fd2c2fc75744e0017bd4ffe8beb26dc3216"
 }

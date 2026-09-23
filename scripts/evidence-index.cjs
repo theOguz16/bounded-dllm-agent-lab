@@ -110,6 +110,51 @@ function verifyPromotedEvidenceArtifact(record, parsed) {
     fail("EVIDENCE_INDEX_ARTIFACT_HASH_MISMATCH", record.experimentId);
   }
 
+  if (parsed.schemaVersion === "bounded.codex-v1-live-paired-evidence/v1") {
+    const task = record.tasksetIdentity?.tasks?.[0];
+    const candidate = parsed.candidateBehavior;
+    const approval = parsed.approval;
+    const post = parsed.postApply;
+    if (record.experimentId !== parsed.experimentId ||
+        record.family !== "codex_v1_live_paired_task" ||
+        record.evidenceClass !== "live" || parsed.evidenceClass !== "live" ||
+        record.provider !== "codex-cli" || parsed.model !== record.model ||
+        parsed.sourceCommit !== record.sourceCommit ||
+        record.tasksetIdentity?.kind !== "codex_v1_live_paired_task/v1" ||
+        record.tasksetIdentity.tasks.length !== 1 ||
+        task?.taskId !== parsed.taskId || task?.fixtureCommit !== parsed.fixtureCommit ||
+        parsed.pairedNormal?.fixtureCommit !== parsed.fixtureCommit ||
+        parsed.pairedNormal?.model !== parsed.model ||
+        parsed.pairedNormal?.reasoning !== parsed.reasoning ||
+        parsed.plannerPromptVersion !== "codex-bounded-planner/v2" ||
+        parsed.plannerPromptHash !== "sha256:865572ec9ded26254573a4e967c1c679a3c4061864e7720ddba6212deb3fc426" ||
+        parsed.reasoning !== "medium" ||
+        !HASH.test(parsed.candidateHandoffHash ?? "") ||
+        !HASH.test(parsed.candidateWorkspaceHash ?? "") ||
+        !HASH.test(parsed.candidateContentHash ?? "") ||
+        candidate?.taskId !== parsed.taskId ||
+        candidate?.handoffHash !== parsed.candidateHandoffHash ||
+        candidate?.workspaceHash !== parsed.candidateWorkspaceHash ||
+        candidate?.satisfied !== true ||
+        !HASH.test(candidate?.receiptFileSha256 ?? "") ||
+        approval?.decision !== "accept" || approval.taskId !== parsed.taskId ||
+        approval.handoffHash !== parsed.candidateHandoffHash ||
+        !HASH.test(approval.decisionHash ?? "") ||
+        parsed.apply?.completed !== true ||
+        parsed.apply.sourceContentHashAfter !== parsed.candidateContentHash ||
+        !HASH.test(parsed.apply.receiptHash ?? "") ||
+        post?.taskId !== parsed.taskId || post.satisfied !== true ||
+        post.actual !== post.expected ||
+        !HASH.test(post.workspaceHash ?? "") ||
+        !HASH.test(post.receiptFileSha256 ?? "") ||
+        parsed.provider?.turns?.planner !== 1 ||
+        parsed.provider?.turns?.coder !== 1 ||
+        parsed.provider?.turns?.repair !== 0) {
+      fail("EVIDENCE_INDEX_LIVE_BINDING_INVALID", record.experimentId);
+    }
+    return;
+  }
+
   if (parsed.schemaVersion === "bounded.controlled-coding-pilot-observed-evidence/v3") {
     if (record.experimentId !== "controlled-coding-pilot-v2-suite" ||
         parsed.experimentConfig?.modelId !== record.model ||

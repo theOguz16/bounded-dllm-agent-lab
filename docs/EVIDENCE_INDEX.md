@@ -4,7 +4,7 @@
 > Do not edit experiment status in Markdown; update and verify the machine-readable index instead.
 
 Index schema: `bounded.evidence-index/v1`  
-Index hash: `sha256:578e70c085870c0696f27020e318063129a9d1407a4bb298fa5b2d23fd3286dc`
+Index hash: `sha256:87bcc1f95d0f1a03098ccccf13c62fd2c2fc75744e0017bd4ffe8beb26dc3216`
 
 | Experiment | Family | Status | Evidence class | Provider | Model | Artifact |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -13,6 +13,7 @@ Index hash: `sha256:578e70c085870c0696f27020e318063129a9d1407a4bb298fa5b2d23fd32
 | `gate5-mode-f-c-e-f` | `gate5` | **pending** | `live_validation_pending` | — | — | — |
 | `controlled-coding-pilot-v1-runpod-live-help` | `controlled_coding_pilot_v1` | **observed** | `controlled_coding_pilot_observed` | runpod | qwen2.5-coder-7b | `docs/CONTROLLED_REAL_CODING_PILOT_V1_ACCEPTANCE.md`<br>`sha256:aa56afd683ff5f2b04011b573d34c8fa1911a462e134b6605ff222806b962660` |
 | `controlled-coding-pilot-v2-suite` | `controlled_coding_pilot_v2` | **pending** | `observed_run_pending` | — | — | — |
+| `codex-v1-luna-planner-v2-paired-2026-09-23` | `codex_v1_live_paired_task` | **observed** | `live` | codex-cli | gpt-5.6-luna | `evidence/live/codex-v1-luna-planner-v2-paired.json`<br>`sha256:f9853183cfe3cdf8c8d8cce85fca9e1a6ea2b5a99a7b8f877d4cb56444c84c07` |
 
 ## Status reasons
 
@@ -21,6 +22,7 @@ Index hash: `sha256:578e70c085870c0696f27020e318063129a9d1407a4bb298fa5b2d23fd32
 - `gate5-mode-f-c-e-f`: Mode F continuation is active in PR #166; live C/E/F evidence is pending while the RunPod provider is unavailable.
 - `controlled-coding-pilot-v1-runpod-live-help`: Final acceptance record binds the tested source, model provenance, report, evidence bundle, acceptance hash, and archive checksum.
 - `controlled-coding-pilot-v2-suite`: Two V2 tasks and immutable observed-evidence tooling exist; real provider runs are deferred while RunPod is unavailable.
+- `codex-v1-luna-planner-v2-paired-2026-09-23`: One paired live Codex task completed candidate, trusted behavior, controlled apply, and separate post-apply verification; it does not satisfy a release gate.
 
 ## Programmatic queries
 

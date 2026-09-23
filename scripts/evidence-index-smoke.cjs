@@ -18,11 +18,12 @@ const root = process.cwd();
 const index = verifyIndex(parseIndex(root), root);
 
 assert.equal(index.schemaVersion, "bounded.evidence-index/v1");
-assert.equal(index.experiments.length, 5);
+assert.equal(index.experiments.length, 6);
 assert.deepEqual(
   index.experiments.filter((entry) => entry.status === "observed")
     .map((entry) => entry.experimentId).sort(),
   [
+    "codex-v1-luna-planner-v2-paired-2026-09-23",
     "controlled-coding-pilot-v1-runpod-live-help",
     "legacy-unified-release-v0.1"
   ]
@@ -51,6 +52,43 @@ const v2 = statusFor(index, "controlled_coding_pilot_v2");
 assert.equal(v2.fullyObserved, false);
 assert.equal(v2.anyObserved, false);
 assert.equal(v2.experiments[0].status, "pending");
+
+const live = statusFor(index, "codex_v1_live_paired_task");
+assert.equal(live.fullyObserved, true);
+assert.equal(live.experiments[0].evidenceClass, "live");
+
+function rejectReboundLiveEvidence(change) {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const tempRoot = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "evidence-live-binding-"));
+  try {
+    for (const record of index.experiments.filter((entry) => entry.status === "observed")) {
+      const target = path.resolve(tempRoot, record.artifactPath);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.resolve(root, record.artifactPath), target);
+    }
+    const liveRecord = index.experiments.find((entry) => entry.experimentId === live.experiments[0].experimentId);
+    const artifactPath = path.resolve(tempRoot, liveRecord.artifactPath);
+    const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"));
+    change(artifact);
+    const { evidenceHash: _old, ...artifactCore } = artifact;
+    artifact.evidenceHash = hashCanonical(artifactCore);
+    fs.writeFileSync(artifactPath, JSON.stringify(artifact));
+    const reboundIndex = structuredClone(index);
+    reboundIndex.experiments.find((entry) => entry.experimentId === liveRecord.experimentId)
+      .artifactHash = artifact.evidenceHash;
+    assert.throws(() => verifyIndex(rehash(reboundIndex), tempRoot),
+      (error) => error.code === "EVIDENCE_INDEX_LIVE_BINDING_INVALID");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+rejectReboundLiveEvidence((artifact) => { artifact.candidateBehavior.workspaceHash = `sha256:${"0".repeat(64)}`; });
+rejectReboundLiveEvidence((artifact) => { artifact.approval.handoffHash = `sha256:${"0".repeat(64)}`; });
+rejectReboundLiveEvidence((artifact) => { artifact.postApply.taskId = "codex.other-candidate"; });
+rejectReboundLiveEvidence((artifact) => { artifact.postApply.satisfied = false; });
+rejectReboundLiveEvidence((artifact) => { artifact.plannerPromptHash = `sha256:${"0".repeat(64)}`; });
 
 const badIndexHash = structuredClone(index);
 badIndexHash.indexHash = `sha256:${"0".repeat(64)}`;
