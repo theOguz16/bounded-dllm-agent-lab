@@ -281,7 +281,7 @@ async function main() {
     await fs.writeFile(internalsPath,
       `${await fs.readFile(new URL(discoveryUrl), "utf8")}\nexport { publicInventory, discoveryPrompt, runId };\n`);
     const discoveryInternals = await import(pathToFileURL(internalsPath).href);
-    assert.equal(discoveryModule.CODEX_SCOPE_DISCOVERY_VERSION, "codex-scope-discovery/v2");
+    assert.equal(discoveryModule.CODEX_SCOPE_DISCOVERY_VERSION, "codex-scope-discovery/v3");
     const runtime = await import(runtimeUrl);
     const { CodexAgentAdapter } = await import(adapterUrl);
     const { emitCliError } = await import(outputUrl);
@@ -327,6 +327,29 @@ async function main() {
       "Correct resolveConflict behavior", fixtureFacts, []
     ).map((entry) => entry.path);
     assert.deepEqual(direct, ["packages/alpha/src/request.ts", "packages/beta/src/request.ts"]);
+    const calculateFacts = [fact("src/calculate.js", ["calculate"]), fact("test/calculate.test.js")];
+    const calculateTask = "Make calculate multiply by three.";
+    const calculateCandidates = discoveryModule.prefilterCodexDiscoveryFacts(calculateTask, calculateFacts, []);
+    assert.deepEqual(calculateCandidates.map((entry) => entry.path),
+      ["src/calculate.js", "test/calculate.test.js"]);
+    assert.deepEqual(discoveryInternals.publicInventory(calculateTask, calculateCandidates, []).files
+      .map((entry) => entry.path), ["src/calculate.js", "test/calculate.test.js"]);
+    const genericNoise = Array.from({ length: 70 }, (_, index) =>
+      ["index", "test", "utils", "make", "update"].map((name) =>
+        fact(`packages/noise-${index}/${name}.ts`))).flat();
+    assert.deepEqual(discoveryModule.prefilterCodexDiscoveryFacts(
+      `${calculateTask} Update utils test index`, [...calculateFacts, ...genericNoise], []
+    ).map((entry) => entry.path), ["src/calculate.js", "test/calculate.test.js"]);
+    const featureTests = Array.from({ length: 70 }, (_, index) =>
+      fact(`tests/feature-${String(index).padStart(2, "0")}/calculate.test.ts`));
+    assert.equal(discoveryModule.prefilterCodexDiscoveryFacts(
+      calculateTask, [calculateFacts[0], ...featureTests.slice(0, 63)], []
+    ).length, 64);
+    assert.throws(
+      () => discoveryModule.prefilterCodexDiscoveryFacts(
+        calculateTask, [calculateFacts[0], ...featureTests.slice(0, 64)], []),
+      (error) => error.failureCode === "codex_scope_discovery_candidates_ambiguous"
+    );
     const broadNeighbors = Array.from({ length: 70 }, (_, index) =>
       fact(`packages/core/src/dependent-${index}.ts`));
     const broadEdges = broadNeighbors.map((entry) => ({ from: entry.path, to: fixtureFacts[0].path,
@@ -403,7 +426,7 @@ async function main() {
     const pilotPrompt = pilotRequest.task;
     const pilotEvidence = JSON.parse(pilotPrompt.split("\n").at(-1));
     const pilotCandidates = pilotEvidence.canonicalRepository.files.map((entry) => entry.path);
-    assert.equal(pilotEvidence.discoveryVersion, "codex-scope-discovery/v2");
+    assert.equal(pilotEvidence.discoveryVersion, "codex-scope-discovery/v3");
     assert.equal(pilotCandidates.length, 30);
     const trackedSourceFiles = git(repoRoot, ["ls-files", "-z", "--cached"])
       .split("\u0000").filter((entry) => /\.(?:[cm]?[jt]sx?)$/i.test(entry))

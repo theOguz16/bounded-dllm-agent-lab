@@ -22,7 +22,7 @@ import {
   type ScopeDiscoveryProposal
 } from "../../../../packages/integrations/src/scope-discovery-contract.js";
 
-export const CODEX_SCOPE_DISCOVERY_VERSION = "codex-scope-discovery/v2" as const;
+export const CODEX_SCOPE_DISCOVERY_VERSION = "codex-scope-discovery/v3" as const;
 
 export type CodexScopeDiscoveryInput = Readonly<{
   repositoryPath: string;
@@ -90,6 +90,10 @@ const WEAK_ONLY_TERMS = new Set([
   "client", "dependencies", "endpoint", "health", "http", "index", "only", "patch",
   "request", "required", "response", "smoke", "test", "tests", "unchanged",
   "valid", "worker", "workspace"
+]);
+const GENERIC_FILE_STEMS = new Set([
+  "build", "check", "common", "config", "helper", "helpers", "index", "main",
+  "make", "test", "tests", "types", "update", "util", "utils"
 ]);
 
 function looksLikeTestPath(file: string): boolean {
@@ -196,6 +200,13 @@ function symbolMatchesComponent(name: string, term: string): boolean {
   return false;
 }
 
+function featureStem(file: string): string {
+  const basename = file.split("/").at(-1) ?? "";
+  return basename.replace(SOURCE_EXTENSION, "")
+    .replace(/(?:\.test|\.spec|[-_.]smoke)$/i, "")
+    .toLowerCase();
+}
+
 function stronglyMatchesTask(
   task: string,
   terms: ReadonlySet<string>,
@@ -207,6 +218,8 @@ function stronglyMatchesTask(
   if (!/^(?:index|test|tests)\.[cm]?[jt]sx?$/i.test(basename) && taskMentionsName(task, basename)) {
     return true;
   }
+  const stem = featureStem(file.path);
+  if (!GENERIC_FILE_STEMS.has(stem) && terms.has(stem)) return true;
   return [...file.symbols.map((symbol) => symbol.name), ...file.exports].some((name) =>
     terms.has(name.toLowerCase()) || componentTerms.some((term) => symbolMatchesComponent(name, term)));
 }
