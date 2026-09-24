@@ -10,6 +10,7 @@ import {
   type RunBoundedTaskResult
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import type { AgentAdapter } from "../../../../packages/integrations/src/agent-adapter.js";
+import type { InvocationRetryDecision } from "../../../../packages/integrations/src/durable-invocation-journal.js";
 import type { ScopeDiscoveryProposal } from "../../../../packages/integrations/src/scope-discovery-contract.js";
 import { CliError } from "../cli-errors.js";
 import type { CliCommandResult } from "../bounded-task.js";
@@ -34,6 +35,7 @@ export type CodexAutoScopeCommandInput = Readonly<{
   task: string;
   allowFiles?: readonly string[];
   nonInteractive?: boolean;
+  invocationRetryDecision?: InvocationRetryDecision;
 }>;
 
 export type CodexAutoScopeDependencies = Readonly<{
@@ -231,7 +233,9 @@ export async function codexAutoScopeCommand(
       model,
       adapter: dependencies.discoveryAdapter,
       reasoningEffort: "medium",
-      timeoutMs: 120_000
+      timeoutMs: 120_000,
+      ...(input.invocationRetryDecision === undefined ? {} :
+        { invocationRetryDecision: input.invocationRetryDecision })
     });
   } catch (error) {
     if (error instanceof CodexScopeDiscoveryError) {

@@ -9,16 +9,21 @@ import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adap
 export const DURABLE_INVOCATION_JOURNAL_VERSION = "durable-invocation-journal/v3" as const;
 export type InvocationState = "prepared" | "started" | "completed" | "failed" | "outcome_unknown";
 export type InvocationStage = "discovery" | "planner" | "coder" | "repair" | "baseline";
+export type InvocationRetryDecision = Readonly<{
+  decisionId: string;
+  supersedesRunId: string;
+  newRunId: string;
+  stage: InvocationStage;
+  taskHash: string;
+  model: string;
+}>;
 export type InvocationIdentity = Readonly<{
   runId: string;
   stage: InvocationStage;
   task: string;
   model: string;
   deadlineAt: number;
-  retryDecision?: Readonly<{
-    decisionId: string;
-    supersedesRunId: string;
-  }>;
+  retryDecision?: InvocationRetryDecision;
 }>;
 export type InvocationRecord = Readonly<{
   version: typeof DURABLE_INVOCATION_JOURNAL_VERSION;
@@ -46,6 +51,7 @@ export type InvocationRecord = Readonly<{
   terminalTurnObserved?: boolean | null;
   retryDecisionId: string | null;
   supersedesRunId: string | null;
+  workerDiagnostic?: Readonly<Record<string, unknown>> | null;
 }>;
 
 export class InvocationJournalError extends Error {
@@ -57,6 +63,7 @@ export class InvocationJournalError extends Error {
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+const HASH = /^sha256:[0-9a-f]{64}$/;
 const STAGES: readonly InvocationStage[] = ["discovery", "planner", "coder", "repair", "baseline"];
 const TERMINAL: readonly InvocationState[] = ["completed", "failed", "outcome_unknown"];
 function hash(value: string): string {
@@ -65,6 +72,13 @@ function hash(value: string): string {
 function safeCode(value: string | null): string | null {
   return typeof value === "string" && /^[a-z][a-z0-9_:-]{0,127}$/.test(value) ? value : null;
 }
+function safeWorkerDiagnostic(value: Readonly<Record<string, unknown>> | null | undefined):
+  Readonly<Record<string, unknown>> | null {
+  if (value === null || value === undefined) return null;
+  const sanitized = createAgentOutputRedactor().redactValue(value) as Record<string, unknown>;
+  return Buffer.byteLength(JSON.stringify(sanitized)) <= 4_096 ? sanitized :
+    { version: "worker-failure-diagnostic/v1", serializationTruncated: true };
+}
 function assertIdentity(input: InvocationIdentity): void {
   if (!ID.test(input.runId) || !STAGES.includes(input.stage) || !MODEL.test(input.model) ||
     typeof input.task !== "string" || !Number.isSafeInteger(input.deadlineAt) || input.deadlineAt <= 0) {
@@ -72,8 +86,14 @@ function assertIdentity(input: InvocationIdentity): void {
   }
   if (input.retryDecision !== undefined &&
       (!ID.test(input.retryDecision.decisionId) || !ID.test(input.retryDecision.supersedesRunId) ||
-       input.retryDecision.supersedesRunId === input.runId)) {
-    throw new InvocationJournalError("invocation_journal_unavailable", "Invalid explicit invocation retry decision.");
+       !ID.test(input.retryDecision.newRunId) || !HASH.test(input.retryDecision.taskHash) ||
+       !STAGES.includes(input.retryDecision.stage) || !MODEL.test(input.retryDecision.model) ||
+       input.retryDecision.supersedesRunId === input.runId ||
+       input.retryDecision.newRunId !== input.runId ||
+       input.retryDecision.stage !== input.stage ||
+       input.retryDecision.model !== input.model ||
+       input.retryDecision.taskHash !== hash(input.task))) {
+    throw new InvocationJournalError("invocation_replay_forbidden", "Invalid explicit invocation retry decision.");
   }
 }
 function keyOf(input: Pick<InvocationIdentity, "runId" | "stage">): string {
@@ -122,6 +142,16 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           record_hash TEXT NOT NULL,
           UNIQUE(run_id, stage)
         )`);
+        db.exec(`CREATE TABLE IF NOT EXISTS invocation_retry_authorizations (
+          decision_id TEXT PRIMARY KEY,
+          supersedes_run_id TEXT NOT NULL,
+          new_run_id TEXT NOT NULL,
+          stage TEXT NOT NULL,
+          task_hash TEXT NOT NULL,
+          model TEXT NOT NULL,
+          consumed_at INTEGER,
+          UNIQUE(supersedes_run_id, stage)
+        )`);
       } catch (error) { db.close(); throw error; }
       return db;
     } catch {
@@ -159,6 +189,30 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       return next;
     });
   return Object.freeze({
+    authorizeRetry(decision: InvocationRetryDecision): void {
+      if (!ID.test(decision.decisionId) || !ID.test(decision.supersedesRunId) ||
+          !ID.test(decision.newRunId) || decision.newRunId === decision.supersedesRunId ||
+          !STAGES.includes(decision.stage) || !HASH.test(decision.taskHash) ||
+          !MODEL.test(decision.model)) throw new InvocationJournalError(
+        "invocation_replay_forbidden", "Invalid explicit retry authorization.");
+      transaction((db) => {
+        const prior = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ? AND stage = ?")
+          .get(decision.supersedesRunId, decision.stage) as { invocation_key: string } | undefined;
+        const record = prior ? checkedRow(prior, prior.invocation_key) : null;
+        if (!record || record.state !== "outcome_unknown" ||
+            record.taskHash !== decision.taskHash || record.model !== decision.model) {
+          throw new InvocationJournalError("invocation_replay_forbidden",
+            "Retry authorization must match a persisted ambiguous invocation.");
+        }
+        const inserted = db.prepare(`INSERT OR IGNORE INTO invocation_retry_authorizations
+          (decision_id, supersedes_run_id, new_run_id, stage, task_hash, model, consumed_at)
+          VALUES (?, ?, ?, ?, ?, ?, NULL)`).run(
+          decision.decisionId, decision.supersedesRunId, decision.newRunId,
+          decision.stage, decision.taskHash, decision.model);
+        if (inserted.changes !== 1) throw new InvocationJournalError(
+          "invocation_replay_forbidden", "Retry authorization already exists.");
+      });
+    },
     reserve(input: InvocationIdentity): InvocationRecord {
       assertIdentity(input);
       const reservation = transaction((db) => {
@@ -178,15 +232,23 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           .filter((record) => record.taskHash === taskHash && record.runId !== input.runId);
         if (prior.length > 0) {
           const decision = input.retryDecision;
-          if (!decision || !prior.some((record) => record.runId === decision.supersedesRunId)) {
+          const matched = decision && prior.find((record) =>
+            record.runId === decision.supersedesRunId && record.state === "outcome_unknown" &&
+            record.model === decision.model && record.taskHash === decision.taskHash);
+          const authorization = decision ? db.prepare(`SELECT * FROM invocation_retry_authorizations
+            WHERE decision_id = ?`).get(decision.decisionId) as Record<string, unknown> | undefined : null;
+          if (!matched || !authorization || authorization.consumed_at !== null ||
+              authorization.supersedes_run_id !== decision.supersedesRunId ||
+              authorization.new_run_id !== input.runId || authorization.stage !== input.stage ||
+              authorization.task_hash !== taskHash || authorization.model !== input.model) {
             throw new InvocationJournalError(
               "invocation_replay_forbidden",
-              "A new run for the same task and stage requires an explicit decision bound to a persisted prior run."
+              "A new run requires an unused explicit authorization bound to the ambiguous prior invocation."
             );
           }
         } else if (input.retryDecision !== undefined) {
           throw new InvocationJournalError(
-            "invocation_journal_unavailable",
+            "invocation_replay_forbidden",
             "Explicit retry decision does not identify a persisted prior invocation."
           );
         }
@@ -203,6 +265,9 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")
           .run(key, input.runId, input.stage, json, hash(json));
+        if (input.retryDecision) db.prepare(`UPDATE invocation_retry_authorizations
+          SET consumed_at = ? WHERE decision_id = ? AND consumed_at IS NULL`)
+          .run(now(), input.retryDecision.decisionId);
         return record;
       });
       if (reservation === null) throw new InvocationJournalError("invocation_replay_forbidden", "Provider invocation already reserved; no automatic replay.");
@@ -223,6 +288,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       workerOutcome?: AgentWorkerOutcome;
       workerExitCode?: number | null;
       terminalTurnObserved?: boolean | null;
+      workerDiagnostic?: Readonly<Record<string, unknown>> | null;
     }> = {}): InvocationRecord {
       return transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
         failureCode: safeCode(details.failureCode ?? null),
@@ -238,7 +304,9 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         workerOutcome: details.workerOutcome ?? "unknown",
         workerExitCode: details.workerExitCode ?? null,
         terminalTurnObserved: details.terminalTurnObserved ?? null,
-        invocationOccurred: state === "completed" ? true : null
+        invocationOccurred: state === "completed" ? true : null,
+        ...(details.workerDiagnostic === undefined ? {} :
+          { workerDiagnostic: safeWorkerDiagnostic(details.workerDiagnostic) })
       }));
     },
     recover(key: string): InvocationRecord {

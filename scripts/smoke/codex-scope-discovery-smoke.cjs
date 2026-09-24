@@ -492,6 +492,27 @@ async function main() {
     const invalidJsonDiscovery = fakeInvalidJsonDiscoveryAdapter(repository);
     const repositorySnapshot =
       runtime.createCanonicalRepositoryContentSnapshot(repository);
+    const retryProbe = fakeDiscoveryAdapter(repository);
+    const retryDecisionId = "offline-operator-decision";
+    const retryPriorRunId = "scope-discovery-prior";
+    const retryNewRunId = discoveryModule.deriveCodexScopeDiscoveryRetryRunId(
+      retryPriorRunId, retryDecisionId);
+    const retryDecision = {
+      decisionId: retryDecisionId, supersedesRunId: retryPriorRunId,
+      newRunId: retryNewRunId, stage: "discovery",
+      taskHash: "sha256:" + "a".repeat(64), model: "fixture-discovery-model-configured"
+    };
+    await discoveryModule.discoverCodexScope({
+      repositoryPath: repository,
+      sourceSnapshotHash: repositorySnapshot.snapshotHash,
+      task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs",
+      model: "fixture-discovery-model-configured",
+      adapter: retryProbe,
+      invocationRetryDecision: retryDecision
+    });
+    assert.equal(retryProbe.requests.length, 1);
+    assert.equal(retryProbe.requests[0].runId, retryNewRunId);
+    assert.deepEqual(retryProbe.requests[0].invocationRetryDecision, retryDecision);
     const noCandidateAdapter = fakeDiscoveryAdapter(repository);
     await assert.rejects(
       () => discoveryModule.discoverCodexScope({
@@ -660,6 +681,15 @@ async function main() {
     assert.equal(nonInteractive.output.mutationStarted, false);
     assert.deepEqual(nonInteractive.output.suggestedMutableScope, ["src/session.ts", "scripts/session-smoke.cjs"]);
     assert.equal(nonInteractiveDiscovery.requests.length, 1);
+    const commandRetryProbe = fakeDiscoveryAdapter(repository);
+    await commandModule.codexAutoScopeCommand(
+      { task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs",
+        nonInteractive: true, invocationRetryDecision: retryDecision },
+      repository,
+      { discoveryAdapter: commandRetryProbe, discoveryModel: "fixture-discovery-model-configured" }
+    );
+    assert.equal(commandRetryProbe.requests[0].runId, retryNewRunId);
+    assert.deepEqual(commandRetryProbe.requests[0].invocationRetryDecision, retryDecision);
 
     const declinedDiscovery = fakeDiscoveryAdapter(repository);
     let declinedApprovalCalls = 0;

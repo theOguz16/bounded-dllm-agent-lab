@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 
 import { loadTaskFile, type CliCommand, type CliCommandResult, type CliJson } from "./bounded-task.js";
 import { CliError } from "./cli-errors.js";
+import type { InvocationRetryDecision } from "../../../packages/integrations/src/durable-invocation-journal.js";
 import { collectCliSecrets, emitCliError, emitCliOutput } from "./cli-output.js";
 import { applyCommand } from "./commands/apply.js";
 import { codexAutoScopeCommand } from "./commands/codex-auto-scope.js";
@@ -25,7 +28,7 @@ import { findGitRepositoryRoot } from "./product-config.js";
 import { storeProductRunArtifact } from "./run-artifact-store.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded stats [--last <count>] [--json] | bounded codex <description> [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded stats [--last <count>] [--json] | bounded codex <description> [--retry-decision <absolute-json-file>] [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor" | "apply" | "history";
 type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report" | "stats";
@@ -34,6 +37,7 @@ type ParsedArgs = Readonly<{
   command: RoutedCommand;
   task?: string;
   allowFiles?: readonly string[];
+  retryDecisionFile?: string;
   runId?: string;
   last?: number;
   json: boolean;
@@ -47,6 +51,7 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   let taskFromFlag = false;
   const allowFiles: string[] = [];
   let json = false;
+  let retryDecisionFile: string | undefined;
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--json") {
@@ -71,6 +76,13 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
       index += 1;
       continue;
     }
+    if (argument === "--retry-decision") {
+      if (retryDecisionFile || !argv[index + 1] || !path.isAbsolute(argv[index + 1]!)) {
+        throw new CliError("cli_codex_retry_decision_invalid", CLI_USAGE);
+      }
+      retryDecisionFile = argv[++index];
+      continue;
+    }
     if (!argument?.startsWith("--") && task === undefined) {
       task = argument;
       continue;
@@ -81,7 +93,25 @@ function parseCodexArgs(argv: readonly string[]): ParsedArgs {
   if (taskFromFlag && allowFiles.length === 0) {
     throw new CliError("cli_codex_scope_missing", CLI_USAGE);
   }
-  return { command: "codex", task, allowFiles, json };
+  return { command: "codex", task, allowFiles, retryDecisionFile, json };
+}
+
+async function readRetryDecision(file: string): Promise<InvocationRetryDecision> {
+  try {
+    const info = await stat(file);
+    if (!info.isFile() || info.size > 4_096) throw Error("Invalid retry decision file.");
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw Error("Invalid retry decision.");
+    const value = parsed as Record<string, unknown>;
+    const fields = ["decisionId", "supersedesRunId", "newRunId", "stage", "taskHash", "model"];
+    if (Object.keys(value).sort().join(",") !== fields.sort().join(",") ||
+        fields.some((name) => typeof value[name] !== "string") || value.stage !== "discovery") {
+      throw Error("Invalid retry decision.");
+    }
+    return value as InvocationRetryDecision;
+  } catch {
+    throw new CliError("cli_codex_retry_decision_invalid", "Discovery retry decision file is invalid.", 4);
+  }
 }
 
 function parseCompareArgs(argv: readonly string[]): ParsedArgs {
@@ -212,7 +242,10 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
     return codexAutoScopeCommand({
       task: parsed.task!,
       allowFiles: parsed.allowFiles ?? [],
-      nonInteractive: parsed.json
+      nonInteractive: parsed.json,
+      ...(parsed.retryDecisionFile ? {
+        invocationRetryDecision: await readRetryDecision(parsed.retryDecisionFile)
+      } : {})
     }, process.cwd(), await loadOfflineCodexCliDependencies(process.cwd()));
   }
 

@@ -40,8 +40,10 @@ import {
 import {
   DEFAULT_AGENT_WORKER_FORCE_GRACE_MS,
   DEFAULT_AGENT_WORKER_GRACE_MS,
-  runIsolatedAgentWorker
+  runIsolatedAgentWorker,
+  type IsolatedAgentWorkerResult
 } from "./isolated-agent-worker.js";
+import { createWorkerFailureDiagnostic } from "./worker-failure-diagnostic.js";
 import {
   CodexProviderAccessGate,
   classifyCodexProviderError,
@@ -391,6 +393,7 @@ export class CodexAgentAdapter implements AgentAdapter {
     let providerHttpStatus: number | null = null;
     let workerOutcome: AgentWorkerOutcome = this.clientFactory === null ? "not_started" : "not_isolated";
     let workerExitCode: number | null = null;
+    let workerResult: IsolatedAgentWorkerResult | null = null;
 
     try {
       if (this.clientFactory !== null) {
@@ -425,6 +428,7 @@ export class CodexAgentAdapter implements AgentAdapter {
             lines.push(line);
           }
         });
+        workerResult = worker;
         workerExitCode = worker.exitCode;
         workerOutcome = !worker.terminationConfirmed ? "termination_unconfirmed" :
           worker.exitSignal !== null ? "signaled" :
@@ -480,6 +484,15 @@ export class CodexAgentAdapter implements AgentAdapter {
     const parsed = parseCodexJsonl(lines.join("\n"), {
       processAborted: finalTermination !== "none", durationMs
     });
+    const workerDiagnostic = workerResult !== null &&
+      (workerResult.exitCode !== 0 || parsed.status !== "completed")
+      ? createWorkerFailureDiagnostic({
+          executable: process.execPath, args: [this.workerEntrypoint],
+          cwd: request.workingDirectory, worker: workerResult, stdoutLines: lines,
+          parserStatus: parsed.status, terminalTurnObserved: parsed.terminalTurnObserved,
+          redactor: this.redactor, task: request.task
+        })
+      : null;
 
     // Errors can be reported inside JSONL without throwing from the SDK.
     if (finalTermination === "none" && providerFailure === null) {
@@ -570,7 +583,8 @@ export class CodexAgentAdapter implements AgentAdapter {
             providerHttpStatus,
             workerOutcome,
             workerExitCode,
-            terminalTurnObserved: parsed.terminalTurnObserved
+            terminalTurnObserved: parsed.terminalTurnObserved,
+            ...(workerDiagnostic === null ? {} : { workerDiagnostic })
           });
         invocationOccurred = finished.invocationOccurred;
         outcomeKnown = finished.state !== "outcome_unknown";

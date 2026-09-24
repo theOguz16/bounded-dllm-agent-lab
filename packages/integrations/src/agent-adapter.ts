@@ -103,10 +103,7 @@ export interface AgentRunRequest {
   repositoryRequirement?: "required" | "none";
   outputSchema?: Readonly<Record<string, unknown>>;
   abortSignal?: AbortSignal;
-  invocationRetryDecision?: Readonly<{
-    decisionId: string;
-    supersedesRunId: string;
-  }>;
+  invocationRetryDecision?: import("./durable-invocation-journal.js").InvocationRetryDecision;
 }
 
 export interface AgentRunResult {

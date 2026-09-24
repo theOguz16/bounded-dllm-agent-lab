@@ -15,6 +15,7 @@ import type {
   AgentWorkerOutcome
 } from "../../../../packages/integrations/src/agent-adapter.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
+import type { InvocationRetryDecision } from "../../../../packages/integrations/src/durable-invocation-journal.js";
 import { createDisposableAgentWorkspace } from "../../../../packages/integrations/src/disposable-agent-workspace.js";
 import {
   parseScopeDiscoveryProposal,
@@ -32,6 +33,7 @@ export type CodexScopeDiscoveryInput = Readonly<{
   adapter?: AgentAdapter;
   reasoningEffort?: AgentReasoningEffort;
   timeoutMs?: number;
+  invocationRetryDecision?: InvocationRetryDecision;
 }>;
 
 export type CodexScopeDiscoveryResult = Readonly<{
@@ -399,6 +401,14 @@ function runId(task: string, intelligenceHash: string): string {
     .slice(0, 24)}`;
 }
 
+export function deriveCodexScopeDiscoveryRetryRunId(
+  supersedesRunId: string, decisionId: string
+): string {
+  return `scope-discovery-retry-${createHash("sha256")
+    .update(`${supersedesRunId}\u0000${decisionId}`)
+    .digest("hex").slice(0, 24)}`;
+}
+
 export async function discoverCodexScope(
   input: CodexScopeDiscoveryInput
 ): Promise<CodexScopeDiscoveryResult> {
@@ -462,7 +472,11 @@ export async function discoverCodexScope(
     }
     const adapter = input.adapter ?? new CodexAgentAdapter();
     const result = await adapter.run({
-      runId: runId(input.task, intelligence.intelligenceHash),
+      runId: input.invocationRetryDecision
+        ? deriveCodexScopeDiscoveryRetryRunId(
+          input.invocationRetryDecision.supersedesRunId,
+          input.invocationRetryDecision.decisionId)
+        : runId(input.task, intelligence.intelligenceHash),
       agentId: "codex",
       workingDirectory: workspace.workspacePath,
       task: discoveryPrompt(input.task, intelligence.intelligenceHash, inventory),
@@ -472,7 +486,9 @@ export async function discoverCodexScope(
       timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       networkAllowed: false,
       sandboxMode: "read_only",
-      outputSchema: SCOPE_DISCOVERY_OUTPUT_SCHEMA
+      outputSchema: SCOPE_DISCOVERY_OUTPUT_SCHEMA,
+      ...(input.invocationRetryDecision === undefined ? {} :
+        { invocationRetryDecision: input.invocationRetryDecision })
     });
     const observation: CodexScopeDiscoveryFailureObservation = Object.freeze({
       modelId: result.modelId,

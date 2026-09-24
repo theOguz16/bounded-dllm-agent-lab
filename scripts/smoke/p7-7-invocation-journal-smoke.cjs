@@ -12,6 +12,9 @@ const modulePath = path.join(root, 'dist/packages/integrations/src/durable-invoc
 const adapterPath = path.join(root, 'dist/packages/integrations/src/codex-agent-adapter.js');
 const url = pathToFileURL(modulePath).href;
 const fixture = (runId, stage='coder') => ({ runId, stage, task:'offline synthetic provider request', model:'gpt-5.6-luna', deadlineAt:Date.now()+30_000 });
+const hash = (value) => 'sha256:'+require('node:crypto').createHash('sha256').update(value).digest('hex');
+const decision = (id, prior, next, stage='coder', task='offline synthetic provider request', model='gpt-5.6-luna') =>
+  ({decisionId:id,supersedesRunId:prior,newRunId:next,stage,taskHash:hash(task),model});
 function processResult(code, file, id) {
   const source = `import {createDurableInvocationJournal} from ${JSON.stringify(url)};\n`+
     `const j=createDurableInvocationJournal(${JSON.stringify(file)});`+
@@ -39,9 +42,14 @@ async function main(){
   assert.throws(()=>journal.finish(reservation.invocationKey,'completed'),{code:'invocation_replay_forbidden'});
   assert.throws(()=>journal.reserve({...id,task:'modified prompt'}),{code:'invocation_replay_forbidden'});
   assert.throws(()=>journal.reserve(fixture('fixture.new-run')),{code:'invocation_replay_forbidden'});
-  assert.equal(journal.reserve({...fixture('fixture.new-run'),retryDecision:{
-    decisionId:'decision-new-run',supersedesRunId:id.runId
-  }}).state,'prepared');
+  const firstDecision=decision('decision-new-run',id.runId,'fixture.new-run');
+  journal.authorizeRetry(firstDecision);
+  const newRun=journal.reserve({...fixture('fixture.new-run'),retryDecision:firstDecision});
+  assert.equal(newRun.state,'prepared');
+  journal.start(newRun.invocationKey);
+  journal.recover(newRun.invocationKey);
+  assert.throws(()=>journal.reserve({...fixture('fixture.third'),retryDecision:firstDecision}),
+    {code:'invocation_replay_forbidden'});
   const failed=fixture('fixture.failed','planner');
   const failedReservation=journal.reserve(failed);
   journal.start(failedReservation.invocationKey);
@@ -53,9 +61,9 @@ async function main(){
   assert.match(failedRecord.failureDetail,/\[REDACTED\]/);
   assert.doesNotMatch(JSON.stringify(failedRecord),/secret-token-value|sk-12345678901234567890/);
   // Recovery after a process crash must never turn a possibly charged attempt into a fresh slot.
-  const crashed={...fixture('fixture.crashed'),retryDecision:{
-    decisionId:'decision-crash',supersedesRunId:'fixture.new-run'
-  }};
+  const crashDecision=decision('decision-crash','fixture.new-run','fixture.crashed');
+  journal.authorizeRetry(crashDecision);
+  const crashed={...fixture('fixture.crashed'),retryDecision:crashDecision};
   const exit=spawnSync(process.execPath,['--input-type=module','-e',
     `import {createDurableInvocationJournal} from ${JSON.stringify(url)};`+
     `const j=createDurableInvocationJournal(${JSON.stringify(file)});`+
@@ -63,9 +71,9 @@ async function main(){
     {encoding:'utf8',env:{...process.env,CODEX_API_KEY:'',OPENAI_API_KEY:''}});
   assert.equal(exit.status,0,exit.stderr);
   assert.throws(()=>journal.reserve(crashed),{code:'invocation_replay_forbidden'});
-  assert.equal(journal.read(journal.reserve({...fixture('fixture.lookup'),retryDecision:{
-    decisionId:'decision-lookup',supersedesRunId:'fixture.crashed'
-  }}).invocationKey).state,'prepared');
+  const lookupDecision=decision('decision-lookup','fixture.crashed','fixture.lookup');
+  journal.authorizeRetry(lookupDecision);
+  assert.equal(journal.read(journal.reserve({...fixture('fixture.lookup'),retryDecision:lookupDecision}).invocationKey).state,'prepared');
   assert.equal(journal.read('sha256:invalid'),null);
   // Distinct processes compete for exactly one transactional claim, never a read/rename race.
   const concurrent=fixture('fixture.concurrent');
@@ -101,11 +109,11 @@ async function main(){
   assert.equal(undecided.status,'rejected');
   assert.equal(undecided.failureCode,'invocation_replay_forbidden');
   assert.equal(chargeableCalls,1);
-  // A new run is allowed only with an explicit decision bound to the persisted prior run.
-  assert.equal((await adapter.run({...request,runId:'adapter.two',invocationRetryDecision:{
-    decisionId:'operator-decision-1',supersedesRunId:'adapter.one'
-  }})).status,'completed');
-  assert.equal(chargeableCalls,2);
+  // Completed invocations are never eligible for ambiguous-outcome retry.
+  assert.throws(()=>createDurableInvocationJournal(adapterFile).authorizeRetry(
+    decision('operator-decision-1','adapter.one','adapter.two','baseline')),
+    {code:'invocation_replay_forbidden'});
+  assert.equal(chargeableCalls,1);
   const confirmed=createDurableInvocationJournal(adapterFile);
   const db=new DatabaseSync(adapterFile);
   try {

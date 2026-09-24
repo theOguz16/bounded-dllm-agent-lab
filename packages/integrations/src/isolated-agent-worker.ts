@@ -14,6 +14,9 @@ export type IsolatedAgentWorkerResult = Readonly<{
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
   stderr: string;
+  stdoutBytes: number;
+  stderrBytes: number;
+  stderrTruncated: boolean;
   terminationConfirmed: boolean;
 }>;
 
@@ -90,6 +93,9 @@ export async function runIsolatedAgentWorker(
   let exitCode: number | null = null;
   let exitSignal: NodeJS.Signals | null = null;
   let stderr = "";
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let stderrCapturedBytes = 0;
   let stdoutRemainder = "";
   let graceTimer: NodeJS.Timeout | null = null;
   let forceTimer: NodeJS.Timeout | null = null;
@@ -123,7 +129,9 @@ export async function runIsolatedAgentWorker(
   });
 
   child.stdout.on("data", (chunk: Buffer | string) => {
-    const text = chunk.toString();
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const text = bytes.toString("utf8");
+    stdoutBytes += bytes.length;
     safeCallback(() => input.processControl.observeStdout(text));
     stdoutRemainder += text;
     for (;;) {
@@ -135,9 +143,16 @@ export async function runIsolatedAgentWorker(
     }
   });
   child.stderr.on("data", (chunk: Buffer | string) => {
-    const text = chunk.toString();
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const text = bytes.toString("utf8");
+    stderrBytes += bytes.length;
     safeCallback(() => input.processControl.observeStderr(text));
-    if (stderr.length < input.processControl.limits.maxStderrBytes) stderr += text;
+    const remaining = input.processControl.limits.maxStderrBytes - stderrCapturedBytes;
+    if (remaining > 0) {
+      const captured = bytes.subarray(0, remaining);
+      stderrCapturedBytes += captured.length;
+      stderr += captured.toString("utf8");
+    }
   });
 
   const forceKill = (): void => {
@@ -175,6 +190,9 @@ export async function runIsolatedAgentWorker(
     exitCode,
     exitSignal,
     stderr,
+    stdoutBytes,
+    stderrBytes,
+    stderrTruncated: stderrBytes > stderrCapturedBytes,
     terminationConfirmed: exited
   });
 }
