@@ -279,6 +279,7 @@ function publicInventory(
 ): Readonly<Record<string, unknown>> {
   const allowed = new Set(files.map((file) => file.path));
   const terms = taskTerms(task);
+  const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
   return Object.freeze({
     files: files.map((file) => ({
       path: file.path,
@@ -292,6 +293,10 @@ function publicInventory(
         to: edge.to,
         kind: edge.kind
       }))
+      .sort((left, right) =>
+        compare(left.from, right.from) ||
+        compare(left.to, right.to) ||
+        compare(left.kind, right.kind))
   });
 }
 

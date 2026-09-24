@@ -3,6 +3,7 @@
 
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
+const { createHash } = require("node:crypto");
 const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
@@ -268,6 +269,8 @@ function fakeExplicitAdapter(sourceRepository) {
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "bounded-scope-discovery-smoke-"));
+  const internalsPath = path.join(repoRoot, "dist/apps/cli/src/providers",
+    `codex-scope-discovery-internals-smoke-${process.pid}.mjs`);
   const originalCi = process.env.CI;
   process.env.CI = "";
   try {
@@ -275,6 +278,9 @@ async function main() {
     const commandModule = await import(commandUrl);
     const contract = await import(contractUrl);
     const discoveryModule = await import(discoveryUrl);
+    await fs.writeFile(internalsPath,
+      `${await fs.readFile(new URL(discoveryUrl), "utf8")}\nexport { publicInventory, discoveryPrompt, runId };\n`);
+    const discoveryInternals = await import(pathToFileURL(internalsPath).href);
     assert.equal(discoveryModule.CODEX_SCOPE_DISCOVERY_VERSION, "codex-scope-discovery/v2");
     const runtime = await import(runtimeUrl);
     const { CodexAgentAdapter } = await import(adapterUrl);
@@ -398,7 +404,55 @@ async function main() {
     const pilotEvidence = JSON.parse(pilotPrompt.split("\n").at(-1));
     const pilotCandidates = pilotEvidence.canonicalRepository.files.map((entry) => entry.path);
     assert.equal(pilotEvidence.discoveryVersion, "codex-scope-discovery/v2");
-    assert.equal(pilotCandidates.length <= 64, true);
+    assert.equal(pilotCandidates.length, 30);
+    const trackedSourceFiles = git(repoRoot, ["ls-files", "-z", "--cached"])
+      .split("\u0000").filter((entry) => /\.(?:[cm]?[jt]sx?)$/i.test(entry))
+      .sort((left, right) => left.localeCompare(right, "en"));
+    const pilotIntelligenceResult = await runtime.analyzeCanonicalRepository({
+      repositoryPath: repoRoot,
+      seedFiles: [trackedSourceFiles[0]],
+      maxFiles: 5_000,
+      maxFileBytes: 1024 * 1024,
+      maxTotalBytes: 64 * 1024 * 1024,
+      maxDependencyDepth: 12,
+      maxEdges: 50_000
+    });
+    assert.equal(pilotIntelligenceResult.decision, "repo_intelligence_ready");
+    const pilotIntelligence = pilotIntelligenceResult.intelligence;
+    assert.ok(pilotIntelligence);
+    assert.equal(pilotIntelligence.intelligenceHash, pilotEvidence.canonicalRepository.intelligenceHash);
+    const originalEdges = pilotIntelligence.dependencyEdges;
+    const reversedEdges = [...originalEdges].reverse();
+    assert.equal(originalEdges.length > 1, true);
+    const candidatesA = discoveryModule.prefilterCodexDiscoveryFacts(
+      pilotTask, pilotIntelligence.scannedFiles, originalEdges);
+    const candidatesB = discoveryModule.prefilterCodexDiscoveryFacts(
+      pilotTask, pilotIntelligence.scannedFiles, reversedEdges);
+    const selectedA = candidatesA.map((entry) => entry.path);
+    const selectedB = candidatesB.map((entry) => entry.path);
+    assert.deepEqual([...selectedA].sort(), [...selectedB].sort(), "candidate membership");
+    assert.equal(JSON.stringify(selectedA), JSON.stringify(selectedB), "candidate ordering");
+    assert.deepEqual(selectedA, pilotCandidates);
+    const inventoryA = discoveryInternals.publicInventory(pilotTask, candidatesA, originalEdges);
+    const inventoryB = discoveryInternals.publicInventory(pilotTask, candidatesB, reversedEdges);
+    assert.equal(JSON.stringify(inventoryA), JSON.stringify(inventoryB), "serialized public inventory");
+    const unicodeFacts = [fact("src/caf\u00e9.ts"), fact("src/cafe\u0301.ts"), fact("src/target.ts")];
+    const unicodeEdges = unicodeFacts.slice(0, 2).map((entry) => ({
+      from: entry.path, to: "src/target.ts", kind: "import", specifier: "./target.js"
+    }));
+    assert.equal(JSON.stringify(discoveryInternals.publicInventory(pilotTask, unicodeFacts, unicodeEdges)),
+      JSON.stringify(discoveryInternals.publicInventory(pilotTask, unicodeFacts, [...unicodeEdges].reverse())),
+      "byte-distinct Unicode paths keep a total edge order");
+    const promptA = discoveryInternals.discoveryPrompt(pilotTask, pilotIntelligence.intelligenceHash, inventoryA);
+    const promptB = discoveryInternals.discoveryPrompt(pilotTask, pilotIntelligence.intelligenceHash, inventoryB);
+    assert.equal(promptA, promptB, "serialized discovery prompt");
+    assert.equal(promptA, pilotPrompt, "actual discovery request prompt");
+    const promptHash = (value) => createHash("sha256").update(value, "utf8").digest("hex");
+    assert.equal(promptHash(promptA), promptHash(promptB), "discovery prompt hash");
+    const runIdA = discoveryInternals.runId(pilotTask, pilotIntelligence.intelligenceHash);
+    const runIdB = discoveryInternals.runId(pilotTask, pilotIntelligence.intelligenceHash);
+    assert.equal(runIdA, runIdB, "discovery run-id");
+    assert.equal(runIdA, pilotRequest.runId, "actual discovery request run-id");
     const trackedJsTsCount = git(repoRoot, ["ls-files", "-z", "--cached"])
       .split("\u0000").filter((entry) => /\.(?:[cm]?[jt]sx?)$/i.test(entry)).length;
     assert.equal(pilotCandidates.length < trackedJsTsCount, true, "no full inventory fallback");
@@ -661,6 +715,11 @@ async function main() {
     process.stdout.write(`${JSON.stringify({
       ok: true,
       contractVersion: "scope-discovery/v1",
+      canonicalCandidateCount: pilotCandidates.length,
+      canonicalPromptBytes: Buffer.byteLength(pilotPrompt, "utf8"),
+      canonicalPromptSha256: promptHash(pilotPrompt),
+      canonicalRunId: pilotRequest.runId,
+      edgeOrderEvidenceDeterministic: true,
       canonicalRepositoryIntelligenceFirst: true,
       codexDiscoveryReadOnly: true,
       discoveryNetworkDisabled: true,
@@ -686,6 +745,7 @@ async function main() {
   } finally {
     if (originalCi === undefined) delete process.env.CI;
     else process.env.CI = originalCi;
+    await fs.rm(internalsPath, { force: true });
     await fs.rm(root, { recursive: true, force: true });
   }
 }
