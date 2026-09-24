@@ -22,7 +22,7 @@ import {
   type ScopeDiscoveryProposal
 } from "../../../../packages/integrations/src/scope-discovery-contract.js";
 
-export const CODEX_SCOPE_DISCOVERY_VERSION = "codex-scope-discovery/v1" as const;
+export const CODEX_SCOPE_DISCOVERY_VERSION = "codex-scope-discovery/v2" as const;
 
 export type CodexScopeDiscoveryInput = Readonly<{
   repositoryPath: string;
@@ -85,6 +85,11 @@ const TASK_STOP_WORDS = new Set([
   "existing", "files", "from", "have", "into", "keep", "matching", "other", "return",
   "should", "structurally", "that", "their", "them", "these", "this", "while", "with",
   "within", "without", "would"
+]);
+const WEAK_ONLY_TERMS = new Set([
+  "client", "dependencies", "endpoint", "health", "http", "index", "only", "patch",
+  "request", "required", "response", "smoke", "test", "tests", "unchanged",
+  "valid", "worker", "workspace"
 ]);
 
 function looksLikeTestPath(file: string): boolean {
@@ -173,15 +178,55 @@ function metadataMatches(file: CanonicalRepoFileFact, term: string): boolean {
     file.exports.some((name) => name.toLowerCase().includes(term));
 }
 
+function taskMentionsName(task: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_./-])${escaped}(?=$|[^A-Za-z0-9_./-])`, "i").test(task);
+}
+
+function symbolMatchesComponent(name: string, term: string): boolean {
+  const lower = name.toLowerCase();
+  let offset = lower.indexOf(term);
+  while (offset >= 0) {
+    const before = offset === 0 || /[A-Z_]/.test(name[offset]!);
+    const end = offset + term.length;
+    const after = end === name.length || /[A-Z_]/.test(name[end]!);
+    if (before && after) return true;
+    offset = lower.indexOf(term, offset + 1);
+  }
+  return false;
+}
+
+function stronglyMatchesTask(
+  task: string,
+  terms: ReadonlySet<string>,
+  componentTerms: readonly string[],
+  file: CanonicalRepoFileFact
+): boolean {
+  if (taskMentionsName(task, file.path)) return true;
+  const basename = file.path.split("/").at(-1) ?? "";
+  if (!/^(?:index|test|tests)\.[cm]?[jt]sx?$/i.test(basename) && taskMentionsName(task, basename)) {
+    return true;
+  }
+  return [...file.symbols.map((symbol) => symbol.name), ...file.exports].some((name) =>
+    terms.has(name.toLowerCase()) || componentTerms.some((term) => symbolMatchesComponent(name, term)));
+}
+
 /** A bounded, metadata-only first pass. An ambiguous inventory blocks instead of silently truncating. */
 export function prefilterCodexDiscoveryFacts(
   task: string,
   files: readonly CanonicalRepoFileFact[],
   dependencyEdges: readonly Readonly<{ from: string; to: string; kind: string; specifier: string }>[]
 ): CanonicalRepoFileFact[] {
-  const eligible = safeFacts(files);
+  const eligible = safeFacts(files).sort((left, right) => left.path.localeCompare(right.path, "en"));
   const terms = taskTerms(task);
+  const strongTerms = new Set(terms.filter((term) => !WEAK_ONLY_TERMS.has(term)));
+  const componentTerms = (task.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? [])
+    .filter((term) => /[a-z][A-Z]/.test(term) && term.length >= 6)
+    .map((term) => term.toLowerCase())
+    .filter((term) => strongTerms.has(term));
+  const strong = eligible.filter((file) => stronglyMatchesTask(task, strongTerms, componentTerms, file));
   const rareTerms = terms.filter((term) =>
+    !WEAK_ONLY_TERMS.has(term) &&
     eligible.filter((file) => metadataMatches(file, term)).length > 0 &&
     eligible.filter((file) => metadataMatches(file, term)).length <= 48
   );
@@ -196,39 +241,34 @@ export function prefilterCodexDiscoveryFacts(
   })).filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path, "en"));
 
-  if (scored.length === 0 || scored[0]!.score < 4) {
+  if (strong.length === 0 && (scored.length === 0 || scored[0]!.score < 4)) {
     throw new CodexScopeDiscoveryError(
       "No reliable metadata candidate was found; discovery will not send the whole repository.",
       "codex_scope_discovery_no_trusted_candidates"
     );
   }
-  const cutoff = scored[Math.min(MAX_DIRECT_CANDIDATES, scored.length) - 1]!.score;
-  const direct = scored.filter((entry) => entry.score >= cutoff);
-  if (direct.length > MAX_DISCOVERY_FILES) {
+  const cutoff = scored.length > 0 ? scored[Math.min(MAX_DIRECT_CANDIDATES, scored.length) - 1]!.score : 0;
+  const roots = new Set(strong.length > 0 ? strong.map((file) => file.path) :
+    scored.filter((entry) => entry.score >= cutoff).map((entry) => entry.file.path));
+  const selected = new Set(roots);
+  const byPath = new Map(eligible.map((file) => [file.path, file]));
+  if (selected.size > MAX_DISCOVERY_FILES) {
     throw new CodexScopeDiscoveryError(
-      "Discovery metadata matched too many equally ranked files; narrow the task before retrying.",
+      "Discovery metadata matched too many relevant files; narrow the task before retrying.",
       "codex_scope_discovery_candidates_ambiguous"
     );
   }
-  const selected = new Set(direct.map((entry) => entry.file.path));
-  const byPath = new Map(eligible.map((file) => [file.path, file]));
-  const neighbors = new Set<string>();
+  // A reverse importer enters through its own strong metadata match above;
+  // graph adjacency alone never admits an unrelated importer.
   for (const edge of dependencyEdges) {
-    if (selected.has(edge.from) && byPath.has(edge.to)) neighbors.add(edge.to);
-    if (selected.has(edge.to) && byPath.has(edge.from)) neighbors.add(edge.from);
+    if (roots.has(edge.from) && byPath.has(edge.to)) selected.add(edge.to);
   }
-  const rankedNeighbors = [...neighbors].filter((path) => !selected.has(path)).sort((a, b) => {
-    const aTest = looksLikeTestPath(a) ? 1 : 0;
-    const bTest = looksLikeTestPath(b) ? 1 : 0;
-    return bTest - aTest || a.localeCompare(b, "en");
-  });
-  if (selected.size + rankedNeighbors.length > MAX_DISCOVERY_FILES) {
+  if (selected.size > MAX_DISCOVERY_FILES) {
     throw new CodexScopeDiscoveryError(
       "Discovery dependency neighborhood exceeds the bounded inventory; narrow the task before retrying.",
       "codex_scope_discovery_candidates_ambiguous"
     );
   }
-  for (const path of rankedNeighbors) selected.add(path);
   return eligible.filter((file) => selected.has(file.path));
 }
 
@@ -258,6 +298,7 @@ function publicInventory(
 function discoveryPrompt(task: string, intelligenceHash: string, inventory: Readonly<Record<string, unknown>>): string {
   const evidence = JSON.stringify({
     task,
+    discoveryVersion: CODEX_SCOPE_DISCOVERY_VERSION,
     canonicalRepository: {
       intelligenceHash,
       ...inventory
@@ -335,7 +376,7 @@ function validateGrounding(proposal: ScopeDiscoveryProposal, facts: readonly Can
 
 function runId(task: string, intelligenceHash: string): string {
   return `scope-discovery-${createHash("sha256")
-    .update(`${intelligenceHash}\u0000${task}`)
+    .update(`${CODEX_SCOPE_DISCOVERY_VERSION}\u0000${intelligenceHash}\u0000${task}`)
     .digest("hex")
     .slice(0, 24)}`;
 }

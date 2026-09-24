@@ -275,6 +275,7 @@ async function main() {
     const commandModule = await import(commandUrl);
     const contract = await import(contractUrl);
     const discoveryModule = await import(discoveryUrl);
+    assert.equal(discoveryModule.CODEX_SCOPE_DISCOVERY_VERSION, "codex-scope-discovery/v2");
     const runtime = await import(runtimeUrl);
     const { CodexAgentAdapter } = await import(adapterUrl);
     const { emitCliError } = await import(outputUrl);
@@ -310,7 +311,7 @@ async function main() {
     assert.equal(selected.includes("packages/alpha/src/request.ts"), true);
     assert.equal(selected.includes("packages/beta/src/request.ts"), true);
     assert.equal(selected.includes("packages/core/src/workspace.ts"), true);
-    assert.equal(selected.includes("tests/smoke/request.ts"), true);
+    assert.equal(selected.includes("tests/smoke/request.ts"), false);
     assert.equal(selected.includes("scripts/unrelated.ts"), false);
     assert.throws(
       () => discoveryModule.prefilterCodexDiscoveryFacts("Fix the bug", fixtureFacts, fixtureEdges),
@@ -320,21 +321,47 @@ async function main() {
       "Correct resolveConflict behavior", fixtureFacts, []
     ).map((entry) => entry.path);
     assert.deepEqual(direct, ["packages/alpha/src/request.ts", "packages/beta/src/request.ts"]);
-    const broadNeighbors = Array.from({ length: 65 }, (_, index) =>
+    const broadNeighbors = Array.from({ length: 70 }, (_, index) =>
       fact(`packages/core/src/dependent-${index}.ts`));
+    const broadEdges = broadNeighbors.map((entry) => ({ from: entry.path, to: fixtureFacts[0].path,
+      kind: "import", specifier: "alpha" }));
+    assert.deepEqual(discoveryModule.prefilterCodexDiscoveryFacts(
+      "Correct resolveConflict", [fixtureFacts[0], ...broadNeighbors], broadEdges
+    ).map((entry) => entry.path), [fixtureFacts[0].path]);
+    const relevantImporters = Array.from({ length: 70 }, (_, index) =>
+      fact(`tests/relevant-${String(index).padStart(2, "0")}.ts`, ["resolveConflict"]));
+    const relevantEdges = relevantImporters.map((entry) => ({ from: entry.path,
+      to: "src/worker.ts", kind: "import", specifier: "../src/worker.js" }));
+    const worker = fact("src/worker.ts", ["resolveConflict"]);
+    const relevantTask = "Fix src/worker.ts resolveConflict";
     assert.throws(
-      () => discoveryModule.prefilterCodexDiscoveryFacts(
-        "Correct resolveConflict", [fixtureFacts[0], ...broadNeighbors],
-        broadNeighbors.map((entry) => ({ from: entry.path, to: fixtureFacts[0].path,
-          kind: "import", specifier: "alpha" }))
-      ),
+      () => discoveryModule.prefilterCodexDiscoveryFacts(relevantTask,
+        [worker, ...relevantImporters], relevantEdges),
       (error) => error.failureCode === "codex_scope_discovery_candidates_ambiguous"
     );
+    const boundaryFacts = [worker, ...relevantImporters.slice(0, 63)];
+    const boundaryEdges = relevantEdges.slice(0, 63);
+    const atBoundary = discoveryModule.prefilterCodexDiscoveryFacts(
+      relevantTask, boundaryFacts, boundaryEdges
+    ).map((entry) => entry.path);
+    assert.equal(atBoundary.length, 64);
+    assert.throws(
+      () => discoveryModule.prefilterCodexDiscoveryFacts(relevantTask,
+        [worker, ...relevantImporters.slice(0, 64)], relevantEdges.slice(0, 64)),
+      (error) => error.failureCode === "codex_scope_discovery_candidates_ambiguous"
+    );
+    assert.deepEqual(discoveryModule.prefilterCodexDiscoveryFacts(relevantTask,
+      [...boundaryFacts].reverse(), [...boundaryEdges].reverse()).map((entry) => entry.path), atBoundary);
+    const independent = discoveryModule.prefilterCodexDiscoveryFacts(
+      "Fix src/worker.ts refine and add a focused regression test",
+      [fact("src/worker.ts", ["refine"]), fact("tests/worker.test.ts", ["refine"])], []
+    ).map((entry) => entry.path);
+    assert.deepEqual(independent, ["src/worker.ts", "tests/worker.test.ts"]);
     const requestFacts = [
       fact("packages/worker-contract/src/index.ts", ["assertInfillResponse", "assertResolveConflictResponse"]),
       fact("packages/providers/src/index.ts", ["createWorkerRequestId"]),
       fact("packages/workspace-core/src/index.ts"),
-      fact("tests/smoke/contracts.ts"),
+      fact("tests/smoke/contracts.ts", ["resolveConflict"]),
       fact("scripts/controlled-coding-pilot-request-id-check.cjs", ["checkRequestIdAcceptance"])
     ];
     const requestEdges = [
@@ -343,12 +370,42 @@ async function main() {
       { from: "tests/smoke/contracts.ts", to: "packages/worker-contract/src/index.ts", kind: "import", specifier: "worker-contract" }
     ];
     const requestCandidates = discoveryModule.prefilterCodexDiscoveryFacts(
-      "Ensure refine, infill, and resolveConflict reject crossed worker responses while health continues to work",
+      "Ensure refine, infill, and resolveConflict reject crossed worker responses with mismatched requestId while health continues to work",
       requestFacts, requestEdges
     ).map((entry) => entry.path);
     for (const required of ["packages/worker-contract/src/index.ts", "packages/providers/src/index.ts",
       "packages/workspace-core/src/index.ts", "tests/smoke/contracts.ts"]) {
       assert.equal(requestCandidates.includes(required), true, required);
+    }
+    const pilotTask = JSON.parse(await fs.readFile(path.join(repoRoot,
+      "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json"), "utf8")).taskPrompt;
+    const pilotSnapshot = runtime.createCanonicalRepositoryContentSnapshot(repoRoot);
+    const offlineStop = new Error("OFFLINE_STOP");
+    let pilotRequest = null;
+    await assert.rejects(() => discoveryModule.discoverCodexScope({
+      repositoryPath: repoRoot,
+      sourceSnapshotHash: pilotSnapshot.snapshotHash,
+      task: pilotTask,
+      model: "offline-fixture",
+      adapter: {
+        agentId: "offline-fixture",
+        agentVersion: "offline-fixture/v1",
+        async run(request) { pilotRequest = request; throw offlineStop; }
+      }
+    }), (error) => error === offlineStop);
+    assert.ok(pilotRequest);
+    const pilotPrompt = pilotRequest.task;
+    const pilotEvidence = JSON.parse(pilotPrompt.split("\n").at(-1));
+    const pilotCandidates = pilotEvidence.canonicalRepository.files.map((entry) => entry.path);
+    assert.equal(pilotEvidence.discoveryVersion, "codex-scope-discovery/v2");
+    assert.equal(pilotCandidates.length <= 64, true);
+    const trackedJsTsCount = git(repoRoot, ["ls-files", "-z", "--cached"])
+      .split("\u0000").filter((entry) => /\.(?:[cm]?[jt]sx?)$/i.test(entry)).length;
+    assert.equal(pilotCandidates.length < trackedJsTsCount, true, "no full inventory fallback");
+    assert.equal(Buffer.byteLength(pilotPrompt, "utf8") <= 128 * 1024, true);
+    for (const required of ["packages/worker-contract/src/index.ts", "packages/providers/src/index.ts",
+      "packages/workspace-core/src/index.ts", "tests/smoke/contracts.ts"]) {
+      assert.equal(pilotCandidates.includes(required), true, required);
     }
     await assert.rejects(
       async () => contract.parseScopeDiscoveryProposal({ ...discoveryProposal(), unexpected: true }),
@@ -375,7 +432,7 @@ async function main() {
       () => discoveryModule.discoverCodexScope({
         repositoryPath: repository,
         sourceSnapshotHash: repositorySnapshot.snapshotHash,
-        task: "Fix refresh token expiry",
+        task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs",
         model: "fixture-discovery-model-configured",
         adapter: invalidJsonDiscovery,
         reasoningEffort: "medium",
@@ -451,7 +508,7 @@ async function main() {
       let cliError;
       await assert.rejects(
         () => commandModule.codexAutoScopeCommand(
-          { task: `Fix refresh token expiry ${failure.name}`, nonInteractive: true },
+          { task: `Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs ${failure.name}`, nonInteractive: true },
           repository,
           { discoveryAdapter, discoveryModel: "fixture-offline-model" }
         ),
@@ -509,7 +566,7 @@ async function main() {
 
     const nonInteractiveDiscovery = fakeDiscoveryAdapter(repository);
     const nonInteractive = await commandModule.codexAutoScopeCommand(
-      { task: "Fix refresh token expiry", nonInteractive: true },
+      { task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs", nonInteractive: true },
       repository,
       {
         discoveryAdapter: nonInteractiveDiscovery,
@@ -530,7 +587,7 @@ async function main() {
     const declinedDiscovery = fakeDiscoveryAdapter(repository);
     let declinedApprovalCalls = 0;
     const declined = await commandModule.codexAutoScopeCommand(
-      { task: "Fix refresh token expiry" },
+      { task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs" },
       repository,
       {
         discoveryAdapter: declinedDiscovery,
@@ -551,7 +608,7 @@ async function main() {
     const explicitAdapter = fakeExplicitAdapter(repository);
     let approvedCalls = 0;
     const approved = await commandModule.codexAutoScopeCommand(
-      { task: "Fix refresh token expiry" },
+      { task: "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs" },
       repository,
       {
         discoveryAdapter: approvedDiscovery,
@@ -583,13 +640,13 @@ async function main() {
 
     const emptyCodexHome = path.join(root, "empty-codex-home");
     await fs.mkdir(emptyCodexHome);
-    const positional = runCli(repository, ["codex", "Fix refresh token expiry", "--json"], {
+    const positional = runCli(repository, ["codex", "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs", "--json"], {
       CODEX_HOME: emptyCodexHome
     });
     assert.equal(positional.status, 5, positional.stderr || positional.stdout);
     assert.equal(JSON.parse(positional.stdout).code, "cli_codex_model_missing");
 
-    const explicitMissingScope = runCli(repository, ["codex", "--task", "Fix refresh token expiry", "--json"]);
+    const explicitMissingScope = runCli(repository, ["codex", "--task", "Fix refresh token expiry in src/session.ts and scripts/session-smoke.cjs", "--json"]);
     assert.equal(explicitMissingScope.status, 2, explicitMissingScope.stderr || explicitMissingScope.stdout);
     assert.equal(JSON.parse(explicitMissingScope.stdout).code, "cli_codex_scope_missing");
 
