@@ -78,7 +78,8 @@ paired_files:
   - source: package.json
     requires: jsr.json
     reason: release metadata must stay consistent
-    changed_when_contains: version
+    changed_when_contains:
+      - version
 sensitive_patterns:
   - API_KEY
   - SECRET

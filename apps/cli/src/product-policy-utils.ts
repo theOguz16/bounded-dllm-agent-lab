@@ -222,7 +222,8 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
   const policy: Partial<RepoPolicy> = {};
   const lines = content.split("\n");
   let section: keyof RepoPolicy | null = null;
-  let currentPair: Record<string, string> | null = null;
+  let currentPair: Record<string, string | string[]> | null = null;
+  let pairConditionIndent: number | null = null;
   let currentAliasOwner: string | null = null;
   let currentTestMapping: Record<string, string> | null = null;
   let currentModuleBoundary: Record<string, string> | null = null;
@@ -240,6 +241,7 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
       else if (section === "module_boundaries") policy.module_boundaries = [];
       else if (isArraySection(section)) (policy[section] as string[] | undefined) = [];
       currentPair = null;
+      pairConditionIndent = null;
       currentAliasOwner = null;
       currentTestMapping = null;
       currentModuleBoundary = null;
@@ -249,12 +251,22 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
     if (!section) continue;
 
     if (section === "paired_files") {
-      if (line.startsWith("- ")) {
+      const indent = rawLine.length - rawLine.trimStart().length;
+      if (currentPair && pairConditionIndent !== null && indent > pairConditionIndent && line.startsWith("- ")) {
+        (currentPair.changed_when_contains as string[]).push(unquote(line.slice(2).trim()));
+      } else if (line.startsWith("- ")) {
         currentPair = {};
+        pairConditionIndent = null;
         (policy.paired_files ??= []).push(currentPair as { source: string; requires: string; reason?: string });
         parsePairLine(line.slice(2), currentPair);
       } else if (currentPair) {
-        parsePairLine(line, currentPair);
+        if (line === "changed_when_contains:") {
+          currentPair.changed_when_contains = [];
+          pairConditionIndent = indent;
+        } else {
+          pairConditionIndent = null;
+          parsePairLine(line, currentPair);
+        }
       }
       continue;
     }
@@ -304,7 +316,7 @@ function parseSimpleYamlPolicy(content: string): Partial<RepoPolicy> {
   return policy;
 }
 
-function parsePairLine(line: string, target: Record<string, string>): void {
+function parsePairLine(line: string, target: Record<string, string | string[]>): void {
   const [key, ...rest] = line.split(":");
   if (!key || !rest.length) return;
   target[key.trim()] = unquote(rest.join(":").trim());

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const { generateKeyPairSync } = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -9,9 +10,38 @@ const path = require("node:path");
 (async () => {
   const canonical = await import("../../dist/packages/product-runtime/src/canonical-runtime.js");
   const legacy = await import("../../dist/packages/product-runtime/src/index.js");
+  const { parsePolicy } = await import("../../dist/apps/cli/src/product-policy-utils.js");
   const roots = [];
   let checks = 0;
   const check = (name, callback) => { callback(); checks++; console.log(`[ok] ${name}`); };
+  const repositoryRoot = path.resolve(__dirname, "../..");
+  const conditions = ["dependencies", "devDependencies", "optionalDependencies",
+    "peerDependencies", "version", "workspaces"];
+  const cleanRoot = fs.mkdtempSync(path.join(os.tmpdir(), "canonical-root-policy-"));
+  roots.push(cleanRoot);
+  const clone = spawnSync("git", ["clone", "--quiet", "--no-hardlinks", repositoryRoot, cleanRoot],
+    { encoding: "utf8" });
+  assert.equal(clone.status, 0, clone.stderr);
+  const rootPolicyText = fs.readFileSync(path.join(repositoryRoot, "bounded-agent.policy.yml"), "utf8");
+  fs.writeFileSync(path.join(cleanRoot, "bounded-agent.policy.yml"), rootPolicyText);
+  check("real root policy compiles with exactly six normalized pair conditions", () => {
+    const compiled = canonical.compileCanonicalPolicy({ repositoryPath: cleanRoot,
+      policyFilePath: "bounded-agent.policy.yml" });
+    const pair = compiled.pairedFileRules.find((rule) => rule.sourcePattern === "package.json" &&
+      rule.requiresPattern === "package-lock.json");
+    assert(pair);
+    assert.deepEqual(pair.changedWhenContains, conditions);
+    const preflight = canonical.evaluateCanonicalPolicyPreflight({ policy: compiled,
+      requestedChangeFiles: ["package.json", "package-lock.json"] });
+    assert.equal(preflight.decision, "allow");
+  });
+  check("legacy Product V1 parser retains both real root pair rules and their conditions", () => {
+    const policy = parsePolicy(rootPolicyText, "bounded-agent.policy.yml");
+    assert.equal(policy.paired_files.length, 2);
+    assert.deepEqual(policy.paired_files[0].changed_when_contains,
+      ["version", "dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "workspaces"]);
+    assert.equal(policy.paired_files[1].source, "action.yml");
+  });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "canonical-policy-")); roots.push(root);
   const write = (file, content = `${file}\n`) => {
     const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -186,6 +216,16 @@ const path = require("node:path");
   ]) check(name, () => assert.throws(() => canonical.compileCanonicalPolicy({ repositoryPath: root,
     policyDocument: document }), (error) => error.code === code));
   const malformed = path.join(root, "bad.yml"); fs.writeFileSync(malformed, "schemaVersion: [\n");
+  fs.writeFileSync(path.join(root, "scalar-conditions.yml"), [
+    "schemaVersion: '1'", "allowed_paths:", "  - package.json", "  - package-lock.json",
+    "forbidden_paths: []",
+    "paired_files:", "  - source: package.json", "    requires: package-lock.json",
+    '    changed_when_contains: "version, dependencies"', ""
+  ].join("\n"));
+  check("scalar changed_when_contains remains invalid", () => assert.throws(() =>
+    canonical.compileCanonicalPolicy({ repositoryPath: root,
+      policyFilePath: "scalar-conditions.yml" }),
+    (error) => error.code === "canonical_policy_pair_invalid"));
   check("malformed YAML", () => assert.throws(() => canonical.compileCanonicalPolicy({
     repositoryPath: root, policyFilePath: "bad.yml" }),
   (error) => error.code === "canonical_policy_yaml_invalid"));
