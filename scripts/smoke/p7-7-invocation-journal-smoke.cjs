@@ -50,19 +50,24 @@ async function main(){
   const newRun=journal.reserve({...fixture('fixture.new-run'),retryDecision:firstDecision});
   assert.equal(newRun.state,'prepared');
   journal.start(newRun.invocationKey);
-  journal.recover(newRun.invocationKey);
+  assert.equal(journal.recover(newRun.invocationKey).state,'outcome_unknown');
   assert.throws(()=>journal.reserve({...fixture('fixture.third'),retryDecision:firstDecision}),
     {code:'invocation_replay_forbidden'});
   const failed=fixture('fixture.failed','planner');
   const failedReservation=journal.reserve(failed);
   journal.start(failedReservation.invocationKey);
   const failedRecord=journal.finish(failedReservation.invocationKey,'failed',{
-    failureCode:'provider_error',
-    failureDetail:'request rejected; Authorization: Bearer secret-token-value; sk-12345678901234567890'
+    failureCode:'provider_stream_error_unknown',
+    diagnosticCodes:['codex_event_ignored','agent_protocol_invalid',
+      'UNTRUSTED_MODEL_TEXT','sk-12345678901234567890'],
+    workerDiagnostic:{version:'worker-failure-diagnostic/v1',stderrExcerpt:'UNTRUSTED_MODEL_TEXT'}
   });
   assert.equal(failedRecord.state,'failed');
-  assert.match(failedRecord.failureDetail,/\[REDACTED\]/);
-  assert.doesNotMatch(JSON.stringify(failedRecord),/secret-token-value|sk-12345678901234567890/);
+  assert.equal(failedRecord.failureDetail,'codex_event_ignored;agent_protocol_invalid');
+  assert.deepEqual(failedRecord.workerDiagnostic,
+    {version:'worker-failure-diagnostic/v1',serializationTruncated:true});
+  assert.doesNotMatch(JSON.stringify(failedRecord),/UNTRUSTED_MODEL_TEXT|sk-12345678901234567890/);
+  assert.throws(()=>journal.recover(failedReservation.invocationKey),{code:'invocation_replay_forbidden'});
   // Recovery after a process crash must never turn a possibly charged attempt into a fresh slot.
   const crashDecision=decision('decision-crash','fixture.new-run','fixture.crashed');
   journal.authorizeRetry(crashDecision);
@@ -70,12 +75,32 @@ async function main(){
   const exit=spawnSync(process.execPath,['--input-type=module','-e',
     `import {createDurableInvocationJournal} from ${JSON.stringify(url)};`+
     `const j=createDurableInvocationJournal(${JSON.stringify(file)});`+
-    `const r=j.reserve(${JSON.stringify(crashed)});j.start(r.invocationKey);process.exit(0);`],
+    `const r=j.reserve(${JSON.stringify(crashed)});j.start(r.invocationKey);`+
+    `console.log(JSON.stringify({invocationKey:r.invocationKey,recoveryId:r.recoveryId,ownerPid:r.ownerPid}));process.exit(0);`],
     {encoding:'utf8',env:{...process.env,CODEX_API_KEY:'',OPENAI_API_KEY:''}});
   assert.equal(exit.status,0,exit.stderr);
+  const crashAuthority=JSON.parse(exit.stdout.trim());
   assert.throws(()=>journal.reserve(crashed),{code:'invocation_replay_forbidden'});
   assert.equal(journal.read(key(crashed)).state,'started');
-  journal.recover(key(crashed));
+  assert.throws(()=>journal.recover(key(crashed)),{code:'invocation_replay_forbidden'});
+  assert.equal(journal.recoverCrashed(crashAuthority).state,'outcome_unknown');
+  assert.throws(()=>journal.recoverCrashed(crashAuthority),{code:'invocation_replay_forbidden'});
+  for (const terminalState of ['completed','failed']) {
+    const terminalFile=path.join(temp,`terminal-${terminalState}.sqlite`);
+    const child=spawnSync(process.execPath,['--input-type=module','-e',
+      `import {createDurableInvocationJournal} from ${JSON.stringify(url)};`+
+      `const j=createDurableInvocationJournal(${JSON.stringify(terminalFile)});`+
+      `const r=j.reserve({runId:'terminal',stage:'coder',task:'${terminalState}',`+
+      `model:'offline',deadlineAt:Date.now()+30000});j.start(r.invocationKey);`+
+      `j.finish(r.invocationKey,'${terminalState}');`+
+      `console.log(JSON.stringify({invocationKey:r.invocationKey,recoveryId:r.recoveryId,ownerPid:r.ownerPid}));`],
+      {encoding:'utf8'});
+    assert.equal(child.status,0,child.stderr);
+    const authority=JSON.parse(child.stdout.trim());
+    const terminalJournal=createDurableInvocationJournal(terminalFile);
+    assert.throws(()=>terminalJournal.recoverCrashed(authority),{code:'invocation_replay_forbidden'});
+    assert.equal(terminalJournal.read(authority.invocationKey).state,terminalState);
+  }
   const lookupDecision=decision('decision-lookup','fixture.crashed','fixture.lookup');
   journal.authorizeRetry(lookupDecision);
   assert.equal(journal.read(journal.reserve({...fixture('fixture.lookup'),retryDecision:lookupDecision}).invocationKey).state,'prepared');

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -16,6 +16,11 @@ export type InvocationRetryDecision = Readonly<{
   stage: InvocationStage;
   taskHash: string;
   model: string;
+}>;
+export type InvocationCrashRecoveryAuthority = Readonly<{
+  invocationKey: string;
+  recoveryId: string;
+  ownerPid: number;
 }>;
 export type InvocationIdentity = Readonly<{
   runId: string;
@@ -51,6 +56,8 @@ export type InvocationRecord = Readonly<{
   terminalTurnObserved?: boolean | null;
   retryDecisionId: string | null;
   supersedesRunId: string | null;
+  recoveryId?: string;
+  ownerPid?: number;
   workerDiagnostic?: Readonly<Record<string, unknown>> | null;
 }>;
 
@@ -66,18 +73,75 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const STAGES: readonly InvocationStage[] = ["discovery", "planner", "coder", "repair", "baseline"];
 const TERMINAL: readonly InvocationState[] = ["completed", "failed", "outcome_unknown"];
+const SAFE_DIAGNOSTIC_CODES = new Set([
+  "agent_command_budget_exceeded", "agent_event_budget_exceeded",
+  "agent_model_call_budget_exceeded", "agent_output_limit", "agent_protocol_invalid",
+  "agent_provider_call_budget_exceeded", "agent_repair_budget_exceeded", "agent_timeout",
+  "authentication_failed", "codex_aborted", "codex_command_timing_partial",
+  "codex_command_timing_unavailable", "codex_event_ignored", "codex_item_ignored",
+  "codex_item_pending_details", "codex_partial_stream", "codex_provider_message_redacted",
+  "codex_usage_unavailable", "invocation_journal_unavailable", "invocation_replay_forbidden",
+  "provider_outcome_ambiguous", "provider_overloaded", "provider_stream_error_unknown",
+  "usage_limit_exceeded", "worker_termination_failed"
+]);
+const SAFE_FAILURE_CODES = new Set([...SAFE_DIAGNOSTIC_CODES, "process_interrupted"]);
 function hash(value: string): string {
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 function safeCode(value: string | null): string | null {
-  return typeof value === "string" && /^[a-z][a-z0-9_:-]{0,127}$/.test(value) ? value : null;
+  return typeof value === "string" && SAFE_FAILURE_CODES.has(value) ? value : null;
+}
+function safeDiagnosticCodes(values: readonly string[] | undefined): string | null {
+  if (!values) return null;
+  const codes = [...new Set(values.filter((value) => SAFE_DIAGNOSTIC_CODES.has(value)))].slice(0, 32);
+  return codes.length === 0 ? null : codes.join(";");
+}
+function ownerStillAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
 function safeWorkerDiagnostic(value: Readonly<Record<string, unknown>> | null | undefined):
   Readonly<Record<string, unknown>> | null {
   if (value === null || value === undefined) return null;
-  const sanitized = createAgentOutputRedactor().redactValue(value) as Record<string, unknown>;
-  return Buffer.byteLength(JSON.stringify(sanitized)) <= 4_096 ? sanitized :
-    { version: "worker-failure-diagnostic/v1", serializationTruncated: true };
+  const fallback = { version: "worker-failure-diagnostic/v1", serializationTruncated: true };
+  const eventTypes = new Set(["thread.started", "turn.started", "turn.completed", "turn.failed",
+    "error", "item.started", "item.updated", "item.completed"]);
+  const parserStatuses = new Set(["completed", "failed", "partial", "aborted", "agent_protocol_invalid"]);
+  const formats = new Set(["empty", "unstructured", "worker_error_envelope"]);
+  const errorNames = new Set(["Error", "TypeError", "SyntaxError", "RangeError", "AbortError", "TimeoutError"]);
+  const nonnegative = (entry: unknown) => Number.isSafeInteger(entry) && (entry as number) >= 0;
+  const pathField = (entry: unknown) => typeof entry === "string" && isAbsolute(entry) &&
+    entry.length <= 256 && !/[\r\n\0]/.test(entry);
+  if (value.version !== "worker-failure-diagnostic/v1" || !pathField(value.executable) ||
+      !pathField(value.cwd) || !Array.isArray(value.args) || value.args.length > 4 ||
+      !value.args.every(pathField) || typeof value.argsTruncated !== "boolean" ||
+      !(value.exitCode === null || Number.isSafeInteger(value.exitCode)) ||
+      !(value.exitSignal === null || typeof value.exitSignal === "string" && /^SIG[A-Z0-9]+$/.test(value.exitSignal)) ||
+      typeof value.stdoutEmpty !== "boolean" || typeof value.stderrEmpty !== "boolean" ||
+      !["", "[UNSAFE_STDERR_CONTENT_OMITTED]"].includes(value.stderrExcerpt as string) ||
+      !formats.has(value.stderrFormat as string) ||
+      !(value.workerErrorName === null || errorNames.has(value.workerErrorName as string)) ||
+      !(value.workerErrorStatus === null || Number.isSafeInteger(value.workerErrorStatus) &&
+        (value.workerErrorStatus as number) >= 100 && (value.workerErrorStatus as number) <= 599) ||
+      typeof value.stderrTruncated !== "boolean" || !nonnegative(value.stdoutLineCount) ||
+      !nonnegative(value.recognizedEventCount) || !nonnegative(value.unknownEventCount) ||
+      !Array.isArray(value.eventTypes) || !value.eventTypes.every((entry) => eventTypes.has(entry)) ||
+      typeof value.threadStarted !== "boolean" || typeof value.turnStarted !== "boolean" ||
+      typeof value.turnCompleted !== "boolean" || typeof value.turnFailed !== "boolean" ||
+      typeof value.errorEvent !== "boolean" || !nonnegative(value.malformedLineCount) ||
+      !(value.lastRecognizedEventType === null || eventTypes.has(value.lastRecognizedEventType as string)) ||
+      !parserStatuses.has(value.parserStatus as string) ||
+      typeof value.terminalTurnObserved !== "boolean" ||
+      typeof value.serializationTruncated !== "boolean") return fallback;
+  const fields = ["version", "executable", "args", "argsTruncated", "cwd", "exitCode", "exitSignal",
+    "stdoutEmpty", "stderrEmpty", "stderrExcerpt", "stderrFormat", "workerErrorName",
+    "workerErrorStatus", "stderrTruncated", "stdoutLineCount", "recognizedEventCount",
+    "unknownEventCount", "eventTypes", "threadStarted", "turnStarted", "turnCompleted",
+    "turnFailed", "errorEvent", "malformedLineCount", "lastRecognizedEventType",
+    "parserStatus", "terminalTurnObserved", "serializationTruncated"];
+  const selected = Object.fromEntries(fields.map((field) => [field, value[field]]));
+  const sanitized = createAgentOutputRedactor().redactValue(selected) as Record<string, unknown>;
+  return Buffer.byteLength(JSON.stringify(sanitized)) <= 4_096 ? sanitized : fallback;
 }
 function assertIdentity(input: InvocationIdentity): void {
   if (!ID.test(input.runId) || !STAGES.includes(input.stage) || !MODEL.test(input.model) ||
@@ -120,7 +184,6 @@ export function createDurableInvocationJournal(file: string, now: () => number =
   }
   const path = resolve(file);
   const parent = dirname(path);
-  const redactor = createAgentOutputRedactor();
   const ownedReservations = new Set<string>();
   const openDatabase = (): DatabaseSync => {
     try {
@@ -259,7 +322,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           sessionEvidence: "unknown", invocationOccurred: null, failureCode: null,
           failureDetail: null,
           retryDecisionId: input.retryDecision?.decisionId ?? null,
-          supersedesRunId: input.retryDecision?.supersedesRunId ?? null
+          supersedesRunId: input.retryDecision?.supersedesRunId ?? null,
+          recoveryId: randomUUID(), ownerPid: process.pid
         });
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")
@@ -280,7 +344,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
     },
     finish(key: string, state: "completed" | "failed" | "outcome_unknown", details: Readonly<{
       failureCode?: string | null;
-      failureDetail?: string | null;
+      diagnosticCodes?: readonly string[];
       abortRequestedAt?: number | null;
       workerExitedAt?: number | null;
       exitSignal?: string | null;
@@ -296,9 +360,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         "invocation_replay_forbidden", "This journal instance does not own the invocation reservation.");
       const finished = transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
         failureCode: safeCode(details.failureCode ?? null),
-        failureDetail: typeof details.failureDetail === "string"
-          ? redactor.redactText(details.failureDetail).slice(0, 4_096)
-          : null,
+        failureDetail: safeDiagnosticCodes(details.diagnosticCodes),
         abortRequestedAt: details.abortRequestedAt ?? null,
         workerExitedAt: details.workerExitedAt ?? null,
         exitSignal: details.exitSignal ?? null,
@@ -316,10 +378,33 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       return finished;
     },
     recover(key: string): InvocationRecord {
-      return transaction((db) => {
+      if (!ownedReservations.has(key)) throw new InvocationJournalError(
+        "invocation_replay_forbidden", "This journal instance does not own the invocation reservation.");
+      const recovered = transaction((db) => {
         const row = get(db, key);
         if (!row) throw new InvocationJournalError("invocation_journal_unavailable", "Missing invocation reservation is not evidence of no charge.");
-        if (TERMINAL.includes(row.state)) return row;
+        if (TERMINAL.includes(row.state)) throw new InvocationJournalError(
+          "invocation_replay_forbidden", "Terminal invocation cannot be recovered again.");
+        const unknown = Object.freeze({ ...row, state: "outcome_unknown" as const,
+          terminalAt: now(), failureCode: "process_interrupted" });
+        store(db, unknown);
+        return unknown;
+      });
+      ownedReservations.delete(key);
+      return recovered;
+    },
+    recoverCrashed(authority: InvocationCrashRecoveryAuthority): InvocationRecord {
+      if (!authority || typeof authority !== "object" || !HASH.test(authority.invocationKey) ||
+          !ID.test(authority.recoveryId) || !Number.isSafeInteger(authority.ownerPid) ||
+          authority.ownerPid <= 0) throw new InvocationJournalError(
+        "invocation_replay_forbidden", "Invalid crash-recovery authority.");
+      return transaction((db) => {
+        const row = get(db, authority.invocationKey);
+        if (!row || TERMINAL.includes(row.state) || row.recoveryId !== authority.recoveryId ||
+            row.ownerPid !== authority.ownerPid || ownerStillAlive(authority.ownerPid)) {
+          throw new InvocationJournalError("invocation_replay_forbidden",
+            "Crash recovery requires the matching claim and a terminated owner process.");
+        }
         const unknown = Object.freeze({ ...row, state: "outcome_unknown" as const,
           terminalAt: now(), failureCode: "process_interrupted" });
         store(db, unknown);

@@ -113,6 +113,79 @@ function childReservation(moduleFile, file, retryDecision, task, operation = "re
   const concurrentNextKey = hash(JSON.stringify(["concurrent.next", "discovery"]));
   assert.throws(() => concurrentJournal.finish(concurrentNextKey, "completed"),
     { code: "invocation_replay_forbidden" }, "a non-owner cannot finish the winner's row");
+  const liveFile = path.join(temp, "live-owner.sqlite");
+  const liveJournal = createDurableInvocationJournal(liveFile);
+  const livePrior = liveJournal.reserve(input("live.prior"));
+  liveJournal.start(livePrior.invocationKey);
+  liveJournal.finish(livePrior.invocationKey, "outcome_unknown");
+  const livePriorBytes = JSON.stringify(liveJournal.read(livePrior.invocationKey));
+  const liveDecision = decision("live.decision", "live.prior", "live.next");
+  liveJournal.authorizeRetry(liveDecision);
+  const liveSource = `const {pathToFileURL}=require('node:url');(async()=>{` +
+    `const {createDurableInvocationJournal}=await import(pathToFileURL(process.argv[1]).href);` +
+    `const j=createDurableInvocationJournal(process.argv[2]);const d=JSON.parse(process.argv[3]);` +
+    `const r=j.reserve({runId:d.newRunId,stage:d.stage,task:process.argv[4],` +
+    `model:d.model,deadlineAt:Date.now()+30000,retryDecision:d});j.start(r.invocationKey);` +
+    `console.log(JSON.stringify({invocationKey:r.invocationKey,recoveryId:r.recoveryId,ownerPid:r.ownerPid}));` +
+    `setInterval(()=>{},1000)})().catch(e=>{console.error(e);process.exitCode=1})`;
+  const owner = spawn(process.execPath, ["-e", liveSource, journalModule, liveFile,
+    JSON.stringify(liveDecision), "offline synthetic request"], { env: { ...process.env,
+      CODEX_API_KEY: "", OPENAI_API_KEY: "" } });
+  const liveAuthority = await new Promise((resolve, reject) => {
+    let output = "";
+    owner.stdout.on("data", (chunk) => {
+      output += chunk;
+      if (output.includes("\n")) resolve(JSON.parse(output.trim()));
+    });
+    owner.once("error", reject);
+    owner.once("exit", (code) => reject(Error(`Owner exited before start: ${code}`)));
+  });
+  try {
+    const loserSource = `const {pathToFileURL}=require('node:url');(async()=>{` +
+      `const {createDurableInvocationJournal}=await import(pathToFileURL(process.argv[1]).href);` +
+      `const j=createDurableInvocationJournal(process.argv[2]);const d=JSON.parse(process.argv[3]);` +
+      `const a=JSON.parse(process.argv[5]);const results=[];` +
+      `for(const op of [()=>j.reserve({runId:d.newRunId,stage:d.stage,task:process.argv[4],` +
+      `model:d.model,deadlineAt:Date.now()+30000,retryDecision:d}),` +
+      `()=>j.start(a.invocationKey),()=>j.finish(a.invocationKey,'completed'),` +
+      `()=>j.recover(a.invocationKey),()=>j.recoverCrashed(a)]){` +
+      `try{op();results.push('accepted')}catch(e){results.push(e.code)}}` +
+      `console.log(JSON.stringify(results))})().catch(e=>{console.error(e);process.exitCode=1})`;
+    const loser = spawnSync(process.execPath, ["-e", loserSource, journalModule, liveFile,
+      JSON.stringify(liveDecision), "offline synthetic request", JSON.stringify(liveAuthority)],
+    { encoding: "utf8" });
+    assert.equal(loser.status, 0, loser.stderr);
+    assert.deepEqual(JSON.parse(loser.stdout.trim()), Array(5).fill("invocation_replay_forbidden"));
+    assert.equal(readJson(liveFile, "live.next").state, "started");
+    assert.equal(JSON.stringify(liveJournal.read(livePrior.invocationKey)), livePriorBytes);
+    for (const wrong of [
+      { ...liveAuthority, recoveryId: "wrong-id" },
+      { ...liveAuthority, invocationKey: livePrior.invocationKey },
+      { ...liveAuthority, ownerPid: process.pid }
+    ]) assert.throws(() => liveJournal.recoverCrashed(wrong),
+      { code: "invocation_replay_forbidden" });
+    assert.throws(() => liveJournal.recoverCrashed(liveAuthority),
+      { code: "invocation_replay_forbidden" }, "live owner blocks crash recovery");
+  } finally {
+    const stopped = new Promise((resolve) => owner.once("exit", resolve));
+    owner.kill("SIGTERM");
+    await stopped;
+  }
+  const recoverySource = `const {pathToFileURL}=require('node:url');(async()=>{` +
+    `const {createDurableInvocationJournal}=await import(pathToFileURL(process.argv[1]).href);` +
+    `const j=createDurableInvocationJournal(process.argv[2]);` +
+    `console.log(j.recoverCrashed(JSON.parse(process.argv[3])).state)})().catch(e=>{` +
+    `console.log(e.code);process.exitCode=2})`;
+  const recovered = spawnSync(process.execPath, ["-e", recoverySource, journalModule,
+    liveFile, JSON.stringify(liveAuthority)], { encoding: "utf8" });
+  assert.equal(recovered.status, 0, recovered.stderr);
+  assert.equal(recovered.stdout.trim(), "outcome_unknown");
+  assert.equal(readJson(liveFile, "live.next").state, "outcome_unknown");
+  assert.equal(JSON.stringify(liveJournal.read(livePrior.invocationKey)), livePriorBytes);
+  const reusedAuthority = spawnSync(process.execPath, ["-e", recoverySource, journalModule,
+    liveFile, JSON.stringify(liveAuthority)], { encoding: "utf8" });
+  assert.equal(reusedAuthority.status, 2);
+  assert.equal(reusedAuthority.stdout.trim(), "invocation_replay_forbidden");
   const cleanFile = path.join(temp, "first.sqlite");
   assert.equal(createDurableInvocationJournal(cleanFile).reserve(input("first.attempt")).state, "prepared");
   const operatorFile = path.join(temp, "operator.sqlite");
@@ -203,6 +276,51 @@ function childReservation(moduleFile, file, retryDecision, task, operation = "re
   assert.doesNotMatch(JSON.stringify(record), /MODEL_CONTENT_SECRET|sk-12345678901234567890|fake-secret-token-123456/);
   assert.equal(evidence.stderrExcerpt, "[UNSAFE_STDERR_CONTENT_OMITTED]");
   assert.equal(evidence.stderrFormat, "unstructured");
+  const unsafeCases = [
+    { name: "unknown-task", task: "TASK_TEXT_UNIQUE", needle: "TASK_TEXT_UNIQUE",
+      lines: [JSON.stringify({ type: "unknown_TASK_TEXT_UNIQUE" })] },
+    { name: "unknown-api-key", task: "api key event", needle: "sk-12345678901234567890",
+      lines: [JSON.stringify({ type: "unknown_sk-12345678901234567890" })] },
+    { name: "unknown-private-key", task: "private key event", needle: "AUDIT_KEY_BODY",
+      lines: [JSON.stringify({ type: "unknown_-----BEGIN PRIVATE KEY-----\nAUDIT_KEY_BODY\n" })] },
+    { name: "malformed", task: "malformed event", needle: "RAW_MODEL_TEXT",
+      lines: ["not-json RAW_MODEL_TEXT"] },
+    { name: "provider-error", task: "first task line\nsecond task line", needle: "second task line",
+      lines: [JSON.stringify({ type: "error", message: "first task line\nsecond task line" })],
+      stderr: JSON.stringify({ name: "Error", message: "first task line\nsecond task line" }) + "\n" },
+    { name: "model-stdout", task: "model content", needle: "RAW_AGENT_MESSAGE_TEXT",
+      lines: [JSON.stringify({ type: "item.completed", item: {
+        id: "message-1", type: "agent_message", text: "RAW_AGENT_MESSAGE_TEXT" } })] },
+    { name: "unknown-item", task: "unknown item", needle: "RAW_ITEM_TYPE_TEXT",
+      lines: [JSON.stringify({ type: "item.completed", item: {
+        id: "item-1", type: "RAW_ITEM_TYPE_TEXT" } })] }
+  ];
+  for (const [index, item] of unsafeCases.entries()) {
+    const fixtureWorker = path.join(temp, `unsafe-${item.name}.cjs`);
+    fs.writeFileSync(fixtureWorker, [
+      `const lines = ${JSON.stringify(item.lines)};`,
+      `const stderr = ${JSON.stringify(item.stderr ?? "offline failure")};`,
+      'process.stdin.resume();',
+      'process.stdin.on("end", () => {',
+      '  for (const line of lines) process.stdout.write(line + "\\n");',
+      '  process.stderr.write(stderr);',
+      '  process.exitCode = 2;',
+      '});'
+    ].join("\n"));
+    const fixtureJournal = path.join(temp, `unsafe-${index}.sqlite`);
+    const fixtureAdapter = new CodexAgentAdapter({ environment: { HOME: temp, PATH: process.env.PATH },
+      authCheck: async () => true, workerEntrypoint: fixtureWorker,
+      invocationJournalPath: fixtureJournal });
+    await fixtureAdapter.run({ runId: `unsafe.${index}`, agentId: "codex",
+      workingDirectory: temp, task: item.task, model: "offline-model",
+      reasoningEffort: "medium", mode: "discovery", timeoutMs: 10_000,
+      networkAllowed: false, sandboxMode: "read_only", repositoryRequirement: "none" });
+    const persisted = readJson(fixtureJournal, `unsafe.${index}`);
+    assert.ok(persisted.workerDiagnostic, item.name);
+    assert.ok(!JSON.stringify(persisted).includes(item.needle), item.name);
+    assert.ok(!JSON.stringify(persisted).includes(JSON.stringify(item.needle).slice(1, -1)), item.name);
+    assert.ok(!persisted.failureDetail || /^[a-z_]+(?:;[a-z_]+)*$/.test(persisted.failureDetail));
+  }
 
   const redactor = createAgentOutputRedactor();
   const oversized = createWorkerFailureDiagnostic({
@@ -228,12 +346,20 @@ function childReservation(moduleFile, file, retryDecision, task, operation = "re
     "-----BEGIN EC PRIVATE KEY-----\nAUDIT_KEY_BODY_PARTIAL",
     "-----BEGIN OPENSSH PRIVATE KEY-----\nAUDIT_KEY_BODY_1\nAUDIT_KEY_BODY_2\n",
     "-----BEGIN PRIVATE KEY-----\r\nAUDIT_KEY_BODY\r\n",
-    `${"A".repeat(2040)}-----BEGIN PRIVATE KEY-----\nAUDIT_KEY_BODY\n`
+    `${"A".repeat(2040)}-----BEGIN PRIVATE KEY-----\nAUDIT_KEY_BODY\n`,
+    "-----BEGIN RSA PRIVATE KEY-----\nAUDIT_KEY_BODY_1\n-----END RSA PRIVATE KEY-----\n" +
+      "safe-between\n-----BEGIN EC PRIVATE KEY-----\nAUDIT_KEY_BODY_2\n" +
+      "-----END EC PRIVATE KEY-----\nsafe-trailing"
   ];
   for (const keyBody of keyBodies) {
     const redacted = redactor.redactText(keyBody);
     assert.doesNotMatch(redacted, /AUDIT_KEY_BODY|BEGIN .*PRIVATE KEY/);
     assert.match(redacted, /\[REDACTED\]/);
+    if (keyBody.includes("safe-between")) {
+      assert.match(redacted, /safe-between/);
+      assert.match(redacted, /safe-trailing/);
+      assert.equal((redacted.match(/\[REDACTED\]/g) ?? []).length, 2);
+    }
     const keyDiagnostic = createWorkerFailureDiagnostic({
       executable: process.execPath, args: [fakeWorker], cwd: temp, redactor,
       worker: { exitCode: 2, exitSignal: null, stderr: keyBody, stdoutBytes: 0,

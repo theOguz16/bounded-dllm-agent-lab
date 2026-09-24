@@ -571,10 +571,7 @@ export class CodexAgentAdapter implements AgentAdapter {
           knownFailure ? "failed" : "outcome_unknown", {
             failureCode: processFailure?.code ?? providerFailure ??
               (successObserved ? null : "provider_outcome_ambiguous"),
-            failureDetail: successObserved ? null : this.redactor.redactText(
-              diagnostics.map((entry) => `${entry.code}: ${entry.message}`).join("; ") ||
-              "Provider invocation ended without an observed successful outcome."
-            ),
+            diagnosticCodes: successObserved ? [] : diagnostics.map((entry) => entry.code),
             abortRequestedAt: lifecycle.abortRequestedAt,
             workerExitedAt: lifecycle.workerExitedAt,
             exitSignal: lifecycle.exitSignal,
