@@ -13,6 +13,7 @@ const adapterPath = path.join(root, 'dist/packages/integrations/src/codex-agent-
 const url = pathToFileURL(modulePath).href;
 const fixture = (runId, stage='coder') => ({ runId, stage, task:'offline synthetic provider request', model:'gpt-5.6-luna', deadlineAt:Date.now()+30_000 });
 const hash = (value) => 'sha256:'+require('node:crypto').createHash('sha256').update(value).digest('hex');
+const key = (identity) => hash(JSON.stringify([identity.runId,identity.stage]));
 const decision = (id, prior, next, stage='coder', task='offline synthetic provider request', model='gpt-5.6-luna') =>
   ({decisionId:id,supersedesRunId:prior,newRunId:next,stage,taskHash:hash(task),model});
 function processResult(code, file, id) {
@@ -38,6 +39,8 @@ async function main(){
   assert.equal(reservation.state,'prepared');
   assert.equal(journal.start(reservation.invocationKey).state,'started');
   assert.throws(()=>journal.reserve(id), error=>error instanceof InvocationJournalError&&error.code==='invocation_replay_forbidden');
+  assert.equal(journal.read(reservation.invocationKey).state,'started');
+  journal.recover(reservation.invocationKey);
   assert.equal(journal.read(reservation.invocationKey).state,'outcome_unknown');
   assert.throws(()=>journal.finish(reservation.invocationKey,'completed'),{code:'invocation_replay_forbidden'});
   assert.throws(()=>journal.reserve({...id,task:'modified prompt'}),{code:'invocation_replay_forbidden'});
@@ -71,6 +74,8 @@ async function main(){
     {encoding:'utf8',env:{...process.env,CODEX_API_KEY:'',OPENAI_API_KEY:''}});
   assert.equal(exit.status,0,exit.stderr);
   assert.throws(()=>journal.reserve(crashed),{code:'invocation_replay_forbidden'});
+  assert.equal(journal.read(key(crashed)).state,'started');
+  journal.recover(key(crashed));
   const lookupDecision=decision('decision-lookup','fixture.crashed','fixture.lookup');
   journal.authorizeRetry(lookupDecision);
   assert.equal(journal.read(journal.reserve({...fixture('fixture.lookup'),retryDecision:lookupDecision}).invocationKey).state,'prepared');

@@ -17,8 +17,10 @@ export type AgentOutputRedactor = Readonly<{
 const CREDENTIAL_NAME =
   /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|secret|password|credential|authorization|private[_-]?key)/i;
 
+// A key may end mid-stream. Stop at its END marker when present; otherwise
+// discard everything from BEGIN through end-of-input.
 const PRIVATE_KEY =
-  /-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/g;
+  /-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-\r\n]*PRIVATE KEY-----|(?![\s\S]))/g;
 const KNOWN_API_KEY =
   /\b(?:sk-[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[A-Z0-9]{16})\b/g;
 const AUTHORIZATION_HEADER = /(\bAuthorization\s*[:=]\s*)[^\r\n]+/gi;

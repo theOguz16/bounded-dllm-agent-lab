@@ -9,6 +9,31 @@ const EVENT_SET = new Set<string>(EVENT_TYPES);
 const MAX_FIELD = 256;
 const MAX_STDERR = 2_048;
 const MAX_SERIALIZED_BYTES = 4_096;
+const ERROR_NAMES = new Set(["Error", "TypeError", "SyntaxError", "RangeError",
+  "AbortError", "TimeoutError"]);
+
+function stderrMetadata(redacted: string): Readonly<{
+  format: "worker_error_envelope" | "unstructured" | "empty";
+  errorName: string | null;
+  errorStatus: number | null;
+}> {
+  if (redacted.length === 0) return { format: "empty", errorName: null, errorStatus: null };
+  try {
+    const parsed: unknown = JSON.parse(redacted.trim());
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+        typeof (parsed as Record<string, unknown>).message === "string") {
+      const error = parsed as Record<string, unknown>;
+      return {
+        format: "worker_error_envelope",
+        errorName: typeof error.name === "string" && ERROR_NAMES.has(error.name)
+          ? error.name : null,
+        errorStatus: typeof error.status === "number" && Number.isSafeInteger(error.status) &&
+          error.status >= 100 && error.status <= 599 ? error.status : null
+      };
+    }
+  } catch { /* Unstructured stderr cannot safely be persisted as text. */ }
+  return { format: "unstructured", errorName: null, errorStatus: null };
+}
 
 export function createWorkerFailureDiagnostic(input: Readonly<{
   executable: string;
@@ -19,7 +44,6 @@ export function createWorkerFailureDiagnostic(input: Readonly<{
   parserStatus: CodexEventParserStatus;
   terminalTurnObserved: boolean;
   redactor: AgentOutputRedactor;
-  task?: string;
 }>): Readonly<Record<string, unknown>> {
   const seen = new Set<string>();
   let malformedLineCount = 0;
@@ -44,8 +68,12 @@ export function createWorkerFailureDiagnostic(input: Readonly<{
   }
   const safeField = (value: string) => input.redactor.redactText(value).slice(0, MAX_FIELD);
   const redactedStderr = input.redactor.redactText(input.worker.stderr);
-  const stderr = input.worker.stderrTruncated ? "" :
-    input.task ? redactedStderr.replaceAll(input.task, "[REDACTED]") : redactedStderr;
+  // Error.message and unstructured stderr can echo a JSON-escaped prompt. Keep
+  // only allowlisted, machine-readable metadata from the worker's error envelope.
+  const stderr = input.worker.stderrTruncated
+    ? { format: "unstructured" as const, errorName: null, errorStatus: null }
+    : stderrMetadata(redactedStderr);
+  const stderrExceededExcerpt = Buffer.byteLength(input.worker.stderr, "utf8") > MAX_STDERR;
   const diagnostic: Record<string, unknown> = {
     version: WORKER_FAILURE_DIAGNOSTIC_VERSION,
     executable: safeField(input.executable),
@@ -56,8 +84,11 @@ export function createWorkerFailureDiagnostic(input: Readonly<{
     exitSignal: input.worker.exitSignal,
     stdoutEmpty: input.worker.stdoutBytes === 0,
     stderrEmpty: input.worker.stderrBytes === 0,
-    stderrExcerpt: stderr.slice(0, MAX_STDERR),
-    stderrTruncated: input.worker.stderrTruncated || stderr.length > MAX_STDERR,
+    stderrExcerpt: input.worker.stderrBytes === 0 ? "" : "[UNSAFE_STDERR_CONTENT_OMITTED]",
+    stderrFormat: stderr.format,
+    workerErrorName: stderr.errorName,
+    workerErrorStatus: stderr.errorStatus,
+    stderrTruncated: input.worker.stderrTruncated || stderrExceededExcerpt,
     stdoutLineCount: input.stdoutLines.length,
     recognizedEventCount,
     unknownEventCount,

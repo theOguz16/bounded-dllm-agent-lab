@@ -121,6 +121,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
   const path = resolve(file);
   const parent = dirname(path);
   const redactor = createAgentOutputRedactor();
+  const ownedReservations = new Set<string>();
   const openDatabase = (): DatabaseSync => {
     try {
       mkdirSync(parent, { recursive: true, mode: 0o700 });
@@ -220,10 +221,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         const taskHash = hash(input.task);
         const current = get(db, key);
         if (current) {
-          if (current.state === "prepared" || current.state === "started") {
-            store(db, Object.freeze({ ...current, state: "outcome_unknown", terminalAt: now(),
-              failureCode: "process_interrupted" }));
-          }
+          // A losing claimant never owns this reservation and must not change it.
+          // Interrupted attempts are made terminal only by explicit recovery.
           return null;
         }
         const prior = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE stage = ?")
@@ -271,9 +270,12 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         return record;
       });
       if (reservation === null) throw new InvocationJournalError("invocation_replay_forbidden", "Provider invocation already reserved; no automatic replay.");
+      ownedReservations.add(reservation.invocationKey);
       return reservation;
     },
     start(key: string): InvocationRecord {
+      if (!ownedReservations.has(key)) throw new InvocationJournalError(
+        "invocation_replay_forbidden", "This journal instance does not own the invocation reservation.");
       return transition(key, ["prepared"], (row) => ({ ...row, state: "started", startedAt: now() }));
     },
     finish(key: string, state: "completed" | "failed" | "outcome_unknown", details: Readonly<{
@@ -290,7 +292,9 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       terminalTurnObserved?: boolean | null;
       workerDiagnostic?: Readonly<Record<string, unknown>> | null;
     }> = {}): InvocationRecord {
-      return transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
+      if (!ownedReservations.has(key)) throw new InvocationJournalError(
+        "invocation_replay_forbidden", "This journal instance does not own the invocation reservation.");
+      const finished = transition(key, ["started"], (row) => ({ ...row, state, terminalAt: now(),
         failureCode: safeCode(details.failureCode ?? null),
         failureDetail: typeof details.failureDetail === "string"
           ? redactor.redactText(details.failureDetail).slice(0, 4_096)
@@ -308,6 +312,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         ...(details.workerDiagnostic === undefined ? {} :
           { workerDiagnostic: safeWorkerDiagnostic(details.workerDiagnostic) })
       }));
+      ownedReservations.delete(key);
+      return finished;
     },
     recover(key: string): InvocationRecord {
       return transaction((db) => {

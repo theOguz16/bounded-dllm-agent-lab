@@ -490,7 +490,7 @@ export class CodexAgentAdapter implements AgentAdapter {
           executable: process.execPath, args: [this.workerEntrypoint],
           cwd: request.workingDirectory, worker: workerResult, stdoutLines: lines,
           parserStatus: parsed.status, terminalTurnObserved: parsed.terminalTurnObserved,
-          redactor: this.redactor, task: request.task
+          redactor: this.redactor
         })
       : null;
 
