@@ -10,7 +10,8 @@ export type AgentProcessFailureCode =
   | "agent_model_call_budget_exceeded"
   | "worker_termination_failed"
   | "invocation_replay_forbidden"
-  | "invocation_journal_unavailable";
+  | "invocation_journal_unavailable"
+  | "invocation_journal_inside_source_repository";
 
 export type AgentProcessBudgetLimits = Readonly<{
   totalTimeoutMs: number;

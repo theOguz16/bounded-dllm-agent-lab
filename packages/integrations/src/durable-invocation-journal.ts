@@ -62,7 +62,8 @@ export type InvocationRecord = Readonly<{
 }>;
 
 export class InvocationJournalError extends Error {
-  constructor(readonly code: "invocation_replay_forbidden" | "invocation_journal_unavailable", message: string) {
+  constructor(readonly code: "invocation_replay_forbidden" | "invocation_journal_unavailable" |
+    "invocation_journal_inside_source_repository", message: string) {
     super(message);
     this.name = "InvocationJournalError";
   }

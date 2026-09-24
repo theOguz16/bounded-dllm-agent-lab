@@ -486,6 +486,9 @@ export async function discoverCodexScope(
       timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       networkAllowed: false,
       sandboxMode: "read_only",
+      // The adapter executes in a disposable workspace; the source repository
+      // must be declared so the journal can be kept out of it fail-closed.
+      sourceRepositoryPath: repositoryRoot,
       outputSchema: SCOPE_DISCOVERY_OUTPUT_SCHEMA,
       ...(input.invocationRetryDecision === undefined ? {} :
         { invocationRetryDecision: input.invocationRetryDecision })

@@ -467,6 +467,7 @@ export function createCodexBoundedProvider(
         timeoutMs: remainingTimeout(control, options.providerTimeoutMs),
         networkAllowed: false,
         sandboxMode: "read_only",
+        sourceRepositoryPath: options.repositoryPath,
         abortSignal: control.signal
       };
       const result = await options.adapter.run(request);
@@ -528,6 +529,7 @@ export function createCodexBoundedProvider(
         timeoutMs: remainingTimeout(control, options.providerTimeoutMs),
         networkAllowed: false,
         sandboxMode: "workspace_write",
+        sourceRepositoryPath: options.repositoryPath,
         abortSignal: control.signal
       };
       const result = await options.adapter.run(request);

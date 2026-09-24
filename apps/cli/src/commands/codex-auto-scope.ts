@@ -56,7 +56,8 @@ const SAFE_DISCOVERY_FAILURE_CODES = new Set([
   "provider_outcome_ambiguous", "agent_timeout", "agent_output_limit",
   "agent_event_budget_exceeded", "agent_command_budget_exceeded",
   "agent_provider_call_budget_exceeded", "agent_model_call_budget_exceeded",
-  "worker_termination_failed", "invocation_journal_unavailable", "invocation_replay_forbidden"
+  "worker_termination_failed", "invocation_journal_unavailable", "invocation_replay_forbidden",
+  "invocation_journal_inside_source_repository"
 ]);
 
 function configuredCodexHome(): string {

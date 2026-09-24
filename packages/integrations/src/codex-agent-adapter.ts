@@ -1,7 +1,9 @@
 import { fileURLToPath } from "node:url";
 import os from "node:os";
 import path from "node:path";
+import { existsSync, realpathSync } from "node:fs";
 import { createDurableInvocationJournal, InvocationJournalError } from "./durable-invocation-journal.js";
+import { assertInvocationJournalLocationOutsideSourceRepository } from "./invocation-journal-location.js";
 import type {
   ModelReasoningEffort,
   ThreadOptions,
@@ -88,6 +90,27 @@ export type CodexAgentAdapterOptions = Readonly<{
 
 type CommandTiming = { startedAtMs: number | null; completedAtMs: number | null };
 type RunTermination = "none" | "aborted" | "timed_out" | "budget_failed";
+
+/**
+ * Best-effort source-repository root for callers that do not declare one
+ * explicitly: walks up from the working directory to the nearest .git entry.
+ * Disposable workspaces resolve to their own workspace root, so product flows
+ * that execute outside the source repository must pass the repository
+ * explicitly via request.sourceRepositoryPath.
+ */
+function deriveSourceRepositoryRoot(workingDirectory: string): string | null {
+  try {
+    let current = realpathSync(workingDirectory);
+    while (true) {
+      if (existsSync(path.join(current, ".git"))) return current;
+      const parent = path.dirname(current);
+      if (parent === current) return null;
+      current = realpathSync(parent);
+    }
+  } catch {
+    return null;
+  }
+}
 
 function diagnostic(
   code: string,
@@ -350,6 +373,19 @@ export class CodexAgentAdapter implements AgentAdapter {
     let invocationKey: string | null = null;
     try {
       if (this.invocationJournalPath !== null) {
+        // Fail closed before any provider execution: mutable journal state
+        // must never live inside the source repository.
+        const declaredRoot = typeof request.sourceRepositoryPath === "string" &&
+          request.sourceRepositoryPath.trim().length > 0
+          ? request.sourceRepositoryPath : null;
+        const sourceRepositoryRoot = declaredRoot ??
+          deriveSourceRepositoryRoot(request.workingDirectory);
+        if (sourceRepositoryRoot !== null) {
+          assertInvocationJournalLocationOutsideSourceRepository({
+            journalPath: this.invocationJournalPath,
+            sourceRepositoryRoot
+          });
+        }
         invocationJournal = createDurableInvocationJournal(this.invocationJournalPath);
         const reservation = invocationJournal.reserve({
           runId: request.runId, stage: request.mode, task: request.task,

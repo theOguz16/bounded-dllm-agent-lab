@@ -63,7 +63,8 @@ export const BOUNDED_COMPARE_AGENT_TIMEOUT_MS = 300_000;
 export const BOUNDED_COMPARE_TIMEOUT_MS = BOUNDED_COMPARE_AGENT_TIMEOUT_MS;
 export const BOUNDED_COMPARE_NETWORK_POLICY = "disabled" as const;
 const P7_7_TERMINAL_FAILURES = new Set(["provider_outcome_ambiguous", "worker_termination_failed",
-  "invocation_replay_forbidden", "invocation_journal_unavailable"]);
+  "invocation_replay_forbidden", "invocation_journal_unavailable",
+  "invocation_journal_inside_source_repository"]);
 
 const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
@@ -782,7 +783,8 @@ export async function compareCodexCommand(
           mode: "baseline",
           timeoutMs: BOUNDED_COMPARE_AGENT_TIMEOUT_MS,
           networkAllowed: false,
-          sandboxMode: "workspace_write"
+          sandboxMode: "workspace_write",
+          sourceRepositoryPath: repositoryRoot
         });
         const files = changedFiles(baselineWorkspace.workspacePath);
         const changes = await changesFromWorkspace(baselineWorkspace.workspacePath, files);
