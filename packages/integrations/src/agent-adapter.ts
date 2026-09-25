@@ -53,6 +53,13 @@ export interface AgentUsage {
   totalTokens: number | null;
   cachedInputTokens?: number | null;
   toolCalls?: number | null;
+  /**
+   * Observation only: agent-loop model turns seen in the provider stream.
+   * Cumulative-turn semantics mean these never gate or limit the run.
+   */
+  providerTurnCount?: number | null;
+  /** Distinct command-execution tool calls observed in the provider stream. */
+  toolCallCount?: number | null;
 }
 
 export interface AgentCommandEvent {

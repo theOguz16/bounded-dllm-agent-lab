@@ -399,6 +399,8 @@ export function parseCodexJsonl(
   let turnFailed = false;
   let streamFailed = false;
   let protocolInvalid = false;
+  let providerTurnCount = 0;
+  let toolCallCount = 0;
   let usage: ParsedUsage = {
     inputTokens: null,
     cachedInputTokens: null,
@@ -465,6 +467,7 @@ export function parseCodexJsonl(
           threadId = requireString(parsed, "thread_id", line, eventType);
           break;
         case "turn.started":
+          providerTurnCount += 1;
           break;
         case "turn.completed":
           usage = parseUsage(parsed.usage, line);
@@ -614,7 +617,8 @@ export function parseCodexJsonl(
       commandCount: commandValues.length,
       failedCommandCount,
       fileChangeEventCount: fileChangeValues.length,
-      durationMs: options.durationMs
+      durationMs: options.durationMs,
+      providerTurnCount
     });
   } catch (error) {
     if (!(error instanceof AgentTelemetryValidationError)) throw error;
@@ -633,7 +637,8 @@ export function parseCodexJsonl(
       commandCount: commandValues.length,
       failedCommandCount,
       fileChangeEventCount: fileChangeValues.length,
-      durationMs: options.durationMs
+      durationMs: options.durationMs,
+      providerTurnCount
     });
   }
 

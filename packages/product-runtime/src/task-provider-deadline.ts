@@ -17,6 +17,10 @@ export type TaskProviderUsageReport = Readonly<{
   totalTokens: number;
   providerResponseHash: string;
   providerRequestId?: string | null;
+  /** Observation only: cached input subset when the provider reports it. */
+  cachedInputTokens?: number | null;
+  providerTurnCount?: number | null;
+  toolCallCount?: number | null;
 } | {
   status: "unavailable";
   reason: "provider_usage_missing" | "provider_usage_unsupported" | "provider_call_failed";

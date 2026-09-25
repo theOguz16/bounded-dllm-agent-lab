@@ -37,6 +37,29 @@ async function main() {
   assert.equal(success.telemetry.failedCommandCount, 0);
   assert.equal(success.telemetry.fileChangeEventCount, 1);
   assert.equal(success.telemetry.durationMs, 321);
+  assert.equal(success.telemetry.providerTurnCount, 1);
+
+  // Multi-turn agent stream: usage comes from the LAST turn.completed (the
+  // provider reports cumulative thread usage), turn/tool counts are
+  // observation-only aggregates over safe event types.
+  const multiTurn = parser.parseCodexJsonl(fixture("multi-turn.jsonl"), { durationMs: 50 });
+  assert.equal(multiTurn.status, "completed");
+  assert.equal(multiTurn.telemetry.providerTurnCount, 3);
+  assert.equal(multiTurn.telemetry.commandCount, 2);
+  assert.equal(multiTurn.telemetry.inputTokens, 5300, "cumulative input from the final turn");
+  assert.equal(multiTurn.telemetry.cachedInputTokens, 5000, "cumulative cached subset");
+  assert.equal(multiTurn.telemetry.outputTokens, 200);
+  assert.equal(multiTurn.telemetry.totalTokens, 5500);
+  assert.ok(multiTurn.telemetry.cachedInputTokens <= multiTurn.telemetry.inputTokens);
+
+  const malformedUsage = parser.parseCodexJsonl(
+    '{\"type\":\"thread.started\",\"thread_id\":\"t\"}\n{\"type\":\"turn.started\"}\n' +
+    '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":-5,\"output_tokens\":1}}\n',
+    { durationMs: 1 }
+  );
+  assert.equal(malformedUsage.telemetry.usageStatus, "unavailable",
+    "malformed usage must fail closed to unavailable telemetry");
+  assert.ok(malformedUsage.diagnostics.some((entry) => entry.code === "agent_protocol_invalid"));
 
   const failedCommand = parser.parseCodexJsonl(fixture("failed-command.jsonl"));
   assert.equal(failedCommand.status, "completed");

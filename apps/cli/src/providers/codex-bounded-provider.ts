@@ -317,13 +317,23 @@ function reportCodexUsage(result: AgentRunResult, control: TaskProviderControl):
     totalTokens >= 0 &&
     totalTokens === inputTokens + outputTokens
   ) {
+    const { cachedInputTokens, providerTurnCount, toolCallCount } = result.usage;
+    const cachedValid = typeof cachedInputTokens === "number" && Number.isSafeInteger(cachedInputTokens) &&
+      cachedInputTokens >= 0 && cachedInputTokens <= inputTokens;
+    // Numeric observation only: no model/tool content ever travels with this
+    // report, and absence of any field is never interpreted as zero.
     const usage: TaskProviderUsageReport = {
       status: "observed",
       inputTokens,
       outputTokens,
       totalTokens,
       providerResponseHash: responseHash,
-      providerRequestId: null
+      providerRequestId: null,
+      ...(cachedValid ? { cachedInputTokens } : {}),
+      ...(typeof providerTurnCount === "number" && Number.isSafeInteger(providerTurnCount) && providerTurnCount >= 0
+        ? { providerTurnCount } : {}),
+      ...(typeof toolCallCount === "number" && Number.isSafeInteger(toolCallCount) && toolCallCount >= 0
+        ? { toolCallCount } : {})
     };
     control.reportUsage(usage);
     return;

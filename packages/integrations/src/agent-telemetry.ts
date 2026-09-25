@@ -18,6 +18,10 @@ export type AgentRunTelemetry = Readonly<{
   failedCommandCount: number | null;
   fileChangeEventCount: number | null;
   durationMs: number | null;
+  /** Agent-loop model turns observed in the provider stream; null when unobservable. */
+  providerTurnCount: number | null;
+  /** Command-execution tool calls observed in the provider stream; null when unobservable. */
+  toolCallCount: number | null;
 }>;
 
 export type AgentRunTelemetryInput = Readonly<{
@@ -32,6 +36,8 @@ export type AgentRunTelemetryInput = Readonly<{
   failedCommandCount?: number | null;
   fileChangeEventCount?: number | null;
   durationMs?: number | null;
+  providerTurnCount?: number | null;
+  toolCallCount?: number | null;
 }>;
 
 export class AgentTelemetryValidationError extends Error {
@@ -93,6 +99,8 @@ export function createAgentRunTelemetry(
     "fileChangeEventCount"
   );
   const durationMs = nullableCount(input.durationMs, "durationMs");
+  const providerTurnCount = nullableCount(input.providerTurnCount, "providerTurnCount");
+  const toolCallCount = nullableCount(input.toolCallCount, "toolCallCount");
 
   if (cachedInputTokens !== null) {
     if (inputTokens === null) {
@@ -152,6 +160,8 @@ export function createAgentRunTelemetry(
     commandCount,
     failedCommandCount,
     fileChangeEventCount,
-    durationMs
+    durationMs,
+    providerTurnCount,
+    toolCallCount
   });
 }

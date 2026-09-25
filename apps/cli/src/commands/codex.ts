@@ -394,6 +394,47 @@ function blockedCompositionTelemetry(result: RunBoundedTaskResult): Readonly<{
   });
 }
 
+/**
+ * Per-provider-invocation numeric token observability, derived from the cost
+ * ledger snapshot. `tokens` above keeps its historical meaning: the SUM of
+ * each provider call's cumulative thread usage (planner + coder), where
+ * cached input is a subset of cumulative input. Numeric only by contract.
+ */
+function tokenObservability(result: RunBoundedTaskResult): ReadonlyArray<Readonly<{
+  operation: string;
+  initialPromptEstimatedTokens: number;
+  reported: boolean;
+  cumulativeInputTokens: number | null;
+  cumulativeCachedInputTokens: number | null;
+  cumulativeUncachedInputTokens: number | null;
+  outputTokens: number | null;
+  providerTurnCount: number | null;
+  toolCallCount: number | null;
+}>> | null {
+  const snapshot = result.summary?.costBudget;
+  if (!snapshot) return null;
+  return snapshot.reservations.map((reservation) => {
+    const reconciliation = snapshot.reconciliations.find(
+      (entry) => entry.invocationId === reservation.invocationId
+    );
+    const observed = reconciliation?.usage.status === "observed" ? reconciliation.usage : null;
+    const cached = observed?.cachedInputTokens ?? null;
+    return Object.freeze({
+      operation: reservation.operation,
+      initialPromptEstimatedTokens: reservation.estimatedInputTokens,
+      reported: observed !== null,
+      cumulativeInputTokens: observed?.inputTokens ?? null,
+      cumulativeCachedInputTokens: cached,
+      cumulativeUncachedInputTokens: observed !== null && cached !== null
+        ? observed.inputTokens - cached
+        : null,
+      outputTokens: observed?.outputTokens ?? null,
+      providerTurnCount: observed?.providerTurnCount ?? null,
+      toolCallCount: observed?.toolCallCount ?? null
+    });
+  });
+}
+
 function candidateFiles(result: RunBoundedTaskResult): readonly string[] {
   if (result.verifierResult) {
     return Object.freeze([...new Set(result.verifierResult.canonicalTouchedFiles)].sort());
@@ -615,7 +656,9 @@ export async function codexCommand(
       cached: sumObserved(recordedRuns, (run) => run.usage.cachedInputTokens),
       output: sumObserved(recordedRuns, (run) => run.usage.outputTokens),
       reasoning: null,
-      total: sumObserved(recordedRuns, (run) => run.usage.totalTokens)
+      total: sumObserved(recordedRuns, (run) => run.usage.totalTokens),
+      aggregation: "sum of per-provider-call cumulative thread usage (planner + coder); cached input is a subset",
+      tokenObservability: tokenObservability(result)
     },
     candidate: {
       changedFileCount: changedFiles.length,

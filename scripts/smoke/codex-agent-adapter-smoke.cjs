@@ -125,7 +125,9 @@ async function main() {
     outputTokens: 25,
     totalTokens: 125,
     cachedInputTokens: 40,
-    toolCalls: null
+    toolCalls: null,
+    providerTurnCount: 1,
+    toolCallCount: 1
   });
   assert.equal(result.commands.length, 1);
   assert.equal(result.commands[0].command, "npm test");

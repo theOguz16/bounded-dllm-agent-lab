@@ -147,6 +147,15 @@ export function createTaskCostBudgetController(budget: TaskCostBudget,
     let accountedTokens = reservation.estimatedTokens;
     let accountedCostNanoUsd = reservation.estimatedCostNanoUsd;
     if (usage.status === "observed") {
+      const cached = usage.cachedInputTokens ?? null;
+      if (cached !== null && (!Number.isSafeInteger(cached) || cached < 0 || cached > usage.inputTokens))
+        throw new TaskCostBudgetError("task_cost_budget_invalid", "Cached input tokens must be a subset of input tokens.");
+      const turns = usage.providerTurnCount ?? null;
+      const toolCalls = usage.toolCallCount ?? null;
+      if (turns !== null && (!Number.isSafeInteger(turns) || turns < 0)) throw new TaskCostBudgetError(
+        "task_cost_budget_invalid", "Provider turn count must be a non-negative safe integer.");
+      if (toolCalls !== null && (!Number.isSafeInteger(toolCalls) || toolCalls < 0)) throw new TaskCostBudgetError(
+        "task_cost_budget_invalid", "Tool call count must be a non-negative safe integer.");
       if (!Number.isSafeInteger(usage.inputTokens) || usage.inputTokens < 0 ||
           !Number.isSafeInteger(usage.outputTokens) || usage.outputTokens < 0 ||
           usage.totalTokens !== usage.inputTokens + usage.outputTokens) throw new TaskCostBudgetError(
@@ -195,6 +204,10 @@ export type ObservedTokenUsage = {
   totalTokens: number;
   providerResponseHash: string;
   providerRequestId: string | null;
+  /** Observation only: cached input subset of inputTokens when reported. */
+  cachedInputTokens?: number | null;
+  providerTurnCount?: number | null;
+  toolCallCount?: number | null;
 };
 
 export type EstimatedTokenUsage = {

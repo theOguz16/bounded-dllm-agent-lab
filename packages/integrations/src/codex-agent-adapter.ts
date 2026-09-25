@@ -653,7 +653,9 @@ export class CodexAgentAdapter implements AgentAdapter {
         outputTokens: parsed.telemetry.outputTokens,
         totalTokens: parsed.telemetry.totalTokens,
         cachedInputTokens: parsed.telemetry.cachedInputTokens,
-        toolCalls: null
+        toolCalls: null,
+        providerTurnCount: parsed.telemetry.providerTurnCount,
+        toolCallCount: parsed.telemetry.commandCount
       },
       commands,
       fileChanges: mapFileChanges(parsed),

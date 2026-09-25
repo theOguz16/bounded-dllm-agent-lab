@@ -630,7 +630,10 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       const usage: TokenUsageEvidence = report.status === "observed" ? {
         status: "observed", inputTokens: report.inputTokens, outputTokens: report.outputTokens,
         totalTokens: report.totalTokens, providerResponseHash: report.providerResponseHash,
-        providerRequestId: report.providerRequestId ?? null
+        providerRequestId: report.providerRequestId ?? null,
+        cachedInputTokens: report.cachedInputTokens ?? null,
+        providerTurnCount: report.providerTurnCount ?? null,
+        toolCallCount: report.toolCallCount ?? null
       } : { status: "unavailable", reason: report.reason,
         providerResponseHash: report.providerResponseHash ?? null };
       costController!.reconcile(invocationId, usage); persistCost();

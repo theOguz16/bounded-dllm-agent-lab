@@ -119,7 +119,8 @@ function fakeAdapter(sourceRoot, { plannerUsageMissing = false } = {}) {
             ? { inputTokens: null, outputTokens: null, totalTokens: null,
                 cachedInputTokens: null, toolCalls: null }
             : { inputTokens: 120, outputTokens: 30, totalTokens: 150,
-                cachedInputTokens: 20, toolCalls: null },
+                cachedInputTokens: 20, toolCalls: null,
+                providerTurnCount: 1, toolCallCount: 2 },
           commands: [],
           fileChanges: [],
           diagnostics: []
@@ -330,6 +331,9 @@ async function main() {
     }, control(plannerReports));
     assert.equal(plannerReports[0].status, "observed");
     assert.equal(plannerReports[0].totalTokens, 150);
+    assert.equal(plannerReports[0].cachedInputTokens, 20);
+    assert.equal(plannerReports[0].providerTurnCount, 1);
+    assert.equal(plannerReports[0].toolCallCount, 2);
     assert.match(plannerOutput.proposal.proposalHash, /^sha256:[0-9a-f]{64}$/);
     assert.match(plannerOutput.proposal.seedRationales[0].reasonHash, /^sha256:[0-9a-f]{64}$/);
     const plannerPromptLines = adapter.requests[0].task.split("\n").slice(0, -1);

@@ -288,7 +288,9 @@ async function main() {
       cached: 75,
       output: 100,
       reasoning: null,
-      total: 400
+      total: 400,
+      aggregation: "sum of per-provider-call cumulative thread usage (planner + coder); cached input is a subset",
+      tokenObservability: null
     });
     assert.equal(command.output.candidate.changedFileCount, 1);
     assert.deepEqual(command.output.candidate.files, ["src/session.ts"]);

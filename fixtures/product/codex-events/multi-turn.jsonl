@@ -1,0 +1,12 @@
+{"type":"thread.started","thread_id":"thread-multi"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"npm test","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","command":"npm test","aggregated_output":"ok","exit_code":0,"status":"completed"}}
+{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":800,"output_tokens":50}}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"cmd-2","type":"command_execution","command":"npm run typecheck","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"cmd-2","type":"command_execution","command":"npm run typecheck","aggregated_output":"ok","exit_code":0,"status":"completed"}}
+{"type":"turn.completed","usage":{"input_tokens":3200,"cached_input_tokens":2900,"output_tokens":120}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"Done."}}
+{"type":"turn.completed","usage":{"input_tokens":5300,"cached_input_tokens":5000,"output_tokens":200}}
