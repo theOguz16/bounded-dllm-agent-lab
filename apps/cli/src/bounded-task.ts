@@ -537,6 +537,7 @@ async function coder(
   provider: ProviderFile,
   key: string | undefined,
   context: unknown,
+  _runtime: unknown,
   control?: TaskProviderControl
 ): Promise<WorkspaceMutation> {
   const controller = new AbortController();
@@ -834,7 +835,7 @@ export async function buildRunInput(task: TaskFile): Promise<RunBoundedTaskInput
       requiredSymbols: [],
       reason: "CLI does not automatically widen declared context."
     }),
-    coderProvider: async (context, control) => coder(provider, key, context, control),
+    coderProvider: async (context, runtime, control) => coder(provider, key, context, runtime, control),
     ...(task.costBudget ? { costBudget: task.costBudget } : {}),
     ...(task.mode === "draft"
       ? validation

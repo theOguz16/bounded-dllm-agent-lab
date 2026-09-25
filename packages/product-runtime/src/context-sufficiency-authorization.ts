@@ -453,6 +453,23 @@ export function authorizeContextSufficientPatch(
     );
   }
 
+  if (coderResult.runtimeContext === undefined) {
+    return authorizationFinish(
+      "context_authorization_blocked",
+      "human_review_required",
+      [
+        issue(
+          "coder_execution_not_authorizable",
+          "Adaptive completion must carry the runtime-side coder context evidence.",
+          "error"
+        )
+      ],
+      null,
+      null,
+      summary
+    );
+  }
+
   summary.coderExecuted = true;
 
   const providerCalledExactlyOnce =
@@ -629,7 +646,7 @@ export function authorizeContextSufficientPatch(
   }
 
   const evidenceBindings =
-    coderResult.context.evidence
+    coderResult.runtimeContext.evidence
       .map((entry) => ({
         path: entry.path,
         contentHash:

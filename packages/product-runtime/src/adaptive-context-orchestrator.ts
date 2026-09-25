@@ -95,7 +95,8 @@ export type RunAdaptiveCoderContextFlowInput<T> = {
     state: AdaptiveScopeApprovalState
   ) => Promise<boolean>;
   coderProvider: (
-    context: CoderProviderContext
+    context: CoderProviderContext,
+    runtime: import("./coder-context-execution-gate.js").CoderGateRuntimeContext
   ) => Promise<T>;
 };
 
@@ -356,7 +357,7 @@ export async function runAdaptiveCoderContextFlow<T>(
           input.hardTotalBudgetTokens,
         reservedOutputTokens:
           input.reservedOutputTokens,
-        provider: input.coderProvider
+        provider: (context, runtime) => input.coderProvider(context, runtime)
       });
 
     if (coderResult.route === "coder_executed") {

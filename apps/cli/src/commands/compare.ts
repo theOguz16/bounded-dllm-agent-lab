@@ -404,7 +404,7 @@ function boundedContext(result: RunBoundedTaskResult | null): Readonly<{ files: 
   const context = result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.context;
   if (!context) return Object.freeze({ files: 0, bytes: 0 });
   const byPath = new Map<string, number>();
-  for (const evidence of context.evidence) byPath.set(evidence.path, evidence.byteLength);
+  for (const evidence of context.evidence) byPath.set(evidence.path, Buffer.byteLength(evidence.content, "utf8"));
   return Object.freeze({
     files: byPath.size,
     bytes: [...byPath.values()].reduce((sum, value) => sum + value, 0)

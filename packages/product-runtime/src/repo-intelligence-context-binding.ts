@@ -20,7 +20,7 @@ import type {
   InitialCoderContextEvidence
 } from "./coder-context-execution-gate.js";
 
-export const REPO_INTELLIGENCE_CONTEXT_BINDING_VERSION = "1" as const;
+export const REPO_INTELLIGENCE_CONTEXT_BINDING_VERSION = "2" as const;
 
 export type RepoIntelligenceContextBindingDecision =
   | "repo_context_binding_completed"
@@ -48,7 +48,7 @@ export type RepoIntelligenceEvidenceBinding = {
 };
 
 export type RepoIntelligenceContextBindingReceipt = {
-  bindingVersion: "1";
+  bindingVersion: typeof REPO_INTELLIGENCE_CONTEXT_BINDING_VERSION;
   intelligenceVersion: "1";
   intelligenceHash: string;
   repositoryIdentityHash: string;
@@ -62,23 +62,14 @@ export type RepoIntelligenceContextBindingReceipt = {
 };
 
 export type RepoIntelligenceBoundBaseContext = {
-  version: "1";
+  version: "2";
   taskContext: unknown;
   repositoryIntelligence: {
     bindingHash: string;
     intelligenceHash: string;
     repositoryIdentityHash: string;
-    seedFiles: readonly string[];
-    dependencyClosure: readonly string[];
-    dependencyEdges: CanonicalRepoIntelligence["dependencyEdges"];
-    files: readonly {
-      path: string;
-      contentHash: string;
-      imports: readonly string[];
-      externalDependencies: readonly string[];
-      exports: readonly string[];
-      symbols: CanonicalRepoFileFact["symbols"];
-    }[];
+    requiredSourceFiles: readonly string[];
+    requiredTestFiles: readonly string[];
   };
 };
 
@@ -109,7 +100,8 @@ export type RunRepoIntelligenceBoundCoderFlowInput<T> = {
     state: AdaptiveContextRequestState
   ) => Promise<unknown>;
   coderProvider: (
-    context: CoderProviderContext
+    context: CoderProviderContext,
+    runtime: import("./coder-context-execution-gate.js").CoderGateRuntimeContext
   ) => Promise<T>;
 };
 
@@ -334,21 +326,16 @@ function buildBoundBaseContext(
   intelligence: CanonicalRepoIntelligence,
   binding: RepoIntelligenceContextBindingReceipt
 ): RepoIntelligenceBoundBaseContext {
-  const closure = new Set(intelligence.dependencyClosure);
-  const files = intelligence.scannedFiles
-    .filter((file) => closure.has(file.path))
-    .map((file) => ({
-      path: file.path,
-      contentHash: file.contentHash,
-      imports: file.imports,
-      externalDependencies: file.externalDependencies,
-      exports: file.exports,
-      symbols: file.symbols
-    }))
-    .sort((left, right) => left.path.localeCompare(right.path));
-  const dependencyEdges = intelligence.dependencyEdges.filter(
-    (edge) => closure.has(edge.from) && closure.has(edge.to)
-  );
+  // Model-facing projection only. The full dependency closure (file symbols,
+  // exports, imports, and closure-wide edges) stays runtime-side: it is bound
+  // cryptographically by bindingHash and re-derivable from the intelligence
+  // object this flow returns. Serializing it eagerly pushed the composed coder
+  // context far past the hard token budget. The required files' own contents
+  // already carry their import statements, the disposable workspace exposes
+  // the readable boundary for on-demand inspection, and genuinely needed
+  // dependency files remain obtainable through the bounded context-request
+  // expansion. The initial context therefore carries integrity receipts and
+  // the required-file identities only.
   return deepFreeze({
     version: REPO_INTELLIGENCE_CONTEXT_BINDING_VERSION,
     taskContext,
@@ -356,10 +343,8 @@ function buildBoundBaseContext(
       bindingHash: binding.bindingHash,
       intelligenceHash: intelligence.intelligenceHash,
       repositoryIdentityHash: intelligence.repositoryIdentityHash,
-      seedFiles: binding.seedFiles,
-      dependencyClosure: intelligence.dependencyClosure,
-      dependencyEdges,
-      files
+      requiredSourceFiles: binding.requiredSourceFiles,
+      requiredTestFiles: binding.requiredTestFiles
     }
   });
 }
@@ -454,7 +439,7 @@ function validateCompletedAdaptiveResult<T>(
     )];
   }
   const issues: RepoIntelligenceContextBindingIssue[] = [];
-  for (const filePath of result.coderResult.context.readableFiles ?? []) {
+  for (const filePath of result.coderResult.runtimeContext?.readableFiles ?? []) {
     if (!allowed.has(filePath)) {
       issues.push(issue(
         "repo_context_coder_readable_file_outside_boundary",
@@ -464,7 +449,7 @@ function validateCompletedAdaptiveResult<T>(
       ));
     }
   }
-  for (const evidence of result.coderResult.context.evidence) {
+  for (const evidence of result.coderResult.runtimeContext?.evidence ?? []) {
     if (!allowed.has(evidence.path)) {
       issues.push(issue(
         "repo_context_coder_evidence_outside_boundary",

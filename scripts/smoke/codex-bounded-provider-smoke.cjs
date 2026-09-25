@@ -347,11 +347,9 @@ async function main() {
       version: "1",
       baseContext: { taskId },
       evidence: [{ ...evidence(), origin: "initial_context" }],
-      provenance: [{ path: "src/calculate.ts", origin: "initial_context",
-        contentHash: hash(original), source: "initial_context" }],
       budget: { estimatedInputTokens: 100, reservedOutputTokens: 100,
         hardTotalBudgetTokens: 1000, remainingTokens: 800 }
-    }, control(coderReports));
+    }, { readableFiles: ["src/calculate.ts"] }, control(coderReports));
     assert.equal(coderReports[0].status, "unavailable");
     assert.equal(coderReports[0].reason, "provider_usage_missing");
     assert.equal(Object.hasOwn(coderReports[0], "estimatedTokens"), false);

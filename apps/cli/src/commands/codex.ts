@@ -359,10 +359,39 @@ function contextExposure(result: RunBoundedTaskResult): Readonly<{ fileCount: nu
   const context = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.context;
   if (!context) return Object.freeze({ fileCount: 0, bytes: 0 });
   const byPath = new Map<string, number>();
-  for (const evidence of context.evidence) byPath.set(evidence.path, evidence.byteLength);
+  for (const evidence of context.evidence) byPath.set(evidence.path, Buffer.byteLength(evidence.content, "utf8"));
   let bytes = 0;
   for (const value of byPath.values()) bytes += value;
   return Object.freeze({ fileCount: byPath.size, bytes });
+}
+
+/**
+ * Explicit blocked-composition telemetry for the coder gate. `context` above
+ * keeps its meaning: actually-executed coder exposure. When the gate stops
+ * before execution, this reports the composed-context estimate that triggered
+ * the block so budget overruns are observable instead of showing up only as
+ * zeroed execution telemetry.
+ */
+function blockedCompositionTelemetry(result: RunBoundedTaskResult): Readonly<{
+  composedContextEstimatedTokens: number;
+  hardTotalBudgetTokens: number;
+  reservedOutputTokens: number;
+  availableInputTokens: number;
+  visibleFileCount: number;
+} | null> {
+  const coderResult = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult;
+  if (!coderResult || coderResult.context !== null || coderResult.providerCalled) return null;
+  if (!coderResult.issues.some((entry) => entry.code === "coder_context_hard_budget_exceeded")) {
+    return null;
+  }
+  const summary = coderResult.summary;
+  return Object.freeze({
+    composedContextEstimatedTokens: summary.estimatedInputTokens,
+    hardTotalBudgetTokens: summary.hardTotalBudgetTokens,
+    reservedOutputTokens: summary.reservedOutputTokens,
+    availableInputTokens: summary.hardTotalBudgetTokens - summary.reservedOutputTokens,
+    visibleFileCount: summary.visibleFileCount
+  });
 }
 
 function candidateFiles(result: RunBoundedTaskResult): readonly string[] {
@@ -548,6 +577,7 @@ export async function codexCommand(
   if (runError !== null) throw runError;
 
   const exposure = contextExposure(result);
+  const blockedComposition = blockedCompositionTelemetry(result);
   const changedFiles = candidateFiles(result);
   const validationEvidence = result.verifierResult?.validationEvidence;
   const typecheck = validationEvidence?.checks.find((entry) => entry.kind === "typecheck");
@@ -579,6 +609,7 @@ export async function codexCommand(
       fileCount: exposure.fileCount,
       bytes: exposure.bytes
     },
+    ...(blockedComposition ? { blockedComposition } : {}),
     tokens: {
       input: sumObserved(recordedRuns, (run) => run.usage.inputTokens),
       cached: sumObserved(recordedRuns, (run) => run.usage.cachedInputTokens),

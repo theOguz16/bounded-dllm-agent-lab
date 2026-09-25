@@ -97,6 +97,7 @@ async function main() {
     let coderCalls = 0;
     let requestCalls = 0;
     let observedContext = null;
+    let observedRuntime = null;
     const result = await runRepoIntelligenceBoundCoderFlow({
       repositoryPath: root,
       seedFiles: ["src/index.ts"],
@@ -117,16 +118,17 @@ async function main() {
         requestCalls += 1;
         throw new Error("Context request provider must not be called for complete evidence.");
       },
-      coderProvider: async (context) => {
+      coderProvider: async (context, runtime) => {
         coderCalls += 1;
         observedContext = context;
+        observedRuntime = runtime;
         return {
           kind: "patch",
           files: ["src/service.ts"]
         };
       }
     });
-    return { result, coderCalls, requestCalls, observedContext };
+    return { result, coderCalls, requestCalls, observedContext, observedRuntime };
   };
 
   let readyCase;
@@ -170,23 +172,30 @@ async function main() {
       ]);
     });
 
-    await check("coder receives hash-bound graph context and repository evidence", async () => {
+    await check("coder receives minimal hash-bound context without closure payload", async () => {
       assert(readyCase.observedContext);
       const base = readyCase.observedContext.baseContext;
-      assert.equal(base.version, "1");
+      assert.equal(base.version, "2");
       assert.equal(base.repositoryIntelligence.bindingHash, readyCase.result.binding.bindingHash);
-      assert.deepEqual(base.repositoryIntelligence.dependencyClosure, [
-        "src/index.ts",
-        "src/service.ts",
-        "src/types.ts"
-      ]);
-      assert(base.repositoryIntelligence.dependencyEdges.some(
-        (edge) => edge.from === "src/index.ts" && edge.to === "src/service.ts"
-      ));
+      assert.equal(base.repositoryIntelligence.intelligenceHash, readyCase.result.intelligence.intelligenceHash);
+      assert.deepEqual(base.repositoryIntelligence.requiredSourceFiles, ["src/index.ts"]);
+      assert.deepEqual(base.repositoryIntelligence.requiredTestFiles, ["tests/service.test.ts"]);
+      // Closure-wide metadata stays runtime-side, bound by bindingHash.
+      assert.equal(base.repositoryIntelligence.dependencyClosure, undefined);
+      assert.equal(base.repositoryIntelligence.dependencyEdges, undefined);
+      assert.equal(base.repositoryIntelligence.files, undefined);
+      assert.equal(base.repositoryIntelligence.seedFiles, undefined);
+      // No eager dependency graph: import statements are visible in the
+      // evidence contents, the disposable workspace exposes the closure
+      // read-only, and dependency files load on demand through the bounded
+      // context-request expansion.
+      assert.equal(base.repositoryIntelligence.directDependencyImports, undefined);
       assert.deepEqual(
         readyCase.observedContext.evidence.map((entry) => entry.path).sort(),
         readyCase.result.binding.allowedContextFiles
       );
+      // The readable boundary remains runtime authorization data.
+      assert.deepEqual(readyCase.observedRuntime.readableFiles, readyCase.result.binding.allowedContextFiles);
     });
 
     await check("binding receipt is deterministic and tamper evident", async () => {

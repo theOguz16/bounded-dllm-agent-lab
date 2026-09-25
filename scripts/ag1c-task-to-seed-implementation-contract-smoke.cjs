@@ -292,12 +292,12 @@ async function main() {
       assert.equal(readyResult.summary.coderProviderCallCount, 1);
     });
 
-    await check("coder context contains contract audit and bounded graph hashes", async () => {
+    await check("coder context carries hash receipts while contract stays runtime-side", async () => {
       assert(observedContext);
       const bound = observedContext.baseContext;
-      assert.equal(bound.taskContext.implementationContract.contractHash, contract.contractHash);
-      assert.equal(bound.taskContext.implementationContract.auditHash, readyResult.audit.auditHash);
+      assert.equal(bound.taskContext.implementationContract, undefined);
       assert.equal(bound.repositoryIntelligence.intelligenceHash, readyResult.audit.intelligenceHash);
+      assert.equal(bound.repositoryIntelligence.bindingHash, readyResult.repoResult.binding.bindingHash);
       assert.deepEqual(
         observedContext.evidence.map((entry) => entry.path).sort(),
         ["src/index.ts", "src/service.ts", "src/types.ts", "tests/service.test.ts"]

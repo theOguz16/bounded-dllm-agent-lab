@@ -481,13 +481,18 @@ export function createCodexBoundedProvider(
 
   const coderProvider: RunBoundedTaskInput["coderProvider"] = async (
     context,
+    runtime,
     control
   ): Promise<WorkspaceMutation> => {
     const repositoryPath = await realpath(options.repositoryPath).catch(() => {
       throw new CodexBoundedProviderError("repositoryPath cannot be resolved.");
     });
+    // The readable repository boundary is runtime authorization data delivered
+    // next to the model-facing context; it is never serialized into the prompt.
     const visibleFiles = [...new Set(
-      context.readableFiles ?? context.evidence.map((entry) => entry.path)
+      runtime.readableFiles.length > 0
+        ? runtime.readableFiles
+        : context.evidence.map((entry) => entry.path)
     )].sort(
       (left, right) => left.localeCompare(right, "en")
     );

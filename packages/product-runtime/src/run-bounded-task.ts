@@ -112,7 +112,11 @@ export type RunBoundedTaskInput = Omit<BoundedTaskFlowInput,
     containerOptions?: ContainerizedWorkspaceExecutionOptions;
   }>;
   plannerMinimalityProvider: (context: Parameters<BoundedTaskFlowInput["plannerMinimalityProvider"]>[0], control: TaskProviderControl) => Promise<unknown>;
-  coderProvider: (context: Parameters<BoundedTaskFlowInput["coderProvider"]>[0], control: TaskProviderControl) => Promise<WorkspaceMutation>;
+  coderProvider: (
+    context: Parameters<BoundedTaskFlowInput["coderProvider"]>[0],
+    runtime: Parameters<BoundedTaskFlowInput["coderProvider"]>[1],
+    control: TaskProviderControl
+  ) => Promise<WorkspaceMutation>;
   contextRequestProvider: (context: Parameters<BoundedTaskFlowInput["contextRequestProvider"]>[0], control: TaskProviderControl) => ReturnType<BoundedTaskFlowInput["contextRequestProvider"]>;
 
   governedExecution?: CanonicalGovernedExecutionConfiguration;
@@ -667,16 +671,16 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
           (summary.plannerCalled = true, callProvider("planner", context, control,
             control.providerIdempotencyKey, (providerControl) => input.plannerMinimalityProvider(context, providerControl)));
       }),
-      coderProvider: (context) => budget.call("coding", (control) => {
+      coderProvider: (context, runtime) => budget.call("coding", (control) => {
         durableSession?.advance("context_authorized", { contextEvidenceHash: hashCanonicalJson(context) });
         durableSession?.advance("coding_started");
         return durableSession ? durableSession.cachedProvider("coder", context, async (providerIdempotencyKey) => {
           summary.coderCalled = true; return callProvider("coder", context, control,
-            providerIdempotencyKey, (providerControl) => input.coderProvider(context, providerControl));
+            providerIdempotencyKey, (providerControl) => input.coderProvider(context, runtime, providerControl));
         }).then(({ value }) => { durableSession.advance("coding_completed", {
           mutationArtifactHash: hashCanonicalJson(value) }); return value; }) :
           (summary.coderCalled = true, callProvider("coder", context, control,
-            control.providerIdempotencyKey, (providerControl) => input.coderProvider(context, providerControl)));
+            control.providerIdempotencyKey, (providerControl) => input.coderProvider(context, runtime, providerControl)));
       }),
       contextRequestProvider: (context) => budget.call("repository_intelligence", (control) =>
         durableSession ? durableSession.cachedProvider("context", context, async (providerIdempotencyKey) => {
@@ -768,7 +772,7 @@ async function runBoundedTaskOnce(input: RunBoundedTaskInput,
       mutation,
       allowedFiles: effectiveAllowedFiles,
       forbiddenFiles: effectiveForbiddenFiles,
-      boundContextFiles: coderResult.context?.evidence.map(({ path, contentHash }) => ({ path, contentHash })) ?? [],
+      boundContextFiles: coderResult.runtimeContext?.evidence.map(({ path, contentHash }) => ({ path, contentHash })) ?? [],
       policyHash: policyBinding.policy.compiledPolicyHash,
       requireExistingTouchedFiles: true
     });
@@ -1476,7 +1480,7 @@ export async function runBoundedTask(input: RunBoundedTaskInput): Promise<RunBou
     }
     const durableInput: RunBoundedTaskInput = { ...input, repositoryPath: repository,
       plannerMinimalityProvider: async (context, control) => input.plannerMinimalityProvider(context, control),
-      coderProvider: async (context, control) => input.coderProvider(context, control),
+      coderProvider: async (context, runtime, control) => input.coderProvider(context, runtime, control),
       contextRequestProvider: (context, control) => input.contextRequestProvider(context, control) };
     const result = await runBoundedTaskOnce(durableInput, session);
     session.finalize(terminalStateFor(result), result,

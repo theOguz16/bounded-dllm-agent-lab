@@ -23,6 +23,12 @@ export type CoderContextExecutionIssue = {
   severity: "error" | "review";
   filePath?: string;
   field?: string;
+  /** Blocked-composition telemetry for budget-exceeded failures. */
+  composedContextEstimatedTokens?: number;
+  hardTotalBudgetTokens?: number;
+  reservedOutputTokens?: number;
+  availableInputTokens?: number;
+  visibleFileCount?: number;
 };
 
 export type InitialCoderContextEvidence = {
@@ -42,19 +48,23 @@ export type CoderVisibleEvidence =
       | "context_expansion";
   };
 
+/**
+ * Model-facing evidence projection. Integrity metadata (contentHash,
+ * byteLength, source, matchedSymbols) is validated at the gate input and kept
+ * runtime-side in the binding receipt; it is not serialized toward the model.
+ */
+export type CoderProviderEvidence = Readonly<{
+  path: string;
+  content: string;
+  origin:
+    | "initial_context"
+    | "context_expansion";
+}>;
+
 export type CoderProviderContext = {
   version: "1";
   baseContext: unknown;
-  evidence: readonly CoderVisibleEvidence[];
-  readableFiles?: readonly string[];
-  provenance: readonly {
-    path: string;
-    origin:
-      | "initial_context"
-      | "context_expansion";
-    contentHash: string;
-    source: string;
-  }[];
+  evidence: readonly CoderProviderEvidence[];
   budget: {
     estimatedInputTokens: number;
     reservedOutputTokens: number;
@@ -62,6 +72,16 @@ export type CoderProviderContext = {
     remainingTokens: number;
   };
 };
+
+/**
+ * Runtime-side context handed to the coder provider implementation next to the
+ * model-facing CoderProviderContext. It carries authorization data (the
+ * readable repository boundary) that must never be serialized into the model
+ * prompt but is required for deterministic workspace construction.
+ */
+export type CoderGateRuntimeContext = Readonly<{
+  readableFiles: readonly string[];
+}>;
 
 export type ExecuteCoderWithContextGateInput<T> = {
   baseContext: unknown;
@@ -80,7 +100,8 @@ export type ExecuteCoderWithContextGateInput<T> = {
   hardTotalBudgetTokens: number;
   reservedOutputTokens?: number;
   provider: (
-    context: CoderProviderContext
+    context: CoderProviderContext,
+    runtime: CoderGateRuntimeContext
   ) => Promise<T>;
 };
 
@@ -92,6 +113,15 @@ export type CoderContextExecutionResult<T> = {
   providerCalled: boolean;
   providerOutput: T | null;
   context: CoderProviderContext | null;
+  /**
+   * Runtime-side context for completed executions: the readable repository
+   * boundary and the full validated evidence (including integrity metadata).
+   * Deliberately separate from `context`, which is the model-facing payload.
+   */
+  runtimeContext?: {
+    readableFiles: readonly string[];
+    evidence: readonly CoderVisibleEvidence[];
+  };
   summary: {
     visibleFileCount: number;
     requiredSourceCount: number;
@@ -310,6 +340,11 @@ function issue(
   extra: {
     filePath?: string;
     field?: string;
+    composedContextEstimatedTokens?: number;
+    hardTotalBudgetTokens?: number;
+    reservedOutputTokens?: number;
+    availableInputTokens?: number;
+    visibleFileCount?: number;
   } = {}
 ): CoderContextExecutionIssue {
   return {
@@ -1083,23 +1118,22 @@ export async function executeCoderWithContextGate<T>(
     );
   }
 
+  // Model-facing composition. readableFiles is runtime authorization input and
+  // provenance/integrity metadata is retained runtime-side in the binding
+  // receipt; neither is serialized toward the provider, so the token estimate
+  // covers exactly what the coder prompt will contain.
   const contextCore = {
     version:
       CODER_CONTEXT_EXECUTION_GATE_VERSION,
     baseContext:
       input.baseContext,
-    evidence: visibleEvidence,
-    readableFiles,
-    provenance:
-      visibleEvidence.map(
-        (entry) => ({
-          path: entry.path,
-          origin: entry.origin,
-          contentHash:
-            entry.contentHash,
-          source: entry.source
-        })
-      )
+    evidence: visibleEvidence.map(
+      (entry) => ({
+        path: entry.path,
+        content: entry.content,
+        origin: entry.origin
+      })
+    )
   } as const;
 
   let estimatedInputTokens:
@@ -1161,7 +1195,16 @@ export async function executeCoderWithContextGate<T>(
           "review",
           {
             field:
-              "hardTotalBudgetTokens"
+              "hardTotalBudgetTokens",
+            composedContextEstimatedTokens:
+              estimatedInputTokens,
+            hardTotalBudgetTokens,
+            reservedOutputTokens,
+            availableInputTokens:
+              hardTotalBudgetTokens -
+              reservedOutputTokens,
+            visibleFileCount:
+              visibleEvidence.length
           }
         )
       ],
@@ -1172,7 +1215,8 @@ export async function executeCoderWithContextGate<T>(
   try {
     const providerOutput =
       await input.provider(
-        providerContext
+        providerContext,
+        { readableFiles }
       );
 
     return {
@@ -1183,6 +1227,10 @@ export async function executeCoderWithContextGate<T>(
       providerCalled: true,
       providerOutput,
       context: providerContext,
+      runtimeContext: {
+        readableFiles,
+        evidence: visibleEvidence
+      },
       summary: {
         ...readySummary,
         providerCallCount: 1

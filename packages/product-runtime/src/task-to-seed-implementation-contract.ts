@@ -137,7 +137,8 @@ export type RunTaskToSeedBoundCoderFlowInput<T> = {
     state: AdaptiveContextRequestState
   ) => Promise<unknown>;
   coderProvider: (
-    context: CoderProviderContext
+    context: CoderProviderContext,
+    runtime: import("./coder-context-execution-gate.js").CoderGateRuntimeContext
   ) => Promise<T>;
 };
 
@@ -738,16 +739,13 @@ export async function runTaskToSeedBoundCoderFlow<T>(
   const repoResult = await runRepoIntelligenceBoundCoderFlow({
     repositoryPath: input.repositoryPath,
     seedFiles: input.contract.seedFiles,
+    // Model-facing base context. The implementation-contract hashes stay
+    // runtime-side (audit + binding receipt): the bindingHash embedded by the
+    // binding layer is the fail-closed integrity pointer, and every serialized
+    // byte is charged against the hard coder token budget.
     baseContext: {
       version: TASK_TO_SEED_IMPLEMENTATION_CONTRACT_VERSION,
-      taskContext: input.taskContext,
-      implementationContract: {
-        contractHash: input.contract.contractHash,
-        auditHash: audit.auditHash,
-        taskId: input.contract.taskId,
-        objectiveHash: input.contract.objectiveHash,
-        acceptanceContractHash: input.contract.acceptanceContractHash
-      }
+      taskContext: input.taskContext
     },
     initialEvidence: input.initialEvidence,
     requiredTestFiles: input.contract.requiredTestFiles,
@@ -763,7 +761,7 @@ export async function runTaskToSeedBoundCoderFlow<T>(
     requiredIntelligenceHash: audit.intelligenceHash,
     intelligenceLimits: input.intelligenceLimits,
     contextRequestProvider: input.contextRequestProvider,
-    coderProvider: input.coderProvider
+    coderProvider: (context, runtime) => input.coderProvider(context, runtime)
   });
 
   const summary = {
