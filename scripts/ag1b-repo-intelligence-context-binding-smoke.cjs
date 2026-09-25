@@ -198,6 +198,47 @@ async function main() {
       assert.deepEqual(readyCase.observedRuntime.readableFiles, readyCase.result.binding.allowedContextFiles);
     });
 
+    await check("completed result without runtimeContext fails closed", async () => {
+      const completedBase = {
+        decision: "adaptive_coder_completed",
+        route: "coder_executed",
+        issues: [],
+        providerCalled: true,
+        providerOutput: { kind: "patch", files: ["src/service.ts"] },
+        context: {
+          version: "1",
+          baseContext: { version: "2", taskContext: {}, repositoryIntelligence: { bindingHash: "sha256:" + "0".repeat(64) } },
+          evidence: [{ path: "src/index.ts", content: "export {};\n", origin: "initial_context" }],
+          budget: { estimatedInputTokens: 10, reservedOutputTokens: 5, hardTotalBudgetTokens: 100, remainingTokens: 85 }
+        },
+        summary: { visibleFileCount: 1, requiredSourceCount: 1, requiredTestCount: 0, requiredSymbolCount: 0, estimatedInputTokens: 10, reservedOutputTokens: 5, hardTotalBudgetTokens: 100, providerCallCount: 1 }
+      };
+      const withoutRuntime = {
+        ...completedBase,
+        coderResult: { ...completedBase, runtimeContext: undefined }
+      };
+      const allowed = new Set(readyCase.result.binding.allowedContextFiles);
+      const rejected = canonicalRuntime.validateCompletedAdaptiveResult(withoutRuntime, allowed, new Map());
+      assert.deepEqual(rejected.map((entry) => entry.code), ["repo_context_completed_without_runtime_context"],
+        "a synthetically completed result without runtimeContext must be rejected outright");
+      const evidenceContent = "export {};\n";
+      const evidenceHash = "sha256:" + require("node:crypto").createHash("sha256").update(evidenceContent).digest("hex");
+      const withRuntime = {
+        ...completedBase,
+        coderResult: {
+          ...completedBase,
+          runtimeContext: {
+            readableFiles: readyCase.result.binding.allowedContextFiles,
+            evidence: [{ path: "src/index.ts", source: "fixture", content: evidenceContent,
+              contentHash: evidenceHash, byteLength: evidenceContent.length, matchedSymbols: [], origin: "initial_context" }]
+          }
+        }
+      };
+      const facts = new Map([["src/index.ts", { contentHash: evidenceHash }]]);
+      assert.deepEqual(canonicalRuntime.validateCompletedAdaptiveResult(withRuntime, allowed, facts), [],
+        "an identical result carrying runtimeContext validates");
+    });
+
     await check("binding receipt is deterministic and tamper evident", async () => {
       assert.equal(verifyRepoIntelligenceContextBinding(readyCase.result.binding), true);
       const tampered = JSON.parse(JSON.stringify(readyCase.result.binding));

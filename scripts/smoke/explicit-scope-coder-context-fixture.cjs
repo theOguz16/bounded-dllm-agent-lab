@@ -142,10 +142,14 @@ async function main() {
 
   const afterEstimate = happy.adaptiveResult.coderResult.summary.estimatedInputTokens;
   console.log(`before estimate: ${beforeEstimate} tokens (incident gate summary)`);
-  console.log(`after estimate:  ${afterEstimate} tokens`);
+  console.log(`after estimate:  ${afterEstimate} tokens (final model-facing payload)`);
   assert.ok(afterEstimate <= AVAILABLE_INPUT_TOKENS,
     `composed context ${afterEstimate} must fit the ${AVAILABLE_INPUT_TOKENS}-token input budget`);
   assert.ok(afterEstimate > 0);
+  // The estimate must cover the exact serialized provider payload, including
+  // the budget block (final model-facing bytes, no undercount).
+  assert.equal(Math.ceil(JSON.stringify(capturedContext).length / 4), afterEstimate,
+    "estimatedInputTokens must equal the full providerContext serialization estimate");
 
   // ---------- 2. Binding integrity and scope invariants ----------
   const binding = happy.result ? happy.result.binding : happy.binding;

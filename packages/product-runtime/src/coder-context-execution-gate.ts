@@ -1120,8 +1120,7 @@ export async function executeCoderWithContextGate<T>(
 
   // Model-facing composition. readableFiles is runtime authorization input and
   // provenance/integrity metadata is retained runtime-side in the binding
-  // receipt; neither is serialized toward the provider, so the token estimate
-  // covers exactly what the coder prompt will contain.
+  // receipt; neither is serialized toward the provider.
   const contextCore = {
     version:
       CODER_CONTEXT_EXECUTION_GATE_VERSION,
@@ -1136,12 +1135,39 @@ export async function executeCoderWithContextGate<T>(
     )
   } as const;
 
+  // The estimate must cover the complete model-facing payload that the coder
+  // provider will actually receive: contextCore plus the budget block appended
+  // below. The budget's own serialized size depends on the estimate it
+  // carries, so converge deterministically to the fixed point; at convergence
+  // ceil(JSON.stringify(providerContext).length / 4) equals
+  // estimatedInputTokens exactly.
   let estimatedInputTokens:
     number;
 
   try {
     estimatedInputTokens =
       estimateTokens(contextCore);
+    for (
+      let iteration = 0;
+      iteration < 8;
+      iteration += 1
+    ) {
+      const candidate =
+        estimateTokens({
+          ...contextCore,
+          budget: {
+            estimatedInputTokens,
+            reservedOutputTokens,
+            hardTotalBudgetTokens,
+            remainingTokens:
+              hardTotalBudgetTokens -
+              estimatedInputTokens -
+              reservedOutputTokens
+          }
+        });
+      if (candidate === estimatedInputTokens) break;
+      estimatedInputTokens = candidate;
+    }
   } catch {
     return blocked(
       "human_review_required",

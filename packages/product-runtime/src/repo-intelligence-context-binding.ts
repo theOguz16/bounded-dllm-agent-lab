@@ -416,7 +416,7 @@ function verifyInitialEvidence(
   return issues;
 }
 
-function validateCompletedAdaptiveResult<T>(
+export function validateCompletedAdaptiveResult<T>(
   result: AdaptiveCoderContextFlowResult<T>,
   allowed: ReadonlySet<string>,
   fileFacts: ReadonlyMap<string, CanonicalRepoFileFact>
@@ -438,8 +438,18 @@ function validateCompletedAdaptiveResult<T>(
       "error"
     )];
   }
+  // Fail closed: a completed execution without its runtime-side context would
+  // make the boundary and integrity checks below vacuous, so it is rejected
+  // outright instead of validated against an empty loop.
+  if (result.coderResult.runtimeContext === undefined) {
+    return [issue(
+      "repo_context_completed_without_runtime_context",
+      "A completed adaptive result must carry the runtime-side coder context.",
+      "error"
+    )];
+  }
   const issues: RepoIntelligenceContextBindingIssue[] = [];
-  for (const filePath of result.coderResult.runtimeContext?.readableFiles ?? []) {
+  for (const filePath of result.coderResult.runtimeContext.readableFiles) {
     if (!allowed.has(filePath)) {
       issues.push(issue(
         "repo_context_coder_readable_file_outside_boundary",
@@ -449,7 +459,7 @@ function validateCompletedAdaptiveResult<T>(
       ));
     }
   }
-  for (const evidence of result.coderResult.runtimeContext?.evidence ?? []) {
+  for (const evidence of result.coderResult.runtimeContext.evidence) {
     if (!allowed.has(evidence.path)) {
       issues.push(issue(
         "repo_context_coder_evidence_outside_boundary",
