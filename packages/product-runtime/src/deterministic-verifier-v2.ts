@@ -6,6 +6,7 @@ import {
   canonicalizeRepositoryRelativePath,
   CanonicalRepositoryPathError
 } from "./runtime-contract-foundation.js";
+import { containsCanonicalSensitiveLiteral } from "./canonical-policy-compiler.js";
 import {
   createWorkspaceMutation,
   validateWorkspaceMutationContract,
@@ -82,7 +83,92 @@ export type DeterministicVerifierV2Result = Readonly<{
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const LEGACY_POLICY_HASH = hashCanonicalJson({ policyBinding: "legacy-deterministic-verifier-v2" });
 
-const UNSAFE_PATCH_NEEDLES = ["process.env", "SECRET", "TOKEN", "PASSWORD", ".env", "rm -rf", "curl ", "wget "] as const;
+// DV2_UNSAFE_PATCH needle classification. The categories model how each
+// marker can constitute unsafe content:
+// - literal-credential identifiers (SECRET/TOKEN/PASSWORD) are unsafe only as
+//   value-bearing literal assignments; identifier mentions, env references,
+//   placeholders and inert string data are not credentials. Detection reuses
+//   the canonical sensitive-literal primitive so this rule agrees with the
+//   rest of the policy machinery;
+// - executable environment reads (process.env/.env) are unsafe only as
+//   executable code; comments and string/template literal contents are
+//   stripped before scanning so test-fixture data inside template literals is
+//   inert while real code still matches;
+// - dangerous shell/network operations are rejected wherever they appear,
+//   including inside strings, because executing or embedding them is never
+//   part of a bounded patch.
+const LITERAL_CREDENTIAL_NEEDLES = ["SECRET", "TOKEN", "PASSWORD"] as const;
+const EXECUTABLE_NEEDLES = ["process.env", ".env"] as const;
+const OPERATION_NEEDLES = ["rm -rf", "curl ", "wget "] as const;
+
+/**
+ * Deterministically removes JS/TS comments and string/template literal
+ * contents so only executable code text remains. String states reset at line
+ * ends (single/double quotes cannot span lines), template literals and block
+ * comments span lines, and template interpolations (${ ... }) are tracked with
+ * a state stack. Fail closed: if any construct is still open at end of input
+ * the original content is returned unmodified, so the scan sees everything.
+ * Regex literals are not modeled; a regex containing a quote or backtick can
+ * only narrow the stripped region within the enclosing line.
+ */
+function stripNonExecutableJsContent(content: string): string {
+  type State = "code" | "line" | "block" | "single" | "double" | "template";
+  const stack: State[] = ["code"];
+  const braceDepth: number[] = [0];
+  let out = "";
+  for (let i = 0; i < content.length; i += 1) {
+    const state = stack[stack.length - 1];
+    const char = content[i];
+    const next = content[i + 1] ?? "";
+    if (state === "code") {
+      if (char === "/" && next === "/") { stack.push("line"); i += 1; continue; }
+      if (char === "/" && next === "*") { stack.push("block"); i += 1; continue; }
+      if (char === "'") { stack.push("single"); continue; }
+      if (char === '"') { stack.push("double"); continue; }
+      if (char === "`") { stack.push("template"); continue; }
+      if (char === "{") { braceDepth[braceDepth.length - 1] += 1; }
+      if (char === "}" && braceDepth.length > 1) {
+        braceDepth[braceDepth.length - 1] -= 1;
+        if (braceDepth[braceDepth.length - 1] === 0) { stack.pop(); braceDepth.pop(); continue; }
+      }
+      out += char;
+      continue;
+    }
+    if (state === "line") {
+      if (char === "\n") { stack.pop(); out += char; }
+      continue;
+    }
+    if (state === "block") {
+      if (char === "*" && next === "/") { stack.pop(); i += 1; }
+      continue;
+    }
+    if (state === "single" || state === "double") {
+      if (char === "\\") { i += 1; continue; }
+      if (char === "\n") { stack.pop(); out += char; continue; }
+      if ((state === "single" && char === "'") || (state === "double" && char === '"')) stack.pop();
+      continue;
+    }
+    // template
+    if (char === "\\") { i += 1; continue; }
+    if (char === "`") { stack.pop(); continue; }
+    if (char === "$" && next === "{") {
+      stack.push("code");
+      braceDepth.push(1);
+      i += 1;
+      continue;
+    }
+    if (char === "\n") out += char;
+  }
+  // Unterminated comment/string/template: fail closed to the raw content.
+  return stack.length > 1 || stack[0] !== "code" ? content : out;
+}
+
+function containsUnsafePatchContent(newContent: string): boolean {
+  if (OPERATION_NEEDLES.some((needle) => newContent.includes(needle))) return true;
+  if (containsCanonicalSensitiveLiteral(newContent, LITERAL_CREDENTIAL_NEEDLES)) return true;
+  const executable = stripNonExecutableJsContent(newContent);
+  return EXECUTABLE_NEEDLES.some((needle) => executable.includes(needle));
+}
 
 function issue(
   rule: VerifierV2Rule,
@@ -193,7 +279,7 @@ export async function verifyPatchDraftMutationV2(
     const newContent = claim.newContent;
     if (typeof newContent !== "string") {
       issues.push(issue(VERIFIER_V2_RULES.patchClaimInvalid, "patch_draft newContent is required.", { field: `mutation.claims.${index}.newContent`, file: file ?? undefined }));
-    } else if (UNSAFE_PATCH_NEEDLES.some((needle) => newContent.includes(needle))) {
+    } else if (containsUnsafePatchContent(newContent)) {
       issues.push(issue(VERIFIER_V2_RULES.unsafePatch, "newContent contains an unsafe content marker.", { field: `mutation.claims.${index}.newContent`, file: file ?? undefined }));
     }
   }

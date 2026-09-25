@@ -282,6 +282,50 @@ async function main() {
       }
     });
 
+    await check("inert fixture and comment data containing markers is not flagged", async () => {
+      const fixtureContent = [
+        "const sensitiveAssignmentPolicy = { sensitive_patterns: [\"SECRET\", \"API_KEY\", \"TOKEN\", \"PASSWORD\"] };",
+        "const diff = parseUnifiedDiff(`diff --git a/src/config.ts b/src/config.ts",
+        "--- a/src/config.ts",
+        "+++ b/src/config.ts",
+        "@@",
+        " ${\" \"}SECRET = \"real-looking-value\"",
+        "-TOKEN = \"removed-literal-value\"",
+        "+process.env.RUNPOD_API_KEY;",
+        "+password: process.env.PASSWORD",
+        "+// Documentation mentions API_KEY, TOKEN, PASSWORD, and SECRET identifiers.",
+        "`);",
+        "// uses process.env patterns for review coverage",
+        "const label = \"SECRET\";"
+      ].join("\n");
+      const result = await verifyPatchDraftMutationV2({
+        repositoryPath: root,
+        mutation: mutation("src/service.ts", fixtureContent),
+        allowedFiles: ["src/service.ts"]
+      });
+      assert.equal(result.issues.some((entry) => entry.ruleId === "DV2_UNSAFE_PATCH"), false,
+        JSON.stringify(result.issues.filter((entry) => entry.ruleId === "DV2_UNSAFE_PATCH")));
+      assert.equal(result.decision, "approve");
+    });
+
+    await check("executable env reads and literal credentials are still rejected", async () => {
+      for (const unsafe of [
+        "const apiKey = process.env.RUNPOD_API_KEY;",
+        "const token = \"sk-realistic-value-1234\";",
+        "const config = {\n  password: \"hunter2\"\n};",
+        "exec(\"rm -rf /tmp/build\");",
+        "fetch(\"http://example.invalid\");\nconst shell = \"curl http://example.invalid\";"
+      ]) {
+        const result = await verifyPatchDraftMutationV2({
+          repositoryPath: root,
+          mutation: mutation("src/service.ts", unsafe),
+          allowedFiles: ["src/service.ts"]
+        });
+        assert.equal(result.decision, "reject", JSON.stringify({ unsafe, result: result.issues }));
+        assert(result.issues.some((entry) => entry.ruleId === "DV2_UNSAFE_PATCH"), unsafe);
+      }
+    });
+
     await check("unsafe patch and forbidden file are rejected", async () => {
       const result = await verifyPatchDraftMutationV2({
         repositoryPath: root,
