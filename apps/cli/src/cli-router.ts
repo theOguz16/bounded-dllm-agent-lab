@@ -15,6 +15,7 @@ import { historyCommand } from "./commands/history.js";
 import { initCommand } from "./commands/init.js";
 import { inspectCommand } from "./commands/inspect.js";
 import { recoverCommand } from "./commands/recover.js";
+import { repairCommand } from "./commands/repair.js";
 import { reportCommand } from "./commands/report.js";
 import { resumeCommand } from "./commands/resume.js";
 import { runCommand } from "./commands/run.js";
@@ -28,10 +29,10 @@ import { findGitRepositoryRoot } from "./product-config.js";
 import { storeProductRunArtifact } from "./run-artifact-store.js";
 
 export const CLI_USAGE =
-  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded stats [--last <count>] [--json] | bounded codex <description> [--retry-decision <absolute-json-file>] [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
+  "Usage: bounded <init|doctor|apply|history> [--json] | bounded report <run-id> [--json] | bounded stats [--last <count>] [--json] | bounded codex <description> [--retry-decision <absolute-json-file>] [--json] | bounded codex --task <description> --allow <file> [--allow <file> ...] [--json] | bounded repair --task-id <persisted-task-id> --repair-draft <absolute-json-file> [--json] | bounded compare codex --task <description> [--json] | bounded <run|status|inspect|resume|recover> --task <task.json> [--json]";
 
 type LocalCommand = "init" | "doctor" | "apply" | "history";
-type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report" | "stats";
+type RoutedCommand = CliCommand | LocalCommand | "codex" | "compare" | "report" | "stats" | "repair";
 
 type ParsedArgs = Readonly<{
   command: RoutedCommand;
@@ -39,6 +40,8 @@ type ParsedArgs = Readonly<{
   allowFiles?: readonly string[];
   retryDecisionFile?: string;
   runId?: string;
+  taskId?: string;
+  repairDraftFile?: string;
   last?: number;
   json: boolean;
 }>;
@@ -190,9 +193,26 @@ function parseStatsArgs(argv: readonly string[]): ParsedArgs {
   return { command: "stats", last, json };
 }
 
+function parseRepairArgs(argv: readonly string[]): ParsedArgs {
+  let taskId: string | undefined;
+  let repairDraftFile: string | undefined;
+  let json = false;
+  for (let index = 1; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--json" && !json) { json = true; continue; }
+    if (argument === "--task-id" && !taskId && argv[index + 1] &&
+        !argv[index + 1]!.startsWith("--")) { taskId = argv[++index]; continue; }
+    if (argument === "--repair-draft" && !repairDraftFile && argv[index + 1] &&
+        path.isAbsolute(argv[index + 1]!)) { repairDraftFile = argv[++index]; continue; }
+    throw new CliError("cli_argument_invalid", CLI_USAGE);
+  }
+  if (!taskId || !repairDraftFile) throw new CliError("cli_argument_invalid", CLI_USAGE);
+  return { command: "repair", taskId, repairDraftFile, json };
+}
+
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const command = argv[0] as RoutedCommand;
-  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "compare", "report", "stats"].includes(command)) {
+  if (![...TASK_COMMANDS, ...LOCAL_COMMANDS, "codex", "compare", "report", "stats", "repair"].includes(command)) {
     throw new CliError("cli_command_invalid", CLI_USAGE);
   }
 
@@ -200,6 +220,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   if (command === "compare") return parseCompareArgs(argv);
   if (command === "report") return parseReportArgs(argv);
   if (command === "stats") return parseStatsArgs(argv);
+  if (command === "repair") return parseRepairArgs(argv);
 
   if (LOCAL_COMMANDS.includes(command as LocalCommand)) {
     const recognized = argv.filter((item, offset) => offset === 0 || item === "--json");
@@ -233,6 +254,8 @@ async function dispatch(parsed: ParsedArgs): Promise<CliCommandResult> {
   if (parsed.command === "history") return historyCommand();
   if (parsed.command === "report") return reportCommand(parsed.runId!);
   if (parsed.command === "stats") return statsCommand({ last: parsed.last });
+  if (parsed.command === "repair") return repairCommand({ taskId: parsed.taskId!,
+    repairDraftFile: parsed.repairDraftFile! });
   if (parsed.command === "compare") {
     return compareCodexCommand(
       { task: parsed.task! }, process.cwd(), await loadCompareCliDependencies(process.cwd())

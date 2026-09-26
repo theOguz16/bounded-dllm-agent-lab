@@ -196,6 +196,7 @@
     "test:verifier-negative-fixture-suite": "node scripts/verifier-negative-fixture-suite-test.cjs",
     "test:remask-request-builder": "node scripts/remask-request-builder-smoke.cjs",
     "test:repair-draft-verifier-gate": "node scripts/repair-draft-verifier-gate-smoke.cjs",
+    "test:governed-repair": "npm run build && node scripts/smoke/governed-repair-smoke.cjs",
     "test:patch-application-dry-run-gate": "node scripts/patch-application-dry-run-gate-smoke.cjs",
     "test:temporary-workspace-apply-gate": "node scripts/temporary-workspace-apply-gate-smoke.cjs",
     "report:temporary-workspace-apply-fixture-suite": "node scripts/temporary-workspace-apply-fixture-suite.cjs",

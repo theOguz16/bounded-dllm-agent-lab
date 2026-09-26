@@ -427,7 +427,9 @@ async function main() {
     const pilotEvidence = JSON.parse(pilotPrompt.split("\n").at(-1));
     const pilotCandidates = pilotEvidence.canonicalRepository.files.map((entry) => entry.path);
     assert.equal(pilotEvidence.discoveryVersion, "codex-scope-discovery/v3");
-    assert.equal(pilotCandidates.length, 30);
+    assert.ok(pilotCandidates.length >= 30 && pilotCandidates.length <= 50,
+      `Pilot discovery must remain bounded as repository sources evolve: ${pilotCandidates.length}`);
+    assert.equal(new Set(pilotCandidates).size, pilotCandidates.length);
     const trackedSourceFiles = git(repoRoot, ["ls-files", "-z", "--cached"])
       .split("\u0000").filter((entry) => /\.(?:[cm]?[jt]sx?)$/i.test(entry))
       .sort((left, right) => left.localeCompare(right, "en"));

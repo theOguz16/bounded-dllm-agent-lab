@@ -502,6 +502,34 @@ export function readDurableBoundedTaskState(input: { registryRoot: string; taskI
   }
 }
 
+/** Read a state-referenced artifact without acquiring a lease or changing terminal state. */
+export function readDurableBoundedTaskArtifact<T>(input: { registryRoot: string; taskId: string;
+  idempotencyKey: string }, state: DurableBoundedTaskState,
+  ref: BoundedTaskArtifactReference): T {
+  const current = readDurableBoundedTaskState(input);
+  if (current.stateHash !== state.stateHash || current.taskId !== input.taskId ||
+      current.idempotencyKey !== input.idempotencyKey || !validRef(ref) ||
+      !Object.values(current.artifacts).some((entry) => entry.contentHash === ref.contentHash &&
+        entry.relativePath === ref.relativePath && entry.byteLength === ref.byteLength)) {
+    throw new BoundedTaskStateError("bounded_task_artifact_binding_mismatch",
+      "Artifact is not bound to the current durable task state.");
+  }
+  const root = fs.realpathSync(input.registryRoot);
+  const key = hashCanonicalJson({ taskId: input.taskId, idempotencyKey: input.idempotencyKey }).slice(7);
+  const taskDirectory = path.join(root, "tasks", key);
+  const artifactDirectory = path.join(taskDirectory, "artifacts");
+  for (const directory of [path.join(root, "tasks"), taskDirectory, artifactDirectory]) {
+    const stat = fs.lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new BoundedTaskStateError(
+      "bounded_task_artifact_path_invalid", "Artifact directory is unsafe.");
+  }
+  const value = readJson(path.join(taskDirectory, ref.relativePath), BOUNDED_TASK_ARTIFACT_MAX_BYTES);
+  if (hashCanonicalJson(value) !== ref.contentHash || canonicalBytes(value).length !== ref.byteLength) {
+    throw new BoundedTaskStateError("bounded_task_artifact_hash_mismatch", "Durable artifact integrity failed.");
+  }
+  return value as T;
+}
+
 /**
  * Operational views intentionally contain hashes and lifecycle metadata only.
  * Prompt, source, provider response, and credential material stays in artifacts

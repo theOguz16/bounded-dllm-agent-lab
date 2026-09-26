@@ -197,6 +197,17 @@ function codexDurableRegistryRoot(repositoryRoot: string): string {
   return path.join(path.dirname(path.resolve(repositoryRoot)), ".bounded-durable", repositoryKey);
 }
 
+/** Pure locator for a pre-existing canonical Codex task. */
+export function codexDurableTaskLocator(repositoryRoot: string, taskId: string): Readonly<{
+  registryRoot: string; taskId: string; idempotencyKey: string
+}> {
+  const key = createHash("sha256")
+    .update(`${path.resolve(repositoryRoot)}\u0000${taskId}`)
+    .digest("hex");
+  return Object.freeze({ registryRoot: codexDurableRegistryRoot(repositoryRoot), taskId,
+    idempotencyKey: `codex.${key.slice(0, 48)}` });
+}
+
 function canonicalCheckpointSummary(state: DurableBoundedTaskState | undefined): Readonly<Record<string, unknown>> | null {
   if (state === undefined) return null;
   return Object.freeze({

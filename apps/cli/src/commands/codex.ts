@@ -132,7 +132,7 @@ function selectScript(values: readonly string[], preferred: readonly string[]): 
   return values[0] ?? null;
 }
 
-function validationSpecification(config: BoundedLocalConfig): TemporaryWorkspaceExecutionSpecification {
+export function validationSpecification(config: BoundedLocalConfig): TemporaryWorkspaceExecutionSpecification {
   if (!config.packageJson.detected) {
     throw new CliError(
       "cli_codex_package_json_required",
