@@ -1,44 +1,27 @@
-import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  buildValidationEvidence,
-  buildTemporaryWorkspaceExecutionVerificationEvidence,
   BoundedTaskStateError,
-  canonicalPolicyRepositoryIdentity,
-  compileCanonicalPolicy,
-  createAcceptanceCriteriaContract,
-  evaluateAcceptanceCriteria,
   hashCanonicalJson,
-  mutationContentHash,
   parseTargetedRepairRequest,
   parseTextFileUpdates,
   readDurableBoundedTaskArtifact,
   readDurableBoundedTaskState,
-  readTextUpdateSource,
-  runContainerizedWorkspaceExecution,
-  verifyPatchDraftMutationV2,
-  verifyRepairDraftMutation,
-  verifyValidationEvidence,
   type RunBoundedTaskResult,
   type TargetedRepairBoundary,
   type WorkspaceMutation
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import { CliError } from "../cli-errors.js";
 import type { CliCommandResult } from "../bounded-task.js";
-import {
-  captureCandidateSourceSnapshotHash,
-  createCandidateHandoff,
-  readCandidateHandoff,
-  writeCandidateHandoff
-} from "../candidate-handoff.js";
+import { createCandidateHandoff, readCandidateHandoff, writeCandidateHandoff } from "../candidate-handoff.js";
 import { doctorBoundedLocalConfig, BOUNDED_POLICY_PATH } from "../product-config.js";
 import { codexDurableTaskLocator } from "../run-artifact-store.js";
-import { DERIVED_REPAIR_VERSION, deriveCandidateMutation, derivedRepairRecordBytes,
-  derivedRepairRecordHash, stableBaselineSnapshotHash, type DerivedRepairRecord } from "../repair-provenance.js";
-import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./codex.js";
+import { createRepairMutationArtifact, originalAcceptanceContract,
+  validateDerivedCandidate } from "../derived-candidate-validation.js";
+import { DERIVED_REPAIR_VERSION, artifactBytes, derivedRepairRecordBytes,
+  derivedRepairRecordHash, rawBytesHash, type DerivedRepairRecord } from "../repair-provenance.js";
+import { BOUNDED_CODEX_VALIDATION_PROFILE } from "./codex.js";
 
 export { DERIVED_REPAIR_VERSION } from "../repair-provenance.js";
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -77,15 +60,6 @@ function parseImport(value: unknown): RepairImport {
   return record as RepairImport;
 }
 
-function headHash(repositoryRoot: string): string {
-  try {
-    const head = execFileSync("git", ["rev-parse", "HEAD"], {
-      cwd: repositoryRoot, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
-    return hashCanonicalJson({ head });
-  } catch { return hashCanonicalJson({ head: null }); }
-}
-
 function coderMutation(result: RunBoundedTaskResult): WorkspaceMutation {
   const mutation = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput;
   if (!mutation) return reject("cli_repair_original_missing", "Terminal task has no persisted coder candidate.");
@@ -97,30 +71,6 @@ function updatedAdaptiveResult(result: RunBoundedTaskResult, mutation: Workspace
   const adaptive = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult;
   if (!adaptive?.coderResult) return reject("cli_repair_original_missing", "Original adaptive result is missing.");
   return { ...adaptive, coderResult: { ...adaptive.coderResult, providerOutput: mutation } };
-}
-
-function originalAcceptanceContract(result: RunBoundedTaskResult, expectedHash: string) {
-  const objectiveHash = result.plannerResult?.implementationContract?.objectiveHash;
-  if (!objectiveHash) return reject("cli_repair_original_missing", "Original objective is missing.");
-  const matches: string[] = [];
-  const visit = (value: unknown, depth: number): void => {
-    if (depth > 12 || !value || typeof value !== "object") return;
-    if (Array.isArray(value)) { for (const item of value) visit(item, depth + 1); return; }
-    for (const [key, item] of Object.entries(value)) {
-      if (key === "objective" && typeof item === "string" &&
-          hashCanonicalJson({ objective: item }) === objectiveHash) matches.push(item);
-      else visit(item, depth + 1);
-    }
-  };
-  visit(result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.context?.baseContext, 0);
-  for (const task of matches) {
-    const contract = createAcceptanceCriteriaContract({ taskId: result.plannerResult!.implementationContract!.taskId,
-      objectiveHash, criteria: [{ id: "requested_behavior",
-        description: task.replace(/[ \t\r\n]+/g, " ").slice(0, 1000).trim(),
-        required: true, evidence: { kind: "test", commandId: "validation.test" } }] });
-    if (contract.contractHash === expectedHash) return contract;
-  }
-  return reject("cli_repair_acceptance_unavailable", "Original acceptance contract cannot be reconstructed and verified.");
 }
 
 export async function repairCommand(input: Readonly<{ taskId: string; repairDraftFile: string }>,
@@ -205,107 +155,35 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
       request.allowedFiles.some((file) => !repairClaims.some((claim) => claim.file === file))) {
     return reject("cli_repair_scope_invalid", "Repair mutation does not match the targeted mutable scope.");
   }
-  if (canonicalPolicyRepositoryIdentity(repositoryRoot) !== state.repositoryIdentityHash ||
-      headHash(repositoryRoot) !== state.baselineHeadHash ||
-      stableBaselineSnapshotHash(repositoryRoot) !== state.baselineSnapshotHash) {
-    return reject("cli_repair_source_stale", "Source repository identity or HEAD changed since the original run.");
-  }
-  const policy = compileCanonicalPolicy({ repositoryPath: repositoryRoot,
-    policyFilePath: path.join(repositoryRoot, BOUNDED_POLICY_PATH) });
-  if (policy.compiledPolicyHash !== state.compiledPolicyHash ||
-      originalFiles.some((file) => !policy.allowedPaths.includes(file) || policy.forbiddenPaths.includes(file))) {
-    return reject("cli_repair_policy_stale", "Original mutable scope is no longer authorized by policy.");
-  }
-  const sourceBefore = captureCandidateSourceSnapshotHash(repositoryRoot);
-  const originalByFile = new Map(originalClaims.map((claim) => [claim.file, claim]));
-  const fileContents: Record<string, string> = {};
-  for (const claim of originalClaims) {
-    const source = await readTextUpdateSource(repositoryRoot, claim.file);
-    if (mutationContentHash(source.bytes) !== claim.expectedContentHash) {
-      return reject("cli_repair_source_stale", `Source changed since candidate creation: ${claim.file}.`);
-    }
-    fileContents[claim.file] = claim.newContent;
-  }
-  for (const evidence of coder.runtimeContext.evidence) {
-    const source = await readTextUpdateSource(repositoryRoot, evidence.path);
-    if (mutationContentHash(source.bytes) !== evidence.contentHash) {
-      return reject("cli_repair_source_stale", `Bound context changed: ${evidence.path}.`);
-    }
-  }
-  for (const claim of repairClaims) {
-    if (!originalByFile.has(claim.file)) return reject("cli_repair_scope_invalid", "Repair adds a candidate file.");
-  }
-  const repairVerification = verifyRepairDraftMutation(repair, {
-    fileContents, allowedFiles: [...request.allowedFiles], forbiddenFiles: [...request.preserveFiles,
-      BOUNDED_POLICY_PATH, "bounded-agent.policy.yml"]
-  });
-  if (repairVerification.decision !== "approve") {
-    return reject("cli_repair_boundary_rejected", "Deterministic repair draft verifier did not approve the repair.");
-  }
-  const candidateB = deriveCandidateMutation(original, repair);
-  const boundContextFiles = originalClaims.map((claim) => ({ path: claim.file,
-    contentHash: claim.expectedContentHash }));
-  const verifier = await verifyPatchDraftMutationV2({ repositoryPath: repositoryRoot,
-    mutation: candidateB, allowedFiles: originalFiles, forbiddenFiles: policy.forbiddenPaths,
-    boundContextFiles, policyHash: policy.compiledPolicyHash, requireExistingTouchedFiles: true });
-  if (verifier.decision !== "approve" ||
-      verifier.canonicalTouchedFiles.join("\0") !== originalFiles.join("\0")) {
-    throw new CliError("cli_repair_candidate_rejected", "Derived candidate failed deterministic verification.", 4,
-      { verifierIssues: verifier.issues.map((issue) => issue.ruleId) });
-  }
-  const specification = validationSpecification(diagnosed.config);
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "bounded-derived-repair-"));
-  let execution;
-  try {
-    await cp(repositoryRoot, workspace, { recursive: true,
-      filter: (source) => {
-        const relative = path.relative(repositoryRoot, source).split(path.sep).join("/");
-        return relative !== ".git" && !relative.startsWith(".git/") &&
-          ![".bounded/runs", ".bounded/state", ".bounded/tmp", ".bounded/cache"].some(
-            (prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
-      } });
-    for (const claim of parseTextFileUpdates(candidateB)) {
-      await writeFile(path.join(workspace, ...claim.file.split("/")), claim.newContent, "utf8");
-    }
-    await mkdir(path.join(workspace, ".validation-output"), { recursive: true });
-    execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: workspace,
-      tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false, ...specification },
-    async () => null, { runtime: "docker" });
-  } finally { await rm(workspace, { recursive: true, force: true }); }
-  if (!execution) return reject("cli_repair_validation_failed", "Validation did not execute.");
-  const executionEvidence = buildTemporaryWorkspaceExecutionVerificationEvidence(specification, execution, true);
-  const validation = buildValidationEvidence({ profile: BOUNDED_CODEX_VALIDATION_PROFILE,
-    structuralPassed: true, specification, executionResult: execution, executionEvidence });
-  const acceptance = evaluateAcceptanceCriteria({ contract: acceptanceCriteriaContract,
-    executionSpecification: specification, executionEvidence });
-  if (!verifyValidationEvidence(validation) || !validation.profileSatisfied ||
-      acceptance.decision !== "contract_approved" || acceptance.receipt === null ||
-      captureCandidateSourceSnapshotHash(repositoryRoot) !== sourceBefore ||
-      headHash(repositoryRoot) !== state.baselineHeadHash) {
-    throw new CliError("cli_repair_validation_failed",
-      "Derived candidate did not pass full profile, acceptance, or source currentness validation.", 4,
-      { checks: validation.checks.map((check) => ({ kind: check.kind, status: check.status })),
-        acceptance: acceptance.decision, executionIssues: execution.issues.map((issue) => ({ code: issue.code,
-          message: issue.message })) });
+  const artifact = createRepairMutationArtifact(repair);
+  const validated = await validateDerivedCandidate({ repositoryRoot, config: diagnosed.config,
+    state, result, original, artifact });
+  const { candidateB, verifier, receipt, policy, specification, sourceBefore,
+    originalFiles: validatedFiles } = validated;
+  if (validatedFiles.join("\0") !== originalFiles.join("\0") ||
+      receipt.boundaryHash !== hashCanonicalJson(boundary) ||
+      request.allowedFiles.some((file) => !artifact.claims.some((claim) => claim.file === file))) {
+    return reject("cli_repair_lineage_invalid", "Derived repair boundary is inconsistent.");
   }
   const risk = plan.riskClass;
   if (!["low", "medium", "high", "critical"].includes(String(risk))) {
     return reject("cli_repair_handoff_invalid", "Original plan risk class is invalid.");
   }
-  const repairArtifactHash = hashCanonicalJson({ request, mutation: repair });
-  const derivedCandidateHash = hashCanonicalJson({ originalCandidateHash: originalHash,
-    repairArtifactHash, mutation: candidateB });
+  const repairArtifactHash = receipt.repairArtifactHash;
+  const derivedCandidateHash = receipt.derivedCandidateHash;
+  const mutationBytes = artifactBytes(artifact);
   const record: DerivedRepairRecord = { schemaVersion: DERIVED_REPAIR_VERSION,
     originalTaskId: state.taskId, originalCandidateHash: originalHash,
     validationFailureHash: state.terminalResultHash, repairArtifactHash, derivedCandidateHash,
-    boundaryHash: hashCanonicalJson(boundary), validationEvidenceHash: validation.evidenceHash,
-    verifierFindingHash: hashCanonicalJson(verifier.finding),
-    acceptanceReceiptHash: acceptance.receipt.receiptHash,
+    repairMutationArtifactHash: repairArtifactHash,
+    repairMutationArtifactRawHash: rawBytesHash(mutationBytes),
+    repairMutationArtifactBytes: mutationBytes.length,
+    boundaryHash: receipt.boundaryHash, validationReceipt: receipt,
     sourceSnapshotHash: sourceBefore, repositoryIdentityHash: state.repositoryIdentityHash,
-    baselineSnapshotHash: state.baselineSnapshotHash, request, mutation: repair };
+    baselineSnapshotHash: state.baselineSnapshotHash };
   const recordBytes = derivedRepairRecordBytes(record);
   const recordHash = derivedRepairRecordHash(recordBytes);
-  if (recordBytes.length > 16 * 1024 * 1024 ||
+  if (mutationBytes.length > 5 * 1024 * 1024 || recordBytes.length > 16 * 1024 * 1024 ||
       hashCanonicalJson({ originalCandidateHash: originalHash, repairArtifactHash,
         mutation: candidateB }) !== derivedCandidateHash) {
     return reject("cli_repair_lineage_invalid", "Derived candidate lineage is inconsistent.");
@@ -343,16 +221,23 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     return reject("cli_repair_state_unsafe", "Candidate state directory is unsafe.");
   }
   const directory = path.join(stateDirectory, "derived-repairs");
+  const mutationDirectory = path.join(stateDirectory, "repair-mutations");
   const directoryStat = await lstat(directory).catch(() => null);
-  if (directoryStat && (!directoryStat.isDirectory() || directoryStat.isSymbolicLink())) {
+  const mutationDirectoryStat = await lstat(mutationDirectory).catch(() => null);
+  if (directoryStat && (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) ||
+      mutationDirectoryStat && (!mutationDirectoryStat.isDirectory() || mutationDirectoryStat.isSymbolicLink())) {
     return reject("cli_repair_state_unsafe", "Derived repair directory is unsafe.");
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  await mkdir(mutationDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(mutationDirectory, `${repairArtifactHash.slice(7)}.json`),
+    mutationBytes, { flag: "wx", mode: 0o600 });
   await writeFile(path.join(directory, `${derivedCandidateHash.slice(7)}.json`),
     recordBytes, { flag: "wx", mode: 0o600 });
   await writeCandidateHandoff(repositoryRoot, candidate);
   return { output: { ok: true, command: "repair", taskId: state.taskId,
     originalCandidateHash: originalHash, repairArtifactHash, derivedCandidateHash,
-    validationEvidenceHash: validation.evidenceHash, candidateHandoffHash: candidate.handoffHash,
+    validationEvidenceHash: validated.validationEvidenceHash,
+    validationReceiptHash: receipt.receiptHash, candidateHandoffHash: candidate.handoffHash,
     decision: "bounded_task_completed", apply: "NOT_RUN", providerCalls: 0 }, exitCode: 0 };
 }

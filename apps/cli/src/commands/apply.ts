@@ -264,8 +264,9 @@ export async function applyCommand(
   const diagnosed = await doctorBoundedLocalConfig(startPath);
   const repositoryRoot = diagnosed.repositoryRoot;
   const candidate = await readCandidateHandoff(repositoryRoot);
+  let derivedValidationReceiptHash: string | null;
   try {
-    await verifyCandidateProvenance(repositoryRoot, candidate);
+    derivedValidationReceiptHash = await verifyCandidateProvenance(repositoryRoot, candidate, diagnosed.config);
   } catch {
     return stoppedOutput(candidate, "recovery_required",
       "Candidate provenance is missing, stale, or invalid; candidate was not applied.");
@@ -324,7 +325,8 @@ export async function applyCommand(
       "Persisted candidate changed after approval; candidate was not applied.", humanDecision, behavior);
   }
   try {
-    await verifyCandidateProvenance(repositoryRoot, candidate);
+    await verifyCandidateProvenance(repositoryRoot, candidate, diagnosed.config,
+      derivedValidationReceiptHash ?? undefined);
   } catch {
     return stoppedOutput(candidate, "recovery_required",
       "Candidate provenance changed after approval; candidate was not applied.", humanDecision, behavior);

@@ -134,6 +134,13 @@ async function main() {
     const recordFile = path.join(repository, ".bounded/state/derived-repairs",
       `${output.derivedCandidateHash.slice(7)}.json`);
     const recordBytes = await fs.readFile(recordFile);
+    const mutationFile = path.join(repository, ".bounded/state/repair-mutations",
+      `${output.repairArtifactHash.slice(7)}.json`);
+    const mutationBytes = await fs.readFile(mutationFile);
+    const storedRecord = JSON.parse(recordBytes.toString("utf8"));
+    assert.equal(storedRecord.mutation, undefined);
+    assert.equal(storedRecord.request, undefined);
+    assert.equal(recordBytes.includes(Buffer.from(testSource)), false);
     const originalSourceBytes = await fs.readFile(path.join(repository, "src/calculate.js"));
     const originalTestBytes = await fs.readFile(path.join(repository, "test/calculate.test.js"));
     const rejectPreflight = async (name) => {
@@ -146,6 +153,14 @@ async function main() {
     await fs.rm(recordFile);
     await rejectPreflight("deleted record");
     await fs.writeFile(recordFile, recordBytes);
+    await fs.rm(mutationFile);
+    await rejectPreflight("deleted repair mutation artifact");
+    await fs.writeFile(mutationFile, mutationBytes);
+    const modifiedMutationBytes = Buffer.from(mutationBytes);
+    modifiedMutationBytes[modifiedMutationBytes.indexOf(Buffer.from("newContent"))] = 0x58;
+    await fs.writeFile(mutationFile, modifiedMutationBytes);
+    await rejectPreflight("tampered repair mutation artifact");
+    await fs.writeFile(mutationFile, mutationBytes);
     const modifiedRecord = Buffer.from(recordBytes);
     modifiedRecord[modifiedRecord.indexOf(Buffer.from("originalTaskId"))] = 0x58;
     await fs.writeFile(recordFile, modifiedRecord);
@@ -159,7 +174,8 @@ async function main() {
       ["wrong repair artifact", { repairArtifactHash: `sha256:${"1".repeat(64)}` }],
       ["wrong derived candidate", { derivedCandidateHash: `sha256:${"2".repeat(64)}` }],
       ["wrong original candidate", { originalCandidateHash: `sha256:${"3".repeat(64)}` }],
-      ["wrong record hash", { derivedRepairRecordHash: `sha256:${"4".repeat(64)}` }]
+      ["wrong record hash", { derivedRepairRecordHash: `sha256:${"4".repeat(64)}` }],
+      ["wrong repository identity", { repositoryIdentityHash: `sha256:${"6".repeat(64)}` }]
     ]) {
       await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
         ...candidateInput, provenance: { ...candidate.provenance, ...change }
@@ -181,6 +197,11 @@ async function main() {
       ...candidateInput, provenance: { kind: "bounded_run" }
     }));
     await rejectPreflight("repair mislabeled as normal candidate");
+    const { provenance: _legacyProvenance, handoffHash: _legacyHash, ...legacyBase } = candidate;
+    const legacy = { ...legacyBase, handoffVersion: "bounded-candidate-handoff/v1" };
+    await handoff.writeCandidateHandoff(repository, { ...legacy,
+      handoffHash: runtime.hashCanonicalJson(legacy) });
+    await rejectPreflight("repair handoff downgraded to v1");
     const alteredMutation = structuredClone(candidate.coderMutation);
     alteredMutation.claims.find((claim) => claim.file === "test/calculate.test.js").newContent =
       testSource.replace("12", "13");
@@ -217,6 +238,81 @@ async function main() {
     assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
     assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
     await fs.writeFile(recordFile, recordBytes);
+    const artifactChangedAfterApproval = await apply.applyCommand({}, repository, {
+      decide: async () => {
+        await fs.writeFile(mutationFile, modifiedMutationBytes);
+        return { decision: "accept", reason: null };
+      },
+      execute: async () => { executeCalls += 1; throw new Error("executor must not run"); }
+    });
+    assert.equal(artifactChangedAfterApproval.output.decision, "recovery_required");
+    assert.equal(executeCalls, 0);
+    assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
+    assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
+    await fs.writeFile(mutationFile, mutationBytes);
+    const foreign = await createRepository(path.join(parent, "foreign"), projectRoot,
+      "foreign-repair-fixture");
+    await fs.mkdir(path.join(foreign.repository, ".bounded/state/derived-repairs"), { recursive: true });
+    await fs.mkdir(path.join(foreign.repository, ".bounded/state/repair-mutations"), { recursive: true });
+    await fs.writeFile(path.join(foreign.repository, ".bounded/state/candidate-handoff.json"), handoffBytes);
+    await fs.writeFile(path.join(foreign.repository, ".bounded/state/derived-repairs",
+      `${output.derivedCandidateHash.slice(7)}.json`), recordBytes);
+    await fs.writeFile(path.join(foreign.repository, ".bounded/state/repair-mutations",
+      `${output.repairArtifactHash.slice(7)}.json`), mutationBytes);
+    const foreignResult = await apply.applyCommand({ nonInteractive: true }, foreign.repository);
+    assert.equal(foreignResult.output.decision, "recovery_required");
+    assert.equal(foreignResult.output.mutationStarted, false);
+    const validationModule = await import(pathToFileURL(path.join(projectRoot,
+      "dist/apps/cli/src/derived-candidate-validation.js")));
+    const forgedRepair = structuredClone(mutation);
+    forgedRepair.claims[0].newContent = testSource.replace("12", "15");
+    const forgedArtifact = validationModule.createRepairMutationArtifact(forgedRepair);
+    const forgedArtifactBytes = Buffer.from(`${JSON.stringify(forgedArtifact, null, 2)}\n`);
+    const forgedArtifactHash = runtime.hashCanonicalJson(forgedArtifact);
+    const forgedCandidate = validationModule.deriveCandidateMutation(original, forgedArtifact);
+    const forgedCandidateHash = runtime.hashCanonicalJson({
+      originalCandidateHash: state.mutationArtifactHash,
+      repairArtifactHash: forgedArtifactHash, mutation: forgedCandidate });
+    const forgedReceiptMaterial = { ...storedRecord.validationReceipt,
+      repairArtifactHash: forgedArtifactHash, derivedCandidateHash: forgedCandidateHash };
+    delete forgedReceiptMaterial.receiptHash;
+    const forgedRecord = { ...storedRecord, repairArtifactHash: forgedArtifactHash,
+      repairMutationArtifactHash: forgedArtifactHash,
+      repairMutationArtifactRawHash: `sha256:${createHash("sha256").update(forgedArtifactBytes).digest("hex")}`,
+      repairMutationArtifactBytes: forgedArtifactBytes.length,
+      derivedCandidateHash: forgedCandidateHash,
+      validationReceipt: { ...forgedReceiptMaterial,
+        receiptHash: runtime.hashCanonicalJson(forgedReceiptMaterial) } };
+    const forgedRecordBytes = Buffer.from(`${JSON.stringify(forgedRecord, null, 2)}\n`);
+    await fs.rm(recordFile);
+    await fs.rm(mutationFile);
+    await fs.rm(path.join(repository, ".bounded/state/human-decisions"),
+      { recursive: true, force: true });
+    await fs.writeFile(path.join(repository, ".bounded/state/repair-mutations",
+      `${forgedArtifactHash.slice(7)}.json`), forgedArtifactBytes);
+    await fs.writeFile(path.join(repository, ".bounded/state/derived-repairs",
+      `${forgedCandidateHash.slice(7)}.json`), forgedRecordBytes);
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, coderMutation: forgedCandidate,
+      adaptiveResult: { ...candidate.adaptiveResult, coderResult: {
+        ...candidate.adaptiveResult.coderResult, providerOutput: forgedCandidate } },
+      provenance: { ...candidate.provenance, repairArtifactHash: forgedArtifactHash,
+        derivedCandidateHash: forgedCandidateHash,
+        derivedRepairRecordHash: `sha256:${createHash("sha256").update(forgedRecordBytes).digest("hex")}`,
+        derivedRepairRecordBytes: forgedRecordBytes.length }
+    }));
+    const productConfig = await import(pathToFileURL(path.join(projectRoot,
+      "dist/apps/cli/src/product-config.js")));
+    const diagnosed = await productConfig.doctorBoundedLocalConfig(repository);
+    await assert.rejects(validationModule.validateDerivedCandidate({ repositoryRoot: repository,
+      config: diagnosed.config, state, result: terminal, original, artifact: forgedArtifact,
+      generatedPolicyPaths: [
+        `.bounded/state/repair-mutations/${forgedArtifactHash.slice(7)}.json`,
+        `.bounded/state/derived-repairs/${forgedCandidateHash.slice(7)}.json`,
+        ".bounded/state/candidate-handoff.json"
+      ] }), (error) => error.code === "cli_repair_validation_failed");
+    await rejectPreflight("coordinated forged-validation receipt");
+    await fs.writeFile(handoffFile, handoffBytes);
     console.log("governed repair: offline derived candidate, validation, handoff, immutability PASS");
   } finally { await fs.rm(parent, { recursive: true, force: true }); }
 }
