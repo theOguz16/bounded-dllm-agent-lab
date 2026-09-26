@@ -10,7 +10,6 @@ import {
   canonicalPolicyRepositoryIdentity,
   compileCanonicalPolicy,
   createAcceptanceCriteriaContract,
-  createCanonicalRepositoryContentSnapshot,
   evaluateAcceptanceCriteria,
   hashCanonicalJson,
   mutationContentHash,
@@ -37,9 +36,11 @@ import {
 } from "../candidate-handoff.js";
 import { doctorBoundedLocalConfig, BOUNDED_POLICY_PATH } from "../product-config.js";
 import { codexDurableTaskLocator } from "../run-artifact-store.js";
+import { DERIVED_REPAIR_VERSION, deriveCandidateMutation, derivedRepairRecordBytes,
+  derivedRepairRecordHash, stableBaselineSnapshotHash, type DerivedRepairRecord } from "../repair-provenance.js";
 import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./codex.js";
 
-export const DERIVED_REPAIR_VERSION = "bounded-derived-repair/v1" as const;
+export { DERIVED_REPAIR_VERSION } from "../repair-provenance.js";
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const TASK = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 
@@ -85,33 +86,11 @@ function headHash(repositoryRoot: string): string {
   } catch { return hashCanonicalJson({ head: null }); }
 }
 
-function stableBaselineSnapshotHash(repositoryRoot: string): string {
-  const snapshot = createCanonicalRepositoryContentSnapshot(repositoryRoot);
-  const volatile = [".bounded/runs", ".bounded/state", ".bounded/tmp", ".bounded/cache"];
-  const records = snapshot.records.filter((record) => !volatile.some((prefix) =>
-    record.path === prefix || record.path.startsWith(`${prefix}/`)));
-  return hashCanonicalJson({ snapshotVersion: snapshot.snapshotVersion, scope: snapshot.scope,
-    records, totalBytes: records.reduce((total, record) => total + record.byteLength, 0) });
-}
-
 function coderMutation(result: RunBoundedTaskResult): WorkspaceMutation {
   const mutation = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput;
   if (!mutation) return reject("cli_repair_original_missing", "Terminal task has no persisted coder candidate.");
   parseTextFileUpdates(mutation);
   return mutation;
-}
-
-function derivedMutation(original: WorkspaceMutation, repair: WorkspaceMutation): WorkspaceMutation {
-  const replacements = new Map(parseTextFileUpdates(repair).map((claim) => [claim.file, claim]));
-  const claims = parseTextFileUpdates(original).map((claim) => {
-    const replacement = replacements.get(claim.file);
-    return replacement === undefined ? claim : {
-      ...claim, newContent: replacement.newContent,
-      description: replacement.description
-    };
-  });
-  return { ...original, summary: "Validated deterministic repair of persisted candidate.",
-    claims, touchedFiles: [...original.touchedFiles] };
 }
 
 function updatedAdaptiveResult(result: RunBoundedTaskResult, mutation: WorkspaceMutation): unknown {
@@ -263,7 +242,7 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
   if (repairVerification.decision !== "approve") {
     return reject("cli_repair_boundary_rejected", "Deterministic repair draft verifier did not approve the repair.");
   }
-  const candidateB = derivedMutation(original, repair);
+  const candidateB = deriveCandidateMutation(original, repair);
   const boundContextFiles = originalClaims.map((claim) => ({ path: claim.file,
     contentHash: claim.expectedContentHash }));
   const verifier = await verifyPatchDraftMutationV2({ repositoryPath: repositoryRoot,
@@ -316,6 +295,21 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
   const repairArtifactHash = hashCanonicalJson({ request, mutation: repair });
   const derivedCandidateHash = hashCanonicalJson({ originalCandidateHash: originalHash,
     repairArtifactHash, mutation: candidateB });
+  const record: DerivedRepairRecord = { schemaVersion: DERIVED_REPAIR_VERSION,
+    originalTaskId: state.taskId, originalCandidateHash: originalHash,
+    validationFailureHash: state.terminalResultHash, repairArtifactHash, derivedCandidateHash,
+    boundaryHash: hashCanonicalJson(boundary), validationEvidenceHash: validation.evidenceHash,
+    verifierFindingHash: hashCanonicalJson(verifier.finding),
+    acceptanceReceiptHash: acceptance.receipt.receiptHash,
+    sourceSnapshotHash: sourceBefore, repositoryIdentityHash: state.repositoryIdentityHash,
+    baselineSnapshotHash: state.baselineSnapshotHash, request, mutation: repair };
+  const recordBytes = derivedRepairRecordBytes(record);
+  const recordHash = derivedRepairRecordHash(recordBytes);
+  if (recordBytes.length > 16 * 1024 * 1024 ||
+      hashCanonicalJson({ originalCandidateHash: originalHash, repairArtifactHash,
+        mutation: candidateB }) !== derivedCandidateHash) {
+    return reject("cli_repair_lineage_invalid", "Derived candidate lineage is inconsistent.");
+  }
   const candidate = createCandidateHandoff({ taskId: state.taskId,
     objectiveHash: acceptanceCriteriaContract.objectiveHash,
     sourceSnapshotHash: sourceBefore, planHash: plan.planHash,
@@ -328,7 +322,13 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     phaseVExecutionSpecification: specification, coderMutation: candidateB,
     verifierFinding: verifier.finding, adaptiveResult: updatedAdaptiveResult(result, candidateB),
     declaredRiskClass: risk as "low" | "medium" | "high" | "critical",
-    candidateFiles: originalFiles });
+    candidateFiles: originalFiles,
+    provenance: { kind: "derived_repair", originalTaskId: state.taskId,
+      originalCandidateHash: originalHash, repairArtifactHash, derivedCandidateHash,
+      derivedRepairRecordHash: recordHash, derivedRepairRecordBytes: recordBytes.length,
+      validationFailureHash: state.terminalResultHash,
+      repositoryIdentityHash: state.repositoryIdentityHash,
+      baselineSnapshotHash: state.baselineSnapshotHash } });
   try {
     const existing = await readCandidateHandoff(repositoryRoot);
     if (existing.handoffHash !== candidate.handoffHash) {
@@ -337,12 +337,6 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
   } catch (error) {
     if (!(error instanceof CliError) || error.code !== "cli_candidate_handoff_missing") throw error;
   }
-  const record = { schemaVersion: DERIVED_REPAIR_VERSION, originalTaskId: state.taskId,
-    originalCandidateHash: originalHash, validationFailureHash: state.terminalResultHash,
-    repairArtifactHash, derivedCandidateHash, boundaryHash: hashCanonicalJson(boundary),
-    validationEvidenceHash: validation.evidenceHash, verifierFindingHash: hashCanonicalJson(verifier.finding),
-    acceptanceReceiptHash: acceptance.receipt.receiptHash,
-    handoffHash: candidate.handoffHash, sourceSnapshotHash: sourceBefore };
   const stateDirectory = path.join(repositoryRoot, ".bounded", "state");
   const stateStat = await lstat(stateDirectory).catch(() => null);
   if (stateStat && (!stateStat.isDirectory() || stateStat.isSymbolicLink())) {
@@ -355,7 +349,7 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
   }
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await writeFile(path.join(directory, `${derivedCandidateHash.slice(7)}.json`),
-    `${JSON.stringify(record, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    recordBytes, { flag: "wx", mode: 0o600 });
   await writeCandidateHandoff(repositoryRoot, candidate);
   return { output: { ok: true, command: "repair", taskId: state.taskId,
     originalCandidateHash: originalHash, repairArtifactHash, derivedCandidateHash,

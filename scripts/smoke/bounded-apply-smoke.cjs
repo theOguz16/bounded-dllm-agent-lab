@@ -20,6 +20,43 @@ const applyModuleUrl = pathToFileURL(
 const runtimeModuleUrl = pathToFileURL(
   path.join(repoRoot, "dist/packages/product-runtime/src/canonical-runtime.js")
 ).href;
+const storeModuleUrl = pathToFileURL(
+  path.join(repoRoot, "dist/apps/cli/src/run-artifact-store.js")
+).href;
+
+async function writeSuccessfulDurableFixture(repository, candidate, runtime) {
+  const store = await import(storeModuleUrl);
+  const locator = store.codexDurableTaskLocator(repository, candidate.taskId);
+  const taskDirectory = path.join(locator.registryRoot, "tasks",
+    runtime.hashCanonicalJson({ taskId: candidate.taskId,
+      idempotencyKey: locator.idempotencyKey }).slice(7));
+  const result = { decision: "bounded_task_completed" };
+  const resultBytes = Buffer.from(JSON.stringify(result));
+  const resultHash = runtime.hashCanonicalJson(result);
+  const ref = { name: "terminal-result", relativePath: `artifacts/terminal-result-${resultHash.slice(7, 23)}.json`,
+    contentHash: resultHash, byteLength: resultBytes.length };
+  const now = new Date().toISOString();
+  const core = { schemaVersion: "4", taskInputVersion: "canonical-task-input/v4",
+    taskInputHash: hash("1"), taskId: candidate.taskId, runId: "fixture-run",
+    idempotencyKey: locator.idempotencyKey, currentState: "finalized", transitionSequence: 1,
+    attempts: [{ runId: "fixture-run", startedAt: now, resume: false }],
+    repositoryIdentityHash: hash("2"), baselineSnapshotHash: hash("3"), baselineHeadHash: hash("4"),
+    compiledPolicyHash: hash("5"), acceptanceCriteriaContractHash: hash("6"),
+    acceptanceEvaluationReceiptHash: null, planHash: null, contextEvidenceHash: null,
+    providerRequestHash: null, providerResponseHash: null,
+    mutationArtifactHash: runtime.hashCanonicalJson(candidate.coderMutation), verifiedMutationHash: null,
+    x4Reference: null, x5IntentReference: null, x5ReceiptReference: null,
+    terminalResultReference: ref, terminalResultHash: resultHash,
+    terminalRepositorySnapshotReference: null, terminalRepositorySnapshotHash: null,
+    artifacts: { "terminal-result": ref },
+    leaseOwner: { runId: "fixture-run", ownerNonceHash: hash("7"), pid: process.pid,
+      processIdentityHash: hash("8"), acquiredAt: now, heartbeatAt: now },
+    providerIntent: null, createdAt: now, updatedAt: now, previousStateHash: null };
+  await fs.mkdir(path.join(taskDirectory, "artifacts"), { recursive: true });
+  await fs.writeFile(path.join(taskDirectory, ref.relativePath), resultBytes);
+  await fs.writeFile(path.join(taskDirectory, "state.json"), JSON.stringify({
+    ...core, stateHash: runtime.hashCanonicalJson(core) }));
+}
 
 const sourceOriginal = [
   "export function refreshExpiry(now: number): number {",
@@ -192,7 +229,22 @@ async function main() {
     const applyModule = await import(applyModuleUrl);
     const runtime = await import(runtimeModuleUrl);
     let candidate = await buildCandidate(repository, candidateModule, runtime);
+    await writeSuccessfulDurableFixture(repository, candidate, runtime);
     await candidateModule.writeCandidateHandoff(repository, candidate);
+    const { provenance: _provenance, handoffHash: _handoffHash,
+      ...legacyMaterial } = candidate;
+    const legacyV1 = { ...legacyMaterial, handoffVersion: "bounded-candidate-handoff/v1" };
+    await candidateModule.writeCandidateHandoff(repository, {
+      ...legacyV1, handoffHash: runtime.hashCanonicalJson(legacyV1)
+    });
+    const legacyPreflight = await applyModule.applyCommand({ nonInteractive: true }, repository);
+    assert.equal(legacyPreflight.output.decision, "approval_required");
+    await candidateModule.writeCandidateHandoff(repository, candidate);
+    const { handoffHash: _normalHash, handoffVersion: _normalVersion,
+      ...normalInput } = candidate;
+    await assert.rejects(candidateModule.writeCandidateHandoff(repository,
+      candidateModule.createCandidateHandoff({ ...normalInput,
+        provenance: { kind: "derived_repair" } })));
 
     assert.equal(
       candidateModule.captureCandidateSourceSnapshotHash(repository),
@@ -370,7 +422,7 @@ async function main() {
 
     process.stdout.write(`${JSON.stringify({
       ok: true,
-      candidateHandoffVersion: "bounded-candidate-handoff/v1",
+      candidateHandoffVersion: candidate.handoffVersion,
       applyVersion: "bounded-apply/v1",
       validatedCandidatePersisted: true,
       diffShownBeforeApproval: true,

@@ -28,6 +28,7 @@ import {
   type HumanDecisionSelection
 } from "../human-decision.js";
 import { doctorBoundedLocalConfig } from "../product-config.js";
+import { verifyCandidateProvenance } from "../repair-provenance.js";
 import type { TrustedBehaviorHost } from "../compare-host-loader.js";
 import {
   createPersistedBehaviorSession,
@@ -263,6 +264,12 @@ export async function applyCommand(
   const diagnosed = await doctorBoundedLocalConfig(startPath);
   const repositoryRoot = diagnosed.repositoryRoot;
   const candidate = await readCandidateHandoff(repositoryRoot);
+  try {
+    await verifyCandidateProvenance(repositoryRoot, candidate);
+  } catch {
+    return stoppedOutput(candidate, "recovery_required",
+      "Candidate provenance is missing, stale, or invalid; candidate was not applied.");
+  }
 
   let diff: string;
   try {
@@ -315,6 +322,12 @@ export async function applyCommand(
   if ((await readCandidateHandoff(repositoryRoot)).handoffHash !== candidate.handoffHash) {
     return stoppedOutput(candidate, "recovery_required",
       "Persisted candidate changed after approval; candidate was not applied.", humanDecision, behavior);
+  }
+  try {
+    await verifyCandidateProvenance(repositoryRoot, candidate);
+  } catch {
+    return stoppedOutput(candidate, "recovery_required",
+      "Candidate provenance changed after approval; candidate was not applied.", humanDecision, behavior);
   }
 
   const currentSnapshotHash = captureCandidateSourceSnapshotHash(repositoryRoot);

@@ -17,7 +17,8 @@ import {
 } from "../../../packages/product-runtime/src/canonical-runtime.js";
 import { CliError } from "./cli-errors.js";
 
-export const BOUNDED_CANDIDATE_HANDOFF_VERSION = "bounded-candidate-handoff/v1" as const;
+export const BOUNDED_CANDIDATE_HANDOFF_VERSION = "bounded-candidate-handoff/v2" as const;
+export const LEGACY_CANDIDATE_HANDOFF_VERSION = "bounded-candidate-handoff/v1" as const;
 export const BOUNDED_CANDIDATE_HANDOFF_PATH = ".bounded/state/candidate-handoff.json" as const;
 
 const VOLATILE_BOUNDED_PREFIXES = [
@@ -29,8 +30,21 @@ const VOLATILE_BOUNDED_PREFIXES = [
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const MAX_HANDOFF_BYTES = 16 * 1024 * 1024;
 
+export type CandidateProvenance = Readonly<{ kind: "bounded_run" }> | Readonly<{
+  kind: "derived_repair";
+  originalTaskId: string;
+  originalCandidateHash: string;
+  repairArtifactHash: string;
+  derivedCandidateHash: string;
+  derivedRepairRecordHash: string;
+  derivedRepairRecordBytes: number;
+  validationFailureHash: string;
+  repositoryIdentityHash: string;
+  baselineSnapshotHash: string;
+}>;
+
 export type BoundedCandidateHandoff = Readonly<{
-  handoffVersion: typeof BOUNDED_CANDIDATE_HANDOFF_VERSION;
+  handoffVersion: typeof BOUNDED_CANDIDATE_HANDOFF_VERSION | typeof LEGACY_CANDIDATE_HANDOFF_VERSION;
   taskId: string;
   objectiveHash: string;
   sourceSnapshotHash: string;
@@ -48,6 +62,7 @@ export type BoundedCandidateHandoff = Readonly<{
   adaptiveResult: unknown;
   declaredRiskClass: "low" | "medium" | "high" | "critical";
   candidateFiles: readonly string[];
+  provenance?: CandidateProvenance;
   handoffHash: string;
 }>;
 
@@ -87,6 +102,7 @@ export function createCandidateHandoff(input: CandidateHandoffInput): BoundedCan
   const withoutHash: Omit<BoundedCandidateHandoff, "handoffHash"> = {
     handoffVersion: BOUNDED_CANDIDATE_HANDOFF_VERSION,
     ...input,
+    provenance: input.provenance ?? { kind: "bounded_run" },
     allowedFiles: [...input.allowedFiles],
     forbiddenFiles: [...input.forbiddenFiles],
     candidateFiles: [...input.candidateFiles]
@@ -153,8 +169,10 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
     "phaseVExecutionSpecification", "coderMutation", "verifierFinding", "adaptiveResult",
     "declaredRiskClass", "candidateFiles", "handoffHash"
   ];
-  if (Object.keys(record).sort().join("\u0000") !== [...fields].sort().join("\u0000") ||
-      record.handoffVersion !== BOUNDED_CANDIDATE_HANDOFF_VERSION ||
+  const legacy = record.handoffVersion === LEGACY_CANDIDATE_HANDOFF_VERSION;
+  const current = record.handoffVersion === BOUNDED_CANDIDATE_HANDOFF_VERSION;
+  if ((!legacy && !current) ||
+      Object.keys(record).sort().join("\u0000") !== [...fields, ...(current ? ["provenance"] : [])].sort().join("\u0000") ||
       typeof record.taskId !== "string" || record.taskId.length === 0 ||
       !(String(record.validationProfile) in VALIDATION_PROFILES) ||
       !["low", "medium", "high", "critical"].includes(String(record.declaredRiskClass))) {
@@ -167,6 +185,32 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
   assertStringArray(record.allowedFiles, "allowedFiles");
   assertStringArray(record.forbiddenFiles, "forbiddenFiles");
   assertStringArray(record.candidateFiles, "candidateFiles");
+  if (current) {
+    const provenance = record.provenance;
+    if (provenance === null || typeof provenance !== "object" || Array.isArray(provenance)) {
+      throw new CliError("cli_candidate_handoff_invalid", "Candidate provenance is invalid.");
+    }
+    const entry = provenance as Record<string, unknown>;
+    const derivedFields = ["kind", "originalTaskId", "originalCandidateHash", "repairArtifactHash",
+      "derivedCandidateHash", "derivedRepairRecordHash", "derivedRepairRecordBytes",
+      "validationFailureHash", "repositoryIdentityHash", "baselineSnapshotHash"];
+    if (entry.kind === "bounded_run") {
+      if (Object.keys(entry).join("\u0000") !== "kind") {
+        throw new CliError("cli_candidate_handoff_invalid", "Normal candidate provenance is invalid.");
+      }
+    } else if (entry.kind === "derived_repair") {
+      if (Object.keys(entry).sort().join("\u0000") !== derivedFields.sort().join("\u0000") ||
+          typeof entry.originalTaskId !== "string" || entry.originalTaskId !== record.taskId ||
+          !Number.isSafeInteger(entry.derivedRepairRecordBytes) || Number(entry.derivedRepairRecordBytes) < 1) {
+        throw new CliError("cli_candidate_handoff_invalid", "Derived repair provenance is incomplete.");
+      }
+      for (const field of derivedFields.filter((field) => !["kind", "originalTaskId", "derivedRepairRecordBytes"].includes(field))) {
+        assertHash(entry[field], `provenance.${field}`);
+      }
+    } else {
+      throw new CliError("cli_candidate_handoff_invalid", "Candidate provenance kind is invalid.");
+    }
+  }
   const { handoffHash, ...withoutHash } = record;
   if (hashCanonicalJson(handoffMaterial(withoutHash as Omit<BoundedCandidateHandoff, "handoffHash">)) !== handoffHash) {
     throw new CliError("cli_candidate_handoff_invalid", "Candidate handoff integrity hash does not match.");

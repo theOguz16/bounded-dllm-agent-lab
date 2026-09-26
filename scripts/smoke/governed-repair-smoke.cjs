@@ -129,6 +129,94 @@ async function main() {
     const gated = await apply.applyCommand({ nonInteractive: true }, repository);
     assert.equal(gated.output.decision, "approval_required");
     assert.equal(gated.output.apply, "NOT_RUN");
+    const handoffFile = path.join(repository, ".bounded/state/candidate-handoff.json");
+    const handoffBytes = await fs.readFile(handoffFile);
+    const recordFile = path.join(repository, ".bounded/state/derived-repairs",
+      `${output.derivedCandidateHash.slice(7)}.json`);
+    const recordBytes = await fs.readFile(recordFile);
+    const originalSourceBytes = await fs.readFile(path.join(repository, "src/calculate.js"));
+    const originalTestBytes = await fs.readFile(path.join(repository, "test/calculate.test.js"));
+    const rejectPreflight = async (name) => {
+      const result = await apply.applyCommand({ nonInteractive: true }, repository);
+      assert.equal(result.output.decision, "recovery_required", `${name}: ${JSON.stringify(result.output)}`);
+      assert.equal(result.output.apply, "NOT_RUN", name);
+      assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
+      assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
+    };
+    await fs.rm(recordFile);
+    await rejectPreflight("deleted record");
+    await fs.writeFile(recordFile, recordBytes);
+    const modifiedRecord = Buffer.from(recordBytes);
+    modifiedRecord[modifiedRecord.indexOf(Buffer.from("originalTaskId"))] = 0x58;
+    await fs.writeFile(recordFile, modifiedRecord);
+    await rejectPreflight("modified record bytes");
+    await fs.writeFile(recordFile, recordBytes);
+    await fs.writeFile(recordFile, Buffer.concat([recordBytes, Buffer.from(" ")]));
+    await rejectPreflight("modified record size");
+    await fs.writeFile(recordFile, recordBytes);
+    const { handoffVersion: _version, handoffHash: _hash, ...candidateInput } = candidate;
+    for (const [name, change] of [
+      ["wrong repair artifact", { repairArtifactHash: `sha256:${"1".repeat(64)}` }],
+      ["wrong derived candidate", { derivedCandidateHash: `sha256:${"2".repeat(64)}` }],
+      ["wrong original candidate", { originalCandidateHash: `sha256:${"3".repeat(64)}` }],
+      ["wrong record hash", { derivedRepairRecordHash: `sha256:${"4".repeat(64)}` }]
+    ]) {
+      await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+        ...candidateInput, provenance: { ...candidate.provenance, ...change }
+      }));
+      await rejectPreflight(name);
+    }
+    const crossTaskRecord = { ...JSON.parse(recordBytes.toString("utf8")),
+      originalTaskId: "codex.other-task" };
+    const crossTaskBytes = Buffer.from(`${JSON.stringify(crossTaskRecord, null, 2)}\n`);
+    await fs.writeFile(recordFile, crossTaskBytes);
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, provenance: { ...candidate.provenance,
+        derivedRepairRecordHash: `sha256:${createHash("sha256").update(crossTaskBytes).digest("hex")}`,
+        derivedRepairRecordBytes: crossTaskBytes.length }
+    }));
+    await rejectPreflight("cross-task record substitution");
+    await fs.writeFile(recordFile, recordBytes);
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, provenance: { kind: "bounded_run" }
+    }));
+    await rejectPreflight("repair mislabeled as normal candidate");
+    const alteredMutation = structuredClone(candidate.coderMutation);
+    alteredMutation.claims.find((claim) => claim.file === "test/calculate.test.js").newContent =
+      testSource.replace("12", "13");
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, coderMutation: alteredMutation
+    }));
+    await rejectPreflight("Candidate B content changed");
+    await fs.writeFile(handoffFile, handoffBytes);
+    const tamperedHandoff = JSON.parse(handoffBytes.toString("utf8"));
+    tamperedHandoff.provenance.originalCandidateHash = `sha256:${"5".repeat(64)}`;
+    await fs.writeFile(handoffFile, JSON.stringify(tamperedHandoff));
+    await assert.rejects(apply.applyCommand({ nonInteractive: true }, repository));
+    assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
+    assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
+    await fs.writeFile(handoffFile, handoffBytes);
+    await fs.writeFile(path.join(repository, "src/calculate.js"), sourceOriginal.replace("* 2", "* 7"));
+    const staleSourceBytes = await fs.readFile(path.join(repository, "src/calculate.js"));
+    const staleResult = await apply.applyCommand({ nonInteractive: true }, repository);
+    assert.equal(staleResult.output.decision, "recovery_required");
+    assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), staleSourceBytes);
+    await fs.writeFile(path.join(repository, "src/calculate.js"), originalSourceBytes);
+    assert.equal((await apply.applyCommand({ nonInteractive: true }, repository)).output.decision,
+      "approval_required");
+    let executeCalls = 0;
+    const changedAfterApproval = await apply.applyCommand({}, repository, {
+      decide: async () => {
+        await fs.writeFile(recordFile, modifiedRecord);
+        return { decision: "accept", reason: null };
+      },
+      execute: async () => { executeCalls += 1; throw new Error("executor must not run"); }
+    });
+    assert.equal(changedAfterApproval.output.decision, "recovery_required");
+    assert.equal(executeCalls, 0);
+    assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
+    assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
+    await fs.writeFile(recordFile, recordBytes);
     console.log("governed repair: offline derived candidate, validation, handoff, immutability PASS");
   } finally { await fs.rm(parent, { recursive: true, force: true }); }
 }
