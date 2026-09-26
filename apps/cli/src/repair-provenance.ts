@@ -28,8 +28,9 @@ import {
 } from "./derived-candidate-validation.js";
 import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./commands/codex.js";
 import { verifyRepairRequestBinding, type RepairRequestBinding } from "./repair-request-binding.js";
+import { inheritedCandidateAuthorityHash, projectInheritedHandoffAuthority } from "./inherited-candidate-authority.js";
 
-export const DERIVED_REPAIR_VERSION = "bounded-derived-repair/v4" as const;
+export const DERIVED_REPAIR_VERSION = "bounded-derived-repair/v5" as const;
 const MAX_RECORD_BYTES = 16 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 
@@ -44,6 +45,7 @@ export type DerivedRepairRecord = Readonly<{
   repairMutationArtifactBytes: number;
   derivedCandidateHash: string;
   boundaryHash: string;
+  inheritedCandidateAuthorityHash: string;
   requestBinding: RepairRequestBinding;
   validationReceipt: DerivedCandidateValidationReceipt;
   sourceSnapshotHash: string;
@@ -135,7 +137,8 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
     const record = JSON.parse(recordBytes.toString("utf8")) as DerivedRepairRecord;
     const fields = ["schemaVersion", "originalTaskId", "originalCandidateHash", "validationFailureHash",
       "repairArtifactHash", "repairMutationArtifactHash", "repairMutationArtifactRawHash",
-      "repairMutationArtifactBytes", "derivedCandidateHash", "boundaryHash", "requestBinding", "validationReceipt",
+      "repairMutationArtifactBytes", "derivedCandidateHash", "boundaryHash",
+      "inheritedCandidateAuthorityHash", "requestBinding", "validationReceipt",
       "sourceSnapshotHash", "repositoryIdentityHash", "baselineSnapshotHash"];
     if (Object.keys(record).sort().join("\0") !== fields.sort().join("\0") ||
         record.schemaVersion !== DERIVED_REPAIR_VERSION ||
@@ -147,7 +150,10 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
         record.derivedCandidateHash !== provenance.derivedCandidateHash ||
         record.repositoryIdentityHash !== provenance.repositoryIdentityHash ||
         record.baselineSnapshotHash !== provenance.baselineSnapshotHash ||
+        record.inheritedCandidateAuthorityHash !== provenance.inheritedCandidateAuthorityHash ||
         record.sourceSnapshotHash !== candidate.sourceSnapshotHash) return fail();
+    if (inheritedCandidateAuthorityHash(projectInheritedHandoffAuthority(candidate)) !==
+        provenance.inheritedCandidateAuthorityHash) return fail();
     const mutationBytes = await readBoundArtifact(path.join(repositoryRoot, ".bounded", "state", "repair-mutations"),
       record.repairMutationArtifactHash, record.repairMutationArtifactBytes,
       record.repairMutationArtifactRawHash, MAX_ARTIFACT_BYTES);
@@ -183,6 +189,8 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
         record.validationReceipt.derivedCandidateHash !== provenance.derivedCandidateHash ||
         record.validationReceipt.repairArtifactHash !== provenance.repairArtifactHash ||
         record.validationReceipt.boundaryHash !== record.boundaryHash ||
+        record.validationReceipt.inheritedCandidateAuthorityHash !==
+          record.inheritedCandidateAuthorityHash ||
         record.validationReceipt.repairRequestBindingHash !== record.requestBinding.bindingHash ||
         record.validationReceipt.phaseVExecutionSpecificationHash !== phaseVExecutionSpecificationHash ||
         record.validationReceipt.validationProfileHash !== validationProfileHash ||
@@ -205,6 +213,8 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
         hashCanonicalJson(fresh.receipt) !== hashCanonicalJson(record.validationReceipt) ||
         fresh.receipt.derivedCandidateHash !== provenance.derivedCandidateHash ||
         fresh.receipt.boundaryHash !== record.boundaryHash ||
+        fresh.receipt.inheritedCandidateAuthorityHash !==
+          provenance.inheritedCandidateAuthorityHash ||
         hashCanonicalJson(candidate.forbiddenFiles) !== hashCanonicalJson(fresh.policy.forbiddenPaths) ||
         hashCanonicalJson(fresh.verifier.finding) !== hashCanonicalJson(candidate.verifierFinding)) return fail();
     return fresh.receipt.receiptHash;

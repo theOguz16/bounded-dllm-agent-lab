@@ -115,6 +115,11 @@ async function main() {
     assert.equal(output.providerCalls, 0);
     const candidate = await handoff.readCandidateHandoff(repository);
     assert.equal(candidate.handoffHash, output.candidateHandoffHash);
+    const inherited = await import(pathToFileURL(path.join(projectRoot,
+      "dist/apps/cli/src/inherited-candidate-authority.js")));
+    assert.deepEqual(Object.keys(candidate).filter((field) =>
+      !["handoffVersion", "handoffHash", "provenance"].includes(field)).sort(),
+    [...inherited.INHERITED_HANDOFF_FIELDS, ...inherited.DERIVED_HANDOFF_FIELDS].sort());
     const derivedClaims = runtime.parseTextFileUpdates(candidate.coderMutation);
     assert.equal(derivedClaims.find((claim) => claim.file === "src/calculate.js").newContent,
       claims.find((claim) => claim.file === "src/calculate.js").newContent);
@@ -151,7 +156,11 @@ async function main() {
     assert.equal(recordBytes.includes(Buffer.from(mutation.summary)), false);
     assert.equal(storedRecord.requestBinding.version, "bounded-repair-request-binding/v1");
     assert.equal(storedRecord.validationReceipt.receiptVersion,
-      "bounded-derived-validation-receipt/v2");
+      "bounded-derived-validation-receipt/v3");
+    assert.equal(storedRecord.inheritedCandidateAuthorityHash,
+      inherited.inheritedCandidateAuthorityHash(inherited.projectInheritedHandoffAuthority(candidate)));
+    assert.equal(storedRecord.validationReceipt.inheritedCandidateAuthorityHash,
+      storedRecord.inheritedCandidateAuthorityHash);
     const originalSourceBytes = await fs.readFile(path.join(repository, "src/calculate.js"));
     const originalTestBytes = await fs.readFile(path.join(repository, "test/calculate.test.js"));
     const rejectPreflight = async (name) => {
@@ -291,6 +300,57 @@ async function main() {
     }));
     await rejectPreflight("handoff mutable scope widening");
     await fs.writeFile(handoffFile, handoffBytes);
+    const changedHash = (digit) => `sha256:${digit.repeat(64)}`;
+    for (const [name, change] of [
+      ["task ID", { taskId: "codex.other-task",
+        provenance: { ...candidate.provenance, originalTaskId: "codex.other-task" } }],
+      ["objective", { objectiveHash: changedHash("0") }],
+      ["source snapshot", { sourceSnapshotHash: changedHash("1") }],
+      ["plan", { planHash: changedHash("2") }],
+      ["context", { contextBindingHash: changedHash("3") }],
+      ["planner execution", { plannerExecutionBindingHash: changedHash("4") }],
+      ["compiled policy", { compiledPolicyHash: changedHash("5") }],
+      ["forbidden files", { forbiddenFiles: [...candidate.forbiddenFiles, "package.json"] }],
+      ["candidate files", { candidateFiles: ["src/calculate.js"] }],
+      ["adaptive inherited evidence", { adaptiveResult: {
+        ...candidate.adaptiveResult, auditMarker: true } }],
+      ["risk class", { declaredRiskClass: candidate.declaredRiskClass === "low" ? "high" : "low" }]
+    ]) {
+      await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+        ...candidateInput, ...change
+      }));
+      await rejectPreflight(`inherited ${name} tamper`);
+      await fs.writeFile(handoffFile, handoffBytes);
+    }
+    for (const [name, change] of [
+      ["plan", { planHash: changedHash("6") }],
+      ["context", { contextBindingHash: changedHash("7") }],
+      ["risk class", { declaredRiskClass: candidate.declaredRiskClass === "low" ? "high" : "low" }]
+    ]) {
+      const forgedHandoff = handoff.createCandidateHandoff({ ...candidateInput, ...change });
+      const forgedInheritedHash = inherited.inheritedCandidateAuthorityHash(
+        inherited.projectInheritedHandoffAuthority(forgedHandoff));
+      const { receiptHash: _inheritedReceiptHash, ...originalReceiptMaterial } =
+        storedRecord.validationReceipt;
+      const inheritedReceiptMaterial = { ...originalReceiptMaterial,
+        inheritedCandidateAuthorityHash: forgedInheritedHash };
+      const inheritedRecord = { ...storedRecord,
+        inheritedCandidateAuthorityHash: forgedInheritedHash,
+        validationReceipt: { ...inheritedReceiptMaterial,
+          receiptHash: runtime.hashCanonicalJson(inheritedReceiptMaterial) } };
+      const inheritedRecordBytes = Buffer.from(`${JSON.stringify(inheritedRecord, null, 2)}\n`);
+      await fs.writeFile(recordFile, inheritedRecordBytes);
+      await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+        ...candidateInput, ...change,
+        provenance: { ...candidate.provenance,
+          inheritedCandidateAuthorityHash: forgedInheritedHash,
+          derivedRepairRecordHash: `sha256:${createHash("sha256").update(inheritedRecordBytes).digest("hex")}`,
+          derivedRepairRecordBytes: inheritedRecordBytes.length }
+      }));
+      await rejectPreflight(`coordinated ${name} authority rewrite`);
+      await fs.writeFile(recordFile, recordBytes);
+      await fs.writeFile(handoffFile, handoffBytes);
+    }
     let executeCalls = 0;
     const changedAfterApproval = await apply.applyCommand({}, repository, {
       decide: async () => {

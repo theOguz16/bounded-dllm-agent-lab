@@ -31,9 +31,10 @@ import { captureCandidateSourceSnapshotHash } from "./candidate-handoff.js";
 import { BOUNDED_POLICY_PATH } from "./product-config.js";
 import { BOUNDED_CODEX_VALIDATION_PROFILE } from "./commands/codex.js";
 import { verifyRepairRequestBinding, type RepairRequestBinding } from "./repair-request-binding.js";
+import { deriveInheritedCandidateAuthority, inheritedCandidateAuthorityHash } from "./inherited-candidate-authority.js";
 
 export const REPAIR_MUTATION_ARTIFACT_VERSION = "bounded-repair-mutation-artifact/v1" as const;
-export const DERIVED_VALIDATION_RECEIPT_VERSION = "bounded-derived-validation-receipt/v2" as const;
+export const DERIVED_VALIDATION_RECEIPT_VERSION = "bounded-derived-validation-receipt/v3" as const;
 
 export type RepairMutationArtifact = Readonly<{
   schemaVersion: typeof REPAIR_MUTATION_ARTIFACT_VERSION;
@@ -50,6 +51,7 @@ export type DerivedCandidateValidationReceipt = Readonly<{
   baselineSnapshotHash: string;
   sourceSnapshotHash: string;
   boundaryHash: string;
+  inheritedCandidateAuthorityHash: string;
   repairRequestBindingHash: string;
   phaseVExecutionSpecificationHash: string;
   validationProfileHash: string;
@@ -274,11 +276,17 @@ export async function validateDerivedCandidate(input: Readonly<{
   const acceptanceCriteriaContractHash = acceptanceCriteriaContract.contractHash;
   const validationConfigurationHash = hashCanonicalJson({ phaseVExecutionSpecificationHash,
     validationProfileHash, acceptanceCriteriaContractHash });
+  const inheritedAuthority = deriveInheritedCandidateAuthority({ state, result, original,
+    sourceSnapshotHash: sourceBefore, forbiddenFiles: policy.forbiddenPaths,
+    acceptanceCriteriaContract, validationProfile: input.validationProfile,
+    phaseVExecutionSpecification: specification });
+  const inheritedAuthorityHash = inheritedCandidateAuthorityHash(inheritedAuthority);
   const receiptMaterial = { receiptVersion: DERIVED_VALIDATION_RECEIPT_VERSION,
     originalTaskId: state.taskId, originalCandidateHash: originalHash, repairArtifactHash,
     derivedCandidateHash, repositoryIdentityHash: state.repositoryIdentityHash,
     baselineSnapshotHash: state.baselineSnapshotHash, sourceSnapshotHash: sourceBefore,
-    boundaryHash, repairRequestBindingHash: input.requestBinding.bindingHash,
+    boundaryHash, inheritedCandidateAuthorityHash: inheritedAuthorityHash,
+    repairRequestBindingHash: input.requestBinding.bindingHash,
     phaseVExecutionSpecificationHash, validationProfileHash,
     acceptanceCriteriaContractHash, validationConfigurationHash,
     verifierFindingHash: hashCanonicalJson(verifier.finding),
@@ -299,5 +307,5 @@ export async function validateDerivedCandidate(input: Readonly<{
     receiptHash: hashCanonicalJson(receiptMaterial) };
   return { candidateB, verifier, receipt, validationEvidenceHash: validation.evidenceHash,
     acceptanceCriteriaContract, specification, policy,
-    sourceBefore, originalFiles };
+    sourceBefore, originalFiles, inheritedAuthority };
 }

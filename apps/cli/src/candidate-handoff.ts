@@ -41,6 +41,7 @@ export type CandidateProvenance = Readonly<{ kind: "bounded_run" }> | Readonly<{
   validationFailureHash: string;
   repositoryIdentityHash: string;
   baselineSnapshotHash: string;
+  inheritedCandidateAuthorityHash: string;
 }>;
 
 export type BoundedCandidateHandoff = Readonly<{
@@ -193,7 +194,8 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
     const entry = provenance as Record<string, unknown>;
     const derivedFields = ["kind", "originalTaskId", "originalCandidateHash", "repairArtifactHash",
       "derivedCandidateHash", "derivedRepairRecordHash", "derivedRepairRecordBytes",
-      "validationFailureHash", "repositoryIdentityHash", "baselineSnapshotHash"];
+      "validationFailureHash", "repositoryIdentityHash", "baselineSnapshotHash",
+      "inheritedCandidateAuthorityHash"];
     if (entry.kind === "bounded_run") {
       if (Object.keys(entry).join("\u0000") !== "kind") {
         throw new CliError("cli_candidate_handoff_invalid", "Normal candidate provenance is invalid.");

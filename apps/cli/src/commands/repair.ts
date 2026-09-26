@@ -20,6 +20,7 @@ import { codexDurableTaskLocator } from "../run-artifact-store.js";
 import { createRepairMutationArtifact, originalAcceptanceContract,
   validateDerivedCandidate } from "../derived-candidate-validation.js";
 import { createRepairRequestBinding } from "../repair-request-binding.js";
+import { inheritedCandidateAuthorityHash, projectInheritedHandoffAuthority } from "../inherited-candidate-authority.js";
 import { DERIVED_REPAIR_VERSION, artifactBytes, derivedRepairRecordBytes,
   derivedRepairRecordHash, rawBytesHash, type DerivedRepairRecord } from "../repair-provenance.js";
 import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./codex.js";
@@ -166,13 +167,13 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     validationProfile: BOUNDED_CODEX_VALIDATION_PROFILE, requestBinding,
     state, result, original, artifact });
   const { candidateB, verifier, receipt, policy, sourceBefore,
-    originalFiles: validatedFiles } = validated;
+    originalFiles: validatedFiles, inheritedAuthority } = validated;
   if (validatedFiles.join("\0") !== originalFiles.join("\0") ||
       receipt.boundaryHash !== hashCanonicalJson(boundary) ||
       request.allowedFiles.some((file) => !artifact.claims.some((claim) => claim.file === file))) {
     return reject("cli_repair_lineage_invalid", "Derived repair boundary is inconsistent.");
   }
-  const risk = plan.riskClass;
+  const risk = inheritedAuthority.declaredRiskClass;
   if (!["low", "medium", "high", "critical"].includes(String(risk))) {
     return reject("cli_repair_handoff_invalid", "Original plan risk class is invalid.");
   }
@@ -185,7 +186,9 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     repairMutationArtifactHash: repairArtifactHash,
     repairMutationArtifactRawHash: rawBytesHash(mutationBytes),
     repairMutationArtifactBytes: mutationBytes.length,
-    boundaryHash: receipt.boundaryHash, requestBinding, validationReceipt: receipt,
+    boundaryHash: receipt.boundaryHash,
+    inheritedCandidateAuthorityHash: receipt.inheritedCandidateAuthorityHash,
+    requestBinding, validationReceipt: receipt,
     sourceSnapshotHash: sourceBefore, repositoryIdentityHash: state.repositoryIdentityHash,
     baselineSnapshotHash: state.baselineSnapshotHash };
   const recordBytes = derivedRepairRecordBytes(record);
@@ -196,11 +199,12 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     return reject("cli_repair_lineage_invalid", "Derived candidate lineage is inconsistent.");
   }
   const candidate = createCandidateHandoff({ taskId: state.taskId,
-    objectiveHash: acceptanceCriteriaContract.objectiveHash,
-    sourceSnapshotHash: sourceBefore, planHash: plan.planHash,
-    contextBindingHash: hashCanonicalJson(coder.context),
-    plannerExecutionBindingHash: planner.executionBinding.bindingHash,
-    compiledPolicyHash: policy.compiledPolicyHash,
+    objectiveHash: inheritedAuthority.objectiveHash,
+    sourceSnapshotHash: inheritedAuthority.sourceSnapshotHash,
+    planHash: inheritedAuthority.planHash,
+    contextBindingHash: inheritedAuthority.contextBindingHash,
+    plannerExecutionBindingHash: inheritedAuthority.plannerExecutionBindingHash,
+    compiledPolicyHash: inheritedAuthority.compiledPolicyHash,
     allowedFiles: originalFiles, forbiddenFiles: policy.forbiddenPaths,
     acceptanceCriteriaContract,
     validationProfile: BOUNDED_CODEX_VALIDATION_PROFILE,
@@ -213,7 +217,12 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
       derivedRepairRecordHash: recordHash, derivedRepairRecordBytes: recordBytes.length,
       validationFailureHash: state.terminalResultHash,
       repositoryIdentityHash: state.repositoryIdentityHash,
-      baselineSnapshotHash: state.baselineSnapshotHash } });
+      baselineSnapshotHash: state.baselineSnapshotHash,
+      inheritedCandidateAuthorityHash: receipt.inheritedCandidateAuthorityHash } });
+  if (inheritedCandidateAuthorityHash(projectInheritedHandoffAuthority(candidate)) !==
+      receipt.inheritedCandidateAuthorityHash) {
+    return reject("cli_repair_inherited_authority_invalid", "Derived handoff changed inherited Candidate A authority.");
+  }
   try {
     const existing = await readCandidateHandoff(repositoryRoot);
     if (existing.handoffHash !== candidate.handoffHash) {
