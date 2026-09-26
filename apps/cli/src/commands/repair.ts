@@ -19,9 +19,10 @@ import { doctorBoundedLocalConfig, BOUNDED_POLICY_PATH } from "../product-config
 import { codexDurableTaskLocator } from "../run-artifact-store.js";
 import { createRepairMutationArtifact, originalAcceptanceContract,
   validateDerivedCandidate } from "../derived-candidate-validation.js";
+import { createRepairRequestBinding } from "../repair-request-binding.js";
 import { DERIVED_REPAIR_VERSION, artifactBytes, derivedRepairRecordBytes,
   derivedRepairRecordHash, rawBytesHash, type DerivedRepairRecord } from "../repair-provenance.js";
-import { BOUNDED_CODEX_VALIDATION_PROFILE } from "./codex.js";
+import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./codex.js";
 
 export { DERIVED_REPAIR_VERSION } from "../repair-provenance.js";
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -61,6 +62,8 @@ function parseImport(value: unknown): RepairImport {
 }
 
 function coderMutation(result: RunBoundedTaskResult): WorkspaceMutation {
+  // The hash-bound terminal result is Candidate A authority. The separate
+  // validated-mutation artifact is auxiliary evidence, never an input here.
   const mutation = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput;
   if (!mutation) return reject("cli_repair_original_missing", "Terminal task has no persisted coder candidate.");
   parseTextFileUpdates(mutation);
@@ -156,9 +159,13 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     return reject("cli_repair_scope_invalid", "Repair mutation does not match the targeted mutable scope.");
   }
   const artifact = createRepairMutationArtifact(repair);
-  const validated = await validateDerivedCandidate({ repositoryRoot, config: diagnosed.config,
+  const requestBinding = createRepairRequestBinding({ request, state, result,
+    boundaryHash: hashCanonicalJson(boundary), artifact });
+  const specification = validationSpecification(diagnosed.config);
+  const validated = await validateDerivedCandidate({ repositoryRoot, specification,
+    validationProfile: BOUNDED_CODEX_VALIDATION_PROFILE, requestBinding,
     state, result, original, artifact });
-  const { candidateB, verifier, receipt, policy, specification, sourceBefore,
+  const { candidateB, verifier, receipt, policy, sourceBefore,
     originalFiles: validatedFiles } = validated;
   if (validatedFiles.join("\0") !== originalFiles.join("\0") ||
       receipt.boundaryHash !== hashCanonicalJson(boundary) ||
@@ -178,7 +185,7 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
     repairMutationArtifactHash: repairArtifactHash,
     repairMutationArtifactRawHash: rawBytesHash(mutationBytes),
     repairMutationArtifactBytes: mutationBytes.length,
-    boundaryHash: receipt.boundaryHash, validationReceipt: receipt,
+    boundaryHash: receipt.boundaryHash, requestBinding, validationReceipt: receipt,
     sourceSnapshotHash: sourceBefore, repositoryIdentityHash: state.repositoryIdentityHash,
     baselineSnapshotHash: state.baselineSnapshotHash };
   const recordBytes = derivedRepairRecordBytes(record);

@@ -8,6 +8,7 @@ import {
   parseTextFileUpdates,
   readDurableBoundedTaskArtifact,
   readDurableBoundedTaskState,
+  VALIDATION_PROFILES,
   type RunBoundedTaskResult,
   type WorkspaceMutation
 } from "../../../packages/product-runtime/src/canonical-runtime.js";
@@ -16,15 +17,19 @@ import { captureCandidateSourceSnapshotHash, type BoundedCandidateHandoff } from
 import { codexDurableTaskLocator } from "./run-artifact-store.js";
 import type { BoundedLocalConfig } from "./product-config.js";
 import {
+  DERIVED_VALIDATION_RECEIPT_VERSION,
   deriveCandidateMutation,
+  originalAcceptanceContract,
   parseRepairMutationArtifact,
   stableBaselineSnapshotHash,
   validateDerivedCandidate,
   type DerivedCandidateValidationReceipt,
   type RepairMutationArtifact
 } from "./derived-candidate-validation.js";
+import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./commands/codex.js";
+import { verifyRepairRequestBinding, type RepairRequestBinding } from "./repair-request-binding.js";
 
-export const DERIVED_REPAIR_VERSION = "bounded-derived-repair/v3" as const;
+export const DERIVED_REPAIR_VERSION = "bounded-derived-repair/v4" as const;
 const MAX_RECORD_BYTES = 16 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 5 * 1024 * 1024;
 
@@ -39,6 +44,7 @@ export type DerivedRepairRecord = Readonly<{
   repairMutationArtifactBytes: number;
   derivedCandidateHash: string;
   boundaryHash: string;
+  requestBinding: RepairRequestBinding;
   validationReceipt: DerivedCandidateValidationReceipt;
   sourceSnapshotHash: string;
   repositoryIdentityHash: string;
@@ -64,6 +70,8 @@ export function derivedRepairRecordBytes(record: DerivedRepairRecord): Buffer {
 export const derivedRepairRecordHash = rawBytesHash;
 
 function originalMutation(result: RunBoundedTaskResult): WorkspaceMutation {
+  // Candidate A comes from the durable terminal result; validated-mutation is
+  // only a historical helper artifact and cannot override this content.
   const mutation = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput;
   if (!mutation) return fail();
   parseTextFileUpdates(mutation);
@@ -118,13 +126,16 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
     if (result.decision === "bounded_task_completed" || result.failure === null) return fail();
     const original = originalMutation(result);
     if (hashCanonicalJson(original) !== provenance.originalCandidateHash) return fail();
+    const originalFiles = parseTextFileUpdates(original).map((claim) => claim.file).sort();
+    if ([candidate.allowedFiles, candidate.candidateFiles].some((files) =>
+      [...files].sort().join("\0") !== originalFiles.join("\0"))) return fail();
     const recordBytes = await readBoundArtifact(path.join(repositoryRoot, ".bounded", "state", "derived-repairs"),
       provenance.derivedCandidateHash, provenance.derivedRepairRecordBytes,
       provenance.derivedRepairRecordHash, MAX_RECORD_BYTES);
     const record = JSON.parse(recordBytes.toString("utf8")) as DerivedRepairRecord;
     const fields = ["schemaVersion", "originalTaskId", "originalCandidateHash", "validationFailureHash",
       "repairArtifactHash", "repairMutationArtifactHash", "repairMutationArtifactRawHash",
-      "repairMutationArtifactBytes", "derivedCandidateHash", "boundaryHash", "validationReceipt",
+      "repairMutationArtifactBytes", "derivedCandidateHash", "boundaryHash", "requestBinding", "validationReceipt",
       "sourceSnapshotHash", "repositoryIdentityHash", "baselineSnapshotHash"];
     if (Object.keys(record).sort().join("\0") !== fields.sort().join("\0") ||
         record.schemaVersion !== DERIVED_REPAIR_VERSION ||
@@ -142,6 +153,8 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
       record.repairMutationArtifactRawHash, MAX_ARTIFACT_BYTES);
     const artifact = parseRepairMutationArtifact(JSON.parse(mutationBytes.toString("utf8")));
     if (hashCanonicalJson(artifact) !== record.repairArtifactHash) return fail();
+    if (!verifyRepairRequestBinding(record.requestBinding, { state, result,
+      boundaryHash: record.boundaryHash, artifact })) return fail();
     const candidateB = deriveCandidateMutation(original, artifact);
     if (hashCanonicalJson(candidateB) !== hashCanonicalJson(candidate.coderMutation) ||
         hashCanonicalJson({ originalCandidateHash: provenance.originalCandidateHash,
@@ -150,18 +163,38 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
     const adaptive = candidate.adaptiveResult as { coderResult?: { providerOutput?: unknown } } | null;
     if (hashCanonicalJson(adaptive?.coderResult?.providerOutput ?? null) !==
         hashCanonicalJson(candidate.coderMutation)) return fail();
-    if (!record.validationReceipt || record.validationReceipt.receiptHash !==
+    const specification = validationSpecification(config);
+    const acceptanceContract = originalAcceptanceContract(result, state.acceptanceCriteriaContractHash);
+    const phaseVExecutionSpecificationHash = hashCanonicalJson(specification);
+    const validationProfileHash = hashCanonicalJson({ id: BOUNDED_CODEX_VALIDATION_PROFILE,
+      definition: VALIDATION_PROFILES[BOUNDED_CODEX_VALIDATION_PROFILE] });
+    const validationConfigurationHash = hashCanonicalJson({ phaseVExecutionSpecificationHash,
+      validationProfileHash, acceptanceCriteriaContractHash: acceptanceContract.contractHash });
+    if (candidate.validationProfile !== BOUNDED_CODEX_VALIDATION_PROFILE ||
+        hashCanonicalJson(candidate.phaseVExecutionSpecification) !== hashCanonicalJson(specification) ||
+        hashCanonicalJson(candidate.acceptanceCriteriaContract) !== hashCanonicalJson(acceptanceContract) ||
+        candidate.compiledPolicyHash !== state.compiledPolicyHash) return fail();
+    if (!record.validationReceipt ||
+        record.validationReceipt.receiptVersion !== DERIVED_VALIDATION_RECEIPT_VERSION ||
+        record.validationReceipt.receiptHash !==
         hashCanonicalJson(Object.fromEntries(Object.entries(record.validationReceipt).filter(([key]) =>
           key !== "receiptHash"))) ||
         record.validationReceipt.originalTaskId !== candidate.taskId ||
         record.validationReceipt.derivedCandidateHash !== provenance.derivedCandidateHash ||
         record.validationReceipt.repairArtifactHash !== provenance.repairArtifactHash ||
-        record.validationReceipt.boundaryHash !== record.boundaryHash) return fail();
+        record.validationReceipt.boundaryHash !== record.boundaryHash ||
+        record.validationReceipt.repairRequestBindingHash !== record.requestBinding.bindingHash ||
+        record.validationReceipt.phaseVExecutionSpecificationHash !== phaseVExecutionSpecificationHash ||
+        record.validationReceipt.validationProfileHash !== validationProfileHash ||
+        record.validationReceipt.acceptanceCriteriaContractHash !== acceptanceContract.contractHash ||
+        record.validationReceipt.validationConfigurationHash !== validationConfigurationHash) return fail();
     if (approvedReceiptHash !== undefined) {
       if (record.validationReceipt.receiptHash !== approvedReceiptHash) return fail();
       return approvedReceiptHash;
     }
-    const fresh = await validateDerivedCandidate({ repositoryRoot, config, state, result, original, artifact,
+    const fresh = await validateDerivedCandidate({ repositoryRoot, specification,
+      validationProfile: BOUNDED_CODEX_VALIDATION_PROFILE, requestBinding: record.requestBinding,
+      state, result, original, artifact,
       generatedPolicyPaths: [
         `.bounded/state/derived-repairs/${provenance.derivedCandidateHash.slice(7)}.json`,
         `.bounded/state/repair-mutations/${record.repairMutationArtifactHash.slice(7)}.json`,
@@ -172,7 +205,8 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
         hashCanonicalJson(fresh.receipt) !== hashCanonicalJson(record.validationReceipt) ||
         fresh.receipt.derivedCandidateHash !== provenance.derivedCandidateHash ||
         fresh.receipt.boundaryHash !== record.boundaryHash ||
+        hashCanonicalJson(candidate.forbiddenFiles) !== hashCanonicalJson(fresh.policy.forbiddenPaths) ||
         hashCanonicalJson(fresh.verifier.finding) !== hashCanonicalJson(candidate.verifierFinding)) return fail();
     return fresh.receipt.receiptHash;
-  } catch (error) { if (process.env.BOUNDED_DEBUG_REPAIR === "1") console.error(error); return fail(); }
+  } catch { return fail(); }
 }

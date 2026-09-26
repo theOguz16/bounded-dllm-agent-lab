@@ -16,20 +16,24 @@ import {
   parseTextFileUpdates,
   readTextUpdateSource,
   runContainerizedWorkspaceExecution,
+  VALIDATION_PROFILES,
   verifyPatchDraftMutationV2,
   verifyRepairDraftMutation,
   verifyValidationEvidence,
   type DurableBoundedTaskState,
   type RunBoundedTaskResult,
+  type TemporaryWorkspaceExecutionSpecification,
+  type ValidationProfileId,
   type WorkspaceMutation
 } from "../../../packages/product-runtime/src/canonical-runtime.js";
 import { CliError } from "./cli-errors.js";
 import { captureCandidateSourceSnapshotHash } from "./candidate-handoff.js";
-import { BOUNDED_POLICY_PATH, type BoundedLocalConfig } from "./product-config.js";
-import { BOUNDED_CODEX_VALIDATION_PROFILE, validationSpecification } from "./commands/codex.js";
+import { BOUNDED_POLICY_PATH } from "./product-config.js";
+import { BOUNDED_CODEX_VALIDATION_PROFILE } from "./commands/codex.js";
+import { verifyRepairRequestBinding, type RepairRequestBinding } from "./repair-request-binding.js";
 
 export const REPAIR_MUTATION_ARTIFACT_VERSION = "bounded-repair-mutation-artifact/v1" as const;
-export const DERIVED_VALIDATION_RECEIPT_VERSION = "bounded-derived-validation-receipt/v1" as const;
+export const DERIVED_VALIDATION_RECEIPT_VERSION = "bounded-derived-validation-receipt/v2" as const;
 
 export type RepairMutationArtifact = Readonly<{
   schemaVersion: typeof REPAIR_MUTATION_ARTIFACT_VERSION;
@@ -46,6 +50,11 @@ export type DerivedCandidateValidationReceipt = Readonly<{
   baselineSnapshotHash: string;
   sourceSnapshotHash: string;
   boundaryHash: string;
+  repairRequestBindingHash: string;
+  phaseVExecutionSpecificationHash: string;
+  validationProfileHash: string;
+  acceptanceCriteriaContractHash: string;
+  validationConfigurationHash: string;
   verifierFindingHash: string;
   executionResultHash: string;
   validationResultHash: string;
@@ -142,7 +151,9 @@ export function originalAcceptanceContract(result: RunBoundedTaskResult, expecte
 
 export async function validateDerivedCandidate(input: Readonly<{
   repositoryRoot: string;
-  config: BoundedLocalConfig;
+  specification: TemporaryWorkspaceExecutionSpecification;
+  validationProfile: ValidationProfileId;
+  requestBinding: RepairRequestBinding;
   state: DurableBoundedTaskState;
   result: RunBoundedTaskResult;
   original: WorkspaceMutation;
@@ -164,6 +175,12 @@ export async function validateDerivedCandidate(input: Readonly<{
   const boundary = { originalCandidateHash: originalHash, originalCandidateFiles: originalFiles,
     policyFiles: [BOUNDED_POLICY_PATH, "bounded-agent.policy.yml"], acceptanceCriteriaFiles: [] };
   const boundaryHash = hashCanonicalJson(boundary);
+  if (!verifyRepairRequestBinding(input.requestBinding, { state, result, boundaryHash, artifact })) {
+    return reject("cli_repair_request_binding_invalid", "Repair request binding does not match canonical failure evidence or target scope.");
+  }
+  if (input.validationProfile !== BOUNDED_CODEX_VALIDATION_PROFILE) {
+    return reject("cli_repair_profile_invalid", "Derived candidate validation profile is not authorized.");
+  }
   const acceptanceCriteriaContract = originalAcceptanceContract(result, state.acceptanceCriteriaContractHash);
   const policyWorkspace = await mkdtemp(path.join(os.tmpdir(), "bounded-repair-policy-"));
   let policy;
@@ -218,7 +235,7 @@ export async function validateDerivedCandidate(input: Readonly<{
       verifier.canonicalTouchedFiles.join("\0") !== originalFiles.join("\0")) {
     return reject("cli_repair_candidate_rejected", "Derived candidate failed deterministic verification.");
   }
-  const specification = validationSpecification(input.config);
+  const specification = input.specification;
   const workspace = await mkdtemp(path.join(os.tmpdir(), "bounded-derived-repair-"));
   let execution;
   try {
@@ -238,7 +255,7 @@ export async function validateDerivedCandidate(input: Readonly<{
   } finally { await rm(workspace, { recursive: true, force: true }); }
   if (!execution) return reject("cli_repair_validation_failed", "Validation did not execute.");
   const executionEvidence = buildTemporaryWorkspaceExecutionVerificationEvidence(specification, execution, true);
-  const validation = buildValidationEvidence({ profile: BOUNDED_CODEX_VALIDATION_PROFILE,
+  const validation = buildValidationEvidence({ profile: input.validationProfile,
     structuralPassed: true, specification, executionResult: execution, executionEvidence });
   const acceptance = evaluateAcceptanceCriteria({ contract: acceptanceCriteriaContract,
     executionSpecification: specification, executionEvidence });
@@ -251,11 +268,20 @@ export async function validateDerivedCandidate(input: Readonly<{
   const repairArtifactHash = hashCanonicalJson(artifact);
   const derivedCandidateHash = hashCanonicalJson({ originalCandidateHash: originalHash,
     repairArtifactHash, mutation: candidateB });
+  const phaseVExecutionSpecificationHash = hashCanonicalJson(specification);
+  const validationProfileHash = hashCanonicalJson({ id: input.validationProfile,
+    definition: VALIDATION_PROFILES[input.validationProfile] });
+  const acceptanceCriteriaContractHash = acceptanceCriteriaContract.contractHash;
+  const validationConfigurationHash = hashCanonicalJson({ phaseVExecutionSpecificationHash,
+    validationProfileHash, acceptanceCriteriaContractHash });
   const receiptMaterial = { receiptVersion: DERIVED_VALIDATION_RECEIPT_VERSION,
     originalTaskId: state.taskId, originalCandidateHash: originalHash, repairArtifactHash,
     derivedCandidateHash, repositoryIdentityHash: state.repositoryIdentityHash,
     baselineSnapshotHash: state.baselineSnapshotHash, sourceSnapshotHash: sourceBefore,
-    boundaryHash, verifierFindingHash: hashCanonicalJson(verifier.finding),
+    boundaryHash, repairRequestBindingHash: input.requestBinding.bindingHash,
+    phaseVExecutionSpecificationHash, validationProfileHash,
+    acceptanceCriteriaContractHash, validationConfigurationHash,
+    verifierFindingHash: hashCanonicalJson(verifier.finding),
     executionResultHash: hashCanonicalJson({ commands: execution.commandResults.map((command) => ({
       id: command.id, passed: command.passed, exitCode: command.exitCode,
       signal: command.signal, timedOut: command.timedOut })),
@@ -267,7 +293,7 @@ export async function validateDerivedCandidate(input: Readonly<{
       profileSatisfied: validation.profileSatisfied }),
     acceptanceResultHash: hashCanonicalJson({ decision: acceptance.decision,
       summary: acceptance.summary }),
-    profileResultHash: hashCanonicalJson({ profile: BOUNDED_CODEX_VALIDATION_PROFILE,
+    profileResultHash: hashCanonicalJson({ profile: input.validationProfile,
       profileSatisfied: validation.profileSatisfied }), decision: "validated" as const };
   const receipt: DerivedCandidateValidationReceipt = { ...receiptMaterial,
     receiptHash: hashCanonicalJson(receiptMaterial) };

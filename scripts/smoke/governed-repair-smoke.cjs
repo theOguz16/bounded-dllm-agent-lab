@@ -125,6 +125,13 @@ async function main() {
     assert.equal(createHash("sha256").update(terminalAfter).digest("hex"),
       createHash("sha256").update(terminalBefore).digest("hex"));
     assert.deepEqual(await fs.readFile(originalArtifactFile), originalArtifactBefore);
+    await fs.writeFile(originalArtifactFile, "{}");
+    const terminalCandidateWithAuxiliaryCorrupt = runtime.readDurableBoundedTaskArtifact(
+      locator, state, state.terminalResultReference).plannerResult.taskSeedResult.repoResult
+      .adaptiveResult.coderResult.providerOutput;
+    assert.equal(runtime.hashCanonicalJson(terminalCandidateWithAuxiliaryCorrupt),
+      state.mutationArtifactHash);
+    await fs.writeFile(originalArtifactFile, originalArtifactBefore);
     assert.equal(counters.execution, 2);
     const gated = await apply.applyCommand({ nonInteractive: true }, repository);
     assert.equal(gated.output.decision, "approval_required");
@@ -141,6 +148,10 @@ async function main() {
     assert.equal(storedRecord.mutation, undefined);
     assert.equal(storedRecord.request, undefined);
     assert.equal(recordBytes.includes(Buffer.from(testSource)), false);
+    assert.equal(recordBytes.includes(Buffer.from(mutation.summary)), false);
+    assert.equal(storedRecord.requestBinding.version, "bounded-repair-request-binding/v1");
+    assert.equal(storedRecord.validationReceipt.receiptVersion,
+      "bounded-derived-validation-receipt/v2");
     const originalSourceBytes = await fs.readFile(path.join(repository, "src/calculate.js"));
     const originalTestBytes = await fs.readFile(path.join(repository, "test/calculate.test.js"));
     const rejectPreflight = async (name) => {
@@ -225,6 +236,61 @@ async function main() {
     await fs.writeFile(path.join(repository, "src/calculate.js"), originalSourceBytes);
     assert.equal((await apply.applyCommand({ nonInteractive: true }, repository)).output.decision,
       "approval_required");
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, validationProfile: "structural_draft"
+    }));
+    await rejectPreflight("validation profile downgrade");
+    const weakSpecification = { ...candidate.phaseVExecutionSpecification,
+      commands: candidate.phaseVExecutionSpecification.commands.map((command) =>
+        command.id === "validation.test" ? { ...command, args: ["run", "build"] } : command) };
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, phaseVExecutionSpecification: weakSpecification
+    }));
+    await rejectPreflight("test command downgrade");
+    const weakAcceptance = runtime.createAcceptanceCriteriaContract({ taskId,
+      objectiveHash: candidate.objectiveHash, criteria: [{ id: "requested_behavior",
+        description: "Build succeeds", required: true,
+        evidence: { kind: "test", commandId: "validation.syntax" } }] });
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, acceptanceCriteriaContract: weakAcceptance
+    }));
+    await rejectPreflight("acceptance contract downgrade");
+    await fs.writeFile(handoffFile, handoffBytes);
+    const rejectRehashedRequestBinding = async (name, changedFields) => {
+      const { bindingHash: _bindingHash, ...oldMaterial } = storedRecord.requestBinding;
+      const bindingMaterial = { ...oldMaterial, ...changedFields };
+      const changedBinding = { ...bindingMaterial,
+        bindingHash: runtime.hashCanonicalJson(bindingMaterial) };
+      const { receiptHash: _receiptHash, ...oldReceiptMaterial } = storedRecord.validationReceipt;
+      const receiptMaterial = { ...oldReceiptMaterial,
+        repairRequestBindingHash: changedBinding.bindingHash };
+      const changedRecord = { ...storedRecord, requestBinding: changedBinding,
+        validationReceipt: { ...receiptMaterial,
+          receiptHash: runtime.hashCanonicalJson(receiptMaterial) } };
+      const changedBytes = Buffer.from(`${JSON.stringify(changedRecord, null, 2)}\n`);
+      await fs.writeFile(recordFile, changedBytes);
+      await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+        ...candidateInput, provenance: { ...candidate.provenance,
+          derivedRepairRecordHash: `sha256:${createHash("sha256").update(changedBytes).digest("hex")}`,
+          derivedRepairRecordBytes: changedBytes.length }
+      }));
+      await rejectPreflight(name);
+      await fs.writeFile(recordFile, recordBytes);
+      await fs.writeFile(handoffFile, handoffBytes);
+    };
+    await rejectRehashedRequestBinding("failure evidence substitution",
+      { failureEvidenceHash: `sha256:${"7".repeat(64)}` });
+    await rejectRehashedRequestBinding("failed check substitution",
+      { matchedFailedCheckHash: `sha256:${"8".repeat(64)}` });
+    await rejectRehashedRequestBinding("target-set substitution",
+      { targetFileSetHash: runtime.hashCanonicalJson(["src/calculate.js"]) });
+    await rejectRehashedRequestBinding("repair boundary substitution",
+      { repairBoundaryHash: `sha256:${"9".repeat(64)}` });
+    await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+      ...candidateInput, allowedFiles: ["src/calculate.js", "test/calculate.test.js", "package.json"]
+    }));
+    await rejectPreflight("handoff mutable scope widening");
+    await fs.writeFile(handoffFile, handoffBytes);
     let executeCalls = 0;
     const changedAfterApproval = await apply.applyCommand({}, repository, {
       decide: async () => {
@@ -250,6 +316,19 @@ async function main() {
     assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
     assert.deepEqual(await fs.readFile(path.join(repository, "test/calculate.test.js")), originalTestBytes);
     await fs.writeFile(mutationFile, mutationBytes);
+    const configurationChangedAfterApproval = await apply.applyCommand({}, repository, {
+      decide: async () => {
+        await handoff.writeCandidateHandoff(repository, handoff.createCandidateHandoff({
+          ...candidateInput, phaseVExecutionSpecification: weakSpecification
+        }));
+        return { decision: "accept", reason: null };
+      },
+      execute: async () => { executeCalls += 1; throw new Error("executor must not run"); }
+    });
+    assert.equal(configurationChangedAfterApproval.output.decision, "recovery_required");
+    assert.equal(executeCalls, 0);
+    assert.deepEqual(await fs.readFile(path.join(repository, "src/calculate.js")), originalSourceBytes);
+    await fs.writeFile(handoffFile, handoffBytes);
     const foreign = await createRepository(path.join(parent, "foreign"), projectRoot,
       "foreign-repair-fixture");
     await fs.mkdir(path.join(foreign.repository, ".bounded/state/derived-repairs"), { recursive: true });
@@ -273,10 +352,16 @@ async function main() {
     const forgedCandidateHash = runtime.hashCanonicalJson({
       originalCandidateHash: state.mutationArtifactHash,
       repairArtifactHash: forgedArtifactHash, mutation: forgedCandidate });
+    const { bindingHash: _oldBindingHash, ...oldBindingMaterial } = storedRecord.requestBinding;
+    const forgedBindingMaterial = { ...oldBindingMaterial, repairArtifactHash: forgedArtifactHash };
+    const forgedBinding = { ...forgedBindingMaterial,
+      bindingHash: runtime.hashCanonicalJson(forgedBindingMaterial) };
     const forgedReceiptMaterial = { ...storedRecord.validationReceipt,
-      repairArtifactHash: forgedArtifactHash, derivedCandidateHash: forgedCandidateHash };
+      repairArtifactHash: forgedArtifactHash, derivedCandidateHash: forgedCandidateHash,
+      repairRequestBindingHash: forgedBinding.bindingHash };
     delete forgedReceiptMaterial.receiptHash;
     const forgedRecord = { ...storedRecord, repairArtifactHash: forgedArtifactHash,
+      requestBinding: forgedBinding,
       repairMutationArtifactHash: forgedArtifactHash,
       repairMutationArtifactRawHash: `sha256:${createHash("sha256").update(forgedArtifactBytes).digest("hex")}`,
       repairMutationArtifactBytes: forgedArtifactBytes.length,
@@ -301,11 +386,10 @@ async function main() {
         derivedRepairRecordHash: `sha256:${createHash("sha256").update(forgedRecordBytes).digest("hex")}`,
         derivedRepairRecordBytes: forgedRecordBytes.length }
     }));
-    const productConfig = await import(pathToFileURL(path.join(projectRoot,
-      "dist/apps/cli/src/product-config.js")));
-    const diagnosed = await productConfig.doctorBoundedLocalConfig(repository);
     await assert.rejects(validationModule.validateDerivedCandidate({ repositoryRoot: repository,
-      config: diagnosed.config, state, result: terminal, original, artifact: forgedArtifact,
+      specification: candidate.phaseVExecutionSpecification,
+      validationProfile: candidate.validationProfile, requestBinding: forgedBinding,
+      state, result: terminal, original, artifact: forgedArtifact,
       generatedPolicyPaths: [
         `.bounded/state/repair-mutations/${forgedArtifactHash.slice(7)}.json`,
         `.bounded/state/derived-repairs/${forgedCandidateHash.slice(7)}.json`,
