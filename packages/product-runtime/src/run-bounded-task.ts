@@ -264,7 +264,7 @@ async function validateCandidateInDisposableWorkspace(input: Readonly<{
   }
   const root = await mkdtemp(path.join(os.tmpdir(), "bounded-draft-validation-"));
   try {
-    await cp(input.repositoryPath, root, { recursive: true,
+    await cp(input.repositoryPath, root, { recursive: true, verbatimSymlinks: true,
       filter: (source) => path.basename(source) !== ".git" });
     for (const claim of parseTextFileUpdates(input.mutation)) {
       const target = path.join(root, claim.file);

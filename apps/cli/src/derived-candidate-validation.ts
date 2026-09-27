@@ -187,7 +187,8 @@ export async function validateDerivedCandidate(input: Readonly<{
   const policyWorkspace = await mkdtemp(path.join(os.tmpdir(), "bounded-repair-policy-"));
   let policy;
   try {
-    await cp(repositoryRoot, policyWorkspace, { recursive: true, filter: (source) => {
+    await cp(repositoryRoot, policyWorkspace, { recursive: true, verbatimSymlinks: true,
+      filter: (source) => {
       const relative = path.relative(repositoryRoot, source).split(path.sep).join("/");
       return relative !== ".git" && !relative.startsWith(".git/") &&
         !(input.generatedPolicyPaths ?? []).includes(relative);
@@ -241,7 +242,8 @@ export async function validateDerivedCandidate(input: Readonly<{
   const workspace = await mkdtemp(path.join(os.tmpdir(), "bounded-derived-repair-"));
   let execution;
   try {
-    await cp(repositoryRoot, workspace, { recursive: true, filter: (source) => {
+    await cp(repositoryRoot, workspace, { recursive: true, verbatimSymlinks: true,
+      filter: (source) => {
       const relative = path.relative(repositoryRoot, source).split(path.sep).join("/");
       return relative !== ".git" && !relative.startsWith(".git/") &&
         ![".bounded/runs", ".bounded/state", ".bounded/tmp", ".bounded/cache"].some(

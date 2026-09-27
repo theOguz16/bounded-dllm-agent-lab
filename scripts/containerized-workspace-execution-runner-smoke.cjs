@@ -31,7 +31,7 @@ const path = require("node:path");
       let readBlocked=false,writeBlocked=false,sourceBlocked=false;
       try{fs.readFileSync(${JSON.stringify(control)});}catch{readBlocked=true}
       try{fs.writeFileSync(${JSON.stringify(control)},'escape');}catch{writeBlocked=true}
-      try{fs.writeFileSync('src/a.txt','tampered');}catch{sourceBlocked=true}
+      try{fs.writeFileSync('/candidate-input/src/a.txt','tampered');}catch{sourceBlocked=true}
       fs.writeFileSync('.validation-output/report.txt','ok');
       if(!readBlocked||!writeBlocked||!sourceBlocked||process.env.SSH_AUTH_SOCK||process.env.USERPROFILE)process.exit(1);
     `;
@@ -42,6 +42,16 @@ const path = require("node:path");
     assert.equal(fs.readFileSync(control, "utf8"), "host-secret-control\n");
     assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
     assert.equal(fs.existsSync(path.join(workspace, ".validation-output/report.txt")), false);
+    checks++;
+
+    const changedCandidate = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "candidate-input-tamper", executable: "node", timeoutMs: 10_000,
+        args: ["-e", "require('fs').writeFileSync('src/a.txt','tampered')"] }]
+    }, async () => null);
+    assert.equal(changedCandidate.decision, "temp_validation_failed", JSON.stringify(changedCandidate));
+    assert(changedCandidate.issues.some((entry) => entry.code === "validation_candidate_input_changed"));
+    assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
+    assertNoContainers();
     checks++;
 
     const network = await runtime.runContainerizedWorkspaceExecution({ ...base,

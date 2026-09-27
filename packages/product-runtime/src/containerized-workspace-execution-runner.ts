@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type {
   TempExecutionCommandResult,
@@ -9,12 +10,13 @@ import type {
   TemporaryWorkspaceExecutionResult
 } from "./temporary-workspace-execution-verifier.js";
 import { VALIDATION_CHECK_KINDS } from "./runtime-contract-foundation.js";
+import { createCanonicalRepositoryContentSnapshot } from "./canonical-policy-compiler.js";
 
 export const CONTAINERIZED_VALIDATION_RUNNER_VERSION = "1" as const;
 export const DEFAULT_VALIDATION_CONTAINER_IMAGE =
   "node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32" as const;
 export const DEFAULT_VALIDATION_CONTAINER_LIMITS = Object.freeze({
-  memoryBytes: 512 * 1024 * 1024,
+  memoryBytes: 1024 * 1024 * 1024,
   processCount: 64,
   cpuCount: 1,
   tmpfsBytes: 64 * 1024 * 1024,
@@ -263,151 +265,184 @@ export async function runContainerizedWorkspaceExecution(
   const maxOutput = context.maxOutputChars ?? 20_000;
   const fallbackTimeout = context.defaultTimeoutMs ?? 30_000;
 
-  for (const command of context.commands) {
-    if (!context.allowedExecutables.includes(command.executable) || !safeRuntime(command.executable) ||
-        (command.checkKind as string | undefined) === "structural" ||
-        command.checkKind !== undefined &&
-          !VALIDATION_CHECK_KINDS.includes(command.checkKind as (typeof VALIDATION_CHECK_KINDS)[number]) ||
-        !Array.isArray(command.args) || command.args.some((entry) => typeof entry !== "string" || entry.includes("\0"))) {
-      issues.push({ code: "validation_container_command_invalid",
-        message: "Container validation command is not allowlisted or is unsafe.",
-        severity: "failure", commandId: command.id });
-      return result(issues, results, Date.now() - started);
-    }
-    const timeout = command.timeoutMs ?? fallbackTimeout;
-    const expected = command.expectedExitCodes ?? [0];
-    if (!Number.isSafeInteger(timeout) || timeout <= 0 ||
-        timeout > (context.maxTimeoutMs ?? 120_000) || expected.length === 0 ||
-        !expected.every(Number.isInteger)) {
-      issues.push({ code: "validation_container_command_limits_invalid",
-        message: "Container validation command limits are invalid.",
-        severity: "failure", commandId: command.id });
-      return result(issues, results, Date.now() - started);
-    }
-    const identity = options.containerIdentity ?? createValidationContainerIdentity(
-      `sha256:${randomBytes(32).toString("hex")}`, image);
-    if (!verifyValidationContainerIdentity(identity, image)) {
-      issues.push({ code: "validation_container_identity_invalid",
-        message: "Validation container identity is not bound to the configured image and transaction.",
-        severity: "failure", commandId: command.id });
-      return result(issues, results, Date.now() - started);
-    }
-    const name = identity.containerName;
-    const environment: string[] = ["--env", "HOME=/nonexistent", "--env", "TMPDIR=/tmp"];
-    for (const [key, value] of Object.entries(context.environment ?? {})) {
-      if (!safeEnvironmentKeyPattern.test(key) || secretEnvironmentKeyPattern.test(key) ||
-          typeof value !== "string" || value.includes("\0")) {
-        issues.push({ code: "validation_container_environment_invalid",
-          message: "Container environment contains a forbidden entry.", severity: "failure",
-          commandId: command.id });
+  // The input is never writable by a validation command. A second disposable copy
+  // retains legitimate build output across the separately isolated commands.
+  let executionWorkspace: string | null = null;
+  let inputRecords: ReturnType<typeof createCanonicalRepositoryContentSnapshot>["records"];
+  try {
+    inputRecords = createCanonicalRepositoryContentSnapshot(workspace).records;
+    executionWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-validation-execution-"));
+    fs.cpSync(workspace, executionWorkspace,
+      { recursive: true, force: false, verbatimSymlinks: true });
+  } catch {
+    if (executionWorkspace) fs.rmSync(executionWorkspace, { recursive: true, force: true });
+    return result([{ code: "validation_workspace_staging_failed",
+      message: "Disposable validation workspace could not be prepared.", severity: "failure" }],
+    results, Date.now() - started);
+  }
+
+  try {
+    for (const command of context.commands) {
+      if (!context.allowedExecutables.includes(command.executable) || !safeRuntime(command.executable) ||
+          (command.checkKind as string | undefined) === "structural" ||
+          command.checkKind !== undefined &&
+            !VALIDATION_CHECK_KINDS.includes(command.checkKind as (typeof VALIDATION_CHECK_KINDS)[number]) ||
+          !Array.isArray(command.args) || command.args.some((entry) => typeof entry !== "string" || entry.includes("\0"))) {
+        issues.push({ code: "validation_container_command_invalid",
+          message: "Container validation command is not allowlisted or is unsafe.",
+          severity: "failure", commandId: command.id });
         return result(issues, results, Date.now() - started);
       }
-      environment.push("--env", `${key}=${value}`);
-    }
-    const args = ["run", "--detach", "--pull", "never", "--name", name,
-      "--label", `${identity.labelKey}=${identity.labelValue}`, "--stop-timeout", "1",
-      "--network", "none", "--read-only", "--cap-drop", "ALL",
-      "--security-opt", "no-new-privileges", "--memory", String(memoryBytes),
-      "--memory-swap", String(memoryBytes), "--pids-limit", String(processCount),
-      "--cpus", String(cpuCount), "--user", `${containerUid}:${containerGid}`,
-      "--mount", `type=bind,src=${workspace},dst=/workspace,readonly`,
-      "--workdir", "/workspace", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${tmpfsBytes}`,
-      "--tmpfs", `/workspace/.validation-output:rw,noexec,nosuid,nodev,size=${validationOutputBytes},mode=0700,uid=${containerUid},gid=${containerGid}`,
-      ...environment, image, "node", "-e", "setInterval(()=>{},2147483647)"];
-    const commandStartedMs = Date.now();
-    let commandResult: TempExecutionCommandResult | null = null;
-    let commandPassed = false;
-    let lifecycleStage: "container_start" | "command" = "container_start";
-    try {
-      await options.onLifecycleCheckpoint?.({ phase: "container_create_intent",
-        commandId: command.id, identity, containerId: null, cleanupDecision: null });
-      const container = spawnSync(runtime, args, { shell: false, encoding: "utf8", timeout: 10_000,
-        killSignal: "SIGKILL", maxBuffer: 64 * 1024,
-        stdio: ["ignore", "pipe", "pipe"] });
-      if (container.error !== undefined || container.status !== 0) {
-        throw container.error ?? new Error("Validation container could not be created.");
+      const timeout = command.timeoutMs ?? fallbackTimeout;
+      const expected = command.expectedExitCodes ?? [0];
+      if (!Number.isSafeInteger(timeout) || timeout <= 0 ||
+          timeout > (context.maxTimeoutMs ?? 120_000) || expected.length === 0 ||
+          !expected.every(Number.isInteger)) {
+        issues.push({ code: "validation_container_command_limits_invalid",
+          message: "Container validation command limits are invalid.",
+          severity: "failure", commandId: command.id });
+        return result(issues, results, Date.now() - started);
       }
-      const containerId = (container.stdout ?? "").trim();
-      if (!/^[0-9a-f]{12,64}$/.test(containerId)) throw new Error(
-        "Validation runtime returned an invalid container identity.");
-      await options.onLifecycleCheckpoint?.({ phase: "container_created",
-        commandId: command.id, identity, containerId, cleanupDecision: null });
-      lifecycleStage = "command";
-      const execution = spawnSync(runtime, ["exec", name, command.executable, ...command.args],
-        { shell: false, encoding: "utf8", timeout,
-        killSignal: "SIGKILL",
-        maxBuffer: Math.max(maxOutput * 4 + 4096, 4096), stdio: ["ignore", "pipe", "pipe"] });
-      const commandFinishedMs = Date.now();
-      const errorCode = execution.error !== undefined && "code" in execution.error
-        ? execution.error.code : null;
-      const timedOut = errorCode === "ETIMEDOUT";
-      const outputOverflow = errorCode === "ENOBUFS";
-      const stdout = truncate(execution.stdout ?? "", maxOutput);
-      const stderr = truncate(execution.stderr ?? "", maxOutput);
-      const launchFailed = execution.error !== undefined && !timedOut && !outputOverflow;
-      commandPassed = !timedOut && !outputOverflow && !launchFailed &&
-        execution.status !== null && expected.includes(execution.status);
-      commandResult = {
-        id: command.id, executable: command.executable, args: [...command.args],
-        startedAt: new Date(commandStartedMs).toISOString(),
-        finishedAt: new Date(commandFinishedMs).toISOString(),
-        durationMs: commandFinishedMs - commandStartedMs,
-        exitCode: execution.status, signal: execution.signal, timedOut,
-        stdout: stdout.value, stderr: stderr.value,
-        stdoutTruncated: stdout.truncated || outputOverflow,
-        stderrTruncated: stderr.truncated || outputOverflow, passed: commandPassed
-      };
-      results.push(commandResult);
-      if (stdout.truncated || stderr.truncated || outputOverflow) issues.push({
-        code: outputOverflow ? "validation_container_output_overflow" : "validation_output_truncated",
-        message: outputOverflow
-          ? "Container runtime output exceeded the bounded process buffer."
-          : "Validation command output exceeded the configured capture limit.",
-        severity: outputOverflow ? "failure" : "review", commandId: command.id });
-      if (timedOut) issues.push({ code: "validation_command_timeout",
-        message: "Containerized validation command timed out and required forced cleanup.",
-        severity: "failure", commandId: command.id });
-      else if (launchFailed) issues.push({ code: "validation_container_launch_failed",
-        message: "Containerized validation could not be started.", severity: "failure", commandId: command.id });
-      else if (!commandPassed && !outputOverflow) issues.push({ code: "validation_command_failed",
-        message: "Containerized validation exited with an unexpected code.", severity: "failure", commandId: command.id });
+      const identity = options.containerIdentity ?? createValidationContainerIdentity(
+        `sha256:${randomBytes(32).toString("hex")}`, image);
+      if (!verifyValidationContainerIdentity(identity, image)) {
+        issues.push({ code: "validation_container_identity_invalid",
+          message: "Validation container identity is not bound to the configured image and transaction.",
+          severity: "failure", commandId: command.id });
+        return result(issues, results, Date.now() - started);
+      }
+      const name = identity.containerName;
+      const environment: string[] = ["--env", "HOME=/nonexistent", "--env", "TMPDIR=/tmp"];
+      for (const [key, value] of Object.entries(context.environment ?? {})) {
+        if (!safeEnvironmentKeyPattern.test(key) || secretEnvironmentKeyPattern.test(key) ||
+            typeof value !== "string" || value.includes("\0")) {
+          issues.push({ code: "validation_container_environment_invalid",
+            message: "Container environment contains a forbidden entry.", severity: "failure",
+            commandId: command.id });
+          return result(issues, results, Date.now() - started);
+        }
+        environment.push("--env", `${key}=${value}`);
+      }
+      const args = ["run", "--detach", "--pull", "never", "--name", name,
+        "--label", `${identity.labelKey}=${identity.labelValue}`, "--stop-timeout", "1",
+        "--network", "none", "--read-only", "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges", "--memory", String(memoryBytes),
+        "--memory-swap", String(memoryBytes), "--pids-limit", String(processCount),
+        "--cpus", String(cpuCount), "--user", `${containerUid}:${containerGid}`,
+        "--mount", `type=bind,src=${workspace},dst=/candidate-input,readonly`,
+        "--mount", `type=bind,src=${executionWorkspace},dst=/workspace`,
+        "--workdir", "/workspace", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${tmpfsBytes}`,
+        "--tmpfs", `/workspace/.validation-output:rw,noexec,nosuid,nodev,size=${validationOutputBytes},mode=0700,uid=${containerUid},gid=${containerGid}`,
+        ...environment, image, "node", "-e", "setInterval(()=>{},2147483647)"];
+      const commandStartedMs = Date.now();
+      let commandResult: TempExecutionCommandResult | null = null;
+      let commandPassed = false;
+      let lifecycleStage: "container_start" | "command" = "container_start";
       try {
-        const integrityFailure = await afterCommand(commandResult);
-        if (integrityFailure) issues.push(integrityFailure);
+        await options.onLifecycleCheckpoint?.({ phase: "container_create_intent",
+          commandId: command.id, identity, containerId: null, cleanupDecision: null });
+        const container = spawnSync(runtime, args, { shell: false, encoding: "utf8", timeout: 10_000,
+          killSignal: "SIGKILL", maxBuffer: 64 * 1024,
+          stdio: ["ignore", "pipe", "pipe"] });
+        if (container.error !== undefined || container.status !== 0) {
+          throw container.error ?? new Error("Validation container could not be created.");
+        }
+        const containerId = (container.stdout ?? "").trim();
+        if (!/^[0-9a-f]{12,64}$/.test(containerId)) throw new Error(
+          "Validation runtime returned an invalid container identity.");
+        await options.onLifecycleCheckpoint?.({ phase: "container_created",
+          commandId: command.id, identity, containerId, cleanupDecision: null });
+        lifecycleStage = "command";
+        const execution = spawnSync(runtime, ["exec", name, command.executable, ...command.args],
+          { shell: false, encoding: "utf8", timeout,
+          killSignal: "SIGKILL",
+          maxBuffer: Math.max(maxOutput * 4 + 4096, 4096), stdio: ["ignore", "pipe", "pipe"] });
+        const commandFinishedMs = Date.now();
+        const errorCode = execution.error !== undefined && "code" in execution.error
+          ? execution.error.code : null;
+        const timedOut = errorCode === "ETIMEDOUT";
+        const outputOverflow = errorCode === "ENOBUFS";
+        const stdout = truncate(execution.stdout ?? "", maxOutput);
+        const stderr = truncate(execution.stderr ?? "", maxOutput);
+        const launchFailed = execution.error !== undefined && !timedOut && !outputOverflow;
+        commandPassed = !timedOut && !outputOverflow && !launchFailed &&
+          execution.status !== null && expected.includes(execution.status);
+        commandResult = {
+          id: command.id, executable: command.executable, args: [...command.args],
+          startedAt: new Date(commandStartedMs).toISOString(),
+          finishedAt: new Date(commandFinishedMs).toISOString(),
+          durationMs: commandFinishedMs - commandStartedMs,
+          exitCode: execution.status, signal: execution.signal, timedOut,
+          stdout: stdout.value, stderr: stderr.value,
+          stdoutTruncated: stdout.truncated || outputOverflow,
+          stderrTruncated: stderr.truncated || outputOverflow, passed: commandPassed
+        };
+        results.push(commandResult);
+        if (stdout.truncated || stderr.truncated || outputOverflow) issues.push({
+          code: outputOverflow ? "validation_container_output_overflow" : "validation_output_truncated",
+          message: outputOverflow
+            ? "Container runtime output exceeded the bounded process buffer."
+            : "Validation command output exceeded the configured capture limit.",
+          severity: outputOverflow ? "failure" : "review", commandId: command.id });
+        if (timedOut) issues.push({ code: "validation_command_timeout",
+          message: "Containerized validation command timed out and required forced cleanup.",
+          severity: "failure", commandId: command.id });
+        else if (launchFailed) issues.push({ code: "validation_container_launch_failed",
+          message: "Containerized validation could not be started.", severity: "failure", commandId: command.id });
+        else if (!commandPassed && !outputOverflow) issues.push({ code: "validation_command_failed",
+          message: "Containerized validation exited with an unexpected code.", severity: "failure", commandId: command.id });
+        try {
+          const currentRecords = new Map(createCanonicalRepositoryContentSnapshot(executionWorkspace).records
+            .map((record) => [record.path, record]));
+          const authorityRecords = new Map(createCanonicalRepositoryContentSnapshot(workspace).records
+            .map((record) => [record.path, record]));
+          if (inputRecords.some((record) =>
+            JSON.stringify(currentRecords.get(record.path)) !== JSON.stringify(record) ||
+            JSON.stringify(authorityRecords.get(record.path)) !== JSON.stringify(record))) {
+            issues.push({ code: "validation_candidate_input_changed",
+              message: "A validation command changed an original candidate input file.",
+              severity: "failure", commandId: command.id });
+            commandPassed = false;
+          }
+          const integrityFailure = await afterCommand(commandResult);
+          if (integrityFailure) issues.push(integrityFailure);
+        } catch {
+          issues.push({ code: "validation_after_command_callback_failed",
+            message: "Post-command integrity verification failed unexpectedly.",
+            severity: "failure", commandId: command.id });
+          commandPassed = false;
+        }
       } catch {
-        issues.push({ code: "validation_after_command_callback_failed",
-          message: "Post-command integrity verification failed unexpectedly.",
+        issues.push({ code: lifecycleStage === "container_start"
+          ? "validation_container_launch_failed" : "validation_container_unexpected_exception",
+          message: "Containerized validation failed with an unexpected runtime exception.",
           severity: "failure", commandId: command.id });
         commandPassed = false;
+      } finally {
+        const cleanup = recoverValidationContainer(identity, { runtime, image });
+        try { await options.onLifecycleCheckpoint?.({ phase: "container_cleanup_completed",
+          commandId: command.id, identity, containerId: cleanup.containerId,
+          cleanupDecision: cleanup.decision }); } catch {
+          issues.push({ code: "validation_container_lifecycle_checkpoint_failed",
+            message: "Container lifecycle cleanup could not be durably checkpointed.",
+            severity: "failure", commandId: command.id });
+          commandPassed = false;
+        }
+        if (!new Set(["validation_container_removed", "validation_container_absent"])
+          .has(cleanup.decision)) {
+          issues.push({ code: "validation_container_cleanup_recovery_required",
+            message: "Container cleanup could not prove removal; infrastructure recovery is required.",
+            severity: "failure", commandId: command.id });
+          commandPassed = false;
+        }
       }
-    } catch {
-      issues.push({ code: lifecycleStage === "container_start"
-        ? "validation_container_launch_failed" : "validation_container_unexpected_exception",
-        message: "Containerized validation failed with an unexpected runtime exception.",
-        severity: "failure", commandId: command.id });
-      commandPassed = false;
-    } finally {
-      const cleanup = recoverValidationContainer(identity, { runtime, image });
-      try { await options.onLifecycleCheckpoint?.({ phase: "container_cleanup_completed",
-        commandId: command.id, identity, containerId: cleanup.containerId,
-        cleanupDecision: cleanup.decision }); } catch {
-        issues.push({ code: "validation_container_lifecycle_checkpoint_failed",
-          message: "Container lifecycle cleanup could not be durably checkpointed.",
-          severity: "failure", commandId: command.id });
-        commandPassed = false;
-      }
-      if (!new Set(["validation_container_removed", "validation_container_absent"])
-        .has(cleanup.decision)) {
-        issues.push({ code: "validation_container_cleanup_recovery_required",
-          message: "Container cleanup could not prove removal; infrastructure recovery is required.",
-          severity: "failure", commandId: command.id });
-        commandPassed = false;
+      if (!commandPassed || issues.some((entry) =>
+        entry.commandId === command.id && entry.severity === "failure")) {
+        return result(issues, results, Date.now() - started);
       }
     }
-    if (!commandPassed || issues.some((entry) =>
-      entry.commandId === command.id && entry.severity === "failure")) {
-      return result(issues, results, Date.now() - started);
-    }
+    return result(issues, results, Date.now() - started);
+  } finally {
+    fs.rmSync(executionWorkspace, { recursive: true, force: true });
   }
-  return result(issues, results, Date.now() - started);
 }

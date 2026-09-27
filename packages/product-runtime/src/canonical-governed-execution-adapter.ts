@@ -553,7 +553,8 @@ async function phaseVEvidence(repository: string, mutation: WorkspaceMutation,
   let completed: Awaited<ReturnType<typeof buildTemporaryWorkspaceExecutionVerificationEvidence>> | null = null;
   let phaseResult: any = null;
   try {
-    await cp(repository, root, { recursive: true, filter: (source) => path.basename(source) !== ".git" });
+    await cp(repository, root, { recursive: true, verbatimSymlinks: true,
+      filter: (source) => path.basename(source) !== ".git" });
     createCanonicalRepositoryContentSnapshot(root);
     for (const claim of parseTextFileUpdates(mutation)) {
       await mkdir(path.dirname(path.join(root, claim.file)), { recursive: true });
@@ -617,7 +618,7 @@ export async function verifyCanonicalNoChangeAcceptance(input: {
   let verificationHash: string | null = null;
   try {
     createCanonicalRepositoryContentSnapshot(input.repositoryPath);
-    await cp(input.repositoryPath, root, { recursive: true,
+    await cp(input.repositoryPath, root, { recursive: true, verbatimSymlinks: true,
       filter: (source) => path.basename(source) !== ".git" });
     createCanonicalRepositoryContentSnapshot(root);
     await mkdir(path.join(root, ".validation-output"));
