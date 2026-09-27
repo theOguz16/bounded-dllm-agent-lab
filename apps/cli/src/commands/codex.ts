@@ -162,6 +162,49 @@ function generatedTypeScriptOutputRoots(repositoryRoot: string, scriptName: stri
   } catch { return []; }
 }
 
+function disposableTypeScriptOutputRoots(
+  repositoryRoot: string, scriptName: string, roots: readonly string[]
+): string[] {
+  const disposable: string[] = [];
+  if (roots.length === 0) return disposable;
+  const manifest = JSON.parse(fs.readFileSync(path.join(repositoryRoot, "package.json"), "utf8")) as {
+    scripts?: Record<string, unknown>;
+  };
+  const script = manifest.scripts?.[scriptName];
+  const match = typeof script === "string"
+    ? /^tsc(?:\s+(?:-p|--project)\s+([A-Za-z0-9._/-]+))?$/.exec(script.trim()) : null;
+  if (match === null) return [];
+  const configPath = fs.realpathSync(path.resolve(repositoryRoot, match[1] ?? "tsconfig.json"));
+  const config = ts.readConfigFile(configPath, ts.sys.readFile);
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys,
+    path.dirname(configPath), undefined, configPath);
+  const explicitFiles = Array.isArray(config.config?.files)
+    ? config.config.files.filter((file: unknown): file is string => typeof file === "string")
+      .map((file: string) => path.resolve(path.dirname(configPath), file)) : [];
+  for (const root of roots) {
+    const absolute = path.join(repositoryRoot, root);
+    if (!fs.existsSync(absolute)) continue;
+    const invoke = (args: string[]) => spawnSync("git", args, { cwd: repositoryRoot,
+      encoding: "utf8", timeout: 10_000, maxBuffer: 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"] });
+    const top = invoke(["rev-parse", "--show-toplevel"]);
+    const ignored = invoke(["check-ignore", "--quiet", "--no-index", "--", `${root}/`]);
+    const authoritative = invoke(["ls-files", "--cached", "--others", "--exclude-standard",
+      "-z", "--", `${root}/`]);
+    if (!fs.lstatSync(absolute).isDirectory() || top.error || top.status !== 0 ||
+        fs.realpathSync(top.stdout.trim()) !== fs.realpathSync(repositoryRoot) ||
+        ignored.error || ignored.status !== 0 || authoritative.error ||
+        authoritative.status !== 0 || authoritative.stdout.length !== 0 ||
+        [...parsed.fileNames, ...explicitFiles].some((file) =>
+          file === absolute || file.startsWith(`${absolute}${path.sep}`))) {
+      throw new CliError("cli_codex_generated_output_authority_invalid",
+        `Generated output root contains authoritative repository files: ${root}.`);
+    }
+    disposable.push(root);
+  }
+  return disposable;
+}
+
 export function validationSpecification(
   config: BoundedLocalConfig, repositoryRoot: string
 ): TemporaryWorkspaceExecutionSpecification {
@@ -185,6 +228,8 @@ export function validationSpecification(
   const syntax = selectScript(config.scripts.build, ["build"]) ?? typecheck;
   const generatedOutputRoots = config.scripts.build.includes(syntax)
     ? generatedTypeScriptOutputRoots(repositoryRoot, syntax) : [];
+  const disposableGeneratedOutputRoots = disposableTypeScriptOutputRoots(
+    repositoryRoot, syntax, generatedOutputRoots);
   return {
     commands: [
       {
@@ -194,7 +239,8 @@ export function validationSpecification(
         args: ["run", syntax],
         timeoutMs: 120_000,
         expectedExitCodes: [0],
-        generatedOutputRoots
+        generatedOutputRoots,
+        disposableGeneratedOutputRoots
       },
       {
         id: "validation.typecheck",

@@ -255,7 +255,7 @@ export async function validateDerivedCandidate(input: Readonly<{
     await mkdir(path.join(workspace, ".validation-output"), { recursive: true });
     execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: workspace,
       tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false, ...specification },
-    async () => null, { runtime: "docker" });
+    async () => null, { runtime: "docker", sourceRepositoryPath: repositoryRoot });
   } finally { await rm(workspace, { recursive: true, force: true }); }
   if (!execution) return reject("cli_repair_validation_failed", "Validation did not execute.");
   const executionEvidence = buildTemporaryWorkspaceExecutionVerificationEvidence(specification, execution, true);

@@ -41,6 +41,8 @@ const path = require("node:path");
   } };
   assert.deepEqual(validationSpecification(detected, workspace).commands[0].generatedOutputRoots,
     ["dist"]);
+  assert.deepEqual(validationSpecification(detected, workspace).commands[0].disposableGeneratedOutputRoots,
+    [], "an absent output root needs no cleanup authority");
   fs.writeFileSync(path.join(workspace, "tsconfig.json"), JSON.stringify({
     compilerOptions: { outDir: "../outside", module: "commonjs", target: "es2022" },
     include: ["src/**/*.ts"]

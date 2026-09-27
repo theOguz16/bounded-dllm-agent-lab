@@ -101,6 +101,33 @@ function validGeneratedOutputRoots(value: unknown, input: Map<string, Validation
   });
 }
 
+function disposableRootIsDerived(repository: string, workspace: string, root: string): boolean {
+  const invoke = (args: string[]) => spawnSync("git", args, { cwd: repository, shell: false,
+    encoding: "utf8", timeout: 10_000, maxBuffer: 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"] });
+  const top = invoke(["rev-parse", "--show-toplevel"]);
+  if (top.error || top.status !== 0 || fs.realpathSync(top.stdout.trim()) !== repository) return false;
+  const ignored = invoke(["check-ignore", "--quiet", "--no-index", "--", `${root}/`]);
+  const authoritative = invoke(["ls-files", "--cached", "--others", "--exclude-standard",
+    "-z", "--", `${root}/`]);
+  if (ignored.error || ignored.status !== 0 || authoritative.error ||
+      authoritative.status !== 0 || authoritative.stdout.length !== 0) return false;
+  const sourceRoot = path.join(repository, root);
+  const candidateRoot = path.join(workspace, root);
+  const sourceStat = fs.lstatSync(sourceRoot, { throwIfNoEntry: false });
+  const candidateStat = fs.lstatSync(candidateRoot, { throwIfNoEntry: false });
+  if (sourceStat === undefined || candidateStat === undefined) {
+    return sourceStat === undefined && candidateStat === undefined;
+  }
+  if (!sourceStat.isDirectory() || !candidateStat.isDirectory()) return false;
+  const sourceRecords = validationManifest(sourceRoot);
+  const candidateRecords = validationManifest(candidateRoot);
+  return sourceRecords.size === candidateRecords.size && [...sourceRecords].every(([relative, entry]) =>
+    candidateRecords.get(relative)?.kind === entry.kind &&
+    candidateRecords.get(relative)?.byteLength === entry.byteLength &&
+    candidateRecords.get(relative)?.hash === entry.hash);
+}
+
 function authorizedGeneratedPath(relative: string, kind: ValidationEntry["kind"], roots: readonly string[]): boolean {
   return roots.some((root) => relative === root || relative.startsWith(`${root}/`) ||
     (kind === "directory" && root.startsWith(`${relative}/`)));
@@ -142,6 +169,8 @@ export type ValidationContainerIdentity = Readonly<{
 export type ContainerizedWorkspaceExecutionOptions = {
   runtime?: string;
   image?: string;
+  /** Canonical Git checkout used to verify that discarded output is ignored derived state. */
+  sourceRepositoryPath?: string;
   memoryBytes?: number;
   processCount?: number;
   cpuCount?: number;
@@ -377,6 +406,8 @@ export async function runContainerizedWorkspaceExecution(
   let executionWorkspace: string | null = null;
   let inputRecords: Map<string, ValidationEntry>;
   let generatedEntries: GeneratedEntry[] = [];
+  const retiredInputPaths = new Set<string>();
+  const retiredRoots = new Set<string>();
   try {
     inputRecords = validationManifest(workspace);
   } catch {
@@ -402,6 +433,32 @@ export async function runContainerizedWorkspaceExecution(
           message: "Generated output roots must be explicit, safe repository-relative paths.",
           severity: "failure", commandId: command.id });
         return result(issues, results, Date.now() - started);
+      }
+      const disposableRoots = command.disposableGeneratedOutputRoots ?? [];
+      if (!validGeneratedOutputRoots(disposableRoots, inputRecords) ||
+          disposableRoots.some((root) => !command.generatedOutputRoots?.includes(root) ||
+            inputRecords.get(root)?.kind === "file") ||
+          disposableRoots.some((root, index) => disposableRoots.some((other, otherIndex) =>
+            index !== otherIndex && root.startsWith(`${other}/`)))) {
+        issues.push({ code: "validation_disposable_output_authority_invalid",
+          message: "Disposable generated roots must be distinct authorized directories.",
+          severity: "failure", commandId: command.id });
+        return result(issues, results, Date.now() - started);
+      }
+      if (disposableRoots.length > 0) {
+        try {
+          const repository = fs.realpathSync(options.sourceRepositoryPath ?? "");
+          if (repository === workspace || repository.startsWith(`${workspace}${path.sep}`) ||
+              workspace.startsWith(`${repository}${path.sep}`) ||
+              disposableRoots.some((root) => !disposableRootIsDerived(repository, workspace, root))) {
+            throw new Error("Disposable output root is not verified derived state.");
+          }
+        } catch {
+          issues.push({ code: "validation_disposable_output_authority_invalid",
+            message: "Disposable output root contains authoritative or unverified input.",
+            severity: "failure", commandId: command.id });
+          return result(issues, results, Date.now() - started);
+        }
       }
       const timeout = command.timeoutMs ?? fallbackTimeout;
       const expected = command.expectedExitCodes ?? [0];
@@ -450,13 +507,26 @@ export async function runContainerizedWorkspaceExecution(
         freshWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-validation-execution-"));
         fs.cpSync(workspace, freshWorkspace,
           { recursive: true, force: false, verbatimSymlinks: true });
+        for (const root of new Set([...retiredRoots, ...disposableRoots])) {
+          fs.rmSync(path.join(freshWorkspace, root), { recursive: true, force: true });
+        }
+        const activeGeneratedEntries = generatedEntries.filter(({ path: relative }) =>
+          !disposableRoots.some((root) => relative === root || relative.startsWith(`${root}/`)));
         if (executionWorkspace !== null) copyGeneratedEntries(
-          executionWorkspace, freshWorkspace, generatedEntries);
+          executionWorkspace, freshWorkspace, activeGeneratedEntries);
+        generatedEntries = activeGeneratedEntries;
+        for (const root of disposableRoots) retiredRoots.add(root);
+        for (const relative of inputRecords.keys()) {
+          if (disposableRoots.some((root) => relative === root || relative.startsWith(`${root}/`))) {
+            retiredInputPaths.add(relative);
+          }
+        }
         const stagedRecords = validationManifest(freshWorkspace);
-        if ([...inputRecords].some(([relative, entry]) =>
+        if ([...inputRecords].some(([relative, entry]) => !retiredInputPaths.has(relative) &&
           !sameValidationEntry(stagedRecords.get(relative), entry)) ||
           generatedEntries.some(({ path: relative, entry }) =>
-            !sameValidationEntry(stagedRecords.get(relative), entry))) {
+            !sameValidationEntry(stagedRecords.get(relative), entry)) ||
+          stagedRecords.size !== inputRecords.size - retiredInputPaths.size + generatedEntries.length) {
           throw new Error("Validation staging did not preserve bound inputs and outputs.");
         }
         if (executionWorkspace !== null) fs.rmSync(executionWorkspace, { recursive: true, force: true });
@@ -542,8 +612,8 @@ export async function runContainerizedWorkspaceExecution(
           const currentRecords = validationManifest(executionWorkspace);
           const authorityRecords = validationManifest(workspace);
           if (inputRecords.size !== authorityRecords.size || [...inputRecords].some(([relative, entry]) =>
-            !sameValidationEntry(currentRecords.get(relative), entry) ||
-            !sameValidationEntry(authorityRecords.get(relative), entry)) ||
+            !sameValidationEntry(authorityRecords.get(relative), entry) ||
+            (!retiredInputPaths.has(relative) && !sameValidationEntry(currentRecords.get(relative), entry))) ||
             generatedEntries.some(({ path: relative, entry }) =>
               !sameValidationEntry(currentRecords.get(relative), entry))) {
             issues.push({ code: "validation_candidate_input_changed",
@@ -555,7 +625,8 @@ export async function runContainerizedWorkspaceExecution(
             const priorGeneratedPaths = new Set(generatedEntries.map((item) => item.path));
             let generatedBytes = generatedEntries.reduce((sum, item) => sum + item.entry.byteLength, 0);
             for (const [relative, entry] of currentRecords) {
-              if (inputRecords.has(relative) || priorGeneratedPaths.has(relative)) continue;
+              if ((inputRecords.has(relative) && !retiredInputPaths.has(relative)) ||
+                  priorGeneratedPaths.has(relative)) continue;
               if (!authorizedGeneratedPath(relative, entry.kind, command.generatedOutputRoots ?? [])) {
                 issues.push({ code: "validation_generated_output_unauthorized",
                   message: "Validation command created output outside its declared generated roots.",
@@ -604,6 +675,10 @@ export async function runContainerizedWorkspaceExecution(
             severity: "failure", commandId: command.id });
           commandPassed = false;
         }
+      }
+      if (commandResult !== null) {
+        commandResult.passed = commandPassed && !issues.some((entry) =>
+          entry.commandId === command.id && entry.severity === "failure");
       }
       if (!commandPassed || issues.some((entry) =>
         entry.commandId === command.id && entry.severity === "failure")) {

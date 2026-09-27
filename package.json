@@ -305,7 +305,7 @@
     "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs",
     "test:product-runtime-package": "node scripts/product-runtime-package-smoke.cjs",
     "test:text-file-update-contract": "npm run build && node scripts/text-file-update-contract-smoke.cjs",
-    "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs && node scripts/smoke/emitting-typescript-validation-smoke.cjs"
+    "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs && node scripts/smoke/emitting-typescript-validation-smoke.cjs && node scripts/smoke/stale-generated-output-validation-smoke.cjs"
   },
   "workspaces": [
     "apps/*",

@@ -737,7 +737,7 @@ export function validateControlledPostApplyExecutionSpecification(
   for (const commandValue of record.commands) {
     const command = exactObject(commandValue, [
       "id", "checkKind", "executable", "args", "timeoutMs", "expectedExitCodes",
-      "generatedOutputRoots"
+      "generatedOutputRoots", "disposableGeneratedOutputRoots"
     ], "Phase V execution command", ["id", "executable", "args"]);
     if (typeof command.id !== "string" || command.id.length === 0 ||
         typeof command.executable !== "string" || command.executable.length === 0 ||
@@ -755,6 +755,11 @@ export function validateControlledPostApplyExecutionSpecification(
           (!Array.isArray(command.expectedExitCodes) ||
             command.expectedExitCodes.length === 0 ||
             !(command.expectedExitCodes as unknown[]).every(Number.isInteger))) ||
+        (command.disposableGeneratedOutputRoots !== undefined &&
+          (!Array.isArray(command.disposableGeneratedOutputRoots) ||
+            !(command.disposableGeneratedOutputRoots as unknown[]).every((root) =>
+              typeof root === "string" &&
+              (command.generatedOutputRoots as unknown[] | undefined)?.includes(root)))) ||
         (command.generatedOutputRoots !== undefined &&
           (!Array.isArray(command.generatedOutputRoots) ||
             command.generatedOutputRoots.length > 16 ||
@@ -1510,6 +1515,7 @@ export async function executeControlledPostApplyValidation(
             severity: "failure", commandId: command.id };
         }
       }, { validationOutputBytes: maxValidationOutputBytes,
+        sourceRepositoryPath: repository,
         containerIdentity: intent.validationContainer });
       summary.validationExecuted = true;
       validationDecision = recordDecision(executionResult.decision);

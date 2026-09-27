@@ -33,6 +33,8 @@ export type TempExecutionCommand = {
   expectedExitCodes?: number[];
   /** Explicit roots under which this command may create carry-forward outputs. */
   generatedOutputRoots?: string[];
+  /** Generated roots whose pre-existing ignored contents are discarded before this producer runs. */
+  disposableGeneratedOutputRoots?: string[];
 };
 
 export type TempExecutionCommandResult = {
@@ -133,6 +135,9 @@ function normalizedSpecification(
       }),
       ...(command.generatedOutputRoots === undefined ? {} : {
         generatedOutputRoots: [...command.generatedOutputRoots]
+      }),
+      ...(command.disposableGeneratedOutputRoots === undefined ? {} : {
+        disposableGeneratedOutputRoots: [...command.disposableGeneratedOutputRoots]
       })
     })),
     allowedExecutables: [...specification.allowedExecutables],

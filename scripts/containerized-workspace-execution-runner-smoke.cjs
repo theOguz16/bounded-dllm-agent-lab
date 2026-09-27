@@ -58,6 +58,7 @@ const path = require("node:path");
     }, async () => null);
     assert.equal(changedCandidate.decision, "temp_validation_failed", JSON.stringify(changedCandidate));
     assert(changedCandidate.issues.some((entry) => entry.code === "validation_candidate_input_changed"));
+    assert.equal(changedCandidate.commandResults[0].passed, false);
     assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
     assertNoContainers();
     checks++;
@@ -97,6 +98,7 @@ const path = require("node:path");
     }, async () => null);
     assert.equal(poisoning.decision, "temp_validation_failed", JSON.stringify(poisoning));
     assert.deepEqual(poisoning.commandResults.map((entry) => entry.id), ["poison-source"]);
+    assert.equal(poisoning.commandResults[0].passed, false);
     assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
     checks++;
 

@@ -564,7 +564,8 @@ async function phaseVEvidence(repository: string, mutation: WorkspaceMutation,
     await lifecycle?.checkpoint?.("phase_v_started", intent);
     const execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
       tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false, ...specification }, async () => null,
-      { containerIdentity, onLifecycleCheckpoint: lifecycle?.checkpoint === undefined ? undefined :
+      { containerIdentity, sourceRepositoryPath: repository,
+        onLifecycleCheckpoint: lifecycle?.checkpoint === undefined ? undefined :
         async (containerLifecycle) => lifecycle.checkpoint!("phase_v_started",
           { ...intent, containerLifecycle }) });
     if (execution.decision !== "temp_validation_passed") {
@@ -624,7 +625,8 @@ export async function verifyCanonicalNoChangeAcceptance(input: {
     await mkdir(path.join(root, ".validation-output"));
     const execution = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
       tempApplyDecision: "temp_apply_ready", tempWorkspaceCleanedUp: false,
-      ...input.specification }, async () => null);
+      ...input.specification }, async () => null,
+      { sourceRepositoryPath: input.repositoryPath });
     if (execution.decision !== "temp_validation_passed") return rejected("replan_required", {
       beforeInspectionHash: before.inspection.inspectionHash, afterInspectionHash: null,
       receiptHash: null

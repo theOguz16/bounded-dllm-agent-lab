@@ -275,7 +275,7 @@ async function validateCandidateInDisposableWorkspace(input: Readonly<{
     const execution = await runContainerizedWorkspaceExecution({
       tempWorkspacePath: root, tempApplyDecision: "temp_apply_ready",
       tempWorkspaceCleanedUp: false, ...input.specification
-    }, async () => null, input.containerOptions);
+    }, async () => null, { ...input.containerOptions, sourceRepositoryPath: input.repositoryPath });
     return buildValidationEvidence({ profile: input.profile,
       structuralPassed: input.structuralPassed,
       specification: input.specification, executionResult: execution });
