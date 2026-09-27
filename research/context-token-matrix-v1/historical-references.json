@@ -1,0 +1,11 @@
+{
+  "comparisonKind": "historical_non_paired",
+  "warning": "Historical reference only; these runs are not a clean paired A/B experiment.",
+  "references": [
+    { "name": "Normal Codex", "input": 632127, "cached": 593920, "derivedUncached": 38207, "output": 5029 },
+    { "name": "Earlier Bounded", "input": 362303, "cached": 309504, "derivedUncached": 52799, "output": 4395 },
+    { "name": "Successful current Bounded", "input": 219228, "cached": 176128, "derivedUncached": 43100, "output": 3443,
+      "planner": { "initialEstimate": 1369, "input": 12272, "cached": 1792, "derivedUncached": 10480, "output": 532, "turns": 1, "tools": 0 },
+      "coder": { "initialEstimate": 14374, "input": 206956, "cached": 174336, "derivedUncached": 32620, "output": 2911, "turns": 1, "tools": 4 } }
+  ]
+}

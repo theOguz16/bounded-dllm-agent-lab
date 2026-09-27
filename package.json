@@ -305,7 +305,9 @@
     "run:controlled-coding-pilot-live": "npm run build && node scripts/controlled-coding-pilot.cjs",
     "test:product-runtime-package": "node scripts/product-runtime-package-smoke.cjs",
     "test:text-file-update-contract": "npm run build && node scripts/text-file-update-contract-smoke.cjs",
-    "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs && node scripts/smoke/emitting-typescript-validation-smoke.cjs && node scripts/smoke/stale-generated-output-validation-smoke.cjs && node scripts/smoke/validation-git-context-smoke.cjs"
+    "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs && node scripts/smoke/emitting-typescript-validation-smoke.cjs && node scripts/smoke/stale-generated-output-validation-smoke.cjs && node scripts/smoke/validation-git-context-smoke.cjs",
+    "test:context-token-matrix-v1": "npm run build && node scripts/smoke/context-token-matrix-v1-smoke.cjs",
+    "research:context-token-matrix:compare": "node research/context-token-matrix-v1/compare.mjs"
   },
   "workspaces": [
     "apps/*",

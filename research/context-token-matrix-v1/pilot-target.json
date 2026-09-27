@@ -1,0 +1,16 @@
+{
+  "targetVersion": "context-token-matrix-target/v1",
+  "experimentId": "worker-request-id-correlation-v1",
+  "taskFile": "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+  "taskHash": "sha256:ba3a0497e0c734f6cfb40e9d1ad225b3c9122229c7e5eb3c1e37efeb94278520",
+  "taskHashSemantics": "sha256 of taskPrompt UTF-8 bytes",
+  "stableBaselineHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "sourceHeadPolicy": "record and verify exact HEAD at each future run",
+  "allowedFiles": [
+    "packages/worker-contract/src/index.ts",
+    "tests/smoke/contracts.ts"
+  ],
+  "suggestedModel": "gpt-5.6-luna",
+  "suggestedReasoning": "medium",
+  "variants": ["minimal", "current", "expanded"]
+}
