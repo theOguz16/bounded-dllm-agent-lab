@@ -372,8 +372,8 @@ async function main() {
           totalTokens: 112, providerResponseHash: hashCanonicalJson({ response: "planner" }) });
         return value;
       };
-      input.coderProvider = async (context, control) => {
-        const value = await coder(context, control);
+      input.coderProvider = async (context, runtime, control) => {
+        const value = await coder(context, runtime, control);
         control.reportUsage({ status: "observed", inputTokens: 202, outputTokens: 22,
           totalTokens: 224, providerResponseHash: hashCanonicalJson({ response: "coder" }) });
         return value;
@@ -1170,7 +1170,7 @@ async function main() {
           const output = await originalProvider(context);
           const claim = output.claims[0];
           const evidence = context.evidence.find((entry) => entry.path === claim.file);
-          assert.equal(claim.expectedContentHash, evidence.contentHash);
+          assert.equal(claim.expectedContentHash, contentHash(evidence.content));
           if (mode === "missing") delete claim.expectedContentHash;
           if (mode === "malformed") claim.expectedContentHash = "bad-hash";
           if (mode === "wrong") claim.expectedContentHash = contentHash("wrong");
@@ -1214,7 +1214,7 @@ async function main() {
           if (stage === "planning") { control = options; return new Promise(() => {}); }
           return planner(context);
         };
-        if (stage === "coding") input.coderProvider = async (context, options) => {
+        if (stage === "coding") input.coderProvider = async (context, runtime, options) => {
           control = options;
           return new Promise(() => {});
         };
@@ -1261,7 +1261,7 @@ async function main() {
             return new Promise((resolve, reject) => { release = resolve; fail = reject; });
           };
           if (stage === "planning") input.plannerMinimalityProvider = provider;
-          else input.coderProvider = provider;
+          else input.coderProvider = (context, runtime, options) => provider(context, options);
           let applyCalls = 0;
           input.applyExecutor = async () => { applyCalls++; throw new Error("Unexpected apply"); };
           const task = runBoundedTask({ ...input, signal: controller.signal });
@@ -1354,8 +1354,8 @@ async function main() {
         const value = await planner(context, control); control.reportUsage({ status: "observed",
           inputTokens: 100, outputTokens: 10, totalTokens: 110,
           providerResponseHash: hashCanonicalJson({ durable: "planner" }) }); return value; };
-      input.coderProvider = async (context, control) => { coderCalls++;
-        const value = await coder(context, control); control.reportUsage({ status: "observed",
+      input.coderProvider = async (context, runtime, control) => { coderCalls++;
+        const value = await coder(context, runtime, control); control.reportUsage({ status: "observed",
           inputTokens: 200, outputTokens: 20, totalTokens: 220,
           providerResponseHash: hashCanonicalJson({ durable: "coder" }) }); return value; };
       input.durableTask = { registryRoot, idempotencyKey: "terminal.cost.replay" };
