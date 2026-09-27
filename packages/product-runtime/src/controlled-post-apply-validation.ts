@@ -736,7 +736,8 @@ export function validateControlledPostApplyExecutionSpecification(
   ]);
   for (const commandValue of record.commands) {
     const command = exactObject(commandValue, [
-      "id", "checkKind", "executable", "args", "timeoutMs", "expectedExitCodes"
+      "id", "checkKind", "executable", "args", "timeoutMs", "expectedExitCodes",
+      "generatedOutputRoots"
     ], "Phase V execution command", ["id", "executable", "args"]);
     if (typeof command.id !== "string" || command.id.length === 0 ||
         typeof command.executable !== "string" || command.executable.length === 0 ||
@@ -753,7 +754,17 @@ export function validateControlledPostApplyExecutionSpecification(
         (command.expectedExitCodes !== undefined &&
           (!Array.isArray(command.expectedExitCodes) ||
             command.expectedExitCodes.length === 0 ||
-            !(command.expectedExitCodes as unknown[]).every(Number.isInteger)))) {
+            !(command.expectedExitCodes as unknown[]).every(Number.isInteger))) ||
+        (command.generatedOutputRoots !== undefined &&
+          (!Array.isArray(command.generatedOutputRoots) ||
+            command.generatedOutputRoots.length > 16 ||
+            !(command.generatedOutputRoots as unknown[]).every((root) =>
+              typeof root === "string" && root.length > 0 && root.length <= 240 &&
+              !root.startsWith("/") && !root.includes("\\") &&
+              !/[\x00-\x1f\x7f]/.test(root) &&
+              root.split("/").every((segment) => segment.length > 0 &&
+                segment !== "." && segment !== ".." &&
+                ![".git", ".bounded", ".validation-output", "node_modules"].includes(segment)))))) {
       throw new ValidationFailure(
         "controlled_post_apply_validation_phase_v_evidence_invalid",
         "Phase V execution command is invalid."

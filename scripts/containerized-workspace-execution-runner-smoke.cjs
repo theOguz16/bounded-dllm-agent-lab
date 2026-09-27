@@ -6,6 +6,8 @@ const path = require("node:path");
 
 (async () => {
   const runtime = await import("../dist/packages/product-runtime/src/index.js");
+  const { computeTemporaryWorkspaceExecutionSpecificationHash } =
+    await import("../dist/packages/product-runtime/src/temporary-workspace-execution-verifier.js");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "container-runner-"));
   const workspace = path.join(root, "workspace");
   const control = path.join(root, "host-control.txt");
@@ -26,6 +28,12 @@ const path = require("node:path");
     assert.equal(leftovers, "");
   };
   try {
+    const boundSpecification = { commands: [{ id: "build", executable: "node", args: ["-v"],
+      generatedOutputRoots: ["dist"] }], allowedExecutables: ["node"] };
+    assert.notEqual(computeTemporaryWorkspaceExecutionSpecificationHash(boundSpecification),
+      computeTemporaryWorkspaceExecutionSpecificationHash({ ...boundSpecification,
+        commands: [{ ...boundSpecification.commands[0], generatedOutputRoots: ["build"] }] }));
+    checks++;
     const isolationScript = `
       const fs=require('fs');
       let readBlocked=false,writeBlocked=false,sourceBlocked=false;
@@ -60,6 +68,7 @@ const path = require("node:path");
       fs.writeFileSync(existing, "module.exports = 1;\n");
       const overwrite = await runtime.runContainerizedWorkspaceExecution({ ...base,
         commands: [{ id: `overwrite-${directory}`, executable: "node", timeoutMs: 10_000,
+          generatedOutputRoots: [directory],
           args: ["-e", `require('fs').writeFileSync(${JSON.stringify(`${directory}/candidate.js`)},'module.exports = 2;')`] }]
       }, async () => null);
       assert.equal(overwrite.decision, "temp_validation_failed", JSON.stringify(overwrite));
@@ -119,6 +128,7 @@ const path = require("node:path");
     const newOutput = await runtime.runContainerizedWorkspaceExecution({ ...base,
       commands: [
         { id: "create-output", executable: "node", timeoutMs: 10_000,
+          generatedOutputRoots: ["dist"],
           args: ["-e", "require('fs').writeFileSync('dist/new-output.js','module.exports=3')"] },
         { id: "read-bound-output", executable: "node", timeoutMs: 10_000,
           args: ["-e", "if(require('./dist/new-output.js')!==3)process.exit(1)"] }
@@ -128,6 +138,71 @@ const path = require("node:path");
     assert.deepEqual(newOutput.commandResults.map((entry) => entry.id),
       ["create-output", "read-bound-output"]);
     assert.equal(fs.existsSync(path.join(workspace, "dist/new-output.js")), false);
+    checks++;
+
+    for (const [label, created] of [
+      ["new-source", "src/poison.js"],
+      ["new-config", "config/poison.json"],
+      ["output-sibling", "dist-extra/poison.js"]
+    ]) {
+      const poisoned = await runtime.runContainerizedWorkspaceExecution({ ...base,
+        commands: [
+          { id: `create-${label}`, executable: "node", timeoutMs: 10_000,
+            generatedOutputRoots: ["dist"],
+            args: ["-e", `require('fs').mkdirSync(require('path').dirname(${JSON.stringify(created)}),{recursive:true});require('fs').writeFileSync(${JSON.stringify(created)},'poison')`] },
+          { id: `consume-${label}`, executable: "node", timeoutMs: 10_000,
+            args: ["-e", `if(!require('fs').existsSync(${JSON.stringify(created)}))process.exit(1)`] }
+        ]
+      }, async () => null);
+      assert.equal(poisoned.decision, "temp_validation_failed", JSON.stringify(poisoned));
+      assert(poisoned.issues.some((entry) => entry.code === "validation_generated_output_unauthorized"));
+      assert.deepEqual(poisoned.commandResults.map((entry) => entry.id), [`create-${label}`]);
+      assert.equal(fs.existsSync(path.join(workspace, created)), false);
+      checks++;
+    }
+
+    const nestedOutput = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [
+        { id: "create-nested-output", executable: "node", timeoutMs: 10_000,
+          generatedOutputRoots: ["build/generated"],
+          args: ["-e", "require('fs').mkdirSync('build/generated/deep',{recursive:true});require('fs').writeFileSync('build/generated/deep/result.js','module.exports=7')"] },
+        { id: "consume-nested-output", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "if(require('./build/generated/deep/result.js')!==7)process.exit(1)"] }
+      ]
+    }, async () => null);
+    assert.equal(nestedOutput.decision, "temp_validation_passed", JSON.stringify(nestedOutput));
+    assert.equal(fs.existsSync(path.join(workspace, "build")), false);
+    checks++;
+
+    const producerBound = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [
+        { id: "authorized-producer", executable: "node", timeoutMs: 10_000,
+          generatedOutputRoots: ["dist"],
+          args: ["-e", "require('fs').writeFileSync('dist/first.js','first')"] },
+        { id: "unauthorized-producer", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "require('fs').writeFileSync('dist/second.js','second')"] }
+      ]
+    }, async () => null);
+    assert.equal(producerBound.decision, "temp_validation_failed", JSON.stringify(producerBound));
+    assert(producerBound.issues.some((entry) => entry.code === "validation_generated_output_unauthorized" &&
+      entry.commandId === "unauthorized-producer"));
+    checks++;
+
+    const traversalRoot = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "traversal-root", executable: "node", timeoutMs: 10_000,
+        generatedOutputRoots: ["dist/../src"], args: ["-e", "process.exit(0)"] }]
+    }, async () => null);
+    assert.equal(traversalRoot.decision, "temp_validation_failed", JSON.stringify(traversalRoot));
+    assert(traversalRoot.issues.some((entry) => entry.code === "validation_generated_output_authority_invalid"));
+    assert.deepEqual(traversalRoot.commandResults, []);
+    checks++;
+
+    const unbound = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "unbound-output", executable: "node", timeoutMs: 10_000,
+        args: ["-e", "require('fs').writeFileSync('dist/unbound.js','unbound')"] }]
+    }, async () => null);
+    assert.equal(unbound.decision, "temp_validation_failed", JSON.stringify(unbound));
+    assert(unbound.issues.some((entry) => entry.code === "validation_generated_output_unauthorized"));
     checks++;
 
     const network = await runtime.runContainerizedWorkspaceExecution({ ...base,

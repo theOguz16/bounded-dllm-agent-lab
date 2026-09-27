@@ -31,6 +31,8 @@ export type TempExecutionCommand = {
   args: string[];
   timeoutMs?: number;
   expectedExitCodes?: number[];
+  /** Explicit roots under which this command may create carry-forward outputs. */
+  generatedOutputRoots?: string[];
 };
 
 export type TempExecutionCommandResult = {
@@ -128,6 +130,9 @@ function normalizedSpecification(
       ...(command.timeoutMs === undefined ? {} : { timeoutMs: command.timeoutMs }),
       ...(command.expectedExitCodes === undefined ? {} : {
         expectedExitCodes: [...command.expectedExitCodes]
+      }),
+      ...(command.generatedOutputRoots === undefined ? {} : {
+        generatedOutputRoots: [...command.generatedOutputRoots]
       })
     })),
     allowedExecutables: [...specification.allowedExecutables],

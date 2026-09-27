@@ -162,7 +162,7 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
   const artifact = createRepairMutationArtifact(repair);
   const requestBinding = createRepairRequestBinding({ request, state, result,
     boundaryHash: hashCanonicalJson(boundary), artifact });
-  const specification = validationSpecification(diagnosed.config);
+  const specification = validationSpecification(diagnosed.config, repositoryRoot);
   const validated = await validateDerivedCandidate({ repositoryRoot, specification,
     validationProfile: BOUNDED_CODEX_VALIDATION_PROFILE, requestBinding,
     state, result, original, artifact });

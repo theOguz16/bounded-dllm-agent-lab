@@ -35,8 +35,25 @@ const path = require("node:path");
     "const assert=require('node:assert/strict');" +
     "const test=require('node:test');" +
     "test('emitted candidate',()=>assert.equal(require('../dist/index.js').value,3));\n");
+  const { validationSpecification } = await import("../../dist/apps/cli/src/commands/codex.js");
+  const detected = { packageJson: { detected: true }, scripts: {
+    build: ["build"], typecheck: ["typecheck"], test: ["test"]
+  } };
+  assert.deepEqual(validationSpecification(detected, workspace).commands[0].generatedOutputRoots,
+    ["dist"]);
+  fs.writeFileSync(path.join(workspace, "tsconfig.json"), JSON.stringify({
+    compilerOptions: { outDir: "../outside", module: "commonjs", target: "es2022" },
+    include: ["src/**/*.ts"]
+  }));
+  assert.deepEqual(validationSpecification(detected, workspace).commands[0].generatedOutputRoots,
+    [], "output roots outside the candidate must not be authorized");
+  fs.writeFileSync(path.join(workspace, "tsconfig.json"), JSON.stringify({
+    compilerOptions: { outDir: "dist", module: "commonjs", target: "es2022" },
+    include: ["src/**/*.ts"]
+  }));
   const commands = [
-    { id: "validation.syntax", checkKind: "syntax", executable: "npm", args: ["run", "build"] },
+    { id: "validation.syntax", checkKind: "syntax", executable: "npm", args: ["run", "build"],
+      generatedOutputRoots: ["dist"] },
     { id: "validation.typecheck", checkKind: "typecheck", executable: "npm", args: ["run", "typecheck"] },
     { id: "validation.test", checkKind: "behavior_test", executable: "npm", args: ["run", "test"] }
   ].map((entry) => ({ ...entry, timeoutMs: 30_000, expectedExitCodes: [0] }));

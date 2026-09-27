@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import ts from "typescript";
 
 import {
   canonicalizeRepositoryRelativePath,
@@ -132,7 +134,37 @@ function selectScript(values: readonly string[], preferred: readonly string[]): 
   return values[0] ?? null;
 }
 
-export function validationSpecification(config: BoundedLocalConfig): TemporaryWorkspaceExecutionSpecification {
+function generatedTypeScriptOutputRoots(repositoryRoot: string, scriptName: string): string[] {
+  try {
+    const root = fs.realpathSync(repositoryRoot);
+    const packagePath = fs.realpathSync(path.join(root, "package.json"));
+    if (path.dirname(packagePath) !== root) return [];
+    const manifest = JSON.parse(fs.readFileSync(packagePath, "utf8")) as {
+      scripts?: Record<string, unknown>;
+    };
+    const script = manifest.scripts?.[scriptName];
+    if (typeof script !== "string") return [];
+    const match = /^tsc(?:\s+(?:-p|--project)\s+([A-Za-z0-9._/-]+))?$/.exec(script.trim());
+    if (!match) return [];
+    const configPath = fs.realpathSync(path.resolve(root, match[1] ?? "tsconfig.json"));
+    if (!configPath.startsWith(`${root}${path.sep}`) ||
+        !path.basename(configPath).endsWith(".json")) return [];
+    const config = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (config.error) return [];
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys,
+      path.dirname(configPath), undefined, configPath);
+    if (parsed.errors.length > 0 || typeof parsed.options.outDir !== "string") return [];
+    const relative = path.relative(root, path.resolve(parsed.options.outDir)).split(path.sep).join("/");
+    if (!relative || relative.startsWith("../") || relative === ".." ||
+        relative.split("/").some((part) => !part || part === "." || part === ".." ||
+          [".git", ".bounded", ".validation-output", "node_modules"].includes(part))) return [];
+    return [relative];
+  } catch { return []; }
+}
+
+export function validationSpecification(
+  config: BoundedLocalConfig, repositoryRoot: string
+): TemporaryWorkspaceExecutionSpecification {
   if (!config.packageJson.detected) {
     throw new CliError(
       "cli_codex_package_json_required",
@@ -151,6 +183,8 @@ export function validationSpecification(config: BoundedLocalConfig): TemporaryWo
     );
   }
   const syntax = selectScript(config.scripts.build, ["build"]) ?? typecheck;
+  const generatedOutputRoots = config.scripts.build.includes(syntax)
+    ? generatedTypeScriptOutputRoots(repositoryRoot, syntax) : [];
   return {
     commands: [
       {
@@ -159,7 +193,8 @@ export function validationSpecification(config: BoundedLocalConfig): TemporaryWo
         executable: "npm",
         args: ["run", syntax],
         timeoutMs: 120_000,
-        expectedExitCodes: [0]
+        expectedExitCodes: [0],
+        generatedOutputRoots
       },
       {
         id: "validation.typecheck",
@@ -537,7 +572,7 @@ export async function codexCommand(
   }
 
   const evidence = await initialEvidence(repositoryRoot, allowFiles);
-  const specification = validationSpecification(diagnosed.config);
+  const specification = validationSpecification(diagnosed.config, repositoryRoot);
   const sourceBefore = captureSourceState(repositoryRoot);
   const sourceSnapshotHash = sourceBefore.snapshotHash;
   const model = await resolveCodexModel(dependencies.model);

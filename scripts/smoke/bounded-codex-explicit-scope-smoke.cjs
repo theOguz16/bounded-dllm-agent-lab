@@ -81,7 +81,7 @@ async function createRepository(root) {
   });
   await fs.writeFile(path.join(repository, "package-lock.json"), "fixture\n", "utf8");
   await writeJson(path.join(repository, "tsconfig.json"), {
-    compilerOptions: { strict: true }
+    compilerOptions: { strict: true, outDir: "dist" }
   });
   await fs.writeFile(path.join(repository, "src/session.ts"), sourceOriginal, "utf8");
   await fs.writeFile(path.join(repository, "src/helper.ts"), helperSource, "utf8");
@@ -331,6 +331,8 @@ async function main() {
     assert.equal(capturedInput.durableTask.idempotencyKey, command.output.recovery.idempotencyKey);
     assert.deepEqual(capturedInput.allowedChangeFiles, ["src/session.ts", "test/session.test.ts"]);
     assert.equal(capturedInput.validationProfile, "structural_draft");
+    assert.deepEqual(capturedInput.draftValidation.executionSpecification.commands[0].generatedOutputRoots,
+      ["dist"]);
     assert.equal(adapter.requests.length, 2);
     assert.deepEqual(adapter.requests.map((request) => request.mode), ["planner", "coder"]);
     assert.deepEqual(adapter.requests.map((request) => request.reasoningEffort), ["medium", "medium"]);

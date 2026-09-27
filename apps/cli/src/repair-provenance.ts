@@ -169,7 +169,7 @@ export async function verifyCandidateProvenance(repositoryRoot: string,
     const adaptive = candidate.adaptiveResult as { coderResult?: { providerOutput?: unknown } } | null;
     if (hashCanonicalJson(adaptive?.coderResult?.providerOutput ?? null) !==
         hashCanonicalJson(candidate.coderMutation)) return fail();
-    const specification = validationSpecification(config);
+    const specification = validationSpecification(config, repositoryRoot);
     const acceptanceContract = originalAcceptanceContract(result, state.acceptanceCriteriaContractHash);
     const phaseVExecutionSpecificationHash = hashCanonicalJson(specification);
     const validationProfileHash = hashCanonicalJson({ id: BOUNDED_CODEX_VALIDATION_PROFILE,

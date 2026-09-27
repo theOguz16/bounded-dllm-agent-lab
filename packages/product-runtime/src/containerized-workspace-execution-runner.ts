@@ -88,6 +88,24 @@ function sameValidationEntry(left: ValidationEntry | undefined, right: Validatio
     left.byteLength === right.byteLength && left.hash === right.hash;
 }
 
+function validGeneratedOutputRoots(value: unknown, input: Map<string, ValidationEntry>): value is string[] {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > 16 || new Set(value).size !== value.length) return false;
+  return value.every((root) => {
+    if (typeof root !== "string" || root.length === 0 || root.length > 240 ||
+        root.startsWith("/") || root.includes("\\") || /[\x00-\x1f\x7f]/.test(root) ||
+        root.split("/").some((segment) => !segment || segment === "." || segment === ".." ||
+          [".git", ".bounded", ".validation-output", "node_modules"].includes(segment))) return false;
+    const segments = root.split("/");
+    return segments.every((_, index) => input.get(segments.slice(0, index + 1).join("/"))?.kind !== "symlink");
+  });
+}
+
+function authorizedGeneratedPath(relative: string, kind: ValidationEntry["kind"], roots: readonly string[]): boolean {
+  return roots.some((root) => relative === root || relative.startsWith(`${root}/`) ||
+    (kind === "directory" && root.startsWith(`${relative}/`)));
+}
+
 function copyGeneratedEntries(source: string, destination: string, entries: readonly GeneratedEntry[]): void {
   for (const { path: relative, entry } of entries) {
     const target = path.join(destination, relative);
@@ -379,6 +397,12 @@ export async function runContainerizedWorkspaceExecution(
           severity: "failure", commandId: command.id });
         return result(issues, results, Date.now() - started);
       }
+      if (!validGeneratedOutputRoots(command.generatedOutputRoots, inputRecords)) {
+        issues.push({ code: "validation_generated_output_authority_invalid",
+          message: "Generated output roots must be explicit, safe repository-relative paths.",
+          severity: "failure", commandId: command.id });
+        return result(issues, results, Date.now() - started);
+      }
       const timeout = command.timeoutMs ?? fallbackTimeout;
       const expected = command.expectedExitCodes ?? [0];
       if (!Number.isSafeInteger(timeout) || timeout <= 0 ||
@@ -532,6 +556,13 @@ export async function runContainerizedWorkspaceExecution(
             let generatedBytes = generatedEntries.reduce((sum, item) => sum + item.entry.byteLength, 0);
             for (const [relative, entry] of currentRecords) {
               if (inputRecords.has(relative) || priorGeneratedPaths.has(relative)) continue;
+              if (!authorizedGeneratedPath(relative, entry.kind, command.generatedOutputRoots ?? [])) {
+                issues.push({ code: "validation_generated_output_unauthorized",
+                  message: "Validation command created output outside its declared generated roots.",
+                  severity: "failure", commandId: command.id });
+                commandPassed = false;
+                break;
+              }
               if (entry.kind === "symlink") throw new Error("Generated validation symlink is forbidden.");
               generatedBytes += entry.byteLength;
               if (generatedEntries.length + newEntries.length >= VALIDATION_INTEGRITY_LIMITS.maximumGeneratedEntries ||
@@ -540,7 +571,7 @@ export async function runContainerizedWorkspaceExecution(
               }
               newEntries.push({ path: relative, entry, producerCommandId: command.id });
             }
-            generatedEntries = [...generatedEntries, ...newEntries];
+            if (commandPassed) generatedEntries = [...generatedEntries, ...newEntries];
           }
           const integrityFailure = await afterCommand(commandResult);
           if (integrityFailure) issues.push(integrityFailure);
