@@ -1,0 +1,263 @@
+{
+  "calibrationSchema": "context-token-matrix-calibration/v1",
+  "sourceHead": "09c22b1afeb18e7d6702d8449b667d525f233103",
+  "providerModelCalls": 0,
+  "tasks": [
+    {
+      "taskId": "controlled-real-coding-v2.worker-request-id-correlation",
+      "taskFile": "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+      "taskType": "bounded_text_edits",
+      "taskHash": "sha256:ba3a0497e0c734f6cfb40e9d1ad225b3c9122229c7e5eb3c1e37efeb94278520",
+      "allowedFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "verificationProfile": [
+        "typecheck",
+        "build",
+        "test_smoke",
+        "request_id_acceptance"
+      ],
+      "fullValidationAvailable": true,
+      "behaviorDeterministicallyDemonstrable": true,
+      "externalNetworkRequired": false,
+      "applyRequired": false,
+      "eligibility": {
+        "sameSourceHead": true,
+        "deterministicDefinition": true,
+        "fullValidationAvailable": true,
+        "noExternalNetworkRequired": true,
+        "noApplyRequired": true,
+        "allVariantsPassGate": true,
+        "materiallySeparated": true,
+        "eligible": true
+      },
+      "variants": {
+        "minimal": {
+          "selectedFiles": [
+            "packages/worker-contract/src/index.ts",
+            "tests/smoke/contracts.ts"
+          ],
+          "selectedFileCount": 2,
+          "selectedBytes": 51881,
+          "estimatedInitialTokens": 14031,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        },
+        "current": {
+          "selectedFiles": [
+            "packages/worker-contract/src/index.ts",
+            "tests/smoke/contracts.ts"
+          ],
+          "selectedFileCount": 2,
+          "selectedBytes": 51881,
+          "estimatedInitialTokens": 14031,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        },
+        "expanded": {
+          "selectedFiles": [
+            "packages/worker-contract/src/index.ts",
+            "tests/smoke/contracts.ts",
+            "apps/web/src/index.ts",
+            "packages/integrations/src/index.ts"
+          ],
+          "selectedFileCount": 4,
+          "selectedBytes": 62183,
+          "estimatedInitialTokens": 16775,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 2,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        }
+      },
+      "minimalEqualsCurrent": true,
+      "currentEqualsExpanded": false,
+      "materialPairs": {
+        "minimalCurrent": false,
+        "currentExpanded": true,
+        "minimalExpanded": true
+      }
+    },
+    {
+      "taskId": "controlled-real-coding-v2.local-json-schema-error-classification",
+      "taskFile": "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json",
+      "taskType": "bounded_text_edits",
+      "taskHash": "sha256:907634551c95aa71c75ffe918d97f7d2f6a6798ff372f550eea999be0780196e",
+      "allowedFiles": [
+        "packages/integrations/src/local-openai-compatible-model-client.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "verificationProfile": [
+        "typecheck",
+        "build",
+        "test_smoke",
+        "local_json_schema_acceptance"
+      ],
+      "fullValidationAvailable": true,
+      "behaviorDeterministicallyDemonstrable": true,
+      "externalNetworkRequired": false,
+      "applyRequired": false,
+      "eligibility": {
+        "sameSourceHead": true,
+        "deterministicDefinition": true,
+        "fullValidationAvailable": true,
+        "noExternalNetworkRequired": true,
+        "noApplyRequired": true,
+        "allVariantsPassGate": false,
+        "materiallySeparated": true,
+        "eligible": false
+      },
+      "variants": {
+        "minimal": {
+          "selectedFiles": [
+            "packages/integrations/src/local-openai-compatible-model-client.ts",
+            "tests/smoke/contracts.ts"
+          ],
+          "selectedFileCount": 2,
+          "selectedBytes": 59890,
+          "estimatedInitialTokens": 16199,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_stopped",
+          "gateIssues": [
+            "coder_context_hard_budget_exceeded"
+          ],
+          "offlineStubInvocations": 0,
+          "withinConfiguredHardLimit": false
+        },
+        "current": {
+          "selectedFiles": [
+            "packages/integrations/src/local-openai-compatible-model-client.ts",
+            "tests/smoke/contracts.ts"
+          ],
+          "selectedFileCount": 2,
+          "selectedBytes": 59890,
+          "estimatedInitialTokens": 16199,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_stopped",
+          "gateIssues": [
+            "coder_context_hard_budget_exceeded"
+          ],
+          "offlineStubInvocations": 0,
+          "withinConfiguredHardLimit": false
+        },
+        "expanded": {
+          "selectedFiles": [
+            "packages/integrations/src/local-openai-compatible-model-client.ts",
+            "tests/smoke/contracts.ts",
+            "apps/web/src/index.ts",
+            "packages/integrations/src/index.ts"
+          ],
+          "selectedFileCount": 4,
+          "selectedBytes": 70192,
+          "estimatedInitialTokens": 18942,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 2,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        }
+      },
+      "minimalEqualsCurrent": true,
+      "currentEqualsExpanded": false,
+      "materialPairs": {
+        "minimalCurrent": false,
+        "currentExpanded": true,
+        "minimalExpanded": true
+      }
+    },
+    {
+      "taskId": "controlled-real-coding-v1.runpod-live-help",
+      "taskFile": "pilots/controlled-real-coding-v1/runpod-live-help/task.json",
+      "taskType": "controlled_help_copy",
+      "taskHash": "sha256:379793e913ea4ca87e1a5dd42c10b9b51e7d7b3627942a7fa360cee5306c0980",
+      "allowedFiles": [
+        "apps/cli/src/model-worker-runpod-live-smoke.ts"
+      ],
+      "verificationProfile": [
+        "typecheck",
+        "help_acceptance",
+        "normal_missing_env",
+        "runpod_proxy_smoke"
+      ],
+      "fullValidationAvailable": true,
+      "behaviorDeterministicallyDemonstrable": true,
+      "externalNetworkRequired": false,
+      "applyRequired": false,
+      "eligibility": {
+        "sameSourceHead": true,
+        "deterministicDefinition": true,
+        "fullValidationAvailable": true,
+        "noExternalNetworkRequired": true,
+        "noApplyRequired": true,
+        "allVariantsPassGate": true,
+        "materiallySeparated": false,
+        "eligible": false
+      },
+      "variants": {
+        "minimal": {
+          "selectedFiles": [
+            "apps/cli/src/model-worker-runpod-live-smoke.ts"
+          ],
+          "selectedFileCount": 1,
+          "selectedBytes": 9271,
+          "estimatedInitialTokens": 2897,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        },
+        "current": {
+          "selectedFiles": [
+            "apps/cli/src/model-worker-runpod-live-smoke.ts"
+          ],
+          "selectedFileCount": 1,
+          "selectedBytes": 9271,
+          "estimatedInitialTokens": 2897,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        },
+        "expanded": {
+          "selectedFiles": [
+            "apps/cli/src/model-worker-runpod-live-smoke.ts"
+          ],
+          "selectedFileCount": 1,
+          "selectedBytes": 9271,
+          "estimatedInitialTokens": 2897,
+          "estimateSemantics": "offline coder-context gate estimate with fixed task-context envelope",
+          "addedDependencies": 0,
+          "gateDecision": "repo_context_binding_completed",
+          "gateIssues": [],
+          "offlineStubInvocations": 1,
+          "withinConfiguredHardLimit": true
+        }
+      },
+      "minimalEqualsCurrent": true,
+      "currentEqualsExpanded": true,
+      "materialPairs": {
+        "minimalCurrent": false,
+        "currentExpanded": false,
+        "minimalExpanded": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "manifestVersion": "context-token-matrix-manifest/v1",
+  "protocolVersion": "context-token-matrix-protocol/v1",
+  "researchBranch": "research/context-token-matrix-v1",
+  "researchBranchAnchorSha": "09c22b1afeb18e7d6702d8449b667d525f233103",
+  "productionBaselineSha": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "sourceHead": "09c22b1afeb18e7d6702d8449b667d525f233103",
+  "calibrationFile": "research/context-token-matrix-v1/calibration.json",
+  "calibrationSha256": "sha256:95beb50645b321713363386df9d666c413fc47ca2122e4e8ca1d2be1012cb1f5",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "variants": ["minimal", "current", "expanded"],
+  "effectivePolicies": {
+    "minimal": {"hardTotalBudgetTokens": 16384, "reservedOutputTokens": 2048, "optionalEvidence": "required-only", "maxAddedFiles": 0, "maxAddedBytes": 0, "systemHardMaximumTokens": 32768, "expansionPolicy": "existing-bounded-request/v1"},
+    "current": {"hardTotalBudgetTokens": 16384, "reservedOutputTokens": 2048, "optionalEvidence": "production-initial-evidence", "maxAddedFiles": 0, "maxAddedBytes": 0, "systemHardMaximumTokens": 32768, "expansionPolicy": "existing-bounded-request/v1"},
+    "expanded": {"hardTotalBudgetTokens": 32768, "reservedOutputTokens": 2048, "optionalEvidence": "direct-dependencies", "maxAddedFiles": 4, "maxAddedBytes": 12288, "systemHardMaximumTokens": 32768, "expansionPolicy": "existing-bounded-request/v1"}
+  },
+  "controlledExecution": {
+    "plannerPolicy": "existing-bounded-planner/v1",
+    "coderPolicy": "existing-bounded-coder/v1; initial context variant only",
+    "validationSpecification": {
+      "source": "bounded-codex-explicit-scope/v0",
+      "commands": ["npm run build", "npm run typecheck", "npm test"],
+      "networkPolicy": "existing-containerized-validation-policy"
+    },
+    "retryCount": 0,
+    "repairCount": 0,
+    "applyCount": 0,
+    "providerAuthenticationPath": "existing-CodexAgentAdapter-host-auth",
+    "invocationJournalPolicy": "existing-Codex-durable-recovery-bridge"
+  },
+  "selectedTasks": [
+    {
+      "category": "A",
+      "taskId": "controlled-real-coding-v2.worker-request-id-correlation",
+      "taskFile": "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+      "taskHash": "sha256:ba3a0497e0c734f6cfb40e9d1ad225b3c9122229c7e5eb3c1e37efeb94278520",
+      "allowedFiles": ["packages/worker-contract/src/index.ts", "tests/smoke/contracts.ts"],
+      "validationProfile": ["typecheck", "build", "test_smoke", "request_id_acceptance"],
+      "behaviorCheck": "node scripts/controlled-coding-pilot-request-id-check.cjs --repository <candidate-workspace>",
+      "eligible": true,
+      "contextReason": "Narrow existing pilot; minimal equals current, expanded includes two verified direct dependencies."
+    }
+  ],
+  "unselectedCategories": ["B", "C"],
+  "executionOrderByCategory": {
+    "A": ["minimal", "current", "expanded"],
+    "B": ["current", "expanded", "minimal"],
+    "C": ["expanded", "minimal", "current"]
+  },
+  "repetitionPlan": {
+    "stage1RepetitionsPerCell": 1,
+    "stage2AdditionalRepetitionsPerCell": 1,
+    "stage2ConditionalOnValidityReview": true,
+    "maxPlannedRuns": 6,
+    "stopStageOnDeterministicInfrastructureFailure": true
+  },
+  "requiredMetrics": [
+    "outcome", "validation", "behavior", "selectedFiles", "selectedBytes",
+    "initialPromptEstimatedTokens", "plannerInput", "plannerCached", "plannerUncached",
+    "plannerOutput", "plannerTurns", "plannerTools", "coderInput", "coderCached",
+    "coderUncached", "coderOutput", "coderTurns", "coderTools", "aggregateInput",
+    "aggregateCached", "aggregateUncached", "aggregateOutput", "aggregateTotal",
+    "providerCalls", "totalTurns", "totalToolCalls", "expansionsRequested",
+    "expansionsGranted", "changedFiles", "scopeViolations", "sourceRepositoryUnchanged",
+    "trustworthyElapsedTiming"
+  ],
+  "liveRunOutputRootConvention": ".bounded/research/context-token-matrix-v1/<sourceHead>/<taskId>/<variant>/rep-<nn>.json",
+  "liveExecutionAuthorized": false
+}
