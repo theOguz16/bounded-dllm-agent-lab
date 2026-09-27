@@ -61,6 +61,16 @@ const path = require("node:path");
     assert.equal(generated.decision, "temp_validation_passed", JSON.stringify(generated));
     assert.equal(fs.existsSync(path.join(candidate, "generated")), false);
 
+    const copiedToAuthorizedOutput = await run([
+      { id: "copy-synthetic-head", executable: "node", generatedOutputRoots: ["dist"], args: ["-e",
+        "const f=require('node:fs');f.mkdirSync('dist');f.copyFileSync('/validation-git/.git/HEAD','dist/git-head.txt')"] },
+      { id: "read-authorized-output", executable: "node", args: ["-e",
+        "const f=require('node:fs');if(!f.readFileSync('dist/git-head.txt','utf8').trim())process.exit(1)"] }
+    ]);
+    assert.equal(copiedToAuthorizedOutput.decision, "temp_validation_passed",
+      JSON.stringify(copiedToAuthorizedOutput));
+    assert.equal(fs.existsSync(path.join(candidate, "dist")), false);
+
     const tamper = await run([{ id: "git-metadata-write", executable: "node", args: ["-e",
       "require('node:fs').writeFileSync('/validation-git/.git/index','poison')"] },
     { id: "must-not-run", executable: "node", args: ["-e", "process.exit(0)"] }]);
