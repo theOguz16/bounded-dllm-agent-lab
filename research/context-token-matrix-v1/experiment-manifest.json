@@ -2,11 +2,12 @@
   "manifestVersion": "context-token-matrix-manifest/v1",
   "protocolVersion": "context-token-matrix-protocol/v1",
   "researchBranch": "research/context-token-matrix-v1",
-  "researchBranchAnchorSha": "09c22b1afeb18e7d6702d8449b667d525f233103",
+  "harnessBaselineSha": "5bc84d195a1a896a5022590378b294561accbabe",
+  "harnessHeadPolicy": "record-current-research-branch-head-descended-from-baseline",
   "productionBaselineSha": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
-  "sourceHead": "09c22b1afeb18e7d6702d8449b667d525f233103",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
   "calibrationFile": "research/context-token-matrix-v1/calibration.json",
-  "calibrationSha256": "sha256:95beb50645b321713363386df9d666c413fc47ca2122e4e8ca1d2be1012cb1f5",
+  "calibrationSha256": "sha256:90fd165be406f4a0b6ce692efeb31d276905ffc8f56551b63f355868d980e3d1",
   "model": "gpt-5.6-luna",
   "reasoning": "medium",
   "variants": ["minimal", "current", "expanded"],
@@ -65,6 +66,6 @@
     "expansionsGranted", "changedFiles", "scopeViolations", "sourceRepositoryUnchanged",
     "trustworthyElapsedTiming"
   ],
-  "liveRunOutputRootConvention": ".bounded/research/context-token-matrix-v1/<sourceHead>/<taskId>/<variant>/rep-<nn>.json",
+  "liveRunOutputRootConvention": "$HOME/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/<session>/<cell>/experiment-result.json",
   "liveExecutionAuthorized": false
 }

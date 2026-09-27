@@ -47,7 +47,7 @@ const { pathToFileURL } = require('node:url');
       ['stage2_conditional', 'expanded']]);
     assert(plan.rows.every(row => row.eligible && row.model === 'gpt-5.6-luna' &&
       row.reasoning === 'medium' && row.allowedFiles.length === 2 &&
-      row.outputPath.startsWith('.bounded/research/context-token-matrix-v1/')));
+      row.outputPath.startsWith('$HOME/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/')));
     assert.match(renderDryRun(plan), /live authorized: no/);
     assert.equal(JSON.parse(renderDryRun(plan, 'json')).rows.length, 6);
     const cli = command([process.execPath, path.join(research, 'dry-run.mjs'), '--format', 'json']);

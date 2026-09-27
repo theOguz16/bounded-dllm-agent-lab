@@ -310,7 +310,10 @@
     "research:context-token-matrix:compare": "node research/context-token-matrix-v1/compare.mjs",
     "research:context-token-matrix:calibrate": "node research/context-token-matrix-v1/calibrate.mjs",
     "research:context-token-matrix:dry-run": "node research/context-token-matrix-v1/dry-run.mjs",
-    "test:context-token-matrix-protocol": "npm run build && node scripts/smoke/context-token-matrix-protocol-smoke.cjs"
+    "test:context-token-matrix-protocol": "npm run build && node scripts/smoke/context-token-matrix-protocol-smoke.cjs",
+    "test:context-token-matrix-live-runner": "npm run build && node scripts/smoke/context-token-matrix-live-runner-smoke.cjs",
+    "research:context-token-matrix:preflight": "node research/context-token-matrix-v1/run-live.mjs preflight",
+    "research:context-token-matrix:live": "node research/context-token-matrix-v1/run-live.mjs live"
   },
   "workspaces": [
     "apps/*",

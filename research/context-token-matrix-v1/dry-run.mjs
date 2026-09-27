@@ -14,7 +14,7 @@ function requireValue(ok, detail) { if (!ok) throw new Error(`experiment_manifes
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 const ORDER = { A: ['minimal', 'current', 'expanded'],
   B: ['current', 'expanded', 'minimal'], C: ['expanded', 'minimal', 'current'] };
-const OUTPUT_CONVENTION = '.bounded/research/context-token-matrix-v1/<sourceHead>/<taskId>/<variant>/rep-<nn>.json';
+const OUTPUT_CONVENTION = '$HOME/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/<session>/<cell>/experiment-result.json';
 const REQUIRED_METRICS = [
   'outcome', 'validation', 'behavior', 'selectedFiles', 'selectedBytes',
   'initialPromptEstimatedTokens', 'plannerInput', 'plannerCached', 'plannerUncached',
@@ -32,9 +32,10 @@ export function buildDryRun(manifestPath = defaultManifest) {
   requireValue(manifest.manifestVersion === 'context-token-matrix-manifest/v1' &&
     manifest.protocolVersion === 'context-token-matrix-protocol/v1', 'version');
   requireValue(manifest.researchBranch === 'research/context-token-matrix-v1' &&
-    manifest.researchBranchAnchorSha === '09c22b1afeb18e7d6702d8449b667d525f233103' &&
+    manifest.harnessBaselineSha === '5bc84d195a1a896a5022590378b294561accbabe' &&
+    manifest.harnessHeadPolicy === 'record-current-research-branch-head-descended-from-baseline' &&
     manifest.productionBaselineSha === 'ea6bc88e947e78b7539b9614b4c637dd9b2805a9' &&
-    manifest.sourceHead === manifest.researchBranchAnchorSha, 'source identity');
+    manifest.sourceHead === manifest.productionBaselineSha, 'source identity');
   requireValue(manifest.model === 'gpt-5.6-luna' && manifest.reasoning === 'medium' &&
     equal(manifest.variants, VARIANTS), 'model, reasoning, or variants');
   for (const variant of VARIANTS) {
@@ -113,7 +114,7 @@ export function buildDryRun(manifestPath = defaultManifest) {
           hardTotalBudgetTokens: configuration.effectivePolicy.hardTotalBudgetTokens,
           reservedOutputTokens: configuration.effectivePolicy.reservedOutputTokens,
           allowedFiles: task.allowedFiles,
-          outputPath: `.bounded/research/context-token-matrix-v1/${manifest.sourceHead}/${task.taskId}/${variant}/rep-${String(repetition).padStart(2, '0')}.json`,
+          outputPath: `$HOME/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/<session>/0${(repetition - 1) * 3 + ORDER[task.category].indexOf(variant) + 1}-${variant}/experiment-result.json`,
           eligible: true });
       }
     }

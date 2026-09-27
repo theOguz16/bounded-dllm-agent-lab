@@ -1,0 +1,417 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDryRun } from './dry-run.mjs';
+import { calibratePilots } from './calibrate.mjs';
+import { createResearchConfig, prepareResearchTaskInput, selectResearchContext } from './policy.mjs';
+import { createExperimentResult } from './result.mjs';
+import { initializeBoundedLocalConfig } from '../../dist/apps/cli/src/product-config.js';
+import { doctorCommand } from '../../dist/apps/cli/src/commands/doctor.js';
+import { codexCommand } from '../../dist/apps/cli/src/commands/codex.js';
+import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-bounded-task.js';
+import { runRepoIntelligenceBoundCoderFlow } from '../../dist/packages/product-runtime/src/repo-intelligence-context-binding.js';
+import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
+import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
+
+export const HARNESS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+export const MODEL = 'gpt-5.6-luna';
+export const REASONING = 'medium';
+const BASELINE = '5bc84d195a1a896a5022590378b294561accbabe';
+const SOURCE = 'ea6bc88e947e78b7539b9614b4c637dd9b2805a9';
+const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function requireValue(ok, message) { if (!ok) throw new Error(`context_matrix_preflight_invalid: ${message}`); }
+function git(root, args, { allowFailure = false } = {}) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30_000,
+    maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (!allowFailure && (result.error || result.status !== 0))
+    throw new Error(`git ${args[0]} failed: ${result.stderr?.trim() ?? result.error?.message}`);
+  return result;
+}
+function json(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+function save(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); }
+function status(root) { return git(root, ['status', '--short']).stdout.trim(); }
+function head(root) { return git(root, ['rev-parse', 'HEAD']).stdout.trim(); }
+export function expectedJournalPath(home = os.homedir()) {
+  return path.join(home, '.bounded-agent/bounded-dllm-agent-lab/provider-invocations.sqlite');
+}
+export function outputParent(home = os.homedir()) {
+  return path.join(home, '.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1');
+}
+export function verifyHarnessIdentity(root = HARNESS_ROOT) {
+  requireValue(git(root, ['branch', '--show-current']).stdout.trim() ===
+    'research/context-token-matrix-v1', 'harness branch');
+  const harnessHead = head(root);
+  requireValue(git(root, ['merge-base', '--is-ancestor', BASELINE, harnessHead],
+    { allowFailure: true }).status === 0, 'harness baseline ancestry');
+  const tracked = git(root, ['status', '--porcelain=v1', '--untracked-files=no']).stdout.trim();
+  requireValue(tracked.length === 0, 'harness tracked files are dirty');
+  const untracked = status(root);
+  requireValue(untracked === '' || untracked === '?? .bounded/', 'harness has unexpected untracked files');
+  return harnessHead;
+}
+export function verifySourceIdentity(root, expectedHead = SOURCE) {
+  requireValue(head(root) === expectedHead, 'source HEAD mismatch');
+  const actual = status(root);
+  requireValue(actual === '' || actual === '?? .bounded/', `source status changed: ${actual}`);
+  return actual;
+}
+export function verifyJournal(file, sourceRoot, home = os.homedir()) {
+  requireValue(path.isAbsolute(file) && file === expectedJournalPath(home), 'journal path');
+  const real = fs.realpathSync(file);
+  const source = fs.realpathSync(sourceRoot);
+  requireValue(real !== source && !real.startsWith(`${source}${path.sep}`), 'journal inside source');
+  const stat = fs.lstatSync(file);
+  requireValue(stat.isFile() && !stat.isSymbolicLink(), 'journal file type');
+  const descriptor = fs.openSync(file, 'r');
+  try { const header = Buffer.alloc(16); fs.readSync(descriptor, header, 0, 16, 0);
+    requireValue(header.toString('utf8') === 'SQLite format 3\0', 'journal header');
+  } finally { fs.closeSync(descriptor); }
+  return { path: real, sizeBytes: stat.size, modifiedMs: stat.mtimeMs };
+}
+export function verifyOutputWritable(root = outputParent()) {
+  fs.mkdirSync(root, { recursive: true, mode: 0o700 });
+  const probe = path.join(root, `.preflight-probe-${process.pid}-${randomBytes(4).toString('hex')}`);
+  try { fs.writeFileSync(probe, '', { flag: 'wx', mode: 0o600 }); }
+  finally { fs.rmSync(probe, { force: true }); }
+  return fs.realpathSync(root);
+}
+export function createSourceCheckout(parent, sourceHead = SOURCE, harness = HARNESS_ROOT) {
+  requireValue(sourceHead === SOURCE, 'source SHA is not the frozen production baseline');
+  const root = path.join(parent, 'source');
+  requireValue(!fs.existsSync(root), 'source checkout already exists');
+  git(harness, ['clone', '--quiet', '--shared', '--no-checkout', '--', harness, root]);
+  git(root, ['checkout', '--quiet', '--detach', sourceHead]);
+  requireValue(status(root) === '', 'new source checkout is not clean');
+  return fs.realpathSync(root);
+}
+export async function prepareSourceCheckout(parent, manifest, harness = HARNESS_ROOT) {
+  const root = createSourceCheckout(parent, manifest.sourceHead, harness);
+  await initializeBoundedLocalConfig(root);
+  requireValue(verifySourceIdentity(root, manifest.sourceHead) === '?? .bounded/',
+    'source local config did not remain untracked');
+  const doctor = await doctorCommand(root);
+  requireValue(doctor.exitCode === 0 && doctor.output?.ok === true &&
+    doctor.output.repositoryRoot === fs.realpathSync(root), 'source doctor failed');
+  return { root, doctor: doctor.output };
+}
+export function makeConfig(manifest, task, variant) {
+  requireValue(manifest.sourceHead === SOURCE && manifest.model === MODEL &&
+    manifest.reasoning === REASONING && manifest.variants.includes(variant), 'manifest execution values');
+  const config = createResearchConfig({ experimentId: task.taskId, variant,
+    model: manifest.model, reasoning: manifest.reasoning,
+    sourceHead: manifest.sourceHead, taskHash: task.taskHash, allowedFiles: task.allowedFiles });
+  requireValue(same(config.effectivePolicy, manifest.effectivePolicies[variant]), 'variant policy drift');
+  return config;
+}
+export async function bindTaskInput(input, { manifest, task, variant, sourceRoot }) {
+  const config = makeConfig(manifest, task, variant);
+  requireValue(fs.realpathSync(input.repositoryPath) === fs.realpathSync(sourceRoot) &&
+    input.taskContext?.objective === json(path.join(sourceRoot, task.taskFile)).taskPrompt &&
+    !Object.hasOwn(input, 'applyExecutor') && !Object.hasOwn(input, 'governedExecution'),
+  'task/source/apply binding');
+  const selected = await selectResearchContext({ config, repositoryPath: sourceRoot,
+    seedFiles: input.taskContext.seedFiles,
+    requiredTestFiles: input.taskContext.requiredTestFiles,
+    forbiddenFiles: input.forbiddenFiles, currentEvidence: input.initialEvidence });
+  const prepared = prepareResearchTaskInput(input, selected);
+  requireValue(prepared.durableTask === input.durableTask &&
+    prepared.draftValidation === input.draftValidation &&
+    prepared.taskId === input.taskId && prepared.objectiveHash === input.objectiveHash &&
+    prepared.acceptanceCriteriaContract === input.acceptanceCriteriaContract &&
+    prepared.canonicalPolicy === input.canonicalPolicy &&
+    prepared.plannerMinimalityProvider === input.plannerMinimalityProvider &&
+    prepared.coderProvider === input.coderProvider &&
+    prepared.contextRequestProvider === input.contextRequestProvider,
+  'authority, validation, or provider changed');
+  return { config, selected, prepared };
+}
+function currentEvidence(root, files) {
+  return files.map(file => { const bytes = fs.readFileSync(path.join(root, file));
+    const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return { path: file, source: 'bounded_codex_explicit_scope_v0', content,
+      contentHash: sha(bytes), byteLength: bytes.length,
+      estimatedTokens: Math.ceil(content.length / 4), matchedSymbols: [] }; });
+}
+export async function proveVariantPayloads(root, manifest, task) {
+  const payloads = {};
+  const runtimeBoundaries = {};
+  const evidence = currentEvidence(root, task.allowedFiles);
+  for (const variant of manifest.variants) {
+    const config = makeConfig(manifest, task, variant);
+    const selected = await selectResearchContext({ config, repositoryPath: root,
+      seedFiles: task.allowedFiles,
+      requiredTestFiles: task.allowedFiles.filter(file => /(?:^|\/)tests?\//.test(file)),
+      currentEvidence: evidence });
+    let calls = 0;
+    const flow = await runRepoIntelligenceBoundCoderFlow({ repositoryPath: root,
+      seedFiles: task.allowedFiles,
+      requiredTestFiles: task.allowedFiles.filter(file => /(?:^|\/)tests?\//.test(file)),
+      requiredSymbols: [], forbiddenFiles: [], authorityPresent: true, policyPresent: true,
+      baseContext: { version: '1', taskContext: { objective: json(path.join(root, task.taskFile)).taskPrompt,
+        seedFiles: task.allowedFiles } }, initialEvidence: selected.initialEvidence,
+      hardTotalBudgetTokens: config.effectivePolicy.hardTotalBudgetTokens,
+      reservedOutputTokens: config.effectivePolicy.reservedOutputTokens,
+      contextRequestProvider: async () => { throw Error('offline payload probe cannot expand'); },
+      coderProvider: async (context, runtime) => {
+        calls++; payloads[variant] = context; runtimeBoundaries[variant] = runtime;
+        return { offlineProbe: true };
+      } });
+    requireValue(flow.decision === 'repo_context_binding_completed' && calls === 1,
+      `${variant} fake-provider gate failed`);
+    requireValue(selected.selectedFileCount ===
+      json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/calibration.json'))
+        .tasks.find(item => item.taskId === task.taskId).variants[variant].selectedFileCount,
+    `${variant} calibrated file count changed`);
+  }
+  requireValue(same(payloads.minimal, payloads.current), 'minimal/current model payload differs');
+  const expandedText = JSON.stringify(payloads.expanded);
+  requireValue(!same(payloads.current, payloads.expanded) &&
+    expandedText.includes('apps/web/src/index.ts') &&
+    expandedText.includes('packages/integrations/src/index.ts'), 'expanded dependencies not model-facing');
+  for (const variant of manifest.variants) {
+    requireValue(!Object.hasOwn(payloads[variant], 'readableFiles') &&
+      !JSON.stringify(payloads[variant]).includes('contentHash') &&
+      Array.isArray(runtimeBoundaries[variant].readableFiles),
+    'runtime-only authority serialized');
+  }
+  return Object.fromEntries(manifest.variants.map(variant => [variant,
+    { modelPayloadHash: sha(JSON.stringify(payloads[variant])),
+      selectedPaths: payloads[variant].evidence.map(item => item.path),
+      runtimeReadableFiles: runtimeBoundaries[variant].readableFiles }]));
+}
+export async function preflight({ keepSource = false, harnessRoot = HARNESS_ROOT,
+  home = os.homedir(), resultParent = outputParent(home) } = {}) {
+  const plan = buildDryRun();
+  const manifest = json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'));
+  const harnessHead = verifyHarnessIdentity(harnessRoot);
+  requireValue(fs.statSync(path.join(HARNESS_ROOT, 'node_modules')).isDirectory(),
+    'local dependencies unavailable for candidate behavior check');
+  requireValue(plan.rows.filter(row => row.stage === 'stage1').length === 3 &&
+    same(plan.rows.filter(row => row.stage === 'stage1').map(row => row.variant),
+      ['minimal', 'current', 'expanded']), 'Stage 1 order');
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'context-token-matrix-v1-preflight-'));
+  try {
+    const source = await prepareSourceCheckout(parent, manifest, harnessRoot);
+    const journal = verifyJournal(expectedJournalPath(home), source.root, home);
+    const calibration = await calibratePilots(source.root);
+    requireValue(same(calibration,
+      json(path.join(HARNESS_ROOT, manifest.calibrationFile))), 'source calibration drift');
+    const task = manifest.selectedTasks[0];
+    const providerBinding = await proveVariantPayloads(source.root, manifest, task);
+    const outputRoot = verifyOutputWritable(resultParent);
+    const sourceStatus = verifySourceIdentity(source.root, manifest.sourceHead);
+    const result = { preflightSchema: 'context-token-matrix-preflight/v1', ok: true,
+      protocolVersion: manifest.protocolVersion, harnessHead, sourceHead: manifest.sourceHead,
+      sourceStatus, doctor: source.doctor, journal, outputRoot,
+      stage1Order: ['minimal', 'current', 'expanded'], providerBinding,
+      providerModelCalls: 0 };
+    if (keepSource) result.sourceCheckout = source.root;
+    return result;
+  } finally { if (!keepSource) fs.rmSync(parent, { recursive: true, force: true }); }
+}
+
+export function makeJournalScopedAdapter(adapter, identity, onCall) {
+  requireValue(/^[a-z0-9][a-z0-9.-]{1,63}$/.test(identity), 'run identity');
+  const counts = new Map();
+  return { agentId: adapter.agentId, agentVersion: adapter.agentVersion,
+    async run(request) {
+      requireValue(request.model === MODEL && request.reasoningEffort === REASONING &&
+        ['planner', 'coder'].includes(request.mode), 'provider settings drift');
+      const count = counts.get(request.mode) ?? 0;
+      requireValue(count === 0, 'automatic provider retry forbidden');
+      counts.set(request.mode, count + 1);
+      const runId = `matrix.${identity}.${request.runId}`;
+      requireValue(runId.length <= 159, 'journal run ID too long');
+      onCall?.({ mode: request.mode, runId, model: request.model,
+        reasoning: request.reasoningEffort });
+      return adapter.run({ ...request, runId });
+    } };
+}
+
+function mutationFromResult(result) {
+  return result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput ?? null;
+}
+export function classifyCell(output) {
+  if (output?.decision === 'bounded_task_completed' && output?.sourceRepositoryUnchanged === true)
+    return 'completed';
+  const failure = output?.failure;
+  if (failure?.stage === 'coding' && failure.code === 'bounded_task_coder_output_invalid')
+    return 'candidate_failure';
+  if (failure?.stage === 'verification' &&
+      ['bounded_task_mutation_scope_violation', 'bounded_task_verification_rejected',
+        'bounded_task_verification_review'].includes(failure.code)) return 'candidate_failure';
+  if (failure?.stage === 'validation' && failure.code === 'bounded_task_required_validation_failed')
+    return 'candidate_failure';
+  return 'infrastructure_or_unclear_stop';
+}
+export function shouldContinueAfterCell(classification) {
+  return classification === 'completed' || classification === 'candidate_failure';
+}
+export function stage1Rows(plan) {
+  const rows = plan?.rows?.filter(item => item.stage === 'stage1');
+  requireValue(Array.isArray(rows) && rows.length === 3 &&
+    same(rows.map(item => item.variant), ['minimal', 'current', 'expanded']) &&
+    rows.every(item => item.eligible === true && item.repetition === 1),
+  'Stage 1 order or maximum cell count');
+  return rows;
+}
+
+async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, task) {
+  if (!mutation) return { status: 'NOT_RUN', reason: 'candidate_unavailable' };
+  const claims = parseTextFileUpdates(mutation);
+  requireValue(claims.every(claim => task.allowedFiles.includes(claim.file)), 'behavior candidate outside allowed files');
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'context-token-candidate-check-'));
+  try {
+    const candidate = createSourceCheckout(parent);
+    for (const claim of claims) {
+      const target = path.join(candidate, claim.file);
+      requireValue(fs.realpathSync(target) === target &&
+        target.startsWith(`${candidate}${path.sep}`) &&
+        fs.lstatSync(target).isFile(), 'candidate behavior path alias');
+      validateUpdateSource(claim, fs.readFileSync(target));
+      fs.writeFileSync(target, claim.newContent);
+    }
+    const modules = path.join(HARNESS_ROOT, 'node_modules');
+    requireValue(fs.statSync(modules).isDirectory(), 'local dependencies unavailable');
+    fs.symlinkSync(modules, path.join(candidate, 'node_modules'), 'dir');
+    const build = spawnSync('npm', ['run', 'build'], { cwd: candidate, encoding: 'utf8',
+      timeout: 120_000, maxBuffer: 1024 * 1024 });
+    const check = build.status === 0 ? spawnSync(process.execPath,
+      [path.join(candidate, 'scripts/controlled-coding-pilot-request-id-check.cjs'),
+        '--repository', candidate], { cwd: candidate, encoding: 'utf8',
+        timeout: 30_000, maxBuffer: 1024 * 1024 }) : null;
+    const report = { status: check?.status === 0 ? 'PASS' : 'FAIL',
+      buildExitCode: build.status, checkerExitCode: check?.status ?? null,
+      checkerOutput: check?.status === 0 ? check.stdout.trim() : null,
+      reason: check?.status === 0 ? null : 'candidate_behavior_check_failed' };
+    save(path.join(sessionRoot, 'behavior-check.json'), report);
+    return report;
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
+}
+
+export async function executeCell({ manifest, task, variant, sessionRoot, runIndex,
+  adapterFactory = () => new CodexAgentAdapter() }) {
+  requireValue(['minimal', 'current', 'expanded'][runIndex] === variant &&
+    runIndex >= 0 && runIndex < 3, 'Stage 1 cell order or limit');
+  const cellRoot = path.join(sessionRoot, `0${runIndex + 1}-${variant}`);
+  fs.mkdirSync(cellRoot, { mode: 0o700 });
+  const checkoutParent = fs.mkdtempSync(path.join(os.tmpdir(), `context-token-matrix-v1-${variant}-`));
+  try {
+    const source = await prepareSourceCheckout(checkoutParent, manifest);
+    save(path.join(cellRoot, 'doctor.json'), source.doctor);
+    const before = verifySourceIdentity(source.root, manifest.sourceHead);
+    fs.writeFileSync(path.join(cellRoot, 'source-status-before.txt'), before + '\n');
+    const definition = json(path.join(source.root, task.taskFile));
+    requireValue(sha(Buffer.from(definition.taskPrompt)) === task.taskHash &&
+      same(definition.allowedMutationPaths, task.allowedFiles), 'task definition changed');
+    const adapterCalls = [];
+    const adapter = makeJournalScopedAdapter(adapterFactory(),
+      `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call));
+    let binding = null;
+    let rawTaskResult = null;
+    let validationSpecificationHash = null;
+    const started = Date.now();
+    const command = await codexCommand({ task: definition.taskPrompt,
+      allowFiles: task.allowedFiles }, source.root,
+    { adapter, model: manifest.model, reasoningEffort: manifest.reasoning,
+      runTask: async input => {
+        binding = await bindTaskInput(input, { manifest, task, variant, sourceRoot: source.root });
+        validationSpecificationHash = sha(JSON.stringify(input.draftValidation.executionSpecification));
+        rawTaskResult = await runBoundedTask(binding.prepared);
+        return rawTaskResult;
+      } });
+    const after = verifySourceIdentity(source.root, manifest.sourceHead);
+    fs.writeFileSync(path.join(cellRoot, 'source-status-after.txt'), after + '\n');
+    requireValue(before === after && command.output?.sourceRepositoryUnchanged === true &&
+      command.output?.apply === 'NOT_RUN', 'source/apply invariant');
+    save(path.join(cellRoot, 'raw-product-result.json'), command.output);
+    save(path.join(cellRoot, 'raw-bounded-result.json'), rawTaskResult);
+    save(path.join(cellRoot, 'adapter-calls.json'), adapterCalls);
+    requireValue(binding !== null, 'context policy never bound');
+    const selected = binding.selected;
+    save(path.join(cellRoot, 'selection.json'), {
+      variant, files: selected.selectedFiles, bytes: selected.selectedBytes,
+      hashes: selected.initialEvidence.map(item => ({ path: item.path, hash: item.contentHash })),
+      policy: binding.config.effectivePolicy, intelligenceHash: selected.intelligenceHash });
+    const mutation = mutationFromResult(rawTaskResult);
+    const behavior = rawTaskResult?.verifierResult?.decision === 'approve'
+      ? await behaviorOnCandidate(source.root, mutation, cellRoot, task)
+      : { status: 'NOT_RUN', reason: 'candidate_not_structurally_approved' };
+    const checks = rawTaskResult?.verifierResult?.validationEvidence?.checks ?? [];
+    const syntax = checks.find(item => item.kind === 'syntax');
+    const normalizedOutput = { ...command.output,
+      validation: { ...command.output.validation, behavior: behavior.status } };
+    const normalized = createExperimentResult({ config: binding.config,
+      runId: `${path.basename(sessionRoot)}.${variant}`,
+      selectedContext: selected, codexOutput: normalizedOutput,
+      validationProfile: 'existing_function_bug_fix',
+      validationSpecificationHash,
+      validationDetail: { syntax: syntax?.status === 'passed' ? 'PASS' :
+        syntax?.status === 'failed' ? 'FAIL' : 'NOT_RUN' },
+      providerCalls: adapterCalls.length,
+      timing: { taskElapsedMs: Date.now() - started } });
+    save(path.join(cellRoot, 'experiment-result.json'), normalized);
+    const classification = classifyCell(command.output);
+    save(path.join(cellRoot, 'cell-summary.json'), { variant, runIndex,
+      classification, taskId: command.output.taskId,
+      durableTaskDirectory: command.output.recovery?.registryRoot ?? null,
+      providerAdapterCalls: adapterCalls.length, behavior: behavior.status,
+      sourceHead: manifest.sourceHead, harnessHead: head(HARNESS_ROOT) });
+    return { classification, normalized, cellRoot };
+  } finally { fs.rmSync(checkoutParent, { recursive: true, force: true }); }
+}
+
+export async function runStage1() {
+  requireValue(process.env.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH === expectedJournalPath() &&
+    process.env.BOUNDED_CODEX_MODEL === MODEL, 'frozen journal path or model environment');
+  const pre = await preflight();
+  const manifest = json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'));
+  const plan = buildDryRun();
+  const task = manifest.selectedTasks[0];
+  const sessionRoot = fs.mkdtempSync(path.join(outputParent(), 'stage1-'));
+  fs.chmodSync(sessionRoot, 0o700);
+  save(path.join(sessionRoot, 'manifest.snapshot.json'), manifest);
+  fs.copyFileSync(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/PROTOCOL.md'),
+    path.join(sessionRoot, 'PROTOCOL.snapshot.md'));
+  fs.copyFileSync(path.join(HARNESS_ROOT, manifest.calibrationFile),
+    path.join(sessionRoot, 'calibration.snapshot.json'));
+  save(path.join(sessionRoot, 'preflight.json'), pre);
+  save(path.join(sessionRoot, 'identities.json'), { harnessHead: pre.harnessHead,
+    sourceHead: manifest.sourceHead, protocolVersion: manifest.protocolVersion });
+  const completed = [];
+  let stoppedError = null;
+  let cellsAttempted = 0;
+  for (const [index, row] of stage1Rows(plan).entries()) {
+    requireValue(index < 3 && row.variant === ['minimal', 'current', 'expanded'][index],
+      'Stage 1 order changed');
+    cellsAttempted++;
+    try {
+      const result = await executeCell({ manifest, task, variant: row.variant, sessionRoot, runIndex: index });
+      completed.push(result);
+      if (!shouldContinueAfterCell(result.classification)) break;
+    } catch (error) {
+      stoppedError = error instanceof Error ? error.message : 'unknown infrastructure failure';
+      save(path.join(sessionRoot, 'stopped-error.json'), { variant: row.variant,
+        classification: 'infrastructure_or_unclear_stop', message: stoppedError });
+      break;
+    }
+  }
+  save(path.join(sessionRoot, 'stage1-summary.json'), { cellsAttempted, cellsCompleted: completed.length,
+    order: completed.map(item => item.normalized.context.variant),
+    stoppedForInfrastructure: stoppedError !== null ||
+      completed.at(-1)?.classification === 'infrastructure_or_unclear_stop',
+    stoppedError });
+  if (completed.length > 0) {
+    const { compareExperimentResults, renderComparison } = await import('./compare.mjs');
+    const comparison = compareExperimentResults(completed.map(item => item.normalized));
+    fs.writeFileSync(path.join(sessionRoot, 'comparison.txt'), renderComparison(comparison, 'table'));
+    fs.writeFileSync(path.join(sessionRoot, 'comparison.csv'), renderComparison(comparison, 'csv'));
+    fs.writeFileSync(path.join(sessionRoot, 'comparison.json'), renderComparison(comparison, 'json'));
+  }
+  return { sessionRoot, cellsAttempted, cellsCompleted: completed.length,
+    classifications: completed.map(item => item.classification) };
+}
