@@ -283,15 +283,20 @@ async function main() {
     assert.equal(command.output.reasoning, "medium");
     assert.equal(command.output.context.fileCount, 2);
     assert.equal(command.output.context.bytes > 0, true);
-    assert.deepEqual(command.output.tokens, {
-      input: 300,
-      cached: 75,
-      output: 100,
-      reasoning: null,
-      total: 400,
+    assert.deepEqual({ ...command.output.tokens, tokenObservability: null }, {
+      input: 300, cached: 75, output: 100, reasoning: null, total: 400,
       aggregation: "sum of per-provider-call cumulative thread usage (planner + coder); cached input is a subset",
       tokenObservability: null
     });
+    assert.deepEqual(command.output.tokens.tokenObservability.map((entry) => entry.operation),
+      ["planner", "coder"]);
+    assert.deepEqual(command.output.tokens.tokenObservability.map((entry) =>
+      [entry.cumulativeInputTokens, entry.cumulativeCachedInputTokens,
+        entry.cumulativeUncachedInputTokens, entry.outputTokens]),
+      [[100, 25, 75, 40], [200, 50, 150, 60]]);
+    assert(command.output.tokens.tokenObservability.every((entry) =>
+      entry.provenance.initialPromptEstimatedTokens === "estimated" &&
+      entry.provenance.cumulativeUncachedInputTokens === "derived"));
     assert.equal(command.output.candidate.changedFileCount, 1);
     assert.deepEqual(command.output.candidate.files, ["src/session.ts"]);
     assert.equal(command.output.validation.scope, "PASS");
@@ -329,6 +334,31 @@ async function main() {
     assert.equal(adapter.requests.length, 2);
     assert.deepEqual(adapter.requests.map((request) => request.mode), ["planner", "coder"]);
     assert.deepEqual(adapter.requests.map((request) => request.reasoningEffort), ["medium", "medium"]);
+
+    const stoppedRoot = path.join(root, "stopped");
+    await fs.mkdir(stoppedRoot);
+    const stoppedRepository = await createRepository(stoppedRoot);
+    const stoppedAdapter = fakeAdapter(stoppedRepository);
+    const stoppedSourceBefore = await fs.readFile(path.join(stoppedRepository, "src/session.ts"), "utf8");
+    const stopped = await codexModule.codexCommand(
+      { task: "Fix refresh token expiry", allowFiles: ["src/session.ts", "test/session.test.ts"] },
+      stoppedRepository,
+      { adapter: stoppedAdapter, model: "fixture-model-configured",
+        runTask: (input) => runtime.runBoundedTask({ ...input, draftValidation: undefined }) }
+    );
+    assert.equal(stopped.output.decision, "bounded_task_stopped");
+    assert.equal(stopped.output.failure.code, "bounded_task_required_validation_not_run");
+    assert.equal(stopped.output.validation.scope, "PASS");
+    assert.equal(stopped.output.validation.typecheck, "NOT_RUN");
+    assert.equal(stopped.output.validation.tests, "NOT_RUN");
+    assert.deepEqual(stoppedAdapter.requests.map((request) => request.mode), ["planner", "coder"]);
+    assert.deepEqual(stopped.output.tokens.tokenObservability.map((entry) => entry.operation),
+      ["planner", "coder"]);
+    assert.deepEqual(stopped.output.tokens.tokenObservability.map((entry) => entry.cumulativeInputTokens),
+      [100, 200]);
+    assert.equal(stopped.output.tokens.total, 400);
+    assert.equal(await fs.readFile(path.join(stoppedRepository, "src/session.ts"), "utf8"),
+      stoppedSourceBefore);
 
     const durableState = runtime.readDurableBoundedTaskState({
       registryRoot: capturedInput.durableTask.registryRoot,
@@ -404,6 +434,7 @@ async function main() {
       plannerAndCoderReasoning: "medium",
       actualModelReported: true,
       tokenFieldsReported: true,
+      stoppedAfterCoderTelemetryRetained: true,
       candidateDiffReported: true,
       scopeVerified: true,
       productionValidationProfile: "existing_function_bug_fix",

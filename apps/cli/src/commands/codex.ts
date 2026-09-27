@@ -394,15 +394,10 @@ function blockedCompositionTelemetry(result: RunBoundedTaskResult): Readonly<{
   });
 }
 
-/**
- * Per-provider-invocation numeric token observability, derived from the cost
- * ledger snapshot. `tokens` above keeps its historical meaning: the SUM of
- * each provider call's cumulative thread usage (planner + coder), where
- * cached input is a subset of cumulative input. Numeric only by contract.
- */
-function tokenObservability(result: RunBoundedTaskResult): ReadonlyArray<Readonly<{
+type TokenObservationKind = "observed" | "derived" | "estimated" | "unavailable";
+type TokenObservation = Readonly<{
   operation: string;
-  initialPromptEstimatedTokens: number;
+  initialPromptEstimatedTokens: number | null;
   reported: boolean;
   cumulativeInputTokens: number | null;
   cumulativeCachedInputTokens: number | null;
@@ -410,29 +405,74 @@ function tokenObservability(result: RunBoundedTaskResult): ReadonlyArray<Readonl
   outputTokens: number | null;
   providerTurnCount: number | null;
   toolCallCount: number | null;
-}>> | null {
-  const snapshot = result.summary?.costBudget;
-  if (!snapshot) return null;
-  return snapshot.reservations.map((reservation) => {
-    const reconciliation = snapshot.reconciliations.find(
-      (entry) => entry.invocationId === reservation.invocationId
-    );
-    const observed = reconciliation?.usage.status === "observed" ? reconciliation.usage : null;
-    const cached = observed?.cachedInputTokens ?? null;
-    return Object.freeze({
-      operation: reservation.operation,
-      initialPromptEstimatedTokens: reservation.estimatedInputTokens,
-      reported: observed !== null,
-      cumulativeInputTokens: observed?.inputTokens ?? null,
-      cumulativeCachedInputTokens: cached,
-      cumulativeUncachedInputTokens: observed !== null && cached !== null
-        ? observed.inputTokens - cached
-        : null,
-      outputTokens: observed?.outputTokens ?? null,
-      providerTurnCount: observed?.providerTurnCount ?? null,
-      toolCallCount: observed?.toolCallCount ?? null
-    });
+  provenance: Readonly<Record<
+    "initialPromptEstimatedTokens" | "cumulativeInputTokens" | "cumulativeCachedInputTokens" |
+    "cumulativeUncachedInputTokens" | "outputTokens" | "providerTurnCount" | "toolCallCount",
+    TokenObservationKind
+  >>;
+}>;
+
+function observedInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function tokenObservation(operation: string, estimate: unknown, usage: unknown): TokenObservation {
+  const evidence = usage !== null && typeof usage === "object" && !Array.isArray(usage)
+    ? usage as Record<string, unknown> : {};
+  const input = evidence.inputTokens;
+  const output = evidence.outputTokens;
+  const total = evidence.totalTokens;
+  const reported = observedInteger(input) && observedInteger(output) &&
+    observedInteger(total) && Number.isSafeInteger(input + output) && total === input + output;
+  const cached = reported && observedInteger(evidence.cachedInputTokens) &&
+    evidence.cachedInputTokens <= input ? evidence.cachedInputTokens : null;
+  const turns = reported && observedInteger(evidence.providerTurnCount)
+    ? evidence.providerTurnCount : null;
+  const toolCalls = reported && observedInteger(evidence.toolCallCount)
+    ? evidence.toolCallCount : null;
+  const initial = observedInteger(estimate) ? estimate : null;
+  return Object.freeze({
+    operation,
+    initialPromptEstimatedTokens: initial,
+    reported,
+    cumulativeInputTokens: reported ? input : null,
+    cumulativeCachedInputTokens: cached,
+    cumulativeUncachedInputTokens: reported && cached !== null ? input - cached : null,
+    outputTokens: reported ? output : null,
+    providerTurnCount: turns,
+    toolCallCount: toolCalls,
+    provenance: Object.freeze({
+      initialPromptEstimatedTokens: initial === null ? "unavailable" : "estimated",
+      cumulativeInputTokens: reported ? "observed" : "unavailable",
+      cumulativeCachedInputTokens: cached === null ? "unavailable" : "observed",
+      cumulativeUncachedInputTokens: reported && cached !== null ? "derived" : "unavailable",
+      outputTokens: reported ? "observed" : "unavailable",
+      providerTurnCount: turns === null ? "unavailable" : "observed",
+      toolCallCount: toolCalls === null ? "unavailable" : "observed"
+    })
   });
+}
+
+/** Numeric observations from completed adapter runs are independent of the
+ * downstream task decision. A configured cost ledger remains authoritative
+ * when present, including its context-expansion reservations. */
+export function tokenObservability(
+  result: RunBoundedTaskResult, runs: readonly RecordedAgentRun[]
+): ReadonlyArray<TokenObservation> | null {
+  const snapshot = result.summary?.costBudget;
+  if (snapshot) return snapshot.reservations.map((reservation) => {
+    const reconciliation = snapshot.reconciliations.find((entry) =>
+      entry.invocationId === reservation.invocationId);
+    return tokenObservation(reservation.operation, reservation.estimatedInputTokens,
+      reconciliation?.usage.status === "observed" ? reconciliation.usage : null);
+  });
+  if (runs.length === 0) return null;
+  return runs.map(({ request, result: run }) => tokenObservation(
+    request.mode,
+    typeof request.task === "string" && request.task.length > 0
+      ? Math.ceil(Buffer.byteLength(request.task, "utf8") / 4) : null,
+    run.status === "completed" ? run.usage : null
+  ));
 }
 
 function candidateFiles(result: RunBoundedTaskResult): readonly string[] {
@@ -658,7 +698,7 @@ export async function codexCommand(
       reasoning: null,
       total: sumObserved(recordedRuns, (run) => run.usage.totalTokens),
       aggregation: "sum of per-provider-call cumulative thread usage (planner + coder); cached input is a subset",
-      tokenObservability: tokenObservability(result)
+      tokenObservability: tokenObservability(result, recordedRuns)
     },
     candidate: {
       changedFileCount: changedFiles.length,

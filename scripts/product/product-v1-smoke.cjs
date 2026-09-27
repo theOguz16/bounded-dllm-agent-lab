@@ -34,6 +34,10 @@ const childStages = [
     script: "scripts/smoke/agent-telemetry-smoke.cjs"
   },
   {
+    name: "Codex token observability smoke",
+    script: "scripts/smoke/codex-token-observability-smoke.cjs"
+  },
+  {
     name: "Codex event parser smoke",
     script: "scripts/smoke/codex-event-parser-smoke.cjs"
   },
@@ -153,6 +157,7 @@ const deterministicProviderParserSmokes = new Set([
   "scripts/smoke/codex-agent-adapter-smoke.cjs",
   "scripts/smoke/codex-agent-process-control-smoke.cjs",
   "scripts/smoke/codex-bounded-provider-smoke.cjs",
+  "scripts/smoke/codex-token-observability-smoke.cjs",
   "scripts/smoke/bounded-codex-explicit-scope-smoke.cjs",
   "scripts/smoke/codex-scope-discovery-smoke.cjs",
   "scripts/smoke/codex-repair-provider-smoke.cjs",
