@@ -3,13 +3,14 @@
 
 // Offline regression fixture for the explicit-scope coder context budget fix.
 //
-// Reproduces the exact incident shape (allowed mutable files
-// packages/worker-contract/src/index.ts + tests/smoke/contracts.ts, hard budget
-// 16384/2048) through the real repo-intelligence binding + adaptive context
-// flow. Before the fix the composed coder context estimated 102,042 tokens and
-// the gate blocked before any provider call. After the fix the composition must
-// fit the existing budget, keep binding integrity authoritative, keep closure
-// metadata runtime-side, and keep bounded read-only expansion available.
+// Reproduces the incident's two-file scope and 16384/2048 budget with
+// controlled bytes in packages/worker-contract/src/index.ts and
+// tests/smoke/contracts.ts through the real repo-intelligence binding and adaptive context
+// flow. The historical composed context estimated 102,042 tokens; this fixture
+// uses stable synthetic content so later repository growth cannot move its
+// budget boundary. The composition must fit the existing budget, keep binding
+// integrity authoritative, keep closure metadata runtime-side, and keep
+// bounded read-only expansion available.
 //
 // Zero real provider calls: the coder provider is a local spy; the context
 // request provider is a local stub. All analysis is local filesystem work.
@@ -18,6 +19,7 @@ const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -33,30 +35,19 @@ const HARD_TOTAL_BUDGET_TOKENS = 16384;
 const RESERVED_OUTPUT_TOKENS = 2048;
 const AVAILABLE_INPUT_TOKENS = HARD_TOTAL_BUDGET_TOKENS - RESERVED_OUTPUT_TOKENS;
 
-const incidentArtifact = "/private/tmp/.bounded-durable/40b224fee3fd47794e317beebf03b8d6/tasks/750741ff20ccb79e6c42204aad57621daac8913fa0038afecfa8e1a8e2137ec7/artifacts/terminal-result-481b6fc36907e268.json";
-
 function gitStatusSnapshot() {
   return execFileSync("git", ["status", "--porcelain"], {
     cwd: repoRoot, encoding: "utf8"
   }).split("\n").filter((line) => line.trim().length > 0).sort().join("\n");
 }
 
-function loadIncidentEstimate() {
-  try {
-    const artifact = JSON.parse(fs.readFileSync(incidentArtifact, "utf8"));
-    return artifact.plannerResult.taskSeedResult.repoResult.adaptiveResult.coderResult.summary.estimatedInputTokens;
-  } catch {
-    return BEFORE_ESTIMATE; // incident artifacts are machine-local; CI asserts the documented baseline
-  }
-}
-
-function evidenceFor(root, files) {
+function evidenceFor(root, files, source = "fixture") {
   return files.map((file) => {
     const bytes = fs.readFileSync(path.join(root, file));
     const content = bytes.toString("utf8");
     return {
       path: file,
-      source: "fixture",
+      source,
       content,
       contentHash: "sha256:" + createHash("sha256").update(bytes).digest("hex"),
       byteLength: bytes.length,
@@ -66,30 +57,40 @@ function evidenceFor(root, files) {
   });
 }
 
-async function main() {
+function createBudgetRepository() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "explicit-scope-budget-"));
+  for (const directory of [".git", "packages/worker-contract/src",
+    "packages/workspace-core/src", "tests/smoke"]) {
+    fs.mkdirSync(path.join(root, directory), { recursive: true });
+  }
+  fs.writeFileSync(path.join(root, "packages/workspace-core/src/index.ts"),
+    "export type SharedSemanticWorkspace = { id: string };\n" +
+    "export function closureOnlySentinelLongName(): string { return 'closure'; }\n");
+  fs.writeFileSync(path.join(root, ALLOWED_FILES[0]),
+    'import type { SharedSemanticWorkspace } from "../../workspace-core/src/index.js";\n' +
+    'export function workerName(): string { return "fixture"; }\n' +
+    'export type WorkerWorkspace = SharedSemanticWorkspace;\n');
+  fs.writeFileSync(path.join(root, ALLOWED_FILES[1]),
+    'import { workerName } from "../../packages/worker-contract/src/index.js";\n' +
+    'if (workerName() !== "fixture") throw new Error("contract");\n' +
+    Array.from({ length: 200 }, (_, index) =>
+      `// controlled fixture line ${index}: ${"x".repeat(30)}\n`).join(""));
+  return root;
+}
+
+async function runBudgetFixture(budgetRoot) {
   const bindingModule = await import(pathToFileURL(path.join(repoRoot,
     "dist/packages/product-runtime/src/repo-intelligence-context-binding.js")).href);
   const { runRepoIntelligenceBoundCoderFlow, verifyRepoIntelligenceContextBinding } = bindingModule;
 
-  const beforeEstimate = loadIncidentEstimate();
+  const beforeEstimate = BEFORE_ESTIMATE;
   const gitStatusBefore = gitStatusSnapshot();
 
-  const evidence = ALLOWED_FILES.map((file) => {
-    const bytes = fs.readFileSync(path.join(repoRoot, file));
-    const content = bytes.toString("utf8");
-    return {
-      path: file,
-      source: "bounded_codex_explicit_scope_v0",
-      content,
-      contentHash: "sha256:" + createHash("sha256").update(bytes).digest("hex"),
-      byteLength: bytes.length,
-      estimatedTokens: Math.ceil(content.length / 4),
-      matchedSymbols: []
-    };
-  });
+  const evidence = evidenceFor(budgetRoot, ALLOWED_FILES,
+    "bounded_codex_explicit_scope_v0");
 
   const baseInput = {
-    repositoryPath: repoRoot,
+    repositoryPath: budgetRoot,
     seedFiles: ALLOWED_FILES,
     baseContext: {
       version: "1",
@@ -160,9 +161,8 @@ async function main() {
   assert.deepEqual(binding.requiredTestFiles, REQUIRED_TEST_FILES);
   assert.equal(binding.allowedContextFiles.length > ALLOWED_FILES.length, true,
     "read-only dependency closure remains the runtime readable boundary");
-  // The current repository intelligence legitimately differs from the incident
-  // snapshot (the fix itself edits tracked sources); integrity is asserted by
-  // the binding receipt, not by pinning a historical analysis hash.
+  // Integrity is asserted by the binding receipt, without pinning an analysis
+  // hash from a different repository snapshot.
 
   // ---------- 3. Model-facing context shape ----------
   const base = capturedContext.baseContext;
@@ -236,12 +236,58 @@ async function main() {
   assert.equal(budgetIssue.availableInputTokens, 4096 - RESERVED_OUTPUT_TOKENS);
   assert.equal(budgetIssue.visibleFileCount, 2);
 
+  // The same production budget must reject a deliberately oversized payload.
+  // This boundary is controlled by fixture bytes, not today's checkout size.
+  const testPath = path.join(budgetRoot, ALLOWED_FILES[1]);
+  const fixedTestContent = fs.readFileSync(testPath, "utf8");
+  let oversizedCoderCalls = 0;
+  try {
+    fs.writeFileSync(testPath, fixedTestContent + `\n// ${"x".repeat(60_000)}\n`);
+    const oversized = await runRepoIntelligenceBoundCoderFlow({
+      ...baseInput,
+      initialEvidence: evidenceFor(budgetRoot, ALLOWED_FILES,
+        "bounded_codex_explicit_scope_v0"),
+      contextRequestProvider: async () => {
+        throw new Error("Oversized context must stop before expansion.");
+      },
+      coderProvider: async () => { oversizedCoderCalls += 1; return { patch: "unexpected" }; }
+    });
+    assert.equal(oversized.decision, "repo_context_binding_stopped");
+    const oversizedIssue = oversized.adaptiveResult?.coderResult?.issues.find((entry) =>
+      entry.code === "coder_context_hard_budget_exceeded");
+    assert.ok(oversizedIssue, "oversized model-facing payload must fail closed");
+    assert.ok(oversizedIssue.composedContextEstimatedTokens > AVAILABLE_INPUT_TOKENS);
+    assert.equal(oversizedIssue.hardTotalBudgetTokens, HARD_TOTAL_BUDGET_TOKENS);
+    assert.equal(oversizedCoderCalls, 0);
+  } finally {
+    fs.writeFileSync(testPath, fixedTestContent);
+  }
+
+  // Repository growth outside the selected context must not change the gate.
+  const unrelatedPath = path.join(budgetRoot, "unrelated.ts");
+  fs.writeFileSync(unrelatedPath, `// ${"unrelated".repeat(10_000)}\n`);
+  try {
+    let unrelatedCoderCalls = 0;
+    const withUnrelatedGrowth = await runRepoIntelligenceBoundCoderFlow({
+      ...baseInput,
+      contextRequestProvider: async () => {
+        throw new Error("Unrelated growth must not require expansion.");
+      },
+      coderProvider: async () => { unrelatedCoderCalls += 1; return { patch: "ok" }; }
+    });
+    assert.equal(withUnrelatedGrowth.decision, "repo_context_binding_completed");
+    assert.ok(withUnrelatedGrowth.intelligence.scannedFiles.some((file) =>
+      file.path === "unrelated.ts"), "growth must be visible to repository intelligence");
+    assert.equal(unrelatedCoderCalls, 1);
+    assert.equal(withUnrelatedGrowth.adaptiveResult.coderResult.summary.estimatedInputTokens,
+      afterEstimate, "unrelated file growth must not change the model-facing token estimate");
+  } finally {
+    fs.rmSync(unrelatedPath, { force: true });
+  }
+
   // ---------- 6. Adaptive read-only expansion remains available ----------
-  // Proven on a bounded synthetic repository: the incident repo's required
-  // test file exceeds the expansion contract's own per-request token cap
-  // (maxAdditionalTokens <= 8192, fail-closed by design), so the mechanism is
-  // exercised where the loaded file fits it. Mutable scope semantics are
-  // identical to the incident flow.
+  // Exercise the bounded read-only expansion path with a missing required test
+  // that fits the expansion contract's per-request token cap (8192).
   {
     const os = require("node:os");
     const fs = require("node:fs");
@@ -316,8 +362,30 @@ async function main() {
   assert.equal(gitStatusSnapshot(), gitStatusBefore,
     "the offline fixture run must not modify the repository");
 
-  assert.ok(afterEstimate < beforeEstimate, "the composition must be strictly smaller than the incident baseline");
+  const eagerContext = {
+    ...capturedContext,
+    baseContext: {
+      ...base,
+      repositoryIntelligence: {
+        ...ri,
+        files: happy.intelligence.scannedFiles,
+        dependencyClosure: binding.allowedContextFiles,
+        dependencyEdges: happy.intelligence.dependencyEdges
+      }
+    }
+  };
+  assert.ok(afterEstimate < Math.ceil(JSON.stringify(eagerContext).length / 4),
+    "model-facing context must be smaller than the same fixture with eager closure metadata");
   console.log("explicit-scope-coder-context-fixture: PASS");
+}
+
+async function main() {
+  const budgetRoot = createBudgetRepository();
+  try {
+    await runBudgetFixture(budgetRoot);
+  } finally {
+    fs.rmSync(budgetRoot, { recursive: true, force: true });
+  }
 }
 
 main().catch((error) => {
