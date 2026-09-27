@@ -5,6 +5,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
+import { GIT_VALIDATION_CONTAINER_IMAGE } from "../../../../packages/product-runtime/src/containerized-workspace-execution-runner.js";
 
 import {
   canonicalizeRepositoryRelativePath,
@@ -264,7 +265,11 @@ export function validationSpecification(
     defaultTimeoutMs: 120_000,
     maxTimeoutMs: 120_000,
     maxOutputChars: 20_000,
-    environment: { CI: "1" }
+    environment: { CI: "1" },
+    validationEnvironment: {
+      image: GIT_VALIDATION_CONTAINER_IMAGE,
+      gitContext: "candidate-baseline/v1"
+    }
   };
 }
 

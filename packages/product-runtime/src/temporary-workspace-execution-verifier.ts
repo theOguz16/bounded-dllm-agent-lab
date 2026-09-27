@@ -65,6 +65,10 @@ export type TemporaryWorkspaceExecutionContext = {
   maxTimeoutMs?: number;
   maxOutputChars?: number;
   environment?: Record<string, string>;
+  validationEnvironment?: {
+    image: string;
+    gitContext: "candidate-baseline/v1";
+  };
 };
 
 export type TemporaryWorkspaceExecutionResult = {
@@ -155,6 +159,9 @@ function normalizedSpecification(
     }),
     ...(specification.environment === undefined ? {} : {
       environment: { ...specification.environment }
+    }),
+    ...(specification.validationEnvironment === undefined ? {} : {
+      validationEnvironment: { ...specification.validationEnvironment }
     })
   };
 }

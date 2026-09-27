@@ -42,6 +42,7 @@ import { verifyControlledRollbackBundle } from "./controlled-rollback-bundle.js"
 import type { GovernedChangeKind } from "./governed-change-artifact.js";
 import { createValidationContainerIdentity, runContainerizedWorkspaceExecution,
   DEFAULT_VALIDATION_CONTAINER_IMAGE,
+  GIT_VALIDATION_CONTAINER_IMAGE,
   VALIDATION_CONTAINER_BINDING_LABEL,
   type ValidationContainerIdentity } from "./containerized-workspace-execution-runner.js";
 import {
@@ -721,8 +722,17 @@ export function validateControlledPostApplyExecutionSpecification(
 ): TemporaryWorkspaceExecutionSpecification {
   const record = exactObject(value, [
     "commands", "allowedExecutables", "maxCommands", "defaultTimeoutMs", "maxTimeoutMs",
-    "maxOutputChars", "environment"
+    "maxOutputChars", "environment", "validationEnvironment"
   ], "Phase V execution specification", ["commands", "allowedExecutables"]);
+  if (record.validationEnvironment !== undefined) {
+    const environment = exactObject(record.validationEnvironment, ["image", "gitContext"],
+      "Validation environment", ["image", "gitContext"]);
+    if (environment.image !== GIT_VALIDATION_CONTAINER_IMAGE ||
+        environment.gitContext !== "candidate-baseline/v1") throw new ValidationFailure(
+      "controlled_post_apply_validation_phase_v_evidence_invalid",
+      "Validation environment identity is invalid."
+    );
+  }
   if (!Array.isArray(record.commands) || !Array.isArray(record.allowedExecutables) ||
       record.commands.length === 0 ||
       !(record.allowedExecutables as unknown[]).every((entry) => typeof entry === "string")) {
@@ -1440,7 +1450,8 @@ export async function executeControlledPostApplyValidation(
       x4ApplyReceiptHash: applyReceipt.receiptHash,
       validationSpecificationHash: specificationHash
     });
-    const validationContainer = createValidationContainerIdentity(containerBindingHash);
+    const validationContainer = createValidationContainerIdentity(containerBindingHash,
+      specification.validationEnvironment?.image ?? DEFAULT_VALIDATION_CONTAINER_IMAGE);
     intent = buildIntent(
       applyReceipt, authorization, gateInput, phaseEvidence, specificationHash, policyHash,
       validationContainer
@@ -1764,8 +1775,8 @@ function validateIntent(value: unknown): ControlledPostApplyValidationIntent {
       !HASH.test(container.labelValue as string) ||
       container.labelValue !== container.transactionBindingHash ||
       !HASH.test(container.transactionBindingHash as string) ||
-      container.imageDigest !== DEFAULT_VALIDATION_CONTAINER_IMAGE.slice(
-        DEFAULT_VALIDATION_CONTAINER_IMAGE.lastIndexOf("@") + 1) ||
+      ![DEFAULT_VALIDATION_CONTAINER_IMAGE, GIT_VALIDATION_CONTAINER_IMAGE].some((image) =>
+        container.imageDigest === image.slice(image.lastIndexOf("@") + 1)) ||
       container.transactionBindingHash !== hashCanonicalJson({
         artifactType: "controlled_post_apply_validation_container_binding",
         consumptionKey: record.consumptionKey,

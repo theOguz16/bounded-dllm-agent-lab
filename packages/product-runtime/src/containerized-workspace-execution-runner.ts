@@ -148,6 +148,8 @@ function copyGeneratedEntries(source: string, destination: string, entries: read
 export const CONTAINERIZED_VALIDATION_RUNNER_VERSION = "1" as const;
 export const DEFAULT_VALIDATION_CONTAINER_IMAGE =
   "node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32" as const;
+export const GIT_VALIDATION_CONTAINER_IMAGE =
+  "node:22.23.2-bookworm@sha256:dd5847a04b0deee391fa145f1f4c6d214196668b6bcc7988ebed67249f226844" as const;
 export const DEFAULT_VALIDATION_CONTAINER_LIMITS = Object.freeze({
   memoryBytes: 1024 * 1024 * 1024,
   processCount: 64,
@@ -208,13 +210,16 @@ export function createValidationContainerIdentity(
 }
 
 export function verifyValidationContainerIdentity(
-  identity: ValidationContainerIdentity, image: string = DEFAULT_VALIDATION_CONTAINER_IMAGE
+  identity: ValidationContainerIdentity, image?: string
 ): boolean {
+  const expectedImage = image ?? [DEFAULT_VALIDATION_CONTAINER_IMAGE,
+    GIT_VALIDATION_CONTAINER_IMAGE].find((candidate) =>
+    candidate.endsWith(`@${identity.imageDigest}`)) ?? DEFAULT_VALIDATION_CONTAINER_IMAGE;
   return CONTAINER_NAME.test(identity.containerName) &&
     identity.labelKey === VALIDATION_CONTAINER_BINDING_LABEL &&
     HASH.test(identity.labelValue) && identity.labelValue === identity.transactionBindingHash &&
     HASH.test(identity.transactionBindingHash) &&
-    identity.imageDigest === image.slice(image.lastIndexOf("@") + 1);
+    identity.imageDigest === expectedImage.slice(expectedImage.lastIndexOf("@") + 1);
 }
 
 export type ValidationContainerRecoveryResult = Readonly<{
@@ -228,7 +233,9 @@ export function recoverValidationContainer(
   options: Pick<ContainerizedWorkspaceExecutionOptions, "runtime" | "image"> = {}
 ): ValidationContainerRecoveryResult {
   const runtime = options.runtime ?? "docker";
-  const image = options.image ?? DEFAULT_VALIDATION_CONTAINER_IMAGE;
+  const image = options.image ?? [DEFAULT_VALIDATION_CONTAINER_IMAGE,
+    GIT_VALIDATION_CONTAINER_IMAGE].find((candidate) =>
+    candidate.endsWith(`@${identity.imageDigest}`)) ?? DEFAULT_VALIDATION_CONTAINER_IMAGE;
   if (!safeRuntime(runtime) || !verifyValidationContainerIdentity(identity, image)) {
     return { decision: "validation_container_identity_mismatch", containerId: null };
   }
@@ -359,6 +366,48 @@ export function checkValidationContainerInfrastructure(
   } : null;
 }
 
+function prepareValidationGitContext(runtime: string, image: string,
+  workspace: string, uid: number, gid: number,
+  memoryBytes: number, processCount: number, cpuCount: number): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-validation-git-"));
+  const script = [
+    "const {spawnSync}=require('node:child_process');",
+    "const common={...process.env,GIT_WORK_TREE:'/workspace',GIT_AUTHOR_NAME:'Validation',",
+    "GIT_AUTHOR_EMAIL:'validation@invalid.example',GIT_COMMITTER_NAME:'Validation',",
+    "GIT_COMMITTER_EMAIL:'validation@invalid.example',GIT_AUTHOR_DATE:'2000-01-01T00:00:00Z',",
+    "GIT_COMMITTER_DATE:'2000-01-01T00:00:00Z'};",
+    "for(const [args,init] of [[['init','-q','/git-context'],true],",
+    "[['-c','core.hooksPath=/dev/null','add','-A'],false],",
+    "[['-c','core.hooksPath=/dev/null','commit','-q','-m','validation candidate baseline'],false]]){",
+    "const env={...common};if(init)delete env.GIT_WORK_TREE;else env.GIT_DIR='/git-context/.git';",
+    "const result=spawnSync('git',args,{env,stdio:'pipe',encoding:'utf8'});",
+    "if(result.error||result.status!==0)process.exit(1);}",
+  ].join("\n");
+  try {
+    const prepared = spawnSync(runtime, ["run", "--rm", "--pull", "never", "--network", "none",
+      "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+      "--memory", String(memoryBytes), "--memory-swap", String(memoryBytes),
+      "--pids-limit", String(processCount), "--cpus", String(cpuCount),
+      "--user", String(uid) + ":" + String(gid),
+      "--mount", "type=bind,src=" + workspace + ",dst=/workspace,readonly",
+      "--mount", "type=bind,src=" + root + ",dst=/git-context",
+      "--env", "HOME=/nonexistent", "--env", "GIT_CONFIG_NOSYSTEM=1",
+      "--env", "GIT_CONFIG_GLOBAL=/dev/null", "--env", "XDG_CONFIG_HOME=/nonexistent",
+      "--env", "GIT_TEMPLATE_DIR=/nonexistent", "--env", "GIT_TERMINAL_PROMPT=0",
+      "--env", "GIT_OPTIONAL_LOCKS=0", image, "node", "-e", script], {
+        shell: false, encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL",
+        maxBuffer: 64 * 1024, stdio: ["ignore", "pipe", "pipe"]
+      });
+    if (prepared.error || prepared.status !== 0 || !fs.existsSync(path.join(root, ".git", "HEAD"))) {
+      throw new Error("Validation Git context could not be prepared.");
+    }
+    return root;
+  } catch (error) {
+    fs.rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export async function runContainerizedWorkspaceExecution(
   context: TemporaryWorkspaceExecutionContext,
   afterCommand: (command: TempExecutionCommandResult) => Promise<TempExecutionIssue | null>,
@@ -375,10 +424,18 @@ export async function runContainerizedWorkspaceExecution(
       message: "Container validation context is invalid.", severity: "failure" }],
     results, Date.now() - started);
   }
-  const infrastructureIssue = checkValidationContainerInfrastructure(options);
+  const gitMode = context.validationEnvironment?.gitContext === "candidate-baseline/v1";
+  if (context.validationEnvironment !== undefined &&
+      (!gitMode || context.validationEnvironment.image !== GIT_VALIDATION_CONTAINER_IMAGE ||
+        options.image !== undefined && options.image !== context.validationEnvironment.image)) {
+    return result([{ code: "validation_container_configuration_invalid",
+      message: "Validation environment is not the bound Git-capable environment.", severity: "failure" }],
+    results, Date.now() - started);
+  }
+  const image = context.validationEnvironment?.image ?? options.image ?? DEFAULT_VALIDATION_CONTAINER_IMAGE;
+  const infrastructureIssue = checkValidationContainerInfrastructure({ ...options, image });
   if (infrastructureIssue) return result([infrastructureIssue], results, Date.now() - started);
   const runtime = options.runtime ?? "docker";
-  const image = options.image ?? DEFAULT_VALIDATION_CONTAINER_IMAGE;
   const memoryBytes = boundedInteger(options.memoryBytes,
     DEFAULT_VALIDATION_CONTAINER_LIMITS.memoryBytes, 4 * 1024 * 1024 * 1024);
   const processCount = boundedInteger(options.processCount,
@@ -404,6 +461,7 @@ export async function runContainerizedWorkspaceExecution(
   // Only bounded, hashed files newly generated by a successful prior command
   // are carried forward with explicit producer provenance.
   let executionWorkspace: string | null = null;
+  let gitContext: string | null = null;
   let inputRecords: Map<string, ValidationEntry>;
   let generatedEntries: GeneratedEntry[] = [];
   const retiredInputPaths = new Set<string>();
@@ -482,6 +540,7 @@ export async function runContainerizedWorkspaceExecution(
       const environment: string[] = ["--env", "HOME=/nonexistent", "--env", "TMPDIR=/tmp"];
       for (const [key, value] of Object.entries(context.environment ?? {})) {
         if (!safeEnvironmentKeyPattern.test(key) || secretEnvironmentKeyPattern.test(key) ||
+            (gitMode && (key.startsWith("GIT_") || key === "XDG_CONFIG_HOME" || key === "PATH")) ||
             typeof value !== "string" || value.includes("\0")) {
           issues.push({ code: "validation_container_environment_invalid",
             message: "Container environment contains a forbidden entry.", severity: "failure",
@@ -490,6 +549,11 @@ export async function runContainerizedWorkspaceExecution(
         }
         environment.push("--env", `${key}=${value}`);
       }
+      if (gitMode) environment.push("--env", "GIT_DIR=/validation-git/.git",
+        "--env", "GIT_WORK_TREE=/workspace", "--env", "GIT_CONFIG_NOSYSTEM=1",
+        "--env", "GIT_CONFIG_GLOBAL=/dev/null", "--env", "XDG_CONFIG_HOME=/nonexistent",
+        "--env", "GIT_TEMPLATE_DIR=/nonexistent", "--env", "GIT_OPTIONAL_LOCKS=0",
+        "--env", "GIT_TERMINAL_PROMPT=0");
       let freshWorkspace: string | null = null;
       try {
         const authorityRecords = validationManifest(workspace);
@@ -531,6 +595,9 @@ export async function runContainerizedWorkspaceExecution(
         }
         if (executionWorkspace !== null) fs.rmSync(executionWorkspace, { recursive: true, force: true });
         executionWorkspace = freshWorkspace;
+        if (gitContext !== null) fs.rmSync(gitContext, { recursive: true, force: true });
+        gitContext = gitMode ? prepareValidationGitContext(runtime, image,
+          freshWorkspace, containerUid, containerGid, memoryBytes, processCount, cpuCount) : null;
       } catch {
         if (freshWorkspace !== null && freshWorkspace !== executionWorkspace) {
           fs.rmSync(freshWorkspace, { recursive: true, force: true });
@@ -548,6 +615,8 @@ export async function runContainerizedWorkspaceExecution(
         "--cpus", String(cpuCount), "--user", `${containerUid}:${containerGid}`,
         "--mount", `type=bind,src=${workspace},dst=/candidate-input,readonly`,
         "--mount", `type=bind,src=${executionWorkspace},dst=/workspace`,
+        ...(gitContext === null ? [] : ["--mount",
+          `type=bind,src=${gitContext},dst=/validation-git,readonly`]),
         "--workdir", "/workspace", "--tmpfs", `/tmp:rw,noexec,nosuid,nodev,size=${tmpfsBytes}`,
         "--tmpfs", `/workspace/.validation-output:rw,noexec,nosuid,nodev,size=${validationOutputBytes},mode=0700,uid=${containerUid},gid=${containerGid}`,
         ...environment, image, "node", "-e", "setInterval(()=>{},2147483647)"];
@@ -627,7 +696,8 @@ export async function runContainerizedWorkspaceExecution(
             for (const [relative, entry] of currentRecords) {
               if ((inputRecords.has(relative) && !retiredInputPaths.has(relative)) ||
                   priorGeneratedPaths.has(relative)) continue;
-              if (!authorizedGeneratedPath(relative, entry.kind, command.generatedOutputRoots ?? [])) {
+              if (gitMode && relative.split("/").includes(".git") ||
+                  !authorizedGeneratedPath(relative, entry.kind, command.generatedOutputRoots ?? [])) {
                 issues.push({ code: "validation_generated_output_unauthorized",
                   message: "Validation command created output outside its declared generated roots.",
                   severity: "failure", commandId: command.id });
@@ -688,5 +758,6 @@ export async function runContainerizedWorkspaceExecution(
     return result(issues, results, Date.now() - started);
   } finally {
     if (executionWorkspace !== null) fs.rmSync(executionWorkspace, { recursive: true, force: true });
+    if (gitContext !== null) fs.rmSync(gitContext, { recursive: true, force: true });
   }
 }

@@ -524,7 +524,8 @@ async function phaseVEvidence(repository: string, mutation: WorkspaceMutation,
   const containerIdentity = createValidationContainerIdentity(hashCanonicalJson({
     artifactType: "canonical_phase_v_container_binding", phaseBindingHash,
     validationSpecificationHash: computeTemporaryWorkspaceExecutionSpecificationHash(specification)
-  }), undefined, lifecycle ? `bounded-validation-${phaseBindingHash.slice(7, 31)}` : undefined);
+  }), specification.validationEnvironment?.image,
+  lifecycle ? `bounded-validation-${phaseBindingHash.slice(7, 31)}` : undefined);
   const intent = { lifecycleVersion: "canonical-phase-v-lifecycle/v1", phaseBindingHash,
     workspacePath: root, containerIdentity };
   await lifecycle?.checkpoint?.("phase_v_prepared", intent);
