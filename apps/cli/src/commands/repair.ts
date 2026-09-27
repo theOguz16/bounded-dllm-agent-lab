@@ -14,7 +14,7 @@ import {
 } from "../../../../packages/product-runtime/src/canonical-runtime.js";
 import { CliError } from "../cli-errors.js";
 import type { CliCommandResult } from "../bounded-task.js";
-import { createCandidateHandoff, readCandidateHandoff, writeCandidateHandoff } from "../candidate-handoff.js";
+import { createDerivedRepairHandoff, readCandidateHandoff, writeCandidateHandoff } from "../candidate-handoff.js";
 import { doctorBoundedLocalConfig, BOUNDED_POLICY_PATH } from "../product-config.js";
 import { codexDurableTaskLocator } from "../run-artifact-store.js";
 import { createRepairMutationArtifact, originalAcceptanceContract,
@@ -198,7 +198,7 @@ export async function repairCommand(input: Readonly<{ taskId: string; repairDraf
         mutation: candidateB }) !== derivedCandidateHash) {
     return reject("cli_repair_lineage_invalid", "Derived candidate lineage is inconsistent.");
   }
-  const candidate = createCandidateHandoff({ taskId: state.taskId,
+  const candidate = createDerivedRepairHandoff({ taskId: state.taskId,
     objectiveHash: inheritedAuthority.objectiveHash,
     sourceSnapshotHash: inheritedAuthority.sourceSnapshotHash,
     planHash: inheritedAuthority.planHash,

@@ -30,7 +30,7 @@ const VOLATILE_BOUNDED_PREFIXES = [
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const MAX_HANDOFF_BYTES = 16 * 1024 * 1024;
 
-export type CandidateProvenance = Readonly<{ kind: "bounded_run" }> | Readonly<{
+export type DerivedRepairProvenance = Readonly<{
   kind: "derived_repair";
   originalTaskId: string;
   originalCandidateHash: string;
@@ -43,6 +43,7 @@ export type CandidateProvenance = Readonly<{ kind: "bounded_run" }> | Readonly<{
   baselineSnapshotHash: string;
   inheritedCandidateAuthorityHash: string;
 }>;
+export type CandidateProvenance = Readonly<{ kind: "bounded_run" }> | DerivedRepairProvenance;
 
 export type BoundedCandidateHandoff = Readonly<{
   handoffVersion: typeof BOUNDED_CANDIDATE_HANDOFF_VERSION | typeof LEGACY_CANDIDATE_HANDOFF_VERSION;
@@ -68,6 +69,59 @@ export type BoundedCandidateHandoff = Readonly<{
 }>;
 
 export type CandidateHandoffInput = Omit<BoundedCandidateHandoff, "handoffVersion" | "handoffHash">;
+
+/** Closed derived schema: adding an optional generic handoff field does not admit it here. */
+export type DerivedRepairHandoffMaterial = Readonly<{
+  taskId: string;
+  objectiveHash: string;
+  sourceSnapshotHash: string;
+  planHash: string;
+  contextBindingHash: string;
+  plannerExecutionBindingHash: string;
+  compiledPolicyHash: string;
+  allowedFiles: readonly string[];
+  forbiddenFiles: readonly string[];
+  acceptanceCriteriaContract: AcceptanceCriteriaContract;
+  validationProfile: ValidationProfileId;
+  phaseVExecutionSpecification: TemporaryWorkspaceExecutionSpecification;
+  coderMutation: WorkspaceMutation;
+  verifierFinding: WorkspaceMutation;
+  adaptiveResult: unknown;
+  declaredRiskClass: "low" | "medium" | "high" | "critical";
+  candidateFiles: readonly string[];
+  provenance: DerivedRepairProvenance;
+}>;
+export type ExactDerivedRepairHandoff = Readonly<DerivedRepairHandoffMaterial & {
+  handoffVersion: typeof BOUNDED_CANDIDATE_HANDOFF_VERSION;
+  handoffHash: string;
+}>;
+
+type DerivedFieldClass = "inherited" | "reconstructed" | "governed_output";
+/** Each admitted field has an explicit authority class; the mapped type catches additions. */
+export const DERIVED_REPAIR_HANDOFF_FIELD_CLASSES = Object.freeze({
+  handoffVersion: "reconstructed",
+  taskId: "inherited", objectiveHash: "inherited", sourceSnapshotHash: "inherited",
+  planHash: "inherited", contextBindingHash: "inherited",
+  plannerExecutionBindingHash: "inherited", compiledPolicyHash: "inherited",
+  allowedFiles: "inherited", forbiddenFiles: "inherited",
+  acceptanceCriteriaContract: "inherited", validationProfile: "inherited",
+  phaseVExecutionSpecification: "inherited",
+  // Canonical adaptive evidence is inherited; providerOutput is rebuilt as the bound Candidate B mutation.
+  adaptiveResult: "reconstructed",
+  declaredRiskClass: "inherited", candidateFiles: "inherited",
+  coderMutation: "governed_output", verifierFinding: "reconstructed",
+  provenance: "reconstructed", handoffHash: "reconstructed"
+} as const satisfies Record<keyof ExactDerivedRepairHandoff, DerivedFieldClass>);
+export const DERIVED_REPAIR_PROVENANCE_FIELD_CLASSES = Object.freeze({
+  kind: "reconstructed", originalTaskId: "inherited",
+  originalCandidateHash: "reconstructed", repairArtifactHash: "reconstructed",
+  derivedCandidateHash: "reconstructed", derivedRepairRecordHash: "reconstructed",
+  derivedRepairRecordBytes: "reconstructed", validationFailureHash: "reconstructed",
+  repositoryIdentityHash: "inherited", baselineSnapshotHash: "inherited",
+  inheritedCandidateAuthorityHash: "reconstructed"
+} as const satisfies Record<keyof DerivedRepairProvenance, DerivedFieldClass>);
+const DERIVED_REPAIR_HANDOFF_FIELDS = Object.keys(DERIVED_REPAIR_HANDOFF_FIELD_CLASSES).sort();
+const DERIVED_REPAIR_PROVENANCE_FIELDS = Object.keys(DERIVED_REPAIR_PROVENANCE_FIELD_CLASSES).sort();
 
 function isVolatileBoundedPath(file: string): boolean {
   return VOLATILE_BOUNDED_PREFIXES.some((prefix) => file === prefix || file.startsWith(`${prefix}/`));
@@ -110,6 +164,46 @@ export function createCandidateHandoff(input: CandidateHandoffInput): BoundedCan
   };
   const handoffHash = hashCanonicalJson(handoffMaterial(withoutHash));
   return Object.freeze({ ...withoutHash, handoffHash });
+}
+
+/** Explicit construction prevents generic optional fields or nested extras from flowing into repair apply. */
+export function createDerivedRepairHandoff(input: DerivedRepairHandoffMaterial): ExactDerivedRepairHandoff {
+  const material = {
+    handoffVersion: BOUNDED_CANDIDATE_HANDOFF_VERSION,
+    taskId: input.taskId,
+    objectiveHash: input.objectiveHash,
+    sourceSnapshotHash: input.sourceSnapshotHash,
+    planHash: input.planHash,
+    contextBindingHash: input.contextBindingHash,
+    plannerExecutionBindingHash: input.plannerExecutionBindingHash,
+    compiledPolicyHash: input.compiledPolicyHash,
+    allowedFiles: [...input.allowedFiles],
+    forbiddenFiles: [...input.forbiddenFiles],
+    acceptanceCriteriaContract: input.acceptanceCriteriaContract,
+    validationProfile: input.validationProfile,
+    phaseVExecutionSpecification: input.phaseVExecutionSpecification,
+    coderMutation: input.coderMutation,
+    verifierFinding: input.verifierFinding,
+    adaptiveResult: input.adaptiveResult,
+    declaredRiskClass: input.declaredRiskClass,
+    candidateFiles: [...input.candidateFiles],
+    provenance: {
+      kind: "derived_repair",
+      originalTaskId: input.provenance.originalTaskId,
+      originalCandidateHash: input.provenance.originalCandidateHash,
+      repairArtifactHash: input.provenance.repairArtifactHash,
+      derivedCandidateHash: input.provenance.derivedCandidateHash,
+      derivedRepairRecordHash: input.provenance.derivedRepairRecordHash,
+      derivedRepairRecordBytes: input.provenance.derivedRepairRecordBytes,
+      validationFailureHash: input.provenance.validationFailureHash,
+      repositoryIdentityHash: input.provenance.repositoryIdentityHash,
+      baselineSnapshotHash: input.provenance.baselineSnapshotHash,
+      inheritedCandidateAuthorityHash: input.provenance.inheritedCandidateAuthorityHash
+    }
+  } satisfies Omit<ExactDerivedRepairHandoff, "handoffHash">;
+  const candidate = Object.freeze({ ...material, handoffHash: hashCanonicalJson(material) });
+  validateCandidateHandoff(candidate);
+  return candidate;
 }
 
 export function createCandidateHandoffFromBoundedRun(
@@ -172,8 +266,11 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
   ];
   const legacy = record.handoffVersion === LEGACY_CANDIDATE_HANDOFF_VERSION;
   const current = record.handoffVersion === BOUNDED_CANDIDATE_HANDOFF_VERSION;
+  const derivedRepair = current && (record.provenance as Record<string, unknown> | null)?.kind === "derived_repair";
+  const expectedFields = derivedRepair ? DERIVED_REPAIR_HANDOFF_FIELDS :
+    [...fields, ...(current ? ["provenance"] : [])].sort();
   if ((!legacy && !current) ||
-      Object.keys(record).sort().join("\u0000") !== [...fields, ...(current ? ["provenance"] : [])].sort().join("\u0000") ||
+      Object.keys(record).sort().join("\u0000") !== expectedFields.join("\u0000") ||
       typeof record.taskId !== "string" || record.taskId.length === 0 ||
       !(String(record.validationProfile) in VALIDATION_PROFILES) ||
       !["low", "medium", "high", "critical"].includes(String(record.declaredRiskClass))) {
@@ -192,10 +289,7 @@ export function validateCandidateHandoff(value: unknown): BoundedCandidateHandof
       throw new CliError("cli_candidate_handoff_invalid", "Candidate provenance is invalid.");
     }
     const entry = provenance as Record<string, unknown>;
-    const derivedFields = ["kind", "originalTaskId", "originalCandidateHash", "repairArtifactHash",
-      "derivedCandidateHash", "derivedRepairRecordHash", "derivedRepairRecordBytes",
-      "validationFailureHash", "repositoryIdentityHash", "baselineSnapshotHash",
-      "inheritedCandidateAuthorityHash"];
+    const derivedFields = DERIVED_REPAIR_PROVENANCE_FIELDS;
     if (entry.kind === "bounded_run") {
       if (Object.keys(entry).join("\u0000") !== "kind") {
         throw new CliError("cli_candidate_handoff_invalid", "Normal candidate provenance is invalid.");

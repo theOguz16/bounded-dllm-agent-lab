@@ -82,6 +82,10 @@ const childStages = [
     script: "scripts/smoke/bounded-apply-smoke.cjs"
   },
   {
+    name: "derived repair closed schema smoke",
+    script: "scripts/smoke/derived-repair-schema-smoke.cjs"
+  },
+  {
     name: "product run artifact smoke",
     script: "scripts/smoke/product-run-artifact-smoke.cjs"
   },

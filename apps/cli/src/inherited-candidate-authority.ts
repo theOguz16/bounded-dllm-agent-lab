@@ -42,6 +42,7 @@ export type InheritedCandidateAuthority = Readonly<{
 }>;
 
 function filesHash(files: readonly string[]): string {
+  // Candidate file authority is the sorted path set; replacement content belongs to Candidate B lineage.
   return hashCanonicalJson([...files].sort());
 }
 
@@ -54,6 +55,8 @@ function adaptiveResultInheritedHash(value: unknown): string {
   if (!coder || typeof coder !== "object" || Array.isArray(coder)) {
     throw new CliError("cli_repair_inherited_authority_invalid", "Inherited coder result is missing.", 4);
   }
+  // The entire providerOutput is excluded here. Apply separately checks its complete mutation
+  // against Candidate B reconstructed from terminal Candidate A and the bound repair artifact.
   const { providerOutput: _mutation, ...inheritedCoder } = coder as Record<string, unknown>;
   return hashCanonicalJson({ ...adaptive, coderResult: inheritedCoder });
 }
