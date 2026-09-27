@@ -54,6 +54,82 @@ const path = require("node:path");
     assertNoContainers();
     checks++;
 
+    for (const directory of ["dist", "coverage"]) {
+      fs.mkdirSync(path.join(workspace, directory));
+      const existing = path.join(workspace, directory, "candidate.js");
+      fs.writeFileSync(existing, "module.exports = 1;\n");
+      const overwrite = await runtime.runContainerizedWorkspaceExecution({ ...base,
+        commands: [{ id: `overwrite-${directory}`, executable: "node", timeoutMs: 10_000,
+          args: ["-e", `require('fs').writeFileSync(${JSON.stringify(`${directory}/candidate.js`)},'module.exports = 2;')`] }]
+      }, async () => null);
+      assert.equal(overwrite.decision, "temp_validation_failed", JSON.stringify(overwrite));
+      assert(overwrite.issues.some((entry) => entry.code === "validation_candidate_input_changed"));
+      assert.equal(fs.readFileSync(existing, "utf8"), "module.exports = 1;\n");
+      assertNoContainers();
+      checks++;
+    }
+
+    const deletion = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "delete-input", executable: "node", timeoutMs: 10_000,
+        args: ["-e", "require('fs').unlinkSync('src/a.txt')"] }]
+    }, async () => null);
+    assert.equal(deletion.decision, "temp_validation_failed", JSON.stringify(deletion));
+    assert(deletion.issues.some((entry) => entry.code === "validation_candidate_input_changed"));
+    assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
+    checks++;
+
+    const poisoning = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [
+        { id: "poison-source", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "require('fs').writeFileSync('src/a.txt','poisoned')"] },
+        { id: "consume-poison", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "if(require('fs').readFileSync('src/a.txt','utf8')==='poisoned')process.exit(0);process.exit(1)"] }
+      ]
+    }, async () => null);
+    assert.equal(poisoning.decision, "temp_validation_failed", JSON.stringify(poisoning));
+    assert.deepEqual(poisoning.commandResults.map((entry) => entry.id), ["poison-source"]);
+    assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
+    checks++;
+
+    const escapeLink = path.join(workspace, "escape-link");
+    fs.symlinkSync(control, escapeLink);
+    const escape = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "symlink-escape", executable: "node", timeoutMs: 10_000,
+        args: ["-e", "require('fs').writeFileSync('escape-link','escaped')"] }]
+    }, async () => null);
+    assert.equal(escape.decision, "temp_validation_failed", JSON.stringify(escape));
+    assert(escape.issues.some((entry) => entry.code === "validation_workspace_staging_failed"));
+    assert.equal(fs.readFileSync(control, "utf8"), "host-secret-control\n");
+    fs.unlinkSync(escapeLink);
+    checks++;
+
+    fs.rmdirSync(path.join(workspace, ".validation-output"));
+    fs.symlinkSync("src", path.join(workspace, ".validation-output"));
+    const aliasedOutput = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [{ id: "aliased-output-mount", executable: "node", timeoutMs: 10_000,
+        args: ["-e", "require('fs').writeFileSync('.validation-output/a.txt','escaped')"] }]
+    }, async () => null);
+    assert.equal(aliasedOutput.decision, "temp_validation_failed", JSON.stringify(aliasedOutput));
+    assert(aliasedOutput.issues.some((entry) => entry.code === "validation_workspace_staging_failed"));
+    assert.equal(fs.readFileSync(path.join(workspace, "src/a.txt"), "utf8"), "candidate\n");
+    fs.unlinkSync(path.join(workspace, ".validation-output"));
+    fs.mkdirSync(path.join(workspace, ".validation-output"));
+    checks++;
+
+    const newOutput = await runtime.runContainerizedWorkspaceExecution({ ...base,
+      commands: [
+        { id: "create-output", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "require('fs').writeFileSync('dist/new-output.js','module.exports=3')"] },
+        { id: "read-bound-output", executable: "node", timeoutMs: 10_000,
+          args: ["-e", "if(require('./dist/new-output.js')!==3)process.exit(1)"] }
+      ]
+    }, async () => null);
+    assert.equal(newOutput.decision, "temp_validation_passed", JSON.stringify(newOutput));
+    assert.deepEqual(newOutput.commandResults.map((entry) => entry.id),
+      ["create-output", "read-bound-output"]);
+    assert.equal(fs.existsSync(path.join(workspace, "dist/new-output.js")), false);
+    checks++;
+
     const network = await runtime.runContainerizedWorkspaceExecution({ ...base,
       commands: [{ id: "network", executable: "node", timeoutMs: 10_000, args: ["-e",
         "const net=require('net');const s=net.connect(53,'1.1.1.1',()=>process.exit(1));s.on('error',()=>process.exit(0));setTimeout(()=>process.exit(0),2000)"

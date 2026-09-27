@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -10,7 +10,95 @@ import type {
   TemporaryWorkspaceExecutionResult
 } from "./temporary-workspace-execution-verifier.js";
 import { VALIDATION_CHECK_KINDS } from "./runtime-contract-foundation.js";
-import { createCanonicalRepositoryContentSnapshot } from "./canonical-policy-compiler.js";
+
+// Validation input authority is deliberately wider than repository currentness:
+// existing build, cache and dependency entries can affect command behavior.
+const VALIDATION_INTEGRITY_LIMITS = Object.freeze({
+  maximumEntries: 100_000,
+  maximumFileBytes: 256 * 1024 * 1024,
+  maximumTotalBytes: 2 * 1024 * 1024 * 1024,
+  maximumGeneratedEntries: 20_000,
+  maximumGeneratedBytes: 512 * 1024 * 1024
+});
+type ValidationEntry = Readonly<{
+  kind: "directory" | "file" | "symlink";
+  mode: number;
+  byteLength: number;
+  hash: string | null;
+}>;
+type GeneratedEntry = Readonly<{ path: string; entry: ValidationEntry; producerCommandId: string }>;
+
+function validationManifest(root: string): Map<string, ValidationEntry> {
+  const records = new Map<string, ValidationEntry>();
+  const resolvedRoot = fs.realpathSync(root);
+  let totalBytes = 0;
+  const walk = (directory: string, relative: string, depth: number): void => {
+    if (depth > 64) throw new Error("Validation input exceeds traversal depth.");
+    for (const name of fs.readdirSync(directory)) {
+      const child = relative === "" ? name : `${relative}/${name}`;
+      const absolute = path.join(directory, name);
+      const stat = fs.lstatSync(absolute);
+      if (child === ".validation-output" && !stat.isDirectory()) {
+        throw new Error("Validation output mount must be an ordinary directory.");
+      }
+      if (records.size >= VALIDATION_INTEGRITY_LIMITS.maximumEntries) {
+        throw new Error("Validation input exceeds entry limit.");
+      }
+      let entry: ValidationEntry;
+      if (stat.isDirectory()) {
+        entry = { kind: "directory", mode: stat.mode & 0o777, byteLength: 0, hash: null };
+      } else if (stat.isSymbolicLink()) {
+        const target = fs.realpathSync(absolute);
+        if (target !== resolvedRoot && !target.startsWith(`${resolvedRoot}${path.sep}`)) {
+          throw new Error("Validation input symlink escapes its workspace.");
+        }
+        const bytes = Buffer.from(fs.readlinkSync(absolute), "utf8");
+        entry = { kind: "symlink", mode: stat.mode & 0o777, byteLength: bytes.length,
+          hash: createHash("sha256").update(bytes).digest("hex") };
+      } else if (stat.isFile()) {
+        if (stat.size > VALIDATION_INTEGRITY_LIMITS.maximumFileBytes) {
+          throw new Error("Validation input file exceeds size limit.");
+        }
+        entry = { kind: "file", mode: stat.mode & 0o777, byteLength: stat.size,
+          hash: createHash("sha256").update(fs.readFileSync(absolute)).digest("hex") };
+      } else {
+        throw new Error("Validation input contains a special file.");
+      }
+      totalBytes += entry.byteLength;
+      if (totalBytes > VALIDATION_INTEGRITY_LIMITS.maximumTotalBytes) {
+        throw new Error("Validation input exceeds total byte limit.");
+      }
+      records.set(child, entry);
+      if (stat.isDirectory()) {
+        // This path is reserved for the separately bounded container tmpfs.
+        if (child === ".validation-output") {
+          if (fs.readdirSync(absolute).length !== 0) {
+            throw new Error("Validation output mount contains pre-existing input.");
+          }
+        } else walk(absolute, child, depth + 1);
+      }
+    }
+  };
+  walk(resolvedRoot, "", 0);
+  return records;
+}
+
+function sameValidationEntry(left: ValidationEntry | undefined, right: ValidationEntry): boolean {
+  return left !== undefined && left.kind === right.kind && left.mode === right.mode &&
+    left.byteLength === right.byteLength && left.hash === right.hash;
+}
+
+function copyGeneratedEntries(source: string, destination: string, entries: readonly GeneratedEntry[]): void {
+  for (const { path: relative, entry } of entries) {
+    const target = path.join(destination, relative);
+    if (entry.kind === "directory") fs.mkdirSync(target, { recursive: true, mode: entry.mode });
+    else if (entry.kind === "file") {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(source, relative), target, fs.constants.COPYFILE_EXCL);
+      fs.chmodSync(target, entry.mode);
+    } else throw new Error("Generated validation symlink is forbidden.");
+  }
+}
 
 export const CONTAINERIZED_VALIDATION_RUNNER_VERSION = "1" as const;
 export const DEFAULT_VALIDATION_CONTAINER_IMAGE =
@@ -265,19 +353,17 @@ export async function runContainerizedWorkspaceExecution(
   const maxOutput = context.maxOutputChars ?? 20_000;
   const fallbackTimeout = context.defaultTimeoutMs ?? 30_000;
 
-  // The input is never writable by a validation command. A second disposable copy
-  // retains legitimate build output across the separately isolated commands.
+  // Every command receives a fresh copy of the immutable candidate authority.
+  // Only bounded, hashed files newly generated by a successful prior command
+  // are carried forward with explicit producer provenance.
   let executionWorkspace: string | null = null;
-  let inputRecords: ReturnType<typeof createCanonicalRepositoryContentSnapshot>["records"];
+  let inputRecords: Map<string, ValidationEntry>;
+  let generatedEntries: GeneratedEntry[] = [];
   try {
-    inputRecords = createCanonicalRepositoryContentSnapshot(workspace).records;
-    executionWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-validation-execution-"));
-    fs.cpSync(workspace, executionWorkspace,
-      { recursive: true, force: false, verbatimSymlinks: true });
+    inputRecords = validationManifest(workspace);
   } catch {
-    if (executionWorkspace) fs.rmSync(executionWorkspace, { recursive: true, force: true });
     return result([{ code: "validation_workspace_staging_failed",
-      message: "Disposable validation workspace could not be prepared.", severity: "failure" }],
+      message: "Validation candidate input could not be inventoried.", severity: "failure" }],
     results, Date.now() - started);
   }
 
@@ -322,6 +408,43 @@ export async function runContainerizedWorkspaceExecution(
           return result(issues, results, Date.now() - started);
         }
         environment.push("--env", `${key}=${value}`);
+      }
+      let freshWorkspace: string | null = null;
+      try {
+        const authorityRecords = validationManifest(workspace);
+        if (inputRecords.size !== authorityRecords.size || [...inputRecords].some(([relative, entry]) =>
+          !sameValidationEntry(authorityRecords.get(relative), entry))) {
+          throw new Error("Validation candidate authority changed.");
+        }
+        if (executionWorkspace !== null) {
+          const priorRecords = validationManifest(executionWorkspace);
+          if (generatedEntries.some(({ path: relative, entry }) =>
+            !sameValidationEntry(priorRecords.get(relative), entry))) {
+            throw new Error("Generated validation output changed after capture.");
+          }
+        }
+        freshWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "bounded-validation-execution-"));
+        fs.cpSync(workspace, freshWorkspace,
+          { recursive: true, force: false, verbatimSymlinks: true });
+        if (executionWorkspace !== null) copyGeneratedEntries(
+          executionWorkspace, freshWorkspace, generatedEntries);
+        const stagedRecords = validationManifest(freshWorkspace);
+        if ([...inputRecords].some(([relative, entry]) =>
+          !sameValidationEntry(stagedRecords.get(relative), entry)) ||
+          generatedEntries.some(({ path: relative, entry }) =>
+            !sameValidationEntry(stagedRecords.get(relative), entry))) {
+          throw new Error("Validation staging did not preserve bound inputs and outputs.");
+        }
+        if (executionWorkspace !== null) fs.rmSync(executionWorkspace, { recursive: true, force: true });
+        executionWorkspace = freshWorkspace;
+      } catch {
+        if (freshWorkspace !== null && freshWorkspace !== executionWorkspace) {
+          fs.rmSync(freshWorkspace, { recursive: true, force: true });
+        }
+        issues.push({ code: "validation_workspace_staging_failed",
+          message: "Disposable validation command input could not be prepared or verified.",
+          severity: "failure", commandId: command.id });
+        return result(issues, results, Date.now() - started);
       }
       const args = ["run", "--detach", "--pull", "never", "--name", name,
         "--label", `${identity.labelKey}=${identity.labelValue}`, "--stop-timeout", "1",
@@ -392,17 +515,32 @@ export async function runContainerizedWorkspaceExecution(
         else if (!commandPassed && !outputOverflow) issues.push({ code: "validation_command_failed",
           message: "Containerized validation exited with an unexpected code.", severity: "failure", commandId: command.id });
         try {
-          const currentRecords = new Map(createCanonicalRepositoryContentSnapshot(executionWorkspace).records
-            .map((record) => [record.path, record]));
-          const authorityRecords = new Map(createCanonicalRepositoryContentSnapshot(workspace).records
-            .map((record) => [record.path, record]));
-          if (inputRecords.some((record) =>
-            JSON.stringify(currentRecords.get(record.path)) !== JSON.stringify(record) ||
-            JSON.stringify(authorityRecords.get(record.path)) !== JSON.stringify(record))) {
+          const currentRecords = validationManifest(executionWorkspace);
+          const authorityRecords = validationManifest(workspace);
+          if (inputRecords.size !== authorityRecords.size || [...inputRecords].some(([relative, entry]) =>
+            !sameValidationEntry(currentRecords.get(relative), entry) ||
+            !sameValidationEntry(authorityRecords.get(relative), entry)) ||
+            generatedEntries.some(({ path: relative, entry }) =>
+              !sameValidationEntry(currentRecords.get(relative), entry))) {
             issues.push({ code: "validation_candidate_input_changed",
-              message: "A validation command changed an original candidate input file.",
+              message: "A validation command changed bound candidate input or generated output.",
               severity: "failure", commandId: command.id });
             commandPassed = false;
+          } else if (commandPassed) {
+            const newEntries: GeneratedEntry[] = [];
+            const priorGeneratedPaths = new Set(generatedEntries.map((item) => item.path));
+            let generatedBytes = generatedEntries.reduce((sum, item) => sum + item.entry.byteLength, 0);
+            for (const [relative, entry] of currentRecords) {
+              if (inputRecords.has(relative) || priorGeneratedPaths.has(relative)) continue;
+              if (entry.kind === "symlink") throw new Error("Generated validation symlink is forbidden.");
+              generatedBytes += entry.byteLength;
+              if (generatedEntries.length + newEntries.length >= VALIDATION_INTEGRITY_LIMITS.maximumGeneratedEntries ||
+                  generatedBytes > VALIDATION_INTEGRITY_LIMITS.maximumGeneratedBytes) {
+                throw new Error("Generated validation output exceeds limits.");
+              }
+              newEntries.push({ path: relative, entry, producerCommandId: command.id });
+            }
+            generatedEntries = [...generatedEntries, ...newEntries];
           }
           const integrityFailure = await afterCommand(commandResult);
           if (integrityFailure) issues.push(integrityFailure);
@@ -443,6 +581,6 @@ export async function runContainerizedWorkspaceExecution(
     }
     return result(issues, results, Date.now() - started);
   } finally {
-    fs.rmSync(executionWorkspace, { recursive: true, force: true });
+    if (executionWorkspace !== null) fs.rmSync(executionWorkspace, { recursive: true, force: true });
   }
 }
