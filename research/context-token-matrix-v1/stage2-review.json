@@ -1,0 +1,52 @@
+{
+  "version": "context-token-matrix-stage2-review/v1",
+  "protocolVersion": "context-token-matrix-protocol/v1",
+  "manifestHash": "sha256:b40e40acf1a5cce7a879123881a6e3c0336c4a1f091bc2340296826f5a8a1332",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "taskId": "controlled-real-coding-v2.worker-request-id-correlation",
+  "priorStage1SessionId": "stage1-63ffc26412212dc72f5e2971",
+  "priorStage1HarnessHead": "6e0750ba9c15996e4a9fb08d9710edca6f6c07c8",
+  "priorStage1SessionHash": "sha256:75e86270df427039de9767ffc9ff90577e013f778d7d9dc3ae63bd58b6c4ad71",
+  "priorStage1SummarySha256": "sha256:3cb74146f68f6af67a00db13d642fe9f252dd9d4f1d219ac1122cd021921d19b",
+  "stage1Cells": {
+    "minimal": {
+      "cellId": "A.1.minimal",
+      "cellHash": "sha256:3608f586abcc0fd93ec8cb4dc7b8cc83db1827f97707923d5cfd6efd2fa123d2",
+      "cellSummarySha256": "sha256:5767e04910016b50374042e174c5be20c03af11f04a5a581c63853f24c42674b",
+      "experimentResultSha256": "sha256:9762c2e3c4a33060c14725b28a285c44c1440bcd0b8d4de672d1b81300b19b34",
+      "plannerRunId": "matrix.549b80ff900a55d8.minimal.planner.codex.3905526266859afa1a06d66471a09a87",
+      "coderRunId": "matrix.549b80ff900a55d8.minimal.coder.f84482474cc035f8b54046aa1c7bdf79"
+    },
+    "current": {
+      "cellId": "A.1.current",
+      "cellHash": "sha256:a5549874ce50971385453c561cd18b5974a5138abba0edf6aa2c7747cdb6c683",
+      "cellSummarySha256": "sha256:459ab25f9490d59549acaf818e5b4d9a138c80d3c9486f5acab39f5cc513feb3",
+      "experimentResultSha256": "sha256:e26d52a0f77ee009bba943ac60b9784813f119bb5823bcb11c2760a82039625e",
+      "plannerRunId": "matrix.549b80ff900a55d8.current.planner.codex.3905526266859afa1a06d66471a09a87",
+      "coderRunId": "matrix.549b80ff900a55d8.current.coder.f84482474cc035f8b54046aa1c7bdf79"
+    },
+    "expanded": {
+      "cellId": "A.1.expanded",
+      "cellHash": "sha256:771f08b979eea066a561bd864ab2c5c41640d77385f81f9285ac0b82da0c6f10",
+      "cellSummarySha256": "sha256:f539dfe169b10aea319c6932601d20f35f069db796c94742aa05b3fb5cfdf8d5",
+      "experimentResultSha256": "sha256:b45f869a34daeb465f622f515516b6346a7339b7a5c5ae5d6292db4cfc0c707f",
+      "plannerRunId": "matrix.549b80ff900a55d8.expanded.planner.codex.3905526266859afa1a06d66471a09a87",
+      "coderRunId": "matrix.549b80ff900a55d8.expanded.coder.f84482474cc035f8b54046aa1c7bdf79"
+    }
+  },
+  "stage2Order": [
+    "minimal",
+    "current",
+    "expanded"
+  ],
+  "repetitionIndex": 2,
+  "maximumStage2Cells": 3,
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "retryCount": 0,
+  "repairCount": 0,
+  "applyCount": 0,
+  "stage1ValidityReviewed": true,
+  "stage2ConditionalAuthorization": true,
+  "noFurtherRepetitionAuthorized": true
+}

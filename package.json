@@ -315,6 +315,7 @@
     "test:context-token-matrix-planned-journal": "npm run build && node scripts/smoke/context-token-matrix-planned-journal-smoke.cjs",
     "test:context-token-matrix-replacement": "npm run build && node scripts/smoke/context-token-matrix-replacement-smoke.cjs",
     "test:context-token-matrix-final-replacement": "npm run build && node scripts/smoke/context-token-matrix-final-replacement-smoke.cjs",
+    "test:context-token-matrix-stage2": "npm run build && node scripts/smoke/context-token-matrix-stage2-smoke.cjs",
     "test:context-token-matrix-validation-dependencies": "npm run build && node scripts/smoke/context-token-matrix-validation-dependencies-smoke.cjs",
     "test:context-token-matrix-live-runner": "npm run build && node scripts/smoke/context-token-matrix-classification-smoke.cjs && node scripts/smoke/context-token-matrix-live-runner-smoke.cjs",
     "research:context-token-matrix:preflight": "node research/context-token-matrix-v1/run-live.mjs preflight",

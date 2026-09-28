@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
-import { readPlannedReplacementReview, readPlannedFinalReplacementReview, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
+import { readPlannedReplacementReview, readPlannedFinalReplacementReview, readPlannedStage2Review, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
 import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
@@ -117,6 +117,25 @@ function finalReplacementPriorValid(records: readonly InvocationRecord[], author
     records.every(record => record.plannedExperiment?.planSlotHash !== authority.planSlotHash ||
       [original.failedSessionId, review.priorSessionId, authority.sessionId]
         .includes(record.plannedExperiment.sessionId));
+}
+function stage2PriorValid(records: readonly InvocationRecord[], authority: PlannedExperimentAuthority): boolean {
+  if (authority.repetitionIndex !== 2 || authority.replacementAttemptIndex !== undefined) return false;
+  const review = readPlannedStage2Review(authority.manifestPath);
+  const prior = records.filter(record => record.plannedExperiment?.sessionId === review.priorStage1SessionId);
+  if (prior.length !== 6 || authority.priorStage1SessionId !== review.priorStage1SessionId) return false;
+  return (["minimal", "current", "expanded"] as const).every(variant => {
+    const cell = review.stage1Cells[variant];
+    const rows = prior.filter(record => record.plannedExperiment?.variant === variant);
+    return rows.length === 2 && rows.every(record => record.state === "completed" &&
+      record.plannedExperiment?.repetitionIndex === 1 &&
+      record.plannedExperiment?.cellHash === cell.cellHash &&
+      record.plannedExperiment?.sessionHash === review.priorStage1SessionHash &&
+      record.plannedExperiment?.harnessHead === review.priorStage1HarnessHead &&
+      record.plannedExperiment?.manifestHash === authority.manifestHash &&
+      record.plannedExperiment?.sourceHead === authority.sourceHead) &&
+      rows.some(record => record.stage === "planner" && record.runId === cell.plannerRunId) &&
+      rows.some(record => record.stage === "coder" && record.runId === cell.coderRunId);
+  });
 }
 const SAFE_DIAGNOSTIC_CODES = new Set([
   "agent_command_budget_exceeded", "agent_event_budget_exceeded",
@@ -290,6 +309,14 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           harness_head TEXT NOT NULL,
           authorized_at INTEGER NOT NULL
         )`);
+        db.exec(`CREATE TABLE IF NOT EXISTS planned_experiment_stage2_authorizations (
+          prior_stage1_session_id TEXT PRIMARY KEY,
+          stage2_session_id TEXT NOT NULL UNIQUE,
+          stage2_session_hash TEXT NOT NULL,
+          review_hash TEXT NOT NULL,
+          harness_head TEXT NOT NULL,
+          authorized_at INTEGER NOT NULL
+        )`);
       } catch (error) { db.close(); throw error; }
       return db;
     } catch {
@@ -327,6 +354,29 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       return next;
     });
   return Object.freeze({
+    authorizePlannedStage2(authority: PlannedExperimentAuthority,
+      sourceRepositoryPath: string): void {
+      try { validatePlannedContextMatrixAuthority(authority, {
+        sourceRepositoryPath, model: authority.model, reasoning: authority.reasoning,
+        stage: "planner" }); }
+      catch { throw new InvocationJournalError("invocation_replay_forbidden", "Invalid Stage 2 authority."); }
+      transaction(db => {
+        const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+          .all().map(row => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+        if (authority.variant !== "minimal" || !stage2PriorValid(rows, authority) ||
+            rows.some(row => row.plannedExperiment?.sessionId === authority.sessionId ||
+              row.plannedExperiment?.repetitionIndex === 2) ||
+            db.prepare(`SELECT 1 FROM planned_experiment_stage2_authorizations
+              WHERE prior_stage1_session_id = ? OR stage2_session_id = ?`)
+              .get(authority.priorStage1SessionId ?? "", authority.sessionId))
+          throw new InvocationJournalError("invocation_replay_forbidden",
+            "Stage 2 requires the reviewed valid Stage 1 and one fresh session.");
+        db.prepare(`INSERT INTO planned_experiment_stage2_authorizations
+          (prior_stage1_session_id, stage2_session_id, stage2_session_hash, review_hash, harness_head, authorized_at)
+          VALUES (?, ?, ?, ?, ?, ?)`).run(authority.priorStage1SessionId ?? "", authority.sessionId,
+            authority.sessionHash, authority.stage2ReviewHash ?? "", authority.harnessHead, now());
+      });
+    },
     authorizePlannedFinalReplacement(authority: PlannedExperimentAuthority,
       sourceRepositoryPath: string): void {
       try { validatePlannedContextMatrixAuthority(authority, {
@@ -425,10 +475,13 @@ export function createDurableInvocationJournal(file: string, now: () => number =
             .filter((record) => record.plannedExperiment !== undefined);
           const replacement = planned.replacementAttemptIndex === 2;
           const finalReplacement = planned.replacementAttemptIndex === 3;
+          const stage2 = planned.repetitionIndex === 2;
           const replacementRow = replacement ? db.prepare(`SELECT * FROM planned_experiment_replacements
             WHERE replacement_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
           const finalRow = finalReplacement ? db.prepare(`SELECT * FROM planned_experiment_final_replacements
             WHERE final_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
+          const stage2Row = stage2 ? db.prepare(`SELECT * FROM planned_experiment_stage2_authorizations
+            WHERE stage2_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
           if ((replacement && (!replacementRow ||
                 replacementRow.failed_session_id !== planned.replacesSessionId ||
                 replacementRow.replacement_session_hash !== planned.sessionHash ||
@@ -441,6 +494,12 @@ export function createDurableInvocationJournal(file: string, now: () => number =
                 finalRow.review_hash !== planned.replacementReviewHash ||
                 finalRow.harness_head !== planned.harnessHead ||
                 !finalReplacementPriorValid(allPlanned, planned))) ||
+              (stage2 && (!stage2Row ||
+                stage2Row.prior_stage1_session_id !== planned.priorStage1SessionId ||
+                stage2Row.stage2_session_hash !== planned.sessionHash ||
+                stage2Row.review_hash !== planned.stage2ReviewHash ||
+                stage2Row.harness_head !== planned.harnessHead ||
+                !stage2PriorValid(allPlanned, planned))) ||
               allPlanned.some((record) => record.stage === input.stage &&
                 record.plannedExperiment?.planSlotHash === planned.planSlotHash &&
                 !(replacement && record.plannedExperiment?.sessionId === planned.replacesSessionId) &&
@@ -589,7 +648,7 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
   coderState: InvocationState | null;
   availability: "available" | "consumed_successfully" | "consumed_infrastructure_invalidated" |
     "replacement_authorized" | "replacement_consumed" | "final_replacement_authorized" |
-    "final_replacement_consumed" | "blocked"; }>[] {
+    "final_replacement_consumed" | "stage2_authorized" | "stage2_consumed" | "blocked"; }>[] {
   if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
     throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
   for (const cell of cells) validatePlannedContextMatrixAuthority(cell.authority, {
@@ -603,6 +662,8 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
       WHERE type = 'table' AND name = 'planned_experiment_replacements'`).get());
     const hasFinalTable = Boolean(db.prepare(`SELECT 1 FROM sqlite_master
       WHERE type = 'table' AND name = 'planned_experiment_final_replacements'`).get());
+    const hasStage2Table = Boolean(db.prepare(`SELECT 1 FROM sqlite_master
+      WHERE type = 'table' AND name = 'planned_experiment_stage2_authorizations'`).get());
     return Object.freeze(cells.map((cell) => {
       const matching = records.filter((record) =>
         record.plannedExperiment?.planSlotHash === cell.authority.planSlotHash);
@@ -615,6 +676,7 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
       const coder = own.find((record) => record.stage === "coder");
       const replacement = cell.authority.replacementAttemptIndex === 2;
       const finalReplacement = cell.authority.replacementAttemptIndex === 3;
+      const stage2 = cell.authority.repetitionIndex === 2;
       // For the final authority, consumption means work in the new session;
       // the reviewed historical minimal slot is necessarily occupied.
       const consumed = finalReplacement ? own.length > 0 : matching.length > 0;
@@ -639,10 +701,22 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
           readPlannedFinalReplacementReview(cell.authority.manifestPath).priorSessionHash &&
         (!finalExisting || finalExisting.final_session_id === cell.authority.sessionId &&
           finalExisting.final_session_hash === cell.authority.sessionHash);
-      const authorized = finalReplacement ? finalAllowed && own.length === 0 && !sessionCollision :
+      const stage2Existing = hasStage2Table ? db.prepare(`SELECT * FROM planned_experiment_stage2_authorizations
+        WHERE prior_stage1_session_id = ? OR stage2_session_id = ?`)
+        .get(cell.authority.priorStage1SessionId ?? "", cell.authority.sessionId) as
+        Record<string, unknown> | undefined : undefined;
+      const stage2Allowed = stage2 && stage2PriorValid(records, cell.authority) &&
+        (!stage2Existing || stage2Existing.stage2_session_id === cell.authority.sessionId &&
+          stage2Existing.stage2_session_hash === cell.authority.sessionHash) &&
+        !records.some(record => record.plannedExperiment?.repetitionIndex === 2 &&
+          record.plannedExperiment?.sessionId !== cell.authority.sessionId);
+      const authorized = stage2 ? stage2Allowed && own.length === 0 && !sessionCollision :
+        finalReplacement ? finalAllowed && own.length === 0 && !sessionCollision :
         replacement ? replacementAllowed && own.length === 0 && !sessionCollision :
         !consumed && !sessionCollision;
-      const availability = finalReplacement ?
+      const availability = stage2 ?
+        (stage2Allowed ? own.length === 0 ? "stage2_authorized" : "stage2_consumed" : "blocked") :
+        finalReplacement ?
         (finalAllowed ? own.length === 0 ? "final_replacement_authorized" :
           "final_replacement_consumed" : "blocked") : replacement ?
         (replacementAllowed ? own.length === 0 ? "replacement_authorized" : "replacement_consumed" : "blocked") :

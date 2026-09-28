@@ -13,6 +13,8 @@ const REVIEW_RELATIVE = "research/context-token-matrix-v1/replacement-review.jso
 const REVIEW_HASH = "sha256:3646457c942383b63f1972df73901f4ec453df81cb407d3c3618507855274361";
 const FINAL_REVIEW_RELATIVE = "research/context-token-matrix-v1/final-replacement-review.json";
 const FINAL_REVIEW_HASH = "sha256:1211d532c36464ce5d615b4795b7a9c0df03c945ac899f77e0c98413e8d5fe23";
+const STAGE2_REVIEW_RELATIVE = "research/context-token-matrix-v1/stage2-review.json";
+const STAGE2_REVIEW_HASH = "sha256:c29e879f7749ee105c25a11483b6caef6a400ec702654ab4d053c5e41f13c0e8";
 const VARIANTS = ["minimal", "current", "expanded"] as const;
 const SHA = /^sha256:[0-9a-f]{64}$/;
 const HEAD = /^[0-9a-f]{40}$/;
@@ -49,7 +51,7 @@ export type PlannedExperimentAuthority = Readonly<{
   allowedFiles: readonly string[];
   cellId: string;
   variant: "minimal" | "current" | "expanded";
-  repetitionIndex: 1;
+  repetitionIndex: 1 | 2;
   planSlotHash: string;
   cellHash: string;
   model: string;
@@ -60,7 +62,55 @@ export type PlannedExperimentAuthority = Readonly<{
   replacementAttemptIndex?: 2 | 3;
   replacesSessionId?: string;
   replacementReviewHash?: string;
+  stage2ReviewHash?: string;
+  priorStage1SessionId?: string;
 }>;
+
+export type PlannedStage2Review = Readonly<{
+  version: "context-token-matrix-stage2-review/v1";
+  protocolVersion: string; manifestHash: string; sourceHead: string; taskId: string;
+  priorStage1SessionId: string; priorStage1HarnessHead: string;
+  priorStage1SessionHash: string; priorStage1SummarySha256: string;
+  stage1Cells: Readonly<Record<string, Readonly<{ cellId: string; cellHash: string;
+    cellSummarySha256: string; experimentResultSha256: string;
+    plannerRunId: string; coderRunId: string }>>>;
+  stage2Order: readonly string[]; repetitionIndex: 2; maximumStage2Cells: 3;
+  model: string; reasoning: string; retryCount: 0; repairCount: 0; applyCount: 0;
+  stage1ValidityReviewed: true; stage2ConditionalAuthorization: true;
+  noFurtherRepetitionAuthorized: true;
+}>;
+
+export function readPlannedStage2Review(manifestPath: string): PlannedStage2Review {
+  const harness = path.resolve(realpathSync(manifestPath), "../../..");
+  const bytes = readFileSync(path.join(harness, STAGE2_REVIEW_RELATIVE));
+  const committed = spawnSync("git", ["show", `HEAD:${STAGE2_REVIEW_RELATIVE}`],
+    { cwd: harness, stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 });
+  if (committed.status !== 0 || hash(bytes) !== STAGE2_REVIEW_HASH ||
+      hash(committed.stdout) !== STAGE2_REVIEW_HASH) deny("reviewed Stage 2 record");
+  const review = JSON.parse(bytes.toString("utf8")) as PlannedStage2Review;
+  if (review.version !== "context-token-matrix-stage2-review/v1" ||
+      review.protocolVersion !== "context-token-matrix-protocol/v1" ||
+      review.manifestHash !== FROZEN_MANIFEST_HASH || review.sourceHead !== SOURCE ||
+      review.taskId !== "controlled-real-coding-v2.worker-request-id-correlation" ||
+      review.priorStage1SessionId !== "stage1-63ffc26412212dc72f5e2971" ||
+      review.priorStage1HarnessHead !== "6e0750ba9c15996e4a9fb08d9710edca6f6c07c8" ||
+      review.priorStage1SessionHash !== "sha256:75e86270df427039de9767ffc9ff90577e013f778d7d9dc3ae63bd58b6c4ad71" ||
+      review.priorStage1SummarySha256 !== "sha256:3cb74146f68f6af67a00db13d642fe9f252dd9d4f1d219ac1122cd021921d19b" ||
+      !same(review.stage2Order, VARIANTS) || review.repetitionIndex !== 2 ||
+      review.maximumStage2Cells !== 3 || review.model !== "gpt-5.6-luna" ||
+      review.reasoning !== "medium" || review.retryCount !== 0 ||
+      review.repairCount !== 0 || review.applyCount !== 0 ||
+      review.stage1ValidityReviewed !== true ||
+      review.stage2ConditionalAuthorization !== true ||
+      review.noFurtherRepetitionAuthorized !== true ||
+      !same(Object.keys(review.stage1Cells), VARIANTS) ||
+      VARIANTS.some(variant => review.stage1Cells[variant]?.cellId !== `A.1.${variant}` ||
+        !SHA.test(review.stage1Cells[variant].cellHash) ||
+        !SHA.test(review.stage1Cells[variant].cellSummarySha256) ||
+        !SHA.test(review.stage1Cells[variant].experimentResultSha256)))
+    deny("Stage 2 review fields");
+  return review;
+}
 
 export type PlannedReplacementReview = Readonly<{
   version: "context-token-matrix-replacement-review/v1";
@@ -169,7 +219,9 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
       typeof input.sessionId !== "string" || !SESSION.test(input.sessionId) ||
       typeof input.harnessHead !== "string" || !HEAD.test(input.harnessHead) ||
       !VARIANTS.includes(input.variant as typeof VARIANTS[number]) ||
-      input.repetitionIndex !== 1) deny("cell or session fields");
+      ![1, 2].includes(input.repetitionIndex) ||
+      (input.repetitionIndex === 2 && !input.sessionId.startsWith("stage2-")))
+    deny("cell or session fields");
   const manifestPath = realpathSync(input.manifestPath);
   const harness = path.resolve(manifestPath, "../../..");
   if (manifestPath !== path.join(harness, MANIFEST_RELATIVE) ||
@@ -194,7 +246,9 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
       manifest.controlledExecution?.retryCount !== 0 ||
       manifest.controlledExecution?.repairCount !== 0 ||
       manifest.controlledExecution?.applyCount !== 0 ||
-      manifest.repetitionPlan?.stage1RepetitionsPerCell !== 1)
+      manifest.repetitionPlan?.stage1RepetitionsPerCell !== 1 ||
+      manifest.repetitionPlan?.stage2AdditionalRepetitionsPerCell !== 1 ||
+      !same(manifest.executionOrderByCategory?.A, VARIANTS))
     deny("manifest execution plan");
   const source = realpathSync(input.sourceRepositoryPath);
   if (git(source, ["rev-parse", "HEAD"]) !== SOURCE ||
@@ -204,7 +258,12 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
   if (hash(definition.taskPrompt) !== task.taskHash ||
       !same(definition.allowedMutationPaths, task.allowedFiles)) deny("base coding task");
   const variant = input.variant as PlannedExperimentAuthority["variant"];
-  const cellId = `A.1.${variant}`;
+  const cellId = `A.${input.repetitionIndex}.${variant}`;
+  const stage2 = input.repetitionIndex === 2 ? readPlannedStage2Review(manifestPath) : null;
+  if (stage2 !== null && (input.replacementAttemptIndex !== undefined ||
+      input.replacesSessionId !== undefined ||
+      git(harness, ["merge-base", "--is-ancestor", stage2.priorStage1HarnessHead,
+        input.harnessHead]) !== "")) deny("Stage 2 cannot be replacement or change frozen plan");
   const replacement = input.replacementAttemptIndex === 2 ? readPlannedReplacementReview(manifestPath) :
     input.replacementAttemptIndex === 3 ? readPlannedFinalReplacementReview(manifestPath) : null;
   const replacesSessionId = input.replacementAttemptIndex === 2
@@ -220,12 +279,14 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
   const sessionHash = canonicalHash({ version: PLANNED_EXPERIMENT_VERSION,
     protocolVersion: manifest.protocolVersion, manifestHash: FROZEN_MANIFEST_HASH,
     sessionId: input.sessionId, harnessHead: input.harnessHead, sourceHead: SOURCE,
+    ...(stage2 === null ? {} : { repetitionIndex: 2, stage2ReviewHash: STAGE2_REVIEW_HASH,
+      priorStage1SessionId: stage2.priorStage1SessionId }),
     ...(replacement === null ? {} : { replacementAttemptIndex: input.replacementAttemptIndex,
       replacesSessionId, replacementReviewHash: reviewHash }) });
   const planSlotHash = canonicalHash({ version: PLANNED_EXPERIMENT_VERSION,
     protocolVersion: manifest.protocolVersion, manifestHash: FROZEN_MANIFEST_HASH,
     sourceHead: SOURCE, taskId: task.taskId, baseTaskHash: task.taskHash,
-    allowedFiles: task.allowedFiles, cellId, variant, repetitionIndex: 1,
+    allowedFiles: task.allowedFiles, cellId, variant, repetitionIndex: input.repetitionIndex,
     model: manifest.model, reasoning: manifest.reasoning,
     retryCount: 0, repairCount: 0, applyCount: 0 });
   const cellHash = canonicalHash({ sessionHash, planSlotHash });
@@ -234,8 +295,10 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
     sessionId: input.sessionId, sessionHash, harnessHead: input.harnessHead,
     sourceHead: SOURCE, taskId: task.taskId, baseTaskHash: task.taskHash,
     allowedFiles: Object.freeze([...task.allowedFiles]), cellId, variant,
-    repetitionIndex: 1, planSlotHash, cellHash, model: manifest.model,
+    repetitionIndex: input.repetitionIndex as 1 | 2, planSlotHash, cellHash, model: manifest.model,
     reasoning: manifest.reasoning, retryCount: 0, repairCount: 0, applyCount: 0,
+    ...(stage2 === null ? {} : { stage2ReviewHash: STAGE2_REVIEW_HASH,
+      priorStage1SessionId: stage2.priorStage1SessionId }),
     ...(replacement === null ? {} : { replacementAttemptIndex: input.replacementAttemptIndex,
       replacesSessionId: replacesSessionId!, replacementReviewHash: reviewHash }) });
 }
