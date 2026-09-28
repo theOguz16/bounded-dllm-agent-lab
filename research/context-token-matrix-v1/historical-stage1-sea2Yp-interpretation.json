@@ -1,0 +1,29 @@
+{
+  "annotationVersion": "context-token-matrix-historical-interpretation/v1",
+  "sessionId": "stage1-sea2Yp",
+  "scope": "pre-classifier-fix preliminary observation; excluded from new primary Stage 1 matrix",
+  "harnessHead": "181c64fd7da003b066cbdd695b6c2c69f5273411",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "variant": "minimal",
+  "originalRunnerClassification": "infrastructure_or_unclear_stop",
+  "auditedResearchClassification": "candidate_validation_failure",
+  "productFailureCodeUnchanged": "bounded_task_required_validation_not_run",
+  "rawBoundedResultSha256": "sha256:ebe86ef96973eba2da07a4bfb2c2218e5a69a0cfe86e686feff41437520397cd",
+  "normalizedResultSha256": "sha256:5b6745e85184c6a3421666b61cd4137949571bfb2ac893c097a8f8fcb2d4d252",
+  "evidence": {
+    "candidateFiles": ["packages/worker-contract/src/index.ts", "tests/smoke/contracts.ts"],
+    "scopeViolations": 0,
+    "structural": "passed",
+    "syntax": "failed",
+    "syntaxCommandId": "validation.syntax",
+    "syntaxReasonCode": "validation_command_failed",
+    "laterChecks": ["typecheck:not_run", "behavior_test:not_run"],
+    "disposableReconstructionBuildExitCode": 2,
+    "disposableReconstructionDiagnostic": "tests/smoke/contracts.ts:206:20 TS2352",
+    "sourceBeforeAndAfter": "?? .bounded/",
+    "sourceRepositoryUnchanged": true,
+    "apply": "NOT_RUN",
+    "providerAdapterCalls": 2,
+    "retryOrRepairObserved": false
+  }
+}

@@ -8,6 +8,7 @@ import { buildDryRun } from './dry-run.mjs';
 import { calibratePilots } from './calibrate.mjs';
 import { createResearchConfig, prepareResearchTaskInput, selectResearchContext } from './policy.mjs';
 import { createExperimentResult } from './result.mjs';
+import { classifyCell, shouldContinueAfterCell } from './classification.mjs';
 import { initializeBoundedLocalConfig } from '../../dist/apps/cli/src/product-config.js';
 import { doctorCommand } from '../../dist/apps/cli/src/commands/doctor.js';
 import { codexCommand } from '../../dist/apps/cli/src/commands/codex.js';
@@ -235,22 +236,7 @@ export function makeJournalScopedAdapter(adapter, identity, onCall) {
 function mutationFromResult(result) {
   return result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput ?? null;
 }
-export function classifyCell(output) {
-  if (output?.decision === 'bounded_task_completed' && output?.sourceRepositoryUnchanged === true)
-    return 'completed';
-  const failure = output?.failure;
-  if (failure?.stage === 'coding' && failure.code === 'bounded_task_coder_output_invalid')
-    return 'candidate_failure';
-  if (failure?.stage === 'verification' &&
-      ['bounded_task_mutation_scope_violation', 'bounded_task_verification_rejected',
-        'bounded_task_verification_review'].includes(failure.code)) return 'candidate_failure';
-  if (failure?.stage === 'validation' && failure.code === 'bounded_task_required_validation_failed')
-    return 'candidate_failure';
-  return 'infrastructure_or_unclear_stop';
-}
-export function shouldContinueAfterCell(classification) {
-  return classification === 'completed' || classification === 'candidate_failure';
-}
+export { classifyCell, shouldContinueAfterCell };
 export function stage1Rows(plan) {
   const rows = plan?.rows?.filter(item => item.stage === 'stage1');
   requireValue(Array.isArray(rows) && rows.length === 3 &&
@@ -260,7 +246,22 @@ export function stage1Rows(plan) {
   return rows;
 }
 
-async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, task) {
+function compilerDiagnostic(result, commandId, candidateFiles) {
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  const compilerDiagnostics = [...output.matchAll(/^([^\n]+)\((\d+),(\d+)\): error (TS\d+):/gm)]
+    .map(match => ({ file: match[1], line: Number(match[2]),
+      column: Number(match[3]), code: match[4] }))
+    .filter(item => candidateFiles.includes(item.file));
+  const missing = result.error?.code === 'ENOENT' ||
+    (result.status === 127 && /(?:command not found|not found)/i.test(output));
+  return { commandId, executed: result.error === undefined && result.status !== null,
+    exitCode: result.status, timedOut: result.error?.code === 'ETIMEDOUT',
+    outputTruncated: result.error?.code === 'ENOBUFS',
+    failureKind: missing ? 'missing_executable' : compilerDiagnostics.length > 0
+      ? 'typescript_diagnostic' : 'unknown', compilerDiagnostics };
+}
+
+export async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, task, checks) {
   if (!mutation) return { status: 'NOT_RUN', reason: 'candidate_unavailable' };
   const claims = parseTextFileUpdates(mutation);
   requireValue(claims.every(claim => task.allowedFiles.includes(claim.file)), 'behavior candidate outside allowed files');
@@ -284,10 +285,29 @@ async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, task) {
       [path.join(candidate, 'scripts/controlled-coding-pilot-request-id-check.cjs'),
         '--repository', candidate], { cwd: candidate, encoding: 'utf8',
         timeout: 30_000, maxBuffer: 1024 * 1024 }) : null;
+    const failedKind = checks.find(item => item.required && item.status === 'failed')?.kind;
+    let validationDiagnostic = failedKind === 'syntax'
+      ? compilerDiagnostic(build, 'validation.syntax', claims.map(claim => claim.file)) : null;
+    if (failedKind === 'typecheck' && build.status === 0) {
+      const typecheck = spawnSync('npm', ['run', 'typecheck'], { cwd: candidate,
+        encoding: 'utf8', timeout: 120_000, maxBuffer: 1024 * 1024 });
+      validationDiagnostic = compilerDiagnostic(typecheck, 'validation.typecheck',
+        claims.map(claim => claim.file));
+    }
+    if ((failedKind === 'behavior_test' || failedKind === undefined && check?.status !== 0) && check) {
+      validationDiagnostic = { commandId: 'validation.test',
+        executed: check.error === undefined && check.status !== null,
+        exitCode: check.status, timedOut: check.error?.code === 'ETIMEDOUT',
+        outputTruncated: check.error?.code === 'ENOBUFS',
+        failureKind: check.error?.code === 'ENOENT' ? 'missing_executable'
+          : check.status !== 0 && /^ERR_ASSERTION\s*$/m.test(check.stderr ?? '')
+            ? 'candidate_assertion' : 'unknown', checker: 'request_id_acceptance' };
+    }
     const report = { status: check?.status === 0 ? 'PASS' : 'FAIL',
       buildExitCode: build.status, checkerExitCode: check?.status ?? null,
       checkerOutput: check?.status === 0 ? check.stdout.trim() : null,
-      reason: check?.status === 0 ? null : 'candidate_behavior_check_failed' };
+      reason: check?.status === 0 ? null : 'candidate_behavior_check_failed',
+      validationDiagnostic };
     save(path.join(sessionRoot, 'behavior-check.json'), report);
     return report;
   } finally { fs.rmSync(parent, { recursive: true, force: true }); }
@@ -338,10 +358,10 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
       hashes: selected.initialEvidence.map(item => ({ path: item.path, hash: item.contentHash })),
       policy: binding.config.effectivePolicy, intelligenceHash: selected.intelligenceHash });
     const mutation = mutationFromResult(rawTaskResult);
-    const behavior = rawTaskResult?.verifierResult?.decision === 'approve'
-      ? await behaviorOnCandidate(source.root, mutation, cellRoot, task)
-      : { status: 'NOT_RUN', reason: 'candidate_not_structurally_approved' };
     const checks = rawTaskResult?.verifierResult?.validationEvidence?.checks ?? [];
+    const behavior = rawTaskResult?.verifierResult?.decision === 'approve'
+      ? await behaviorOnCandidate(source.root, mutation, cellRoot, task, checks)
+      : { status: 'NOT_RUN', reason: 'candidate_not_structurally_approved' };
     const syntax = checks.find(item => item.kind === 'syntax');
     const normalizedOutput = { ...command.output,
       validation: { ...command.output.validation, behavior: behavior.status } };
@@ -355,11 +375,15 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
       providerCalls: adapterCalls.length,
       timing: { taskElapsedMs: Date.now() - started } });
     save(path.join(cellRoot, 'experiment-result.json'), normalized);
-    const classification = classifyCell(command.output);
+    const classification = classifyCell({ product: command.output, bounded: rawTaskResult,
+      diagnostic: behavior.validationDiagnostic ?? null, behaviorStatus: behavior.status,
+      sourceBefore: before,
+      sourceAfter: after, allowedFiles: task.allowedFiles });
     save(path.join(cellRoot, 'cell-summary.json'), { variant, runIndex,
       classification, taskId: command.output.taskId,
       durableTaskDirectory: command.output.recovery?.registryRoot ?? null,
       providerAdapterCalls: adapterCalls.length, behavior: behavior.status,
+      validationDiagnostic: behavior.validationDiagnostic ?? null,
       sourceHead: manifest.sourceHead, harnessHead: head(HARNESS_ROOT) });
     return { classification, normalized, cellRoot };
   } finally { fs.rmSync(checkoutParent, { recursive: true, force: true }); }
@@ -392,6 +416,7 @@ export async function runStage1() {
     try {
       const result = await executeCell({ manifest, task, variant: row.variant, sessionRoot, runIndex: index });
       completed.push(result);
+      requireValue(verifyHarnessIdentity() === pre.harnessHead, 'harness changed after cell');
       if (!shouldContinueAfterCell(result.classification)) break;
     } catch (error) {
       stoppedError = error instanceof Error ? error.message : 'unknown infrastructure failure';
@@ -403,7 +428,9 @@ export async function runStage1() {
   save(path.join(sessionRoot, 'stage1-summary.json'), { cellsAttempted, cellsCompleted: completed.length,
     order: completed.map(item => item.normalized.context.variant),
     stoppedForInfrastructure: stoppedError !== null ||
-      completed.at(-1)?.classification === 'infrastructure_or_unclear_stop',
+      completed.at(-1)?.classification === 'infrastructure_failure',
+    stoppedClassification: stoppedError !== null ? 'infrastructure_failure' :
+      completed.length < 3 ? completed.at(-1)?.classification ?? null : null,
     stoppedError });
   if (completed.length > 0) {
     const { compareExperimentResults, renderComparison } = await import('./compare.mjs');

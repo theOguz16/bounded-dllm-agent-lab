@@ -83,19 +83,10 @@ const { pathToFileURL } = require('node:url');
       plan.rows[0]] }), /maximum cell count/);
     assert.throws(() => runtime.stage1Rows({ rows: plan.rows.filter(x => x.stage === 'stage1')
       .reverse() }), /order/);
-    assert.equal(runtime.classifyCell({ decision: 'bounded_task_completed',
-      sourceRepositoryUnchanged: true }), 'completed');
-    assert.equal(runtime.classifyCell({ decision: 'bounded_task_stopped',
-      failure: { stage: 'planner', code: 'invocation_journal_unavailable' } }),
-      'infrastructure_or_unclear_stop');
-    assert.equal(runtime.classifyCell({ decision: 'bounded_task_stopped',
-      failure: { stage: 'validation', code: 'bounded_task_required_validation_failed' } }),
-      'candidate_failure');
-    assert.equal(runtime.classifyCell({ decision: 'bounded_task_invalid',
-      failure: { stage: 'coding', code: 'bounded_task_coder_output_invalid' } }),
-      'candidate_failure');
-    assert.equal(runtime.shouldContinueAfterCell('candidate_failure'), true);
-    assert.equal(runtime.shouldContinueAfterCell('infrastructure_or_unclear_stop'), false);
+    assert.equal(runtime.shouldContinueAfterCell('candidate_validation_failure'), true);
+    assert.equal(runtime.shouldContinueAfterCell('candidate_governance_failure'), true);
+    assert.equal(runtime.shouldContinueAfterCell('infrastructure_failure'), false);
+    assert.equal(runtime.shouldContinueAfterCell('ambiguous_failure'), false);
     const journalEnvironment = process.env.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH;
     process.env.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH = path.join(temporary, 'wrong-journal.sqlite');
     try { await assert.rejects(runtime.runStage1(), /frozen journal path/); }

@@ -39,7 +39,7 @@ node research/context-token-matrix-v1/compare.mjs --format json --historical min
 
 The comparison command requires the same task hash, source HEAD, model, and reasoning across result files. It reports outcomes, validation, selected context, cumulative usage, turns, tools, expansion, and changed files. Percent change and shares are labeled derived; it makes no ranking or significance claim.
 
-The research-only live interface is prepared but has not been executed:
+The research-only live interface is:
 
 ```sh
 npm run research:context-token-matrix:preflight
@@ -47,3 +47,5 @@ BOUNDED_CODEX_INVOCATION_JOURNAL_PATH="$HOME/.bounded-agent/bounded-dllm-agent-l
 ```
 
 The first command uses a disposable checkout at the production source SHA and makes no model call. The second requires separate explicit authorization and writes each future cell outside `/tmp` under `$HOME/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/`.
+
+The first partial Stage 1 session, `stage1-sea2Yp`, remains immutable and outside the new primary matrix. [historical-stage1-sea2Yp-interpretation.json](historical-stage1-sea2Yp-interpretation.json) records its original runner classification and the audited interpretation of its Candidate compile failure. The research runner now requires a product failed-check receipt and a bounded local Candidate diagnostic before treating fail-fast `NOT_RUN` checks as a Candidate validation failure. Missing tools, missing execution evidence, source drift, and ambiguous diagnostics stop the stage; product validation results are unchanged.
