@@ -1,0 +1,214 @@
+{
+  "benchmarkVersion": "bounded-vs-codex-robustness/v1",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "normalInvocation": "codex exec --model gpt-5.6-luna -c model_reasoning_effort=\"medium\"",
+  "boundedInvocation": "bounded codex --task ... --allow ... --json; BOUNDED_CODEX_MODEL=gpt-5.6-luna",
+  "sessionId": "robustness-v1-2026-09-28",
+  "taskCount": 5,
+  "observationLimit": 10,
+  "tasks": [
+    {
+      "taskId": "R1",
+      "difficulty": "easy",
+      "source": "pilots/controlled-real-coding-v1/runpod-live-help/task.json",
+      "taskText": "Add early --help and -h handling to apps/cli/src/model-worker-runpod-live-smoke.ts. Help must exit zero, print concise usage with the command name, both flags, LLM_UPSTREAM_URL, DLLM_UPSTREAM_URL, LLM_MODEL_ID, DLLM_MODEL_ID, RUNPOD_LIVE_REQUIRED, and default proxy 127.0.0.1:8790. It must run before environment validation, report creation, proxy binding, or upstream calls. Preserve non-help behavior and existing public types. Change only the allowed file.",
+      "allowedFiles": [
+        "apps/cli/src/model-worker-runpod-live-smoke.ts"
+      ],
+      "oracle": "node {benchmark}/oracles/help.cjs --repository {candidate}",
+      "basis": {
+        "relevantFiles": 1,
+        "interfaceReasoning": "low",
+        "behavior": "localized CLI early exit",
+        "ambiguity": "low",
+        "validationBreadth": "build/typecheck/test plus existing offline help acceptance"
+      },
+      "order": [
+        "normal",
+        "bounded"
+      ],
+      "providerPrompt": "Add early --help and -h handling to apps/cli/src/model-worker-runpod-live-smoke.ts. Help must exit zero, print concise usage with the command name, both flags, LLM_UPSTREAM_URL, DLLM_UPSTREAM_URL, LLM_MODEL_ID, DLLM_MODEL_ID, RUNPOD_LIVE_REQUIRED, and default proxy 127.0.0.1:8790. It must run before environment validation, report creation, proxy binding, or upstream calls. Preserve non-help behavior and existing public types. Change only the allowed file.\nAllowed files: apps/cli/src/model-worker-runpod-live-smoke.ts\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "validationCommands": [
+        "npm run build",
+        "npm run typecheck",
+        "npm test",
+        "node {benchmark}/oracles/help.cjs --repository {candidate}"
+      ],
+      "policy": {
+        "retry": 0,
+        "repair": 0,
+        "apply": 0,
+        "boundedContext": "production-current",
+        "plannerBypass": false
+      },
+      "taskHash": "sha256:a946d552486f10d6c437ed963e3f8db455c6c8c722b2e4f4ecf0f14e1f245895"
+    },
+    {
+      "taskId": "R2",
+      "difficulty": "medium_a",
+      "source": "pilots/controlled-real-coding-v2/worker-request-id-correlation/task.json",
+      "taskText": "Make the HTTP workspace worker client reject otherwise valid refine, infill, and resolveConflict responses when response.requestId differs from the submitted requestId. Matching IDs and health behavior must remain valid. Strengthen the existing offline request-ID regression check so it verifies that mismatch rejection is specifically due to correlation while valid responses are accepted. Use no real network. Preserve endpoint construction, payloads, timeout behavior, response schemas, and dependencies. Change only the allowed files.",
+      "allowedFiles": [
+        "packages/worker-contract/src/index.ts",
+        "scripts/controlled-coding-pilot-request-id-check.cjs"
+      ],
+      "oracle": "node {benchmark}/oracles/request-id.cjs --repository {candidate}",
+      "basis": {
+        "relevantFiles": 2,
+        "interfaceReasoning": "request/response contract across three methods",
+        "behavior": "positive and negative correlation",
+        "ambiguity": "moderate",
+        "validationBreadth": "build/typecheck/test plus offline mock-fetch acceptance"
+      },
+      "order": [
+        "bounded",
+        "normal"
+      ],
+      "providerPrompt": "Make the HTTP workspace worker client reject otherwise valid refine, infill, and resolveConflict responses when response.requestId differs from the submitted requestId. Matching IDs and health behavior must remain valid. Strengthen the existing offline request-ID regression check so it verifies that mismatch rejection is specifically due to correlation while valid responses are accepted. Use no real network. Preserve endpoint construction, payloads, timeout behavior, response schemas, and dependencies. Change only the allowed files.\nAllowed files: packages/worker-contract/src/index.ts, scripts/controlled-coding-pilot-request-id-check.cjs\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "validationCommands": [
+        "npm run build",
+        "npm run typecheck",
+        "npm test",
+        "node {benchmark}/oracles/request-id.cjs --repository {candidate}"
+      ],
+      "policy": {
+        "retry": 0,
+        "repair": 0,
+        "apply": 0,
+        "boundedContext": "production-current",
+        "plannerBypass": false
+      },
+      "taskHash": "sha256:615d27559a9246d6dfddb860a58c4df3873b6829161b774bf5e646047fcd1465"
+    },
+    {
+      "taskId": "R3",
+      "difficulty": "medium_b",
+      "source": "pilots/controlled-real-coding-v2/local-json-schema-error-classification/task.json",
+      "taskText": "Classify HTTP 400 from the local OpenAI-compatible model client as JSON-schema unsupported only when bounded upstream error semantics specifically say response_format/json_schema support is unavailable. Generic invalid requests and invalid supplied schemas must remain request rejected; json_object mode must not use the unsupported classification. Strengthen the existing offline regression check with a generic non-schema 400 case and preserve unrelated transport mapping, credentials, request construction, timeout behavior, and dependencies. Change only the allowed files.",
+      "allowedFiles": [
+        "packages/integrations/src/local-openai-compatible-model-client.ts",
+        "scripts/controlled-coding-pilot-local-json-schema-check.cjs"
+      ],
+      "oracle": "node {benchmark}/oracles/local-json.cjs --repository {candidate}",
+      "basis": {
+        "relevantFiles": 2,
+        "interfaceReasoning": "SDK error shape and provider-neutral error mapping",
+        "behavior": "several semantically distinct HTTP 400 cases",
+        "ambiguity": "moderate",
+        "validationBreadth": "build/typecheck/test plus mocked-fetch acceptance"
+      },
+      "order": [
+        "normal",
+        "bounded"
+      ],
+      "providerPrompt": "Classify HTTP 400 from the local OpenAI-compatible model client as JSON-schema unsupported only when bounded upstream error semantics specifically say response_format/json_schema support is unavailable. Generic invalid requests and invalid supplied schemas must remain request rejected; json_object mode must not use the unsupported classification. Strengthen the existing offline regression check with a generic non-schema 400 case and preserve unrelated transport mapping, credentials, request construction, timeout behavior, and dependencies. Change only the allowed files.\nAllowed files: packages/integrations/src/local-openai-compatible-model-client.ts, scripts/controlled-coding-pilot-local-json-schema-check.cjs\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "validationCommands": [
+        "npm run build",
+        "npm run typecheck",
+        "npm test",
+        "node {benchmark}/oracles/local-json.cjs --repository {candidate}"
+      ],
+      "policy": {
+        "retry": 0,
+        "repair": 0,
+        "apply": 0,
+        "boundedContext": "production-current",
+        "plannerBypass": false
+      },
+      "taskHash": "sha256:11ead8c1b16775b74f52eb585d59a4913d39ceb88823da734d2453066bbab959"
+    },
+    {
+      "taskId": "R4",
+      "difficulty": "medium_c",
+      "source": "packages/integrations/src/codex-event-parser.ts; scripts/smoke/codex-event-parser-smoke.cjs",
+      "taskText": "Harden Codex JSONL event-order validation. A turn.completed or turn.failed without a preceding active turn.started, a duplicate thread.started, and duplicate terminal events for one turn must yield agent_protocol_invalid with a protocol diagnostic. Preserve valid multi-turn streams, cumulative usage semantics, and existing error-event classification. Extend the existing parser smoke with regression assertions for invalid and valid sequences. Change only the allowed files.",
+      "allowedFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "oracle": "node {benchmark}/oracles/event-order.cjs {candidate}",
+      "basis": {
+        "relevantFiles": 2,
+        "interfaceReasoning": "event stream state and telemetry contract",
+        "behavior": "several valid and invalid state transitions",
+        "ambiguity": "moderate",
+        "validationBreadth": "build/typecheck/test plus independent event-order oracle"
+      },
+      "order": [
+        "bounded",
+        "normal"
+      ],
+      "providerPrompt": "Harden Codex JSONL event-order validation. A turn.completed or turn.failed without a preceding active turn.started, a duplicate thread.started, and duplicate terminal events for one turn must yield agent_protocol_invalid with a protocol diagnostic. Preserve valid multi-turn streams, cumulative usage semantics, and existing error-event classification. Extend the existing parser smoke with regression assertions for invalid and valid sequences. Change only the allowed files.\nAllowed files: packages/integrations/src/codex-event-parser.ts, scripts/smoke/codex-event-parser-smoke.cjs\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "validationCommands": [
+        "npm run build",
+        "npm run typecheck",
+        "npm test",
+        "node {benchmark}/oracles/event-order.cjs {candidate}"
+      ],
+      "policy": {
+        "retry": 0,
+        "repair": 0,
+        "apply": 0,
+        "boundedContext": "production-current",
+        "plannerBypass": false
+      },
+      "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0"
+    },
+    {
+      "taskId": "R5",
+      "difficulty": "hard",
+      "source": "packages/repo-intelligence/src/pr-changed-files-adapter.ts; packages/repo-intelligence/src/git-diff-adapter.ts",
+      "taskText": "Prevent untrusted PR and diff path inputs from selecting files outside the repository root. Reject absolute paths, parent traversal, NUL-bearing paths, and symlinks that resolve outside the root in PR changed-file summaries and environment changed-file parsing. A diffFilePath outside root must not be read. Preserve safe relative paths including spaces and rename metadata, normal in-root diff behavior, and existing diagnostics/report contracts. Add regression assertions to the existing PR and real-repo-diff smoke files. Do not add dependencies or new files. Change only the allowed files.",
+      "allowedFiles": [
+        "packages/repo-intelligence/src/pr-changed-files-adapter.ts",
+        "packages/repo-intelligence/src/git-diff-adapter.ts",
+        "apps/cli/src/pr-changed-files-smoke.ts",
+        "apps/cli/src/real-repo-diff-smoke.ts"
+      ],
+      "oracle": "node {benchmark}/oracles/repo-paths.cjs {candidate}",
+      "basis": {
+        "relevantFiles": 4,
+        "interfaceReasoning": "PR and Git adapters, filesystem containment, downstream smoke contracts",
+        "behavior": "path parsing and realpath boundary with backward compatibility",
+        "ambiguity": "higher",
+        "validationBreadth": "build/typecheck/test plus filesystem oracle"
+      },
+      "order": [
+        "normal",
+        "bounded"
+      ],
+      "providerPrompt": "Prevent untrusted PR and diff path inputs from selecting files outside the repository root. Reject absolute paths, parent traversal, NUL-bearing paths, and symlinks that resolve outside the root in PR changed-file summaries and environment changed-file parsing. A diffFilePath outside root must not be read. Preserve safe relative paths including spaces and rename metadata, normal in-root diff behavior, and existing diagnostics/report contracts. Add regression assertions to the existing PR and real-repo-diff smoke files. Do not add dependencies or new files. Change only the allowed files.\nAllowed files: packages/repo-intelligence/src/pr-changed-files-adapter.ts, packages/repo-intelligence/src/git-diff-adapter.ts, apps/cli/src/pr-changed-files-smoke.ts, apps/cli/src/real-repo-diff-smoke.ts\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "validationCommands": [
+        "npm run build",
+        "npm run typecheck",
+        "npm test",
+        "node {benchmark}/oracles/repo-paths.cjs {candidate}"
+      ],
+      "policy": {
+        "retry": 0,
+        "repair": 0,
+        "apply": 0,
+        "boundedContext": "production-current",
+        "plannerBypass": false
+      },
+      "taskHash": "sha256:8a57b94da736db2720fb3181243f706a7d65ac57b0c00802eae32cbc7a4128eb"
+    }
+  ]
+}
