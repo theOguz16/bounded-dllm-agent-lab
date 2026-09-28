@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
-import { readPlannedReplacementReview, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
+import { readPlannedReplacementReview, readPlannedFinalReplacementReview, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
 import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
@@ -95,6 +95,28 @@ function replacementPriorValid(records: readonly InvocationRecord[], authority: 
       prior[0].plannedExperiment?.planSlotHash ||
       record.plannedExperiment?.sessionId === review.failedSessionId ||
       record.plannedExperiment?.sessionId === authority.sessionId);
+}
+function finalReplacementPriorValid(records: readonly InvocationRecord[], authority: PlannedExperimentAuthority): boolean {
+  if (authority.replacementAttemptIndex !== 3 || !authority.replacesSessionId) return false;
+  const review = readPlannedFinalReplacementReview(authority.manifestPath);
+  const prior = records.filter(record => record.plannedExperiment?.sessionId === review.priorSessionId);
+  const original = readPlannedReplacementReview(authority.manifestPath);
+  const first = records.filter(record => record.plannedExperiment?.sessionId === original.failedSessionId);
+  return authority.replacesSessionId === review.priorSessionId && prior.length === 2 &&
+    first.length === 1 && first[0].stage === "planner" && first[0].state === "completed" &&
+    first[0].runId === original.failedPlannerRunId &&
+    prior.every(record => record.state === "completed" &&
+      record.plannedExperiment?.replacementAttemptIndex === 2 &&
+      record.plannedExperiment?.cellHash === review.priorCellHash &&
+      record.plannedExperiment?.sessionHash === review.priorSessionHash &&
+      record.plannedExperiment?.harnessHead === review.priorHarnessHead &&
+      record.plannedExperiment?.manifestHash === authority.manifestHash &&
+      record.plannedExperiment?.sourceHead === authority.sourceHead) &&
+    prior.some(record => record.stage === "planner" && record.runId === review.priorPlannerRunId) &&
+    prior.some(record => record.stage === "coder" && record.runId === review.priorCoderRunId) &&
+    records.every(record => record.plannedExperiment?.planSlotHash !== authority.planSlotHash ||
+      [original.failedSessionId, review.priorSessionId, authority.sessionId]
+        .includes(record.plannedExperiment.sessionId));
 }
 const SAFE_DIAGNOSTIC_CODES = new Set([
   "agent_command_budget_exceeded", "agent_event_budget_exceeded",
@@ -260,6 +282,14 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           harness_head TEXT NOT NULL,
           authorized_at INTEGER NOT NULL
         )`);
+        db.exec(`CREATE TABLE IF NOT EXISTS planned_experiment_final_replacements (
+          prior_session_id TEXT PRIMARY KEY,
+          final_session_id TEXT NOT NULL UNIQUE,
+          final_session_hash TEXT NOT NULL,
+          review_hash TEXT NOT NULL,
+          harness_head TEXT NOT NULL,
+          authorized_at INTEGER NOT NULL
+        )`);
       } catch (error) { db.close(); throw error; }
       return db;
     } catch {
@@ -297,6 +327,36 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       return next;
     });
   return Object.freeze({
+    authorizePlannedFinalReplacement(authority: PlannedExperimentAuthority,
+      sourceRepositoryPath: string): void {
+      try { validatePlannedContextMatrixAuthority(authority, {
+        sourceRepositoryPath, model: authority.model, reasoning: authority.reasoning,
+        stage: "planner" }); }
+      catch { throw new InvocationJournalError("invocation_replay_forbidden", "Invalid final replacement authority."); }
+      transaction(db => {
+        const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+          .all().map(row => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+        const original = readPlannedReplacementReview(authority.manifestPath);
+        const finalReview = readPlannedFinalReplacementReview(authority.manifestPath);
+        const priorAuthorization = db.prepare(`SELECT * FROM planned_experiment_replacements
+          WHERE replacement_session_id = ?`).get(authority.replacesSessionId ?? "") as Record<string, unknown> | undefined;
+        if (authority.variant !== "minimal" || !finalReplacementPriorValid(rows, authority) ||
+            priorAuthorization?.failed_session_id !== original.failedSessionId ||
+            priorAuthorization?.replacement_session_hash !== finalReview.priorSessionHash ||
+            priorAuthorization?.review_hash !== rows.find(row =>
+              row.plannedExperiment?.sessionId === finalReview.priorSessionId)?.plannedExperiment?.replacementReviewHash ||
+            priorAuthorization?.harness_head !== finalReview.priorHarnessHead ||
+            rows.some(row => row.plannedExperiment?.sessionId === authority.sessionId) ||
+            db.prepare(`SELECT 1 FROM planned_experiment_final_replacements
+              WHERE prior_session_id = ? OR final_session_id = ?`)
+              .get(authority.replacesSessionId ?? "", authority.sessionId))
+          throw new InvocationJournalError("invocation_replay_forbidden", "Final replacement requires the exact reviewed prior sessions.");
+        db.prepare(`INSERT INTO planned_experiment_final_replacements
+          (prior_session_id, final_session_id, final_session_hash, review_hash, harness_head, authorized_at)
+          VALUES (?, ?, ?, ?, ?, ?)`).run(authority.replacesSessionId ?? "", authority.sessionId,
+            authority.sessionHash, authority.replacementReviewHash ?? "", authority.harnessHead, now());
+      });
+    },
     authorizePlannedReplacement(authority: PlannedExperimentAuthority,
       sourceRepositoryPath: string): void {
       try { validatePlannedContextMatrixAuthority(authority, {
@@ -364,24 +424,37 @@ export function createDurableInvocationJournal(file: string, now: () => number =
             .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
             .filter((record) => record.plannedExperiment !== undefined);
           const replacement = planned.replacementAttemptIndex === 2;
+          const finalReplacement = planned.replacementAttemptIndex === 3;
           const replacementRow = replacement ? db.prepare(`SELECT * FROM planned_experiment_replacements
             WHERE replacement_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
+          const finalRow = finalReplacement ? db.prepare(`SELECT * FROM planned_experiment_final_replacements
+            WHERE final_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
           if ((replacement && (!replacementRow ||
                 replacementRow.failed_session_id !== planned.replacesSessionId ||
                 replacementRow.replacement_session_hash !== planned.sessionHash ||
                 replacementRow.review_hash !== planned.replacementReviewHash ||
                 replacementRow.harness_head !== planned.harnessHead ||
                 !replacementPriorValid(allPlanned, planned))) ||
+              (finalReplacement && (!finalRow ||
+                finalRow.prior_session_id !== planned.replacesSessionId ||
+                finalRow.final_session_hash !== planned.sessionHash ||
+                finalRow.review_hash !== planned.replacementReviewHash ||
+                finalRow.harness_head !== planned.harnessHead ||
+                !finalReplacementPriorValid(allPlanned, planned))) ||
               allPlanned.some((record) => record.stage === input.stage &&
                 record.plannedExperiment?.planSlotHash === planned.planSlotHash &&
-                (!replacement || record.plannedExperiment?.sessionId !== planned.replacesSessionId)) ||
+                !(replacement && record.plannedExperiment?.sessionId === planned.replacesSessionId) &&
+                !(finalReplacement && [planned.replacesSessionId,
+                  readPlannedReplacementReview(planned.manifestPath).failedSessionId]
+                    .includes(record.plannedExperiment?.sessionId ?? ""))) ||
               allPlanned.some((record) => record.plannedExperiment?.sessionId === planned.sessionId &&
                 record.plannedExperiment?.sessionHash !== planned.sessionHash))
             throw new InvocationJournalError("invocation_replay_forbidden",
               "Planned experiment cell or session authority is already consumed.");
           if (input.stage === "coder" && !allPlanned.some((record) =>
                 record.stage === "planner" && record.state === "completed" &&
-                record.plannedExperiment?.cellHash === planned.cellHash))
+                record.plannedExperiment?.cellHash === planned.cellHash &&
+                record.plannedExperiment?.sessionId === planned.sessionId))
             throw new InvocationJournalError("invocation_replay_forbidden",
               "Coder requires its own completed planned-cell planner operation.");
         } else if (prior.length > 0) {
@@ -515,7 +588,8 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
   replayForbidden: boolean; plannerState: InvocationState | null;
   coderState: InvocationState | null;
   availability: "available" | "consumed_successfully" | "consumed_infrastructure_invalidated" |
-    "replacement_authorized" | "replacement_consumed" | "blocked"; }>[] {
+    "replacement_authorized" | "replacement_consumed" | "final_replacement_authorized" |
+    "final_replacement_consumed" | "blocked"; }>[] {
   if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
     throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
   for (const cell of cells) validatePlannedContextMatrixAuthority(cell.authority, {
@@ -527,6 +601,8 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
       .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key));
     const hasReplacementTable = Boolean(db.prepare(`SELECT 1 FROM sqlite_master
       WHERE type = 'table' AND name = 'planned_experiment_replacements'`).get());
+    const hasFinalTable = Boolean(db.prepare(`SELECT 1 FROM sqlite_master
+      WHERE type = 'table' AND name = 'planned_experiment_final_replacements'`).get());
     return Object.freeze(cells.map((cell) => {
       const matching = records.filter((record) =>
         record.plannedExperiment?.planSlotHash === cell.authority.planSlotHash);
@@ -539,6 +615,7 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
       const coder = own.find((record) => record.stage === "coder");
       const consumed = matching.length > 0;
       const replacement = cell.authority.replacementAttemptIndex === 2;
+      const finalReplacement = cell.authority.replacementAttemptIndex === 3;
       const existing = hasReplacementTable ? db.prepare(`SELECT * FROM planned_experiment_replacements
         WHERE failed_session_id = ? OR replacement_session_id = ?`)
         .get(cell.authority.replacesSessionId ?? "", cell.authority.sessionId) as
@@ -546,9 +623,26 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
       const replacementAllowed = replacement && replacementPriorValid(records, cell.authority) &&
         (!existing || existing.replacement_session_id === cell.authority.sessionId &&
           existing.replacement_session_hash === cell.authority.sessionHash);
-      const authorized = replacement ? replacementAllowed && own.length === 0 && !sessionCollision :
+      const finalExisting = hasFinalTable ? db.prepare(`SELECT * FROM planned_experiment_final_replacements
+        WHERE prior_session_id = ? OR final_session_id = ?`)
+        .get(cell.authority.replacesSessionId ?? "", cell.authority.sessionId) as
+        Record<string, unknown> | undefined : undefined;
+      const original = finalReplacement ? readPlannedReplacementReview(cell.authority.manifestPath) : null;
+      const priorAuthorization = finalReplacement && hasReplacementTable ?
+        db.prepare(`SELECT * FROM planned_experiment_replacements WHERE replacement_session_id = ?`)
+          .get(cell.authority.replacesSessionId ?? "") as Record<string, unknown> | undefined : undefined;
+      const finalAllowed = finalReplacement && finalReplacementPriorValid(records, cell.authority) &&
+        priorAuthorization?.failed_session_id === original?.failedSessionId &&
+        priorAuthorization?.replacement_session_hash ===
+          readPlannedFinalReplacementReview(cell.authority.manifestPath).priorSessionHash &&
+        (!finalExisting || finalExisting.final_session_id === cell.authority.sessionId &&
+          finalExisting.final_session_hash === cell.authority.sessionHash);
+      const authorized = finalReplacement ? finalAllowed && own.length === 0 && !sessionCollision :
+        replacement ? replacementAllowed && own.length === 0 && !sessionCollision :
         !consumed && !sessionCollision;
-      const availability = replacement ?
+      const availability = finalReplacement ?
+        (finalAllowed ? own.length === 0 ? "final_replacement_authorized" :
+          "final_replacement_consumed" : "blocked") : replacement ?
         (replacementAllowed ? own.length === 0 ? "replacement_authorized" : "replacement_consumed" : "blocked") :
         (!consumed && !sessionCollision ? "available" : matching.some((record) =>
           record.plannedExperiment?.sessionId === "stage1-70a2d3b048822c4ab11b779d") ?

@@ -38,6 +38,20 @@ const { pathToFileURL } = require('node:url');
       ...specification, commands: [specification.commands[0]] }, async () => null,
     { runtime: 'docker', sourceRepositoryPath: source });
   };
+  const executeConfigured = async (source, name) => {
+    const candidate = path.join(parent, name);
+    fs.cpSync(source, candidate, { recursive: true, verbatimSymlinks: true,
+      filter: entry => path.basename(entry) !== '.git' });
+    fs.mkdirSync(path.join(candidate, '.validation-output'));
+    const config = JSON.parse(fs.readFileSync(path.join(source, '.bounded/config.json'), 'utf8'));
+    const specification = validationSpecification(config, source);
+    assert.deepEqual(specification.commands.map(command => command.args),
+      [['run', 'build'], ['run', 'typecheck'], ['run', 'test']]);
+    return runContainerizedWorkspaceExecution({ tempWorkspacePath: candidate,
+      tempApplyDecision: 'temp_apply_ready', tempWorkspaceCleanedUp: false,
+      ...specification }, async () => null,
+    { runtime: 'docker', sourceRepositoryPath: source });
+  };
   try {
     const bareParent = path.join(parent, 'bare');
     fs.mkdirSync(bareParent);
@@ -62,6 +76,11 @@ const { pathToFileURL } = require('node:url');
     assert.equal(after.commandResults[0]?.passed, true);
     assert.equal(after.decision, 'temp_validation_passed');
     assert.deepEqual(after.issues, []);
+    const configured = await executeConfigured(ready, 'full-candidate');
+    assert.equal(configured.decision, 'temp_validation_passed');
+    assert.deepEqual(configured.commandResults.map(result => result.exitCode), [0, 0, 0]);
+    assert.deepEqual(configured.issues, []);
+    assert.equal(runtime.verifySourceIdentity(ready, manifest.sourceHead), '?? .bounded/');
     console.log('context-token-matrix-validation-dependencies-smoke: PASS (fake provider calls 0)');
   } finally { fs.rmSync(parent, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

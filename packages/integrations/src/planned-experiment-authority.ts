@@ -11,6 +11,8 @@ const BASELINE = "5bc84d195a1a896a5022590378b294561accbabe";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const REVIEW_RELATIVE = "research/context-token-matrix-v1/replacement-review.json";
 const REVIEW_HASH = "sha256:3646457c942383b63f1972df73901f4ec453df81cb407d3c3618507855274361";
+const FINAL_REVIEW_RELATIVE = "research/context-token-matrix-v1/final-replacement-review.json";
+const FINAL_REVIEW_HASH = "sha256:1211d532c36464ce5d615b4795b7a9c0df03c945ac899f77e0c98413e8d5fe23";
 const VARIANTS = ["minimal", "current", "expanded"] as const;
 const SHA = /^sha256:[0-9a-f]{64}$/;
 const HEAD = /^[0-9a-f]{40}$/;
@@ -55,7 +57,7 @@ export type PlannedExperimentAuthority = Readonly<{
   retryCount: 0;
   repairCount: 0;
   applyCount: 0;
-  replacementAttemptIndex?: 2;
+  replacementAttemptIndex?: 2 | 3;
   replacesSessionId?: string;
   replacementReviewHash?: string;
 }>;
@@ -77,6 +79,61 @@ export type PlannedReplacementReview = Readonly<{
   replacementAttemptIndex: 2;
   maximumReplacementAttempts: 1;
 }>;
+
+export type PlannedFinalReplacementReview = Readonly<{
+  version: "context-token-matrix-final-replacement-review/v1";
+  protocolVersion: string; manifestHash: string; sourceHead: string;
+  taskId: string; plannedCells: readonly string[]; model: string; reasoning: string;
+  retryCount: 0; repairCount: 0; applyCount: 0;
+  priorSessionId: string; priorAttemptIndex: 2; priorHarnessHead: string;
+  priorCellHash: string; priorSessionHash: string;
+  priorPlannerRunId: string; priorCoderRunId: string;
+  terminalClassification: "infrastructure_invalidated";
+  defect: string; syntaxCommand: string; syntaxExitCode: 127;
+  syntaxEvidenceHash: string; fixCommit: string;
+  fixReproducedAndAuditedOffline: true;
+  evidence: Readonly<Record<string, string>>;
+  finalAttemptIndex: 3; terminalForStage1Recovery: true;
+}>;
+
+/** Exact reviewed final authority. A caller-supplied attempt index is insufficient. */
+export function readPlannedFinalReplacementReview(manifestPath: string): PlannedFinalReplacementReview {
+  const harness = path.resolve(realpathSync(manifestPath), "../../..");
+  const bytes = readFileSync(path.join(harness, FINAL_REVIEW_RELATIVE));
+  const committed = spawnSync("git", ["show", `HEAD:${FINAL_REVIEW_RELATIVE}`],
+    { cwd: harness, stdio: ["ignore", "pipe", "pipe"], timeout: 10_000 });
+  if (committed.status !== 0 || hash(bytes) !== FINAL_REVIEW_HASH ||
+      hash(committed.stdout) !== FINAL_REVIEW_HASH) deny("reviewed final replacement record");
+  const review = JSON.parse(bytes.toString("utf8")) as PlannedFinalReplacementReview;
+  if (review.version !== "context-token-matrix-final-replacement-review/v1" ||
+      review.protocolVersion !== "context-token-matrix-protocol/v1" ||
+      review.manifestHash !== FROZEN_MANIFEST_HASH || review.sourceHead !== SOURCE ||
+      review.taskId !== "controlled-real-coding-v2.worker-request-id-correlation" ||
+      !same(review.plannedCells, ["A.1.minimal", "A.1.current", "A.1.expanded"]) ||
+      review.model !== "gpt-5.6-luna" || review.reasoning !== "medium" ||
+      review.retryCount !== 0 || review.repairCount !== 0 || review.applyCount !== 0 ||
+      review.priorSessionId !== "stage1-6dd625d066c365928d93bd1f" ||
+      review.priorAttemptIndex !== 2 ||
+      review.priorHarnessHead !== "09028271e391c7f723fcf6cb1fca6a9bd0a4a3b1" ||
+      review.priorCellHash !== "sha256:fd0fdff890726f6c39abbb0758930d70374e8d5f87b3a4a4a1f61d7270eeb1b0" ||
+      review.priorSessionHash !== "sha256:1cb4ecaed8f242fb9adcdc46b6e2b1eb443f73f966f1d8ed04014dfb4659e4d7" ||
+      review.priorPlannerRunId !== "matrix.9a6ddddfae8629a0.minimal.planner.codex.3905526266859afa1a06d66471a09a87" ||
+      review.priorCoderRunId !== "matrix.9a6ddddfae8629a0.minimal.coder.f84482474cc035f8b54046aa1c7bdf79" ||
+      review.terminalClassification !== "infrastructure_invalidated" ||
+      review.defect !== "missing-pinned-source-dependencies-in-configured-validation" ||
+      review.syntaxCommand !== "npm run build" || review.syntaxExitCode !== 127 ||
+      review.syntaxEvidenceHash !== "sha256:d0b1fafb9eed74d4fcc114e9eb8a8f44f0479ef9047766a40be6a6f73c49e787" ||
+      review.fixCommit !== "01727bef45cd53ad5978ccd754889abf7e411bee" ||
+      review.fixReproducedAndAuditedOffline !== true || review.finalAttemptIndex !== 3 ||
+      review.terminalForStage1Recovery !== true ||
+      review.evidence?.rawBoundedSha256 !== "sha256:379e3e21503ac48287173be457d3e96c84e09faeb834392a6550ab4dec1d6b59" ||
+      review.evidence?.rawProductSha256 !== "sha256:5762dcc9530c9c875f9a01648e5c9fba2780366c72faf0edb8c9853e24653e7f" ||
+      review.evidence?.experimentResultSha256 !== "sha256:71244d2f120bdcb22fbb1bbfb5ae7475cc3efa9533ca01d78b19bed983b91ad1" ||
+      review.evidence?.cellSummarySha256 !== "sha256:63c7da6def2ce99dc73f45fb9fb062c3f355830fbdd8113532568728a7770492" ||
+      review.evidence?.stage1SummarySha256 !== "sha256:0e05028b180d474b70c6771aff132c6fae79fffabe33f16be7fc0e44bc05ca33")
+    deny("final replacement review fields");
+  return review;
+}
 
 /** Reviewed, committed evidence for the one V1 infrastructure replacement. */
 export function readPlannedReplacementReview(manifestPath: string): PlannedReplacementReview {
@@ -105,7 +162,7 @@ export function readPlannedReplacementReview(manifestPath: string): PlannedRepla
 export function createPlannedContextMatrixAuthority(input: Readonly<{
   manifestPath: string; sourceRepositoryPath: string; sessionId: string;
   harnessHead: string; variant: string; repetitionIndex: number;
-  replacementAttemptIndex?: 2; replacesSessionId?: string;
+  replacementAttemptIndex?: 2 | 3; replacesSessionId?: string;
 }>): PlannedExperimentAuthority {
   if (!input || typeof input.manifestPath !== "string" ||
       typeof input.sourceRepositoryPath !== "string" ||
@@ -148,19 +205,23 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
       !same(definition.allowedMutationPaths, task.allowedFiles)) deny("base coding task");
   const variant = input.variant as PlannedExperimentAuthority["variant"];
   const cellId = `A.1.${variant}`;
-  const replacement = input.replacementAttemptIndex === undefined ? null :
-    readPlannedReplacementReview(manifestPath);
-  if ((replacement === null && input.replacesSessionId !== undefined) ||
-      (replacement !== null && (input.replacementAttemptIndex !== 2 ||
-        input.replacesSessionId !== replacement.failedSessionId ||
-        input.sessionId === replacement.failedSessionId ||
+  const replacement = input.replacementAttemptIndex === 2 ? readPlannedReplacementReview(manifestPath) :
+    input.replacementAttemptIndex === 3 ? readPlannedFinalReplacementReview(manifestPath) : null;
+  const replacesSessionId = input.replacementAttemptIndex === 2
+    ? (replacement as PlannedReplacementReview).failedSessionId :
+    input.replacementAttemptIndex === 3 ? (replacement as PlannedFinalReplacementReview).priorSessionId : null;
+  if ((replacement === null && (input.replacesSessionId !== undefined ||
+        input.replacementAttemptIndex !== undefined)) ||
+      (replacement !== null && (input.replacesSessionId !== replacesSessionId ||
+        input.sessionId === replacesSessionId ||
         git(harness, ["merge-base", "--is-ancestor", replacement.fixCommit,
           input.harnessHead]) !== ""))) deny("replacement attempt authority");
+  const reviewHash = input.replacementAttemptIndex === 2 ? REVIEW_HASH : FINAL_REVIEW_HASH;
   const sessionHash = canonicalHash({ version: PLANNED_EXPERIMENT_VERSION,
     protocolVersion: manifest.protocolVersion, manifestHash: FROZEN_MANIFEST_HASH,
     sessionId: input.sessionId, harnessHead: input.harnessHead, sourceHead: SOURCE,
-    ...(replacement === null ? {} : { replacementAttemptIndex: 2,
-      replacesSessionId: replacement.failedSessionId, replacementReviewHash: REVIEW_HASH }) });
+    ...(replacement === null ? {} : { replacementAttemptIndex: input.replacementAttemptIndex,
+      replacesSessionId, replacementReviewHash: reviewHash }) });
   const planSlotHash = canonicalHash({ version: PLANNED_EXPERIMENT_VERSION,
     protocolVersion: manifest.protocolVersion, manifestHash: FROZEN_MANIFEST_HASH,
     sourceHead: SOURCE, taskId: task.taskId, baseTaskHash: task.taskHash,
@@ -175,8 +236,8 @@ export function createPlannedContextMatrixAuthority(input: Readonly<{
     allowedFiles: Object.freeze([...task.allowedFiles]), cellId, variant,
     repetitionIndex: 1, planSlotHash, cellHash, model: manifest.model,
     reasoning: manifest.reasoning, retryCount: 0, repairCount: 0, applyCount: 0,
-    ...(replacement === null ? {} : { replacementAttemptIndex: 2 as const,
-      replacesSessionId: replacement.failedSessionId, replacementReviewHash: REVIEW_HASH }) });
+    ...(replacement === null ? {} : { replacementAttemptIndex: input.replacementAttemptIndex,
+      replacesSessionId: replacesSessionId!, replacementReviewHash: reviewHash }) });
 }
 
 export function validatePlannedContextMatrixAuthority(authority: PlannedExperimentAuthority,

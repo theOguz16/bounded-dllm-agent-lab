@@ -15,7 +15,7 @@ import { codexCommand } from '../../dist/apps/cli/src/commands/codex.js';
 import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-bounded-task.js';
 import { runRepoIntelligenceBoundCoderFlow } from '../../dist/packages/product-runtime/src/repo-intelligence-context-binding.js';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
-import { createPlannedContextMatrixAuthority, readPlannedReplacementReview } from '../../dist/packages/integrations/src/planned-experiment-authority.js';
+import { createPlannedContextMatrixAuthority, readPlannedReplacementReview, readPlannedFinalReplacementReview } from '../../dist/packages/integrations/src/planned-experiment-authority.js';
 import { createDurableInvocationJournal, inspectPlannedExperimentJournal } from '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
 
@@ -72,6 +72,36 @@ export function verifyReplacementEvidence(home = os.homedir()) {
   return { failedSessionId: review.failedSessionId,
     terminalClassification: review.terminalClassification, defect: review.defect,
     fixCommit: review.fixCommit, replacementAttemptIndex: review.replacementAttemptIndex };
+}
+export function verifyFinalReplacementEvidence(home = os.homedir()) {
+  const review = readPlannedFinalReplacementReview(path.join(HARNESS_ROOT,
+    'research/context-token-matrix-v1/experiment-manifest.json'));
+  const root = path.join(outputParent(home), review.priorSessionId);
+  for (const [relative, key] of [
+    ['stage1-summary.json', 'stage1SummarySha256'],
+    ['01-minimal/cell-summary.json', 'cellSummarySha256'],
+    ['01-minimal/raw-product-result.json', 'rawProductSha256'],
+    ['01-minimal/raw-bounded-result.json', 'rawBoundedSha256'],
+    ['01-minimal/experiment-result.json', 'experimentResultSha256']])
+    requireValue(sha(fs.readFileSync(path.join(root, relative))) === review.evidence[key],
+      `final replacement evidence changed: ${relative}`);
+  const summary = json(path.join(root, 'stage1-summary.json'));
+  const cell = json(path.join(root, '01-minimal/cell-summary.json'));
+  const product = json(path.join(root, '01-minimal/raw-product-result.json'));
+  const bounded = json(path.join(root, '01-minimal/raw-bounded-result.json'));
+  const syntax = bounded.verifierResult?.validationEvidence?.checks?.find(check => check.kind === 'syntax');
+  requireValue(summary.cellsAttempted === 1 && summary.cellsCompleted === 1 &&
+    same(summary.order, ['minimal']) && summary.stoppedClassification === 'ambiguous_failure' &&
+    cell.cellHash === review.priorCellHash && cell.sessionHash === review.priorSessionHash &&
+    cell.harnessHead === review.priorHarnessHead &&
+    product.candidate?.changedFileCount === 2 && product.apply === 'NOT_RUN' &&
+    product.sourceRepositoryUnchanged === true &&
+    product.failure?.code === 'bounded_task_required_validation_not_run' &&
+    syntax?.status === 'failed' && syntax.evidenceHashes?.includes(review.syntaxEvidenceHash),
+  'final replacement terminal evidence');
+  return { failedSessionId: review.priorSessionId,
+    terminalClassification: review.terminalClassification, defect: review.defect,
+    fixCommit: review.fixCommit, replacementAttemptIndex: review.finalAttemptIndex };
 }
 export function verifyHarnessIdentity(root = HARNESS_ROOT) {
   requireValue(git(root, ['branch', '--show-current']).stdout.trim() ===
@@ -137,7 +167,7 @@ export async function prepareSourceCheckout(parent, manifest, harness = HARNESS_
   const doctor = await doctorCommand(root);
   requireValue(doctor.exitCode === 0 && doctor.output?.ok === true &&
     doctor.output.repositoryRoot === fs.realpathSync(root), 'source doctor failed');
-  return { root, doctor: doctor.output };
+  return { root, doctor: doctor.output, dependencyProvisioning: 'PASS' };
 }
 export function makeConfig(manifest, task, variant) {
   requireValue(manifest.sourceHead === SOURCE && manifest.model === MODEL &&
@@ -224,13 +254,17 @@ export async function proveVariantPayloads(root, manifest, task) {
       selectedPaths: payloads[variant].evidence.map(item => item.path),
       runtimeReadableFiles: runtimeBoundaries[variant].readableFiles }]));
 }
-export async function preflight({ keepSource = false, attemptIndex = 2, harnessRoot = HARNESS_ROOT,
+export async function preflight({ keepSource = false, attemptIndex = 3, harnessRoot = HARNESS_ROOT,
   home = os.homedir(), resultParent = outputParent(home) } = {}) {
-  requireValue([1, 2].includes(attemptIndex), 'replacement attempt index');
+  requireValue([1, 2, 3].includes(attemptIndex), 'replacement attempt index');
   const plan = buildDryRun();
   const manifest = json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'));
   const harnessHead = verifyHarnessIdentity(harnessRoot);
-  const replacementEvidence = attemptIndex === 2 ? verifyReplacementEvidence(home) : null;
+  const remoteHead = attemptIndex === 3 ? git(harnessRoot,
+    ['ls-remote', 'origin', 'refs/heads/research/context-token-matrix-v1']).stdout.trim().split(/\s+/)[0] : null;
+  if (attemptIndex === 3) requireValue(remoteHead === harnessHead, 'remote harness HEAD mismatch');
+  const replacementEvidence = attemptIndex === 2 ? verifyReplacementEvidence(home) :
+    attemptIndex === 3 ? verifyFinalReplacementEvidence(home) : null;
   requireValue(fs.statSync(path.join(HARNESS_ROOT, 'node_modules')).isDirectory(),
     'local dependencies unavailable for candidate behavior check');
   requireValue(plan.rows.filter(row => row.stage === 'stage1').length === 3 &&
@@ -251,19 +285,27 @@ export async function preflight({ keepSource = false, attemptIndex = 2, harnessR
         manifestPath: path.join(harnessRoot, 'research/context-token-matrix-v1/experiment-manifest.json'),
         sourceRepositoryPath: source.root, sessionId, harnessHead, variant,
         repetitionIndex: 1, ...(replacementEvidence === null ? {} : {
-          replacementAttemptIndex: 2,
+          replacementAttemptIndex: attemptIndex,
           replacesSessionId: replacementEvidence.failedSessionId }) }));
     const plannedCells = inspectPlannedExperimentJournal(journal.path,
       plannedAuthority.map(authority => ({ authority, sourceRepositoryPath: source.root })));
     requireValue(plannedCells.every(cell => cell.authorized && !cell.replayForbidden),
       'Stage 1 planned authority unavailable');
+    if (attemptIndex === 3) requireValue(plannedCells.every(cell =>
+      cell.availability === 'final_replacement_authorized' && !cell.consumed &&
+      cell.plannerState === null && cell.coderState === null),
+    'final replacement cells already consumed');
     const outputRoot = verifyOutputWritable(resultParent);
     const sourceStatus = verifySourceIdentity(source.root, manifest.sourceHead);
     const result = { preflightSchema: 'context-token-matrix-preflight/v1', ok: true,
-      protocolVersion: manifest.protocolVersion, harnessHead, sourceHead: manifest.sourceHead,
+      protocolVersion: manifest.protocolVersion, harnessHead, remoteHead,
+      remoteHeadVerified: attemptIndex === 3, sourceHead: manifest.sourceHead,
       sourceStatus, doctor: source.doctor, journal, outputRoot,
       sessionId, sessionHash: plannedAuthority[0].sessionHash,
       plannedCells, replacementEvidence,
+      finalReplacementAuthorized: attemptIndex === 3,
+      dependencyProvisioning: source.dependencyProvisioning,
+      retryCount: 0, repairCount: 0, applyCount: 0,
       stage1Order: ['minimal', 'current', 'expanded'], providerBinding,
       providerModelCalls: 0 };
     if (keepSource) result.sourceCheckout = source.root;
@@ -371,7 +413,7 @@ export async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, tas
 }
 
 export async function executeCell({ manifest, task, variant, sessionRoot, runIndex,
-  sessionId, harnessHead, replacesSessionId,
+  sessionId, harnessHead, replacesSessionId, replacementAttemptIndex = 3,
   adapterFactory = () => new CodexAgentAdapter() }) {
   requireValue(['minimal', 'current', 'expanded'][runIndex] === variant &&
     runIndex >= 0 && runIndex < 3, 'Stage 1 cell order or limit');
@@ -390,7 +432,7 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
     const plannedAuthority = createPlannedContextMatrixAuthority({
       manifestPath: path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'),
       sourceRepositoryPath: source.root, sessionId, harnessHead, variant,
-      repetitionIndex: 1, replacementAttemptIndex: 2, replacesSessionId });
+      repetitionIndex: 1, replacementAttemptIndex, replacesSessionId });
     save(path.join(cellRoot, 'planned-authority.json'), plannedAuthority);
     const adapter = makeJournalScopedAdapter(adapterFactory(),
       `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call), plannedAuthority);
@@ -464,8 +506,8 @@ export async function runStage1() {
       manifestPath: path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'),
       sourceRepositoryPath: pre.sourceCheckout, sessionId: pre.sessionId,
       harnessHead: pre.harnessHead, variant: 'minimal', repetitionIndex: 1,
-      replacementAttemptIndex: 2, replacesSessionId: pre.replacementEvidence.failedSessionId });
-    createDurableInvocationJournal(expectedJournalPath()).authorizePlannedReplacement(
+      replacementAttemptIndex: 3, replacesSessionId: pre.replacementEvidence.failedSessionId });
+    createDurableInvocationJournal(expectedJournalPath()).authorizePlannedFinalReplacement(
       authority, pre.sourceCheckout);
   } finally { fs.rmSync(path.dirname(pre.sourceCheckout), { recursive: true, force: true }); }
   const manifest = json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'));
