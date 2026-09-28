@@ -7,21 +7,23 @@ const crypto = require('node:crypto');
 const cp = require('node:child_process');
 const { codexLoginReady } = require('./preflight-support.cjs');
 const { installObservationOverlay } = require('./observation-overlay.cjs');
+const { parseSessionId, sessionPath, assertUnusedSession, observationSlots, preflightRecord } = require('./session-identity.cjs');
 const root = __dirname;
 const repo = path.resolve(root, '../..');
 const branchName = 'research/bounded-vs-codex-robustness-v1';
 const freezeCommit = 'eb0b501ba6d106730ba15c0e7f3dc3a5e4f5b496';
-const invalidSession = 'robustness-v1-2026-09-28';
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'benchmark-manifest.json'), 'utf8'));
 const resultsRoot = process.env.ROBUSTNESS_RESULT_ROOT || path.join(os.homedir(), '.bounded-agent', 'bounded-dllm-agent-lab', 'live-runs', 'bounded-vs-codex-robustness-v1');
-const sessionDir = path.join(resultsRoot, manifest.sessionId);
 const args = process.argv.slice(2);
+const sessionId = parseSessionId(args);
+const sessionDir = sessionPath(resultsRoot, sessionId);
 const postPush = args.includes('--post-push');
 const expectedHead = args.find(x => x.startsWith('--expected-head='))?.slice(16);
 const expectedRemote = args.find(x => x.startsWith('--expected-remote='))?.slice(18);
 const checks = [];
 const invoked = [];
 let scratch;
+let sessionCreated = false;
 function check(name, ok, detail = '') {
   checks.push({ name, ok: ok === true, detail: String(detail) });
   if (ok !== true) throw Error(`${name}: ${detail}`);
@@ -43,7 +45,7 @@ function canon(x) {
 function sha(x) { return `sha256:${crypto.createHash('sha256').update(canon(x)).digest('hex')}`; }
 function freezeFile(rel) { return run('git', ['show', `${freezeCommit}:${rel}`], repo); }
 function freshSourceCheckout() {
-  scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'robustness-preflight-r2-'));
+  scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'robustness-preflight-'));
   const candidate = path.join(scratch, 'source');
   run('git', ['clone', '--local', '--no-hardlinks', '--quiet', repo, candidate], repo);
   run('git', ['checkout', '--detach', manifest.sourceHead], candidate);
@@ -57,7 +59,9 @@ function checkPaths(candidate) {
 }
 try {
   check('expected HEAD argument', /^[0-9a-f]{40}$/.test(expectedHead || ''), expectedHead || 'missing');
-  check('preflight identity', manifest.sessionId !== invalidSession && /^robustness-v1-2026-09-28-r[2-9][0-9]*$/.test(manifest.sessionId), manifest.sessionId);
+  check('preflight identity', !!sessionId, sessionId);
+  check('persistent output root', path.isAbsolute(resultsRoot) && !resultsRoot.startsWith(repo + path.sep) && !resultsRoot.startsWith('/private/tmp/') && !resultsRoot.startsWith('/tmp/'), resultsRoot);
+  if (!postPush) check('unused session directory', assertUnusedSession(resultsRoot, sessionId) === sessionDir, sessionDir);
   const currentBranch = run('git', ['branch', '--show-current'], repo);
   check('benchmark branch', currentBranch === branchName, currentBranch);
   const head = run('git', ['rev-parse', 'HEAD'], repo);
@@ -68,6 +72,8 @@ try {
   check('source SHA', manifest.sourceHead === 'ea6bc88e947e78b7539b9614b4c637dd9b2805a9' && sourceType === 'commit', manifest.sourceHead);
   check('protocol frozen', fs.readFileSync(path.join(root, 'PROTOCOL.md'), 'utf8').trimEnd() === freezeFile('research/bounded-vs-codex-robustness-v1/PROTOCOL.md').trimEnd(), 'exact freeze-commit content');
   const frozen = JSON.parse(freezeFile('research/bounded-vs-codex-robustness-v1/benchmark-manifest.json'));
+  const { sessionId: historicalSessionId, ...frozenDefinition } = frozen;
+  check('frozen benchmark definition', JSON.stringify(manifest) === JSON.stringify(frozenDefinition), 'all benchmark variables unchanged; historical session excluded');
   check('manifest valid', manifest.benchmarkVersion === frozen.benchmarkVersion && manifest.sourceHead === frozen.sourceHead && manifest.model === 'gpt-5.6-luna' && manifest.reasoning === 'medium', 'schema/source/model');
   check('five frozen tasks', manifest.tasks.length === 5 && JSON.stringify(manifest.tasks) === JSON.stringify(frozen.tasks), 'task entries exactly equal freeze commit');
   check('difficulty labels', manifest.tasks.map(t => t.difficulty).join(',') === 'easy,medium_a,medium_b,medium_c,hard', 'easy/3 medium/hard');
@@ -82,14 +88,16 @@ try {
     const rel = `research/bounded-vs-codex-robustness-v1/oracles/${file}`;
     check(`oracle frozen ${file}`, fs.readFileSync(path.join(root, 'oracles', file), 'utf8').trimEnd() === freezeFile(rel).trimEnd(), file);
   }
-  check('persistent output root', path.isAbsolute(resultsRoot) && !resultsRoot.startsWith(repo + path.sep) && !resultsRoot.startsWith('/private/tmp/') && !resultsRoot.startsWith('/tmp/'), resultsRoot);
-  if (!postPush) check('new preflight identity', !fs.existsSync(path.join(sessionDir, 'preflight.json')), sessionDir);
-  else {
+  if (postPush) {
     const initial = JSON.parse(fs.readFileSync(path.join(sessionDir, 'preflight.json'), 'utf8'));
-    check('initial preflight PASS', initial.ok === true && initial.providerCalls === 0 && initial.benchmarkHead === head, initial.at);
+    check('initial preflight PASS', initial.ok === true && initial.providerCalls === 0 && initial.benchmarkHead === head && initial.sessionId === sessionId && initial.preflightId === `${sessionId}/initial`, initial.at);
   }
-  check('all ten run identities unused', !fs.existsSync(path.join(sessionDir, 'ledger.json')) && !fs.existsSync(path.join(sessionDir, 'observations')), sessionDir);
-  if (!postPush) fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  check('all ten run identities unused', observationSlots(manifest, sessionId).length === 10 && !fs.existsSync(path.join(sessionDir, 'ledger.json')) && !fs.existsSync(path.join(sessionDir, 'observations')), sessionDir);
+  if (!postPush) {
+    fs.mkdirSync(resultsRoot, { recursive: true, mode: 0o700 });
+    fs.mkdirSync(sessionDir, { mode: 0o700 });
+    sessionCreated = true;
+  }
   fs.accessSync(sessionDir, fs.constants.W_OK);
   check('output root writable', true, sessionDir);
   const journal = path.join(sessionDir, 'provider-invocations.sqlite');
@@ -142,13 +150,13 @@ try {
     const remote = run('git', ['ls-remote', 'origin', `refs/heads/${branchName}`], repo, 30000).split(/\s+/)[0];
     check('direct remote SHA', remote === head, remote);
   }
-  const result = { schemaVersion: 'robustness-preflight/v2', preflightId: `${manifest.sessionId}/${postPush ? 'post-push' : 'initial'}`, at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, sessionId: manifest.sessionId, mode: postPush ? 'post-push-read-only' : 'initial', checks, providerCalls: 0, ok: true };
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, mode: postPush ? 'post-push-read-only' : 'initial', checks, providerCalls: 0, ok: true });
   fs.writeFileSync(path.join(sessionDir, postPush ? 'post-push-preflight.json' : 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   process.stdout.write(JSON.stringify({ ok: true, preflightId: result.preflightId, checks: checks.length, providerCalls: 0, head }) + '\n');
 } catch (error) {
-  const result = { schemaVersion: 'robustness-preflight/v2', preflightId: `${manifest.sessionId}/${postPush ? 'post-push' : 'initial'}`, at: new Date().toISOString(), checks, providerCalls: 0, ok: false, error: String(error.message || error) };
-  if (!postPush) {
-    try { fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 }); const file = path.join(sessionDir, 'preflight.json'); if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 }); } catch {}
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), checks, providerCalls: 0, ok: false, error: String(error.message || error) });
+  if (!postPush && sessionCreated) {
+    try { fs.writeFileSync(path.join(sessionDir, 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 }); } catch {}
   }
   process.stderr.write(JSON.stringify(result) + '\n');
   process.exitCode = 1;
