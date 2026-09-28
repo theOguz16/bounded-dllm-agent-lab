@@ -8,6 +8,7 @@ const cp = require('node:child_process');
 const { codexLoginReady } = require('./preflight-support.cjs');
 const { installObservationOverlay } = require('./observation-overlay.cjs');
 const { parseSessionId, sessionPath, assertUnusedSession, observationSlots, preflightRecord } = require('./session-identity.cjs');
+const { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, parseDoctorResult } = require('./doctor-preflight.cjs');
 const root = __dirname;
 const repo = path.resolve(root, '../..');
 const branchName = 'research/bounded-vs-codex-robustness-v1';
@@ -24,13 +25,14 @@ const checks = [];
 const invoked = [];
 let scratch;
 let sessionCreated = false;
+let doctorDiagnostic = null;
 function check(name, ok, detail = '') {
   checks.push({ name, ok: ok === true, detail: String(detail) });
   if (ok !== true) throw Error(`${name}: ${detail}`);
 }
-function probe(command, commandArgs, cwd = repo, timeout = 120000, env = process.env) {
+function probe(command, commandArgs, cwd = repo, timeout = 120000, env = process.env, maxBuffer = 8 * 1024 * 1024) {
   invoked.push({ command, args: commandArgs });
-  return cp.spawnSync(command, commandArgs, { cwd, env, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+  return cp.spawnSync(command, commandArgs, { cwd, env, encoding: 'utf8', timeout, maxBuffer });
 }
 function success(result, label) {
   if (result.error || result.signal || result.status !== 0) throw Error(`${label}: ${String(result.error?.message || result.stderr || result.stdout).slice(0, 1200)}`);
@@ -110,9 +112,11 @@ try {
   check('Normal Codex authentication', codexLoginReady(login), `exit=${login.status}; accepted status message=${codexLoginReady(login)}`);
   const cliHelp = run('codex', ['exec', '--help'], repo);
   check('Normal explicit model/reasoning capability', cliHelp.includes('--model') && cliHelp.includes('--config'), 'codex exec flags');
-  const doctor = probe('codex', ['doctor', '--json', '--strict-config', '-c', 'model="gpt-5.6-luna"', '-c', 'model_reasoning_effort="medium"'], repo, 30000);
-  const report = JSON.parse(doctor.stdout);
-  check('Normal exact model config', report.checks?.['config.load']?.status === 'ok' && report.checks?.['config.load']?.details?.model === 'gpt-5.6-luna', 'doctor strict config');
+  const doctor = probe('codex', NORMAL_DOCTOR_ARGS, repo, 30000, process.env, MAX_DOCTOR_BYTES);
+  const parsedDoctor = parseDoctorResult(doctor);
+  doctorDiagnostic = parsedDoctor.diagnostic;
+  const report = parsedDoctor.report;
+  check('Normal exact model config', report.checks?.['config.load']?.status === 'ok' && report.checks?.['config.load']?.details?.model === 'gpt-5.6-luna', 'doctor JSON config');
   check('Normal provider reachability', report.checks?.['network.provider_reachability']?.status === 'ok', 'doctor endpoint');
   check('Bounded reasoning capability', fs.readFileSync(path.join(repo, 'packages/integrations/src/codex-agent-adapter.ts'), 'utf8').includes('case "medium": return "medium";') && fs.readFileSync(path.join(repo, 'packages/integrations/src/codex-agent-adapter.ts'), 'utf8').includes('modelReasoningEffort: mapReasoningEffort(request.reasoningEffort)'), 'baseline SDK adapter maps medium');
   const candidate = freshSourceCheckout();
@@ -150,11 +154,11 @@ try {
     const remote = run('git', ['ls-remote', 'origin', `refs/heads/${branchName}`], repo, 30000).split(/\s+/)[0];
     check('direct remote SHA', remote === head, remote);
   }
-  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, mode: postPush ? 'post-push-read-only' : 'initial', checks, providerCalls: 0, ok: true });
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, mode: postPush ? 'post-push-read-only' : 'initial', checks, doctorDiagnostic, providerCalls: 0, ok: true });
   fs.writeFileSync(path.join(sessionDir, postPush ? 'post-push-preflight.json' : 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   process.stdout.write(JSON.stringify({ ok: true, preflightId: result.preflightId, checks: checks.length, providerCalls: 0, head }) + '\n');
 } catch (error) {
-  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), checks, providerCalls: 0, ok: false, error: String(error.message || error) });
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), checks, doctorDiagnostic: error.diagnostic || doctorDiagnostic, issueCode: error.issueCode || null, reasonCode: error.reasonCode || null, providerCalls: 0, ok: false, error: String(error.message || error) });
   if (!postPush && sessionCreated) {
     try { fs.writeFileSync(path.join(sessionDir, 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 }); } catch {}
   }
