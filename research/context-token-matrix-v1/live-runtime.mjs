@@ -123,6 +123,15 @@ export function createSourceCheckout(parent, sourceHead = SOURCE, harness = HARN
 export async function prepareSourceCheckout(parent, manifest, harness = HARNESS_ROOT) {
   const root = createSourceCheckout(parent, manifest.sourceHead, harness);
   await initializeBoundedLocalConfig(root);
+  // The configured validator runs npm scripts inside a disposable copy of this
+  // source checkout. Install its own lockfile dependencies before that copy is
+  // made; the research harness's node_modules is not Candidate input authority.
+  const install = spawnSync('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'],
+    { cwd: root, encoding: 'utf8', timeout: 120_000, maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'] });
+  requireValue(install.error === undefined && install.status === 0 &&
+    fs.realpathSync(path.join(root, 'node_modules/.bin/tsc')).startsWith(`${root}${path.sep}`),
+  'pinned source lockfile dependencies unavailable offline');
   requireValue(verifySourceIdentity(root, manifest.sourceHead) === '?? .bounded/',
     'source local config did not remain untracked');
   const doctor = await doctorCommand(root);
