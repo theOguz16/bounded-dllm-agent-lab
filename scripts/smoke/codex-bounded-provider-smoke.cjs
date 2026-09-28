@@ -417,6 +417,9 @@ async function main() {
     assert.equal(result.summary.applyCalled, false);
     assert.equal(runtimeAdapter.requests.length, 2);
     assert.deepEqual(runtimeAdapter.requests.map((request) => request.mode), ["planner", "coder"]);
+    const boundedCoderPayload = JSON.parse(runtimeAdapter.requests[1].task.split("\n").at(-1));
+    assert.equal(boundedCoderPayload.baseContext.taskContext.taskContext.taskContext.objective,
+      "Fix calculate safely.");
     assert.equal(result.summary.costBudget.reservations.length, 2);
     assert.equal(result.summary.costBudget.reconciliations.length, 2);
     const statuses = result.summary.costBudget.reconciliations.map((item) => item.usage.status).sort();

@@ -146,7 +146,7 @@ export function validatePlannedContextMatrixAuthority(authority: PlannedExperime
   if (JSON.stringify(payload) !== payloadText) deny("provider task serialization");
   const objective = request.stage === "planner"
     ? payload?.taskContext?.objective
-    : payload?.baseContext?.taskContext?.taskContext?.objective;
+    : payload?.baseContext?.taskContext?.taskContext?.taskContext?.objective;
   if (objective !== definition.taskPrompt) deny("provider task objective");
   if (request.stage === "planner") {
     if (hashCanonicalJson(prefix.split("\n")) !==

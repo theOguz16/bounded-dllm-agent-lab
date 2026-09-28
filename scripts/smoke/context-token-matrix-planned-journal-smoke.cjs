@@ -41,7 +41,7 @@ const { pathToFileURL } = require('node:url');
     const plannerTask = plannerPrompt({ taskContext: { objective },
       allowedChangeFiles: cells[0].allowedFiles });
     const coderTask = coderPrompt({ baseContext: { taskContext: {
-      taskContext: { objective } } } }, cells[0].allowedFiles);
+      taskContext: { taskContext: { objective } } } } }, cells[0].allowedFiles);
     const journalPath = path.join(temp, 'existing.sqlite');
     const journal = createDurableInvocationJournal(journalPath);
     const request = (runId, stage, plannedExperiment,
