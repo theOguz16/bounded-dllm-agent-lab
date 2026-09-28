@@ -34,12 +34,14 @@ try {
   }
   check('result root outside source/temp',path.isAbsolute(resultsRoot) && !resultsRoot.startsWith(path.dirname(root)) && !resultsRoot.startsWith('/private/tmp/'),resultsRoot);
   const sessionDir = path.join(resultsRoot,manifest.sessionId);
+  check('session not previously aborted',!fs.existsSync(path.join(sessionDir,'preflight.json')),sessionDir);
   check('run identities unused',!fs.existsSync(path.join(sessionDir,'ledger.json')) && !fs.existsSync(path.join(sessionDir,'observations')),sessionDir);
   fs.mkdirSync(sessionDir,{recursive:true,mode:0o700});
   fs.accessSync(sessionDir,fs.constants.W_OK);
   check('result root writable',true,sessionDir);
   check('Docker',!!run('docker',['info','--format','{{.ServerVersion}}']), 'daemon reachable');
-  check('Codex login',/logged in/i.test(run('codex',['login','status'])),'login status');
+  const login = require('node:child_process').spawnSync('codex',['login','status'],{cwd:root,encoding:'utf8',timeout:10000});
+  check('Codex login',login.status===0 && /logged in/i.test((login.stdout||'')+(login.stderr||'')),'login status');
   const doctorProbe = require('node:child_process').spawnSync('codex',['doctor','--json','-c','model="gpt-5.6-luna"','-c','model_reasoning_effort="medium"'],{cwd:root,encoding:'utf8',timeout:30000,maxBuffer:4*1024*1024});
   const doctor = JSON.parse(doctorProbe.stdout);
   check('Normal model/reasoning config',doctor.checks?.['config.load']?.details?.model==='gpt-5.6-luna','explicit Luna/medium override');
@@ -72,6 +74,6 @@ try {
   process.stdout.write(JSON.stringify({ok:true,checks:checks.length,providerCalls:0,sessionDir})+'\n');
 } catch(error) {
   const report={schemaVersion:'robustness-preflight/v1',at:new Date().toISOString(),checks,providerCalls:0,ok:false,error:String(error.message||error)};
-  try { fs.mkdirSync(path.join(resultsRoot,manifest.sessionId),{recursive:true,mode:0o700}); fs.writeFileSync(path.join(resultsRoot,manifest.sessionId,'preflight.json'),JSON.stringify(report,null,2)+'\n',{mode:0o600}); } catch {}
+  try { const file=path.join(resultsRoot,manifest.sessionId,'preflight.json'); fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700}); if(!fs.existsSync(file)) fs.writeFileSync(file,JSON.stringify(report,null,2)+'\n',{mode:0o600}); } catch {}
   process.stderr.write(JSON.stringify(report)+'\n'); process.exitCode=1;
 } finally { if(scratch) fs.rmSync(scratch,{recursive:true,force:true}); }
