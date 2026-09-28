@@ -295,6 +295,11 @@ export class CodexAgentAdapter implements AgentAdapter {
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     const startedAtMs = this.now();
+    if (request.plannedExperiment !== undefined && this.invocationJournalPath === null) {
+      return emptyResult(request, "rejected", 0, [diagnostic(
+        "invocation_journal_unavailable", "error", "Planned experiment requires a durable invocation journal."
+      )]);
+    }
     if (request.agentId !== CODEX_AGENT_ID) {
       return emptyResult(request, "rejected", 0, [diagnostic(
         "codex_agent_id_mismatch", "error", `CodexAgentAdapter requires agentId=${CODEX_AGENT_ID}.`
@@ -390,6 +395,10 @@ export class CodexAgentAdapter implements AgentAdapter {
         const reservation = invocationJournal.reserve({
           runId: request.runId, stage: request.mode, task: request.task,
           model: request.model, deadlineAt: this.now() + processControl.limits.totalTimeoutMs,
+          ...(request.plannedExperiment === undefined ? {} : {
+            plannedExperiment: request.plannedExperiment,
+            sourceRepositoryPath: sourceRepositoryRoot ?? undefined,
+            reasoningEffort: request.reasoningEffort }),
           ...(request.invocationRetryDecision === undefined
             ? {}
             : { retryDecision: request.invocationRetryDecision })

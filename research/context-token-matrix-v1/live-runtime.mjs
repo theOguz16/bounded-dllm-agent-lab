@@ -15,6 +15,8 @@ import { codexCommand } from '../../dist/apps/cli/src/commands/codex.js';
 import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-bounded-task.js';
 import { runRepoIntelligenceBoundCoderFlow } from '../../dist/packages/product-runtime/src/repo-intelligence-context-binding.js';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
+import { createPlannedContextMatrixAuthority } from '../../dist/packages/integrations/src/planned-experiment-authority.js';
+import { inspectPlannedExperimentJournal } from '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
 
 export const HARNESS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -203,11 +205,23 @@ export async function preflight({ keepSource = false, harnessRoot = HARNESS_ROOT
       json(path.join(HARNESS_ROOT, manifest.calibrationFile))), 'source calibration drift');
     const task = manifest.selectedTasks[0];
     const providerBinding = await proveVariantPayloads(source.root, manifest, task);
+    const sessionId = `stage1-${randomBytes(12).toString('hex')}`;
+    const plannedAuthority = ['minimal', 'current', 'expanded'].map(variant =>
+      createPlannedContextMatrixAuthority({
+        manifestPath: path.join(harnessRoot, 'research/context-token-matrix-v1/experiment-manifest.json'),
+        sourceRepositoryPath: source.root, sessionId, harnessHead, variant,
+        repetitionIndex: 1 }));
+    const plannedCells = inspectPlannedExperimentJournal(journal.path,
+      plannedAuthority.map(authority => ({ authority, sourceRepositoryPath: source.root })));
+    requireValue(plannedCells.every(cell => cell.authorized && !cell.replayForbidden),
+      'Stage 1 planned cell already consumed');
     const outputRoot = verifyOutputWritable(resultParent);
     const sourceStatus = verifySourceIdentity(source.root, manifest.sourceHead);
     const result = { preflightSchema: 'context-token-matrix-preflight/v1', ok: true,
       protocolVersion: manifest.protocolVersion, harnessHead, sourceHead: manifest.sourceHead,
       sourceStatus, doctor: source.doctor, journal, outputRoot,
+      sessionId, sessionHash: plannedAuthority[0].sessionHash,
+      plannedCells,
       stage1Order: ['minimal', 'current', 'expanded'], providerBinding,
       providerModelCalls: 0 };
     if (keepSource) result.sourceCheckout = source.root;
@@ -215,7 +229,7 @@ export async function preflight({ keepSource = false, harnessRoot = HARNESS_ROOT
   } finally { if (!keepSource) fs.rmSync(parent, { recursive: true, force: true }); }
 }
 
-export function makeJournalScopedAdapter(adapter, identity, onCall) {
+export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAuthority = null) {
   requireValue(/^[a-z0-9][a-z0-9.-]{1,63}$/.test(identity), 'run identity');
   const counts = new Map();
   return { agentId: adapter.agentId, agentVersion: adapter.agentVersion,
@@ -229,7 +243,8 @@ export function makeJournalScopedAdapter(adapter, identity, onCall) {
       requireValue(runId.length <= 159, 'journal run ID too long');
       onCall?.({ mode: request.mode, runId, model: request.model,
         reasoning: request.reasoningEffort });
-      return adapter.run({ ...request, runId });
+      return adapter.run({ ...request, runId,
+        ...(plannedAuthority === null ? {} : { plannedExperiment: plannedAuthority }) });
     } };
 }
 
@@ -314,6 +329,7 @@ export async function behaviorOnCandidate(sourceRoot, mutation, sessionRoot, tas
 }
 
 export async function executeCell({ manifest, task, variant, sessionRoot, runIndex,
+  sessionId, harnessHead,
   adapterFactory = () => new CodexAgentAdapter() }) {
   requireValue(['minimal', 'current', 'expanded'][runIndex] === variant &&
     runIndex >= 0 && runIndex < 3, 'Stage 1 cell order or limit');
@@ -329,8 +345,13 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
     requireValue(sha(Buffer.from(definition.taskPrompt)) === task.taskHash &&
       same(definition.allowedMutationPaths, task.allowedFiles), 'task definition changed');
     const adapterCalls = [];
+    const plannedAuthority = createPlannedContextMatrixAuthority({
+      manifestPath: path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'),
+      sourceRepositoryPath: source.root, sessionId, harnessHead, variant,
+      repetitionIndex: 1 });
+    save(path.join(cellRoot, 'planned-authority.json'), plannedAuthority);
     const adapter = makeJournalScopedAdapter(adapterFactory(),
-      `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call));
+      `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call), plannedAuthority);
     let binding = null;
     let rawTaskResult = null;
     let validationSpecificationHash = null;
@@ -384,6 +405,9 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
       durableTaskDirectory: command.output.recovery?.registryRoot ?? null,
       providerAdapterCalls: adapterCalls.length, behavior: behavior.status,
       validationDiagnostic: behavior.validationDiagnostic ?? null,
+      cellId: plannedAuthority.cellId, cellHash: plannedAuthority.cellHash,
+      planSlotHash: plannedAuthority.planSlotHash,
+      sessionHash: plannedAuthority.sessionHash,
       sourceHead: manifest.sourceHead, harnessHead: head(HARNESS_ROOT) });
     return { classification, normalized, cellRoot };
   } finally { fs.rmSync(checkoutParent, { recursive: true, force: true }); }
@@ -396,7 +420,8 @@ export async function runStage1() {
   const manifest = json(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'));
   const plan = buildDryRun();
   const task = manifest.selectedTasks[0];
-  const sessionRoot = fs.mkdtempSync(path.join(outputParent(), 'stage1-'));
+  const sessionRoot = path.join(outputParent(), pre.sessionId);
+  fs.mkdirSync(sessionRoot, { mode: 0o700 });
   fs.chmodSync(sessionRoot, 0o700);
   save(path.join(sessionRoot, 'manifest.snapshot.json'), manifest);
   fs.copyFileSync(path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/PROTOCOL.md'),
@@ -405,7 +430,8 @@ export async function runStage1() {
     path.join(sessionRoot, 'calibration.snapshot.json'));
   save(path.join(sessionRoot, 'preflight.json'), pre);
   save(path.join(sessionRoot, 'identities.json'), { harnessHead: pre.harnessHead,
-    sourceHead: manifest.sourceHead, protocolVersion: manifest.protocolVersion });
+    sourceHead: manifest.sourceHead, protocolVersion: manifest.protocolVersion,
+    sessionId: pre.sessionId, sessionHash: pre.sessionHash });
   const completed = [];
   let stoppedError = null;
   let cellsAttempted = 0;
@@ -414,7 +440,8 @@ export async function runStage1() {
       'Stage 1 order changed');
     cellsAttempted++;
     try {
-      const result = await executeCell({ manifest, task, variant: row.variant, sessionRoot, runIndex: index });
+      const result = await executeCell({ manifest, task, variant: row.variant, sessionRoot,
+        runIndex: index, sessionId: pre.sessionId, harnessHead: pre.harnessHead });
       completed.push(result);
       requireValue(verifyHarnessIdentity() === pre.harnessHead, 'harness changed after cell');
       if (!shouldContinueAfterCell(result.classification)) break;

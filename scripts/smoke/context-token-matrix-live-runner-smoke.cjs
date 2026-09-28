@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { DatabaseSync } = require('node:sqlite');
 const { pathToFileURL } = require('node:url');
 
 (async () => {
@@ -30,9 +31,10 @@ const { pathToFileURL } = require('node:url');
   try {
     const harness = path.join(temporary, 'harness');
     command(['git', 'clone', '--quiet', '--shared', '--no-checkout', '--', repository, harness]);
+    const committedHarnessHead = command(['git', 'rev-parse', 'HEAD']);
     command(['git', 'checkout', '--quiet', '-B', manifest.researchBranch,
-      manifest.harnessBaselineSha], harness);
-    assert.equal(runtime.verifyHarnessIdentity(harness), manifest.harnessBaselineSha);
+      committedHarnessHead], harness);
+    assert.equal(runtime.verifyHarnessIdentity(harness), committedHarnessHead);
     const source = await runtime.prepareSourceCheckout(path.join(temporary, 'source-one'),
       manifest, harness);
     assert.equal(command(['git', 'rev-parse', 'HEAD'], source.root), manifest.sourceHead);
@@ -45,7 +47,11 @@ const { pathToFileURL } = require('node:url');
     const fakeHome = path.join(temporary, 'home');
     const journal = runtime.expectedJournalPath(fakeHome);
     fs.mkdirSync(path.dirname(journal), { recursive: true });
-    fs.writeFileSync(journal, Buffer.from('SQLite format 3\0fixture', 'utf8'));
+    const database = new DatabaseSync(journal);
+    database.exec(`CREATE TABLE provider_invocations (
+      invocation_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, stage TEXT NOT NULL,
+      record_json TEXT NOT NULL, record_hash TEXT NOT NULL, UNIQUE(run_id, stage))`);
+    database.close();
     const statBefore = fs.statSync(journal);
     assert.equal(runtime.verifyJournal(journal, source.root, fakeHome).path, fs.realpathSync(journal));
     assert.equal(fs.statSync(journal).size, statBefore.size);
@@ -54,7 +60,9 @@ const { pathToFileURL } = require('node:url');
     assert.equal(pre.ok, true);
     assert.equal(pre.providerModelCalls, 0);
     assert.equal(pre.sourceHead, manifest.sourceHead);
-    assert.equal(pre.harnessHead, manifest.harnessBaselineSha);
+    assert.equal(pre.harnessHead, committedHarnessHead);
+    assert.deepEqual(pre.plannedCells.map(cell => [cell.cellId, cell.authorized]),
+      [['A.1.minimal', true], ['A.1.current', true], ['A.1.expanded', true]]);
     assert.deepEqual(pre.stage1Order, ['minimal', 'current', 'expanded']);
     assert.deepEqual(pre.providerBinding.minimal.selectedPaths,
       pre.providerBinding.current.selectedPaths);

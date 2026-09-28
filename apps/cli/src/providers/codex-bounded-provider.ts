@@ -422,14 +422,14 @@ function validateOptions(options: CodexBoundedProviderOptions): Required<Pick<
   });
 }
 
-function plannerPrompt(context: PlannerMinimalityProviderContext): string {
+export function plannerPrompt(context: PlannerMinimalityProviderContext): string {
   return [
     ...PLANNER_PROMPT_LINES,
     JSON.stringify(context)
   ].join("\n");
 }
 
-function coderPrompt(
+export function coderPrompt(
   context: CoderProviderContext,
   allowedChangeFiles: readonly string[]
 ): string {

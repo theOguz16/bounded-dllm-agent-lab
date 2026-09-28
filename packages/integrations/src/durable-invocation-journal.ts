@@ -3,6 +3,8 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
+import { validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
+import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
 /** One transactional authority for a provider invocation, never a retry queue. */
@@ -29,6 +31,9 @@ export type InvocationIdentity = Readonly<{
   model: string;
   deadlineAt: number;
   retryDecision?: InvocationRetryDecision;
+  plannedExperiment?: PlannedExperimentAuthority;
+  sourceRepositoryPath?: string;
+  reasoningEffort?: string;
 }>;
 export type InvocationRecord = Readonly<{
   version: typeof DURABLE_INVOCATION_JOURNAL_VERSION;
@@ -58,6 +63,7 @@ export type InvocationRecord = Readonly<{
   supersedesRunId: string | null;
   recoveryId?: string;
   ownerPid?: number;
+  plannedExperiment?: PlannedExperimentAuthority;
   workerDiagnostic?: Readonly<Record<string, unknown>> | null;
 }>;
 
@@ -159,6 +165,19 @@ function assertIdentity(input: InvocationIdentity): void {
        input.retryDecision.model !== input.model ||
        input.retryDecision.taskHash !== hash(input.task))) {
     throw new InvocationJournalError("invocation_replay_forbidden", "Invalid explicit invocation retry decision.");
+  }
+  if (input.plannedExperiment !== undefined) {
+    if (input.retryDecision !== undefined || !input.sourceRepositoryPath ||
+        !input.reasoningEffort) throw new InvocationJournalError(
+      "invocation_replay_forbidden", "Planned experiment cannot be a retry or omit source/reasoning.");
+    try {
+      validatePlannedContextMatrixAuthority(input.plannedExperiment, {
+        sourceRepositoryPath: input.sourceRepositoryPath, model: input.model,
+        reasoning: input.reasoningEffort, stage: input.stage,
+        task: input.task,
+        retryDecision: input.retryDecision });
+    } catch { throw new InvocationJournalError(
+      "invocation_replay_forbidden", "Planned experiment authority is invalid."); }
   }
 }
 function keyOf(input: Pick<InvocationIdentity, "runId" | "stage">): string {
@@ -264,7 +283,7 @@ export function createDurableInvocationJournal(file: string, now: () => number =
         const prior = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ? AND stage = ?")
           .get(decision.supersedesRunId, decision.stage) as { invocation_key: string } | undefined;
         const record = prior ? checkedRow(prior, prior.invocation_key) : null;
-        if (!record || record.state !== "outcome_unknown" ||
+        if (!record || record.plannedExperiment !== undefined || record.state !== "outcome_unknown" ||
             record.taskHash !== decision.taskHash || record.model !== decision.model) {
           throw new InvocationJournalError("invocation_replay_forbidden",
             "Retry authorization must match a persisted ambiguous invocation.");
@@ -293,7 +312,23 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           .all(input.stage)
           .map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
           .filter((record) => record.taskHash === taskHash && record.runId !== input.runId);
-        if (prior.length > 0) {
+        if (input.plannedExperiment !== undefined) {
+          const planned = input.plannedExperiment;
+          const allPlanned = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+            .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
+            .filter((record) => record.plannedExperiment !== undefined);
+          if (allPlanned.some((record) => record.stage === input.stage &&
+                record.plannedExperiment?.planSlotHash === planned.planSlotHash) ||
+              allPlanned.some((record) => record.plannedExperiment?.sessionId === planned.sessionId &&
+                record.plannedExperiment?.sessionHash !== planned.sessionHash))
+            throw new InvocationJournalError("invocation_replay_forbidden",
+              "Planned experiment cell or session authority is already consumed.");
+          if (input.stage === "coder" && !allPlanned.some((record) =>
+                record.stage === "planner" && record.state === "completed" &&
+                record.plannedExperiment?.cellHash === planned.cellHash))
+            throw new InvocationJournalError("invocation_replay_forbidden",
+              "Coder requires its own completed planned-cell planner operation.");
+        } else if (prior.length > 0) {
           const decision = input.retryDecision;
           const matched = decision && prior.find((record) =>
             record.runId === decision.supersedesRunId && record.state === "outcome_unknown" &&
@@ -324,7 +359,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           failureDetail: null,
           retryDecisionId: input.retryDecision?.decisionId ?? null,
           supersedesRunId: input.retryDecision?.supersedesRunId ?? null,
-          recoveryId: randomUUID(), ownerPid: process.pid
+          recoveryId: randomUUID(), ownerPid: process.pid,
+          ...(input.plannedExperiment === undefined ? {} : { plannedExperiment: input.plannedExperiment })
         });
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")
@@ -414,4 +450,37 @@ export function createDurableInvocationJournal(file: string, now: () => number =
     },
     read(key: string): InvocationRecord | null { return transaction((db) => get(db, key)); }
   });
+}
+
+/** Read-only planned-cell availability; never reserves or initializes the journal. */
+export function inspectPlannedExperimentJournal(file: string, cells: readonly Readonly<{
+  authority: PlannedExperimentAuthority; sourceRepositoryPath: string;
+}>[]): readonly Readonly<{ cellId: string; authorized: boolean; consumed: boolean;
+  replayForbidden: boolean; plannerState: InvocationState | null;
+  coderState: InvocationState | null; }>[] {
+  if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
+    throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
+  for (const cell of cells) validatePlannedContextMatrixAuthority(cell.authority, {
+    sourceRepositoryPath: cell.sourceRepositoryPath, model: cell.authority.model,
+    reasoning: cell.authority.reasoning, stage: "planner" });
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    const records = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+      .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+    return Object.freeze(cells.map((cell) => {
+      const matching = records.filter((record) =>
+        record.plannedExperiment?.planSlotHash === cell.authority.planSlotHash);
+      const sessionCollision = records.some((record) =>
+        record.plannedExperiment?.sessionId === cell.authority.sessionId &&
+        record.plannedExperiment?.sessionHash !== cell.authority.sessionHash);
+      const planner = matching.find((record) => record.stage === "planner");
+      const coder = matching.find((record) => record.stage === "coder");
+      const consumed = matching.length > 0;
+      return Object.freeze({ cellId: cell.authority.cellId,
+        authorized: !consumed && !sessionCollision,
+        consumed, replayForbidden: consumed || sessionCollision,
+        plannerState: planner?.state ?? null,
+        coderState: coder?.state ?? null });
+    }));
+  } finally { db.close(); }
 }

@@ -111,6 +111,7 @@ export interface AgentRunRequest {
   outputSchema?: Readonly<Record<string, unknown>>;
   abortSignal?: AbortSignal;
   invocationRetryDecision?: import("./durable-invocation-journal.js").InvocationRetryDecision;
+  plannedExperiment?: import("./planned-experiment-authority.js").PlannedExperimentAuthority;
 }
 
 export interface AgentRunResult {
