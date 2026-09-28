@@ -79,6 +79,7 @@ const git = (cwd, ...args) => { const result = spawnSync('git', args, { cwd, enc
         ({ authority: make(variant), sourceRepositoryPath: source })));
     assert.deepEqual(state.map(entry => entry.availability),
       Array(3).fill('final_replacement_authorized'));
+    assert(state.every(entry => entry.consumed === false));
     assert.deepEqual(fs.readFileSync(journalPath), before, 'inspection must be read-only');
     const candidatePath = path.join(root, 'candidate-failure.sqlite');
     fs.copyFileSync(journalPath, candidatePath);
@@ -122,6 +123,7 @@ const git = (cwd, ...args) => { const result = spawnSync('git', args, { cwd, enc
       [{ authority: cell, sourceRepositoryPath: source }]);
     assert.equal(after[0].availability, 'final_replacement_consumed');
     assert.equal(after[0].authorized, false);
+    assert.equal(after[0].consumed, true);
     assert.throws(() => make('minimal', 'stage1-fourth', 4));
     const check = new DatabaseSync(journalPath, { readOnly: true });
     for (const item of historical) {

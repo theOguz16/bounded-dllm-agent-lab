@@ -613,9 +613,11 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
         record.plannedExperiment?.sessionId === cell.authority.sessionId);
       const planner = own.find((record) => record.stage === "planner");
       const coder = own.find((record) => record.stage === "coder");
-      const consumed = matching.length > 0;
       const replacement = cell.authority.replacementAttemptIndex === 2;
       const finalReplacement = cell.authority.replacementAttemptIndex === 3;
+      // For the final authority, consumption means work in the new session;
+      // the reviewed historical minimal slot is necessarily occupied.
+      const consumed = finalReplacement ? own.length > 0 : matching.length > 0;
       const existing = hasReplacementTable ? db.prepare(`SELECT * FROM planned_experiment_replacements
         WHERE failed_session_id = ? OR replacement_session_id = ?`)
         .get(cell.authority.replacesSessionId ?? "", cell.authority.sessionId) as
