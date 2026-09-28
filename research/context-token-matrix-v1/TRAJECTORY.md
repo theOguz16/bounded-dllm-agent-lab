@@ -1,0 +1,11 @@
+# Coder trajectory telemetry
+
+`codex-coder-trajectory/v1` is an additive, bounded observation of Codex JSONL for the coder stage. The adapter derives it after normal event parsing and returns it separately from canonical usage, commands, file changes, diagnostics, and status. The research runner writes `coder-trajectory.json` for future cells. Historical Stage 1 and Stage 2 cells stay untouched; their trajectory is unavailable.
+
+Each turn records cumulative input, cached input, uncached input, and output tokens, plus deltas derived from the cumulative counters. The first turn uses the new SDK thread's zero baseline. Decreasing counters, cached input above input, or cached growth above input growth invalidate the affected derivation. Missing usage and incomplete turns retain null values. Tool counts refer to completed command executions. `newToolResultBytesSincePreviousTurn` is the size of completed command output after the previous turn and before this turn; it does not establish whether the SDK included that output in the next prompt.
+
+Each completed command or file-change item records only allowlisted metadata: sequence, category, byte counts, elapsed time if observed, and bounded normalized paths for file changes. The output token estimate uses `ceil(UTF-8 bytes / 4)` and is explicitly marked estimated. Command text, output text, prompts, source contents, stderr, and arbitrary provider text are never copied into this schema. The collector caps records at 64 turns and 128 tools, with at most 8 paths of 160 characters per file-change item. `truncated` signals record-limit truncation.
+
+The runner adds the existing initial coder prompt estimate and selected context file count/bytes to turn 1 only. The SDK does not expose later model-facing prompt serialization, context expansion within its turns, whether old tool results remain represented, or whether selected repository context changes. Those fields remain null. Runtime-only authority data is not read by the collector. The telemetry callback and file write are isolated from the provider and cell outcome.
+
+For a future cell, run `npm run research:context-token-matrix:trajectory -- path/to/coder-trajectory.json` to print a per-turn table and descriptive amplification ratios. Ratios do not establish causality. Nulls remain unavailable in the report.

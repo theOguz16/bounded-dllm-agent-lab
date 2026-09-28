@@ -345,7 +345,8 @@ export async function preflight({ keepSource = false, attemptIndex = 3, harnessR
   } finally { if (!keepSource) fs.rmSync(parent, { recursive: true, force: true }); }
 }
 
-export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAuthority = null) {
+export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAuthority = null,
+  onResult = null) {
   requireValue(/^[a-z0-9][a-z0-9.-]{1,63}$/.test(identity), 'run identity');
   const counts = new Map();
   return { agentId: adapter.agentId, agentVersion: adapter.agentVersion,
@@ -359,9 +360,26 @@ export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAutho
       requireValue(runId.length <= 159, 'journal run ID too long');
       onCall?.({ mode: request.mode, runId, model: request.model,
         reasoning: request.reasoningEffort });
-      return adapter.run({ ...request, runId,
+      const result = await adapter.run({ ...request, runId,
         ...(plannedAuthority === null ? {} : { plannedExperiment: plannedAuthority }) });
+      try { onResult?.(request.mode, result); } catch { /* Telemetry cannot alter provider result. */ }
+      return result;
     } };
+}
+
+export function annotateCoderTrajectory(trajectory, normalized, selected) {
+  if (trajectory?.schemaVersion !== 'codex-coder-trajectory/v1') return null;
+  const initialEstimate = normalized.usage.coder?.initialPromptEstimatedTokens ?? null;
+  const turns = trajectory.turns.map(turn => ({ ...turn,
+    promptEstimatedTokensBeforeTurn: turn.turnIndex === 1 ? initialEstimate : null,
+    selectedContextFileCount: turn.turnIndex === 1 ? selected.selectedFileCount : null,
+    selectedContextBytes: turn.turnIndex === 1 ? selected.selectedBytes : null,
+    provenance: { ...turn.provenance,
+      promptEstimate: turn.turnIndex === 1 && initialEstimate !== null ? 'estimated' :
+        'unavailable' } }));
+  return { ...trajectory, turns, selectedContextSemantics: 'initial-selection-only',
+    promptEstimateSemantics: 'first-provider-turn-only; later SDK turns unavailable',
+    toolResultCarryForwardSemantics: 'bytes observed; later prompt inclusion unavailable' };
 }
 
 function mutationFromResult(result) {
@@ -470,13 +488,17 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
     requireValue(sha(Buffer.from(definition.taskPrompt)) === task.taskHash &&
       same(definition.allowedMutationPaths, task.allowedFiles), 'task definition changed');
     const adapterCalls = [];
+    let coderTrajectory = null;
     const plannedAuthority = createPlannedContextMatrixAuthority({
       manifestPath: path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/experiment-manifest.json'),
       sourceRepositoryPath: source.root, sessionId, harnessHead, variant,
       repetitionIndex, replacementAttemptIndex, replacesSessionId });
     save(path.join(cellRoot, 'planned-authority.json'), plannedAuthority);
     const adapter = makeJournalScopedAdapter(adapterFactory(),
-      `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call), plannedAuthority);
+      `${sha(sessionRoot).slice(7, 23)}.${variant}`, call => adapterCalls.push(call),
+      plannedAuthority, (mode, result) => {
+        if (mode === 'coder') coderTrajectory = result?.trajectoryTelemetry ?? null;
+      });
     let binding = null;
     let rawTaskResult = null;
     let validationSpecificationHash = null;
@@ -520,6 +542,10 @@ export async function executeCell({ manifest, task, variant, sessionRoot, runInd
         syntax?.status === 'failed' ? 'FAIL' : 'NOT_RUN' },
       providerCalls: adapterCalls.length,
       timing: { taskElapsedMs: Date.now() - started } });
+    try {
+      const annotated = annotateCoderTrajectory(coderTrajectory, normalized, selected);
+      if (annotated !== null) save(path.join(cellRoot, 'coder-trajectory.json'), annotated);
+    } catch { /* Research telemetry must not change the cell outcome. */ }
     save(path.join(cellRoot, 'experiment-result.json'), normalized);
     const classification = classifyCell({ product: command.output, bounded: rawTaskResult,
       diagnostic: behavior.validationDiagnostic ?? null, behaviorStatus: behavior.status,
