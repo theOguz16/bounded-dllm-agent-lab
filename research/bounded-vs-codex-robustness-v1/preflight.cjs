@@ -5,75 +5,146 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
+const { codexLoginReady } = require('./preflight-support.cjs');
 const root = __dirname;
+const repo = path.resolve(root, '../..');
+const branchName = 'research/bounded-vs-codex-robustness-v1';
+const freezeCommit = 'eb0b501ba6d106730ba15c0e7f3dc3a5e4f5b496';
+const invalidSession = 'robustness-v1-2026-09-28';
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'benchmark-manifest.json'), 'utf8'));
 const resultsRoot = process.env.ROBUSTNESS_RESULT_ROOT || path.join(os.homedir(), '.bounded-agent', 'bounded-dllm-agent-lab', 'live-runs', 'bounded-vs-codex-robustness-v1');
+const sessionDir = path.join(resultsRoot, manifest.sessionId);
+const args = process.argv.slice(2);
+const postPush = args.includes('--post-push');
+const expectedHead = args.find(x => x.startsWith('--expected-head='))?.slice(16);
+const expectedRemote = args.find(x => x.startsWith('--expected-remote='))?.slice(18);
 const checks = [];
-function check(name, ok, detail) { checks.push({name, ok: !!ok, detail: String(detail || '')}); if (!ok) throw new Error(name + ': ' + detail); }
-function run(command, args, cwd = root, timeout = 120000, env = process.env) {
-  const r = cp.spawnSync(command, args, {cwd, env, encoding:'utf8', timeout, maxBuffer:4*1024*1024});
-  if (r.error || r.status !== 0) throw new Error(command + ' ' + args.join(' ') + ': ' + String(r.error?.message || r.stderr || r.stdout).slice(0,1500));
-  return r.stdout.trim();
-}
-function canon(x) { if (Array.isArray(x)) return '['+x.map(canon).join(',')+']'; if (x && typeof x==='object') return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canon(x[k])).join(',')+'}'; return JSON.stringify(x); }
-const sha = x => 'sha256:'+crypto.createHash('sha256').update(canon(x)).digest('hex');
+const invoked = [];
 let scratch;
+function check(name, ok, detail = '') {
+  checks.push({ name, ok: ok === true, detail: String(detail) });
+  if (ok !== true) throw Error(`${name}: ${detail}`);
+}
+function probe(command, commandArgs, cwd = repo, timeout = 120000, env = process.env) {
+  invoked.push({ command, args: commandArgs });
+  return cp.spawnSync(command, commandArgs, { cwd, env, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+}
+function success(result, label) {
+  if (result.error || result.signal || result.status !== 0) throw Error(`${label}: ${String(result.error?.message || result.stderr || result.stdout).slice(0, 1200)}`);
+  return result.stdout.trim();
+}
+function run(command, commandArgs, cwd, timeout, env) { return success(probe(command, commandArgs, cwd, timeout, env), command); }
+function canon(x) {
+  if (Array.isArray(x)) return `[${x.map(canon).join(',')}]`;
+  if (x && typeof x === 'object') return `{${Object.keys(x).sort().map(k => `${JSON.stringify(k)}:${canon(x[k])}`).join(',')}}`;
+  return JSON.stringify(x);
+}
+function sha(x) { return `sha256:${crypto.createHash('sha256').update(canon(x)).digest('hex')}`; }
+function freezeFile(rel) { return run('git', ['show', `${freezeCommit}:${rel}`], repo); }
+function freshSourceCheckout() {
+  scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'robustness-preflight-r2-'));
+  const candidate = path.join(scratch, 'source');
+  run('git', ['clone', '--local', '--no-hardlinks', '--quiet', repo, candidate], repo);
+  run('git', ['checkout', '--detach', manifest.sourceHead], candidate);
+  return candidate;
+}
+function checkPaths(candidate) {
+  const allowed = ['.bounded/.gitignore', '.bounded/config.json', '.bounded/policy.yml'];
+  const trackedDiff = run('git', ['diff', '--name-only', 'HEAD'], candidate);
+  const extra = run('git', ['ls-files', '--others', '--exclude-standard'], candidate).split('\n').filter(Boolean).sort();
+  check('no Candidate source contamination', trackedDiff === '' && JSON.stringify(extra) === JSON.stringify(allowed), JSON.stringify({ trackedDiff, extra }));
+}
 try {
-  const branch = run('git',['branch','--show-current']);
-  check('benchmark branch', branch==='research/bounded-vs-codex-robustness-v1', branch);
-  const head = run('git',['rev-parse','HEAD']);
-  run('git',['merge-base','--is-ancestor',manifest.sourceHead,head]);
-  check('source commit',run('git',['cat-file','-t',manifest.sourceHead])==='commit',manifest.sourceHead);
-  check('task count',manifest.tasks.length===5 && manifest.observationLimit===10,'expected 5/10');
-  check('difficulty and ordering',manifest.tasks.map(t=>t.difficulty).join(',')==='easy,medium_a,medium_b,medium_c,hard' && manifest.tasks.map(t=>t.order.join('/')).join(',')==='normal/bounded,bounded/normal,normal/bounded,bounded/normal,normal/bounded','frozen design');
-  for (const t of manifest.tasks) {
-    const {taskHash,...definition}=t;
-    check(t.taskId+' hash',sha(definition)===taskHash,taskHash);
-    check(t.taskId+' source/model',t.sourceHead===manifest.sourceHead && t.model==='gpt-5.6-luna' && t.reasoning==='medium',t.taskId);
-    check(t.taskId+' policy',t.policy.retry===0 && t.policy.repair===0 && t.policy.apply===0 && t.policy.boundedContext==='production-current' && t.policy.plannerBypass===false,t.taskId);
+  check('expected HEAD argument', /^[0-9a-f]{40}$/.test(expectedHead || ''), expectedHead || 'missing');
+  check('preflight identity', manifest.sessionId !== invalidSession && /^robustness-v1-2026-09-28-r[2-9][0-9]*$/.test(manifest.sessionId), manifest.sessionId);
+  const currentBranch = run('git', ['branch', '--show-current'], repo);
+  check('benchmark branch', currentBranch === branchName, currentBranch);
+  const head = run('git', ['rev-parse', 'HEAD'], repo);
+  check('local HEAD', head === expectedHead, head);
+  check('local tree clean', run('git', ['status', '--porcelain=v1'], repo) === '', head);
+  run('git', ['merge-base', '--is-ancestor', freezeCommit, head], repo);
+  const sourceType = run('git', ['cat-file', '-t', manifest.sourceHead], repo);
+  check('source SHA', manifest.sourceHead === 'ea6bc88e947e78b7539b9614b4c637dd9b2805a9' && sourceType === 'commit', manifest.sourceHead);
+  check('protocol frozen', fs.readFileSync(path.join(root, 'PROTOCOL.md'), 'utf8').trimEnd() === freezeFile('research/bounded-vs-codex-robustness-v1/PROTOCOL.md').trimEnd(), 'exact freeze-commit content');
+  const frozen = JSON.parse(freezeFile('research/bounded-vs-codex-robustness-v1/benchmark-manifest.json'));
+  check('manifest valid', manifest.benchmarkVersion === frozen.benchmarkVersion && manifest.sourceHead === frozen.sourceHead && manifest.model === 'gpt-5.6-luna' && manifest.reasoning === 'medium', 'schema/source/model');
+  check('five frozen tasks', manifest.tasks.length === 5 && JSON.stringify(manifest.tasks) === JSON.stringify(frozen.tasks), 'task entries exactly equal freeze commit');
+  check('difficulty labels', manifest.tasks.map(t => t.difficulty).join(',') === 'easy,medium_a,medium_b,medium_c,hard', 'easy/3 medium/hard');
+  check('execution order', manifest.tasks.map(t => t.order.join('/')).join(',') === 'normal/bounded,bounded/normal,normal/bounded,bounded/normal,normal/bounded', 'counterbalanced');
+  for (const task of manifest.tasks) {
+    const { taskHash, ...definition } = task;
+    check(`${task.taskId} hash`, sha(definition) === taskHash, taskHash);
+    check(`${task.taskId} model/reasoning/source`, task.model === manifest.model && task.reasoning === manifest.reasoning && task.sourceHead === manifest.sourceHead, task.taskId);
+    check(`${task.taskId} no retry/repair/apply`, task.policy.retry === 0 && task.policy.repair === 0 && task.policy.apply === 0 && task.policy.boundedContext === 'production-current' && task.policy.plannerBypass === false, task.taskId);
   }
-  check('result root outside source/temp',path.isAbsolute(resultsRoot) && !resultsRoot.startsWith(path.dirname(root)) && !resultsRoot.startsWith('/private/tmp/'),resultsRoot);
-  const sessionDir = path.join(resultsRoot,manifest.sessionId);
-  check('session not previously aborted',!fs.existsSync(path.join(sessionDir,'preflight.json')),sessionDir);
-  check('run identities unused',!fs.existsSync(path.join(sessionDir,'ledger.json')) && !fs.existsSync(path.join(sessionDir,'observations')),sessionDir);
-  fs.mkdirSync(sessionDir,{recursive:true,mode:0o700});
-  fs.accessSync(sessionDir,fs.constants.W_OK);
-  check('result root writable',true,sessionDir);
-  check('Docker',!!run('docker',['info','--format','{{.ServerVersion}}']), 'daemon reachable');
-  const login = require('node:child_process').spawnSync('codex',['login','status'],{cwd:root,encoding:'utf8',timeout:10000});
-  check('Codex login',login.status===0 && /logged in/i.test((login.stdout||'')+(login.stderr||'')),'login status');
-  const doctorProbe = require('node:child_process').spawnSync('codex',['doctor','--json','-c','model="gpt-5.6-luna"','-c','model_reasoning_effort="medium"'],{cwd:root,encoding:'utf8',timeout:30000,maxBuffer:4*1024*1024});
-  const doctor = JSON.parse(doctorProbe.stdout);
-  check('Normal model/reasoning config',doctor.checks?.['config.load']?.details?.model==='gpt-5.6-luna','explicit Luna/medium override');
-  check('provider reachability',doctor.checks?.['network.provider_reachability']?.status==='ok','endpoint check');
-  const journal = path.join(sessionDir,'provider-invocations.sqlite');
-  check('journal location and unused state',path.isAbsolute(journal) && !journal.startsWith(path.dirname(root)) && !journal.startsWith('/private/tmp/') && !fs.existsSync(journal),journal);
-  scratch = fs.mkdtempSync(path.join(os.tmpdir(),'robustness-preflight-'));
-  const candidate = path.join(scratch,'source');
-  run('git',['clone','--local','--no-hardlinks','--quiet',path.resolve(root,'../../'),candidate],root);
-  run('git',['checkout','--detach',manifest.sourceHead],candidate);
-  run('npm',['ci','--offline','--ignore-scripts','--no-audit','--no-fund'],candidate);
-  run('npm',['run','build'],candidate);
-  run('npm',['run','typecheck'],candidate);
-  run('npm',['test'],candidate);
-  const init = 'import fs from "node:fs/promises"; import {detectBoundedLocalConfig,BOUNDED_GITIGNORE_CONTENT,BOUNDED_DEFAULT_POLICY_CONTENT} from "./dist/apps/cli/src/product-config.js"; await fs.mkdir(".bounded",{recursive:true}); await fs.writeFile(".bounded/config.json",JSON.stringify(await detectBoundedLocalConfig(process.cwd()),null,2)+"\n"); await fs.writeFile(".bounded/.gitignore",BOUNDED_GITIGNORE_CONTENT); await fs.writeFile(".bounded/policy.yml",BOUNDED_DEFAULT_POLICY_CONTENT);';
-  run('node',['--input-type=module','-e',init],candidate);
-  const boundedDoctor = JSON.parse(run('node',['dist/apps/cli/src/index.js','doctor','--json'],candidate));
-  check('Bounded doctor',boundedDoctor.ok===true,'isolated source');
-  for (const t of manifest.tasks) {
-    for (const file of t.allowedFiles) check(t.taskId+' source file '+file,fs.statSync(path.join(candidate,file)).isFile(),file);
-    const estimate=t.allowedFiles.reduce((n,file)=>n+Math.ceil(fs.readFileSync(path.join(candidate,file),'utf8').length/4),0);
-    check(t.taskId+' bounded context estimate',estimate<10000,estimate+' initial file tokens before prompt/metadata, 14336 hard input');
-    const oracle=t.oracle.replace('{candidate}',candidate).replace('{benchmark}',root).split(' ');
-    check(t.taskId+' oracle command',fs.existsSync(path.isAbsolute(oracle[1])?oracle[1]:path.join(candidate,oracle[1])),oracle[1]);
-    const result=cp.spawnSync(oracle[0],oracle.slice(1),{cwd:candidate,encoding:'utf8',timeout:30000,maxBuffer:1024*1024});
-    check(t.taskId+' baseline oracle rejects missing behavior',result.status===1 && !result.error, String(result.stderr||result.stdout).slice(0,160));
+  for (const file of fs.readdirSync(path.join(root, 'oracles'))) {
+    const rel = `research/bounded-vs-codex-robustness-v1/oracles/${file}`;
+    check(`oracle frozen ${file}`, fs.readFileSync(path.join(root, 'oracles', file), 'utf8').trimEnd() === freezeFile(rel).trimEnd(), file);
   }
-  const report={schemaVersion:'robustness-preflight/v1',at:new Date().toISOString(),benchmarkHead:head,sourceHead:manifest.sourceHead,sessionId:manifest.sessionId,checks,providerCalls:0,ok:true};
-  fs.writeFileSync(path.join(sessionDir,'preflight.json'),JSON.stringify(report,null,2)+'\n',{flag:'w',mode:0o600});
-  process.stdout.write(JSON.stringify({ok:true,checks:checks.length,providerCalls:0,sessionDir})+'\n');
-} catch(error) {
-  const report={schemaVersion:'robustness-preflight/v1',at:new Date().toISOString(),checks,providerCalls:0,ok:false,error:String(error.message||error)};
-  try { const file=path.join(resultsRoot,manifest.sessionId,'preflight.json'); fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700}); if(!fs.existsSync(file)) fs.writeFileSync(file,JSON.stringify(report,null,2)+'\n',{mode:0o600}); } catch {}
-  process.stderr.write(JSON.stringify(report)+'\n'); process.exitCode=1;
-} finally { if(scratch) fs.rmSync(scratch,{recursive:true,force:true}); }
+  check('persistent output root', path.isAbsolute(resultsRoot) && !resultsRoot.startsWith(repo + path.sep) && !resultsRoot.startsWith('/private/tmp/') && !resultsRoot.startsWith('/tmp/'), resultsRoot);
+  if (!postPush) check('new preflight identity', !fs.existsSync(path.join(sessionDir, 'preflight.json')), sessionDir);
+  else {
+    const initial = JSON.parse(fs.readFileSync(path.join(sessionDir, 'preflight.json'), 'utf8'));
+    check('initial preflight PASS', initial.ok === true && initial.providerCalls === 0 && initial.benchmarkHead === head, initial.at);
+  }
+  check('all ten run identities unused', !fs.existsSync(path.join(sessionDir, 'ledger.json')) && !fs.existsSync(path.join(sessionDir, 'observations')), sessionDir);
+  if (!postPush) fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+  fs.accessSync(sessionDir, fs.constants.W_OK);
+  check('output root writable', true, sessionDir);
+  const journal = path.join(sessionDir, 'provider-invocations.sqlite');
+  check('Bounded journal path and unused state', !fs.existsSync(journal) && !journal.startsWith(repo + path.sep), journal);
+  const docker = run('docker', ['info', '--format', '{{.ServerVersion}}'], repo);
+  check('Docker available', /^\d+\./.test(docker), docker);
+  const executable = run('codex', ['--version'], repo);
+  check('Normal Codex executable', /^codex-cli \d+\./.test(executable), executable);
+  const login = probe('codex', ['login', 'status'], repo, 10000);
+  check('Normal Codex authentication', codexLoginReady(login), `exit=${login.status}; accepted status message=${codexLoginReady(login)}`);
+  const cliHelp = run('codex', ['exec', '--help'], repo);
+  check('Normal explicit model/reasoning capability', cliHelp.includes('--model') && cliHelp.includes('--config'), 'codex exec flags');
+  const doctor = probe('codex', ['doctor', '--json', '--strict-config', '-c', 'model="gpt-5.6-luna"', '-c', 'model_reasoning_effort="medium"'], repo, 30000);
+  const report = JSON.parse(doctor.stdout);
+  check('Normal exact model config', report.checks?.['config.load']?.status === 'ok' && report.checks?.['config.load']?.details?.model === 'gpt-5.6-luna', 'doctor strict config');
+  check('Normal provider reachability', report.checks?.['network.provider_reachability']?.status === 'ok', 'doctor endpoint');
+  check('Bounded reasoning capability', fs.readFileSync(path.join(repo, 'packages/integrations/src/codex-agent-adapter.ts'), 'utf8').includes('case "medium": return "medium";') && fs.readFileSync(path.join(repo, 'packages/integrations/src/codex-agent-adapter.ts'), 'utf8').includes('modelReasoningEffort: mapReasoningEffort(request.reasoningEffort)'), 'baseline SDK adapter maps medium');
+  const candidate = freshSourceCheckout();
+  check('disposable source checkout', run('git', ['rev-parse', 'HEAD'], candidate) === manifest.sourceHead, candidate);
+  run('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'], candidate);
+  check('deterministic pinned dependencies', fs.existsSync(path.join(candidate, 'node_modules/typescript/package.json')), 'npm ci offline');
+  run('npm', ['run', 'build'], candidate);
+  check('pinned build PASS', fs.existsSync(path.join(candidate, 'dist/apps/cli/src/index.js')), 'compiled CLI');
+  run('npm', ['run', 'typecheck'], candidate);
+  check('pinned typecheck PASS', true, 'tsc');
+  run('npm', ['test'], candidate);
+  check('pinned full test PASS', true, 'npm test');
+  run('node', [path.join(root, 'prepare-source.cjs'), candidate], candidate);
+  const bounded = JSON.parse(run('node', ['dist/apps/cli/src/index.js', 'doctor', '--json'], candidate));
+  check('Bounded doctor PASS', bounded.ok === true, bounded.code || 'PASS');
+  check('Bounded authentication', bounded.checks?.some(x => x.id === 'codex_authentication' && x.ok === true), bounded.codexAuthenticationSource);
+  check('deterministic validation environment', fs.existsSync(path.join(candidate, 'node_modules/.bin/tsc')) && /^\d+\./.test(docker), 'npm and Docker');
+  checkPaths(candidate);
+  for (const task of manifest.tasks) {
+    for (const file of task.allowedFiles) check(`${task.taskId} source ${file}`, fs.statSync(path.join(candidate, file)).isFile(), file);
+    const estimate = task.allowedFiles.reduce((n, file) => n + Math.ceil(fs.readFileSync(path.join(candidate, file), 'utf8').length / 4), 0);
+    check(`${task.taskId} production context eligibility`, estimate < 10000, `${estimate} initial file tokens before prompt/metadata; 14336 hard input`);
+    const parts = task.oracle.replace('{candidate}', candidate).replace('{benchmark}', root).split(' ');
+    check(`${task.taskId} oracle available`, parts[0] === 'node' && fs.existsSync(parts[1]), parts[1]);
+    const result = probe(parts[0], parts.slice(1), candidate, 30000);
+    check(`${task.taskId} unchanged source rejected`, result.status === 1 && !result.error && /AssertionError|ERR_ASSERTION/.test(result.stderr || result.stdout), String(result.stderr || result.stdout).slice(0, 140));
+  }
+  check('no real provider/model calls', invoked.every(x => x.command !== 'codex' || x.args[0] !== 'exec' || x.args.includes('--help')), `${invoked.length} offline commands`);
+  if (postPush) {
+    check('expected remote SHA argument', expectedRemote === head, expectedRemote || 'missing');
+    const remote = run('git', ['ls-remote', 'origin', `refs/heads/${branchName}`], repo, 30000).split(/\s+/)[0];
+    check('direct remote SHA', remote === head, remote);
+  }
+  const result = { schemaVersion: 'robustness-preflight/v2', preflightId: `${manifest.sessionId}/${postPush ? 'post-push' : 'initial'}`, at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, sessionId: manifest.sessionId, mode: postPush ? 'post-push-read-only' : 'initial', checks, providerCalls: 0, ok: true };
+  fs.writeFileSync(path.join(sessionDir, postPush ? 'post-push-preflight.json' : 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  process.stdout.write(JSON.stringify({ ok: true, preflightId: result.preflightId, checks: checks.length, providerCalls: 0, head }) + '\n');
+} catch (error) {
+  const result = { schemaVersion: 'robustness-preflight/v2', preflightId: `${manifest.sessionId}/${postPush ? 'post-push' : 'initial'}`, at: new Date().toISOString(), checks, providerCalls: 0, ok: false, error: String(error.message || error) };
+  if (!postPush) {
+    try { fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 }); const file = path.join(sessionDir, 'preflight.json'); if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 }); } catch {}
+  }
+  process.stderr.write(JSON.stringify(result) + '\n');
+  process.exitCode = 1;
+} finally { if (scratch) fs.rmSync(scratch, { recursive: true, force: true }); }

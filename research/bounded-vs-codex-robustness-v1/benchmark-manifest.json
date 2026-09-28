@@ -5,7 +5,7 @@
   "reasoning": "medium",
   "normalInvocation": "codex exec --model gpt-5.6-luna -c model_reasoning_effort=\"medium\"",
   "boundedInvocation": "bounded codex --task ... --allow ... --json; BOUNDED_CODEX_MODEL=gpt-5.6-luna",
-  "sessionId": "robustness-v1-2026-09-28",
+  "sessionId": "robustness-v1-2026-09-28-r2",
   "taskCount": 5,
   "observationLimit": 10,
   "tasks": [

@@ -1,0 +1,15 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { codexLoginReady } = require('./preflight-support.cjs');
+const ok = { status: 0, signal: null, error: undefined };
+assert.equal(codexLoginReady({ ...ok, stdout: 'Logged in using ChatGPT\n', stderr: '' }), true);
+assert.equal(codexLoginReady({ ...ok, stdout: '', stderr: 'Logged in using ChatGPT\n' }), true);
+assert.equal(codexLoginReady({ ...ok, stdout: '', stderr: 'Logged in using an API key\n' }), true);
+assert.equal(codexLoginReady({ ...ok, status: 1, stdout: '', stderr: 'Logged in using ChatGPT' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: '', stderr: 'unrelated stderr' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: 'Logged in using ChatGPT', stderr: 'unrelated stderr' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: 'logged in using ChatGPT', stderr: '' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: '{"message":"Logged in using ChatGPT"}', stderr: '' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: '', stderr: '' }), false);
+assert.equal(codexLoginReady({ ...ok, stdout: 'Logged in using ChatGPT\nLogged in using ChatGPT', stderr: '' }), false);
+console.log('preflight login parser: PASS');

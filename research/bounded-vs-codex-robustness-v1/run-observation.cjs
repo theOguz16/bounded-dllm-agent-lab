@@ -1,101 +1,95 @@
 #!/usr/bin/env node
 'use strict';
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const crypto = require('node:crypto');
-const cp = require('node:child_process');
-const root=__dirname;
-const sourceRepo=path.resolve(root,'../../');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),cp=require('node:child_process');
+const {tokens,sumStage,normalEvents,count}=require('./telemetry.cjs');
+const root=__dirname,sourceRepo=path.resolve(root,'../..');
 const manifest=JSON.parse(fs.readFileSync(path.join(root,'benchmark-manifest.json'),'utf8'));
-const resultsRoot=process.env.ROBUSTNESS_RESULT_ROOT || path.join(os.homedir(),'.bounded-agent','bounded-dllm-agent-lab','live-runs','bounded-vs-codex-robustness-v1');
-const sessionDir=path.join(resultsRoot,manifest.sessionId);
-const task=manifest.tasks.find(t=>t.taskId===process.argv[2]);
-const system=process.argv[3];
-if(!task||!['normal','bounded'].includes(system)) throw Error('Usage: node run-observation.cjs R1 normal|bounded');
-const orderPosition=task.order.indexOf(system)+1;
-const obsId=task.taskId+'-'+system;
-const obsDir=path.join(sessionDir,'observations',obsId);
-const ledgerPath=path.join(sessionDir,'ledger.json');
-function run(command,args,cwd,timeout=120000,env=process.env) {
- const p=cp.spawnSync(command,args,{cwd,env,encoding:'utf8',timeout,maxBuffer:100*1024*1024});
- return {status:p.status,stdout:p.stdout||'',stderr:p.stderr||'',error:p.error?.message||null,signal:p.signal||null};
-}
-function must(command,args,cwd,timeout,env) {const r=run(command,args,cwd,timeout,env); if(r.status!==0) throw Error(`${command} ${args.join(' ')} failed: ${r.error||r.stderr.slice(0,1200)}`);return r.stdout.trim();}
+const resultsRoot=process.env.ROBUSTNESS_RESULT_ROOT||path.join(os.homedir(),'.bounded-agent','bounded-dllm-agent-lab','live-runs','bounded-vs-codex-robustness-v1');
+const sessionDir=path.join(resultsRoot,manifest.sessionId),ledgerPath=path.join(sessionDir,'ledger.json');
+const task=manifest.tasks.find(t=>t.taskId===process.argv[2]),system=process.argv[3];
+if(!task||!['normal','bounded'].includes(system))throw Error('Usage: node run-observation.cjs R1 normal|bounded');
+const sequence=manifest.tasks.flatMap(t=>t.order.map(s=>`${t.taskId}-${s}`)),obsId=`${task.taskId}-${system}`,position=sequence.indexOf(obsId)+1,obsDir=path.join(sessionDir,'observations',obsId);
+function run(command,args,cwd,timeout=120000,env=process.env){const p=cp.spawnSync(command,args,{cwd,env,encoding:'utf8',timeout,maxBuffer:100*1024*1024});return {status:p.status,stdout:p.stdout||'',stderr:p.stderr||'',error:p.error?.message||null,signal:p.signal||null};}
+function must(command,args,cwd,timeout,env){const r=run(command,args,cwd,timeout,env);if(r.status!==0||r.error||r.signal)throw Error(`${command} ${args.join(' ')} failed: ${r.error||r.stderr.slice(0,1200)}`);return r.stdout.trim();}
 function writeJson(file,value){fs.writeFileSync(file,JSON.stringify(value,null,2)+'\n',{mode:0o600});}
+function readJson(file){return JSON.parse(fs.readFileSync(file,'utf8'));}
 function hashFile(file){return 'sha256:'+crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');}
-function clone(prefix){const dir=fs.mkdtempSync(path.join(os.tmpdir(),prefix)); const checkout=path.join(dir,'source');must('git',['clone','--local','--no-hardlinks','--quiet',sourceRepo,checkout],root);must('git',['checkout','--detach',manifest.sourceHead],checkout);return {dir,checkout};}
-function prepare(checkout){must('npm',['ci','--offline','--ignore-scripts','--no-audit','--no-fund'],checkout,120000);must('npm',['run','build'],checkout,120000);
- const init='import fs from "node:fs/promises"; import {detectBoundedLocalConfig,BOUNDED_GITIGNORE_CONTENT,BOUNDED_DEFAULT_POLICY_CONTENT} from "./dist/apps/cli/src/product-config.js"; await fs.mkdir(".bounded",{recursive:true}); await fs.writeFile(".bounded/config.json",JSON.stringify(await detectBoundedLocalConfig(process.cwd()),null,2)+"\n"); await fs.writeFile(".bounded/.gitignore",BOUNDED_GITIGNORE_CONTENT); await fs.writeFile(".bounded/policy.yml",BOUNDED_DEFAULT_POLICY_CONTENT);';
- must('node',['--input-type=module','-e',init],checkout,30000);
- const doctor=JSON.parse(must('node',['dist/apps/cli/src/index.js','doctor','--json'],checkout,30000)); if(!doctor.ok)throw Error('Bounded doctor failed');
-}
-function status(checkout){return must('git',['status','--porcelain=v1','--untracked-files=all'],checkout,30000);}
-function untracked(checkout){const output=must('git',['ls-files','--others','--exclude-standard','-z'],checkout,30000);return output.split('\0').filter(Boolean);}
-function changed(checkout,before){const tracked=must('git',['diff','--name-only','HEAD'],checkout,30000).split('\n').filter(Boolean);const current=untracked(checkout);const fresh=current.filter(x=>!before.untracked.includes(x));const modified=current.filter(x=>before.untrackedHashes[x]&&hashFile(path.join(checkout,x))!==before.untrackedHashes[x]);const removed=before.untracked.filter(x=>!current.includes(x));return [...new Set([...tracked,...fresh,...modified,...removed])].sort();}
-function parseNormal(raw){let last=null;let input=null,cached=null,output=null,turns=0,tools=0;for(const line of raw.split(/\r?\n/)){if(!line.trim())continue;let e;try{e=JSON.parse(line)}catch{continue}if(e.type==='turn.started')turns++;if(e.type==='item.completed'&&e.item?.type==='command_execution')tools++;if(e.type==='turn.completed'&&e.usage){last=e.usage;input=Number.isSafeInteger(last.input_tokens)?last.input_tokens:null;cached=Number.isSafeInteger(last.cached_input_tokens)?last.cached_input_tokens:null;output=Number.isSafeInteger(last.output_tokens)?last.output_tokens:null;}}
- return {input,cached,output,turns:turns||null,tools:tools||null,usageSemantics:'last cumulative session usage from Codex JSONL; no stage split'};}
-function parseBounded(raw){const lines=raw.split(/\r?\n/).filter(Boolean);for(let i=lines.length-1;i>=0;i--){try{const v=JSON.parse(lines[i]);if(v.command==='codex')return v;}catch{}}return null;}
-function checkCmd(name,command,args,cwd){const start=process.hrtime.bigint();const r=run(command,args,cwd,300000);const elapsedMs=Number(process.hrtime.bigint()-start)/1e6;fs.writeFileSync(path.join(obsDir,`validation-${name}.stdout`),r.stdout);fs.writeFileSync(path.join(obsDir,`validation-${name}.stderr`),r.stderr);return {status:r.status===0?'PASS':'FAIL',exitCode:r.status,elapsedMs,error:r.error};}
-let generation=null,validation=null,normalized=null,work=null,verify=null;
+function clone(prefix){const dir=fs.mkdtempSync(path.join(os.tmpdir(),prefix)),checkout=path.join(dir,'source');must('git',['clone','--local','--no-hardlinks','--quiet',sourceRepo,checkout],root);must('git',['checkout','--detach',manifest.sourceHead],checkout);return {dir,checkout};}
+function prepare(checkout){must('npm',['ci','--offline','--ignore-scripts','--no-audit','--no-fund'],checkout,120000);must('npm',['run','build'],checkout,120000);must('node',[path.join(root,'prepare-source.cjs'),checkout],checkout,30000);const d=readDoctor(checkout);if(!d.ok)throw Error('Bounded doctor failed');}
+function readDoctor(checkout){return JSON.parse(must('node',['dist/apps/cli/src/index.js','doctor','--json'],checkout,30000));}
+function untracked(checkout){return must('git',['ls-files','--others','--exclude-standard','-z'],checkout,30000).split('\0').filter(Boolean);}
+function snapshot(checkout){const files=untracked(checkout);return {head:must('git',['rev-parse','HEAD'],checkout),status:must('git',['status','--porcelain=v1','--untracked-files=all'],checkout),untracked:files,untrackedHashes:Object.fromEntries(files.map(f=>[f,hashFile(path.join(checkout,f))]))};}
+function changed(checkout,before){const tracked=must('git',['diff','--name-only','HEAD'],checkout).split('\n').filter(Boolean),now=untracked(checkout);return [...new Set([...tracked,...now.filter(f=>!before.untracked.includes(f)),...now.filter(f=>before.untrackedHashes[f]&&hashFile(path.join(checkout,f))!==before.untrackedHashes[f]),...before.untracked.filter(f=>!now.includes(f))])].sort();}
+function authority(){return {head:must('git',['rev-parse','HEAD'],sourceRepo),status:must('git',['status','--porcelain=v1'],sourceRepo)};}
+function assertAuthority(expected){const actual=authority();if(actual.head!==expected||actual.status!=='')throw Error('authority source changed: '+JSON.stringify(actual));return actual;}
+function parseBounded(raw){for(const line of raw.split(/\r?\n/).reverse()){try{const value=JSON.parse(line);if(value.command==='codex')return value;}catch{}}return null;}
+function validationCommand(name,command,args,cwd){const start=process.hrtime.bigint(),r=run(command,args,cwd,300000),elapsedMs=Number(process.hrtime.bigint()-start)/1e6;fs.writeFileSync(path.join(obsDir,`validation-${name}.stdout`),r.stdout);fs.writeFileSync(path.join(obsDir,`validation-${name}.stderr`),r.stderr);if(r.error||r.signal||r.status===null)throw Error(`${name} validation infrastructure: ${r.error||r.signal}`);return {status:r.status===0?'PASS':'FAIL',exitCode:r.status,elapsedMs};}
+function saveCandidateFiles(checkout,files){const out=path.join(obsDir,'candidate-files');for(const file of files){const src=path.join(checkout,file);if(!fs.existsSync(src))continue;const dest=path.join(out,file);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(src,dest);}}
+function extractMutation(checkout,rawFile){const extraction=run('node',[path.join(root,'extract-bounded-result.cjs'),checkout,rawFile],checkout,30000);if(extraction.status!==0)throw Error('Bounded durable result extraction failed: '+extraction.stderr.slice(0,1000));fs.writeFileSync(path.join(obsDir,'bounded-terminal-result.json'),extraction.stdout,{mode:0o600});const full=JSON.parse(extraction.stdout);return full.result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput||null;}
+function stageTelemetry(raw){const entries=raw?.tokens?.tokenObservability;if(!Array.isArray(entries))return {stages:null,turns:null,tools:null,contextExpansions:null};const names=['planner','coder'];const stages={};for(const name of names){const matching=entries.filter(e=>String(e.operation||'').toLowerCase().includes(name));stages[name]=matching.length?{initialEstimate:sumStage(matching,'initialPromptEstimatedTokens'),...tokens(sumStage(matching,'cumulativeInputTokens'),sumStage(matching,'cumulativeCachedInputTokens'),sumStage(matching,'outputTokens')),turns:sumStage(matching,'providerTurnCount'),tools:sumStage(matching,'toolCallCount')}:null;}return {stages,turns:sumStage(entries,'providerTurnCount'),tools:sumStage(entries,'toolCallCount'),contextExpansions:null};}
+let generation=null,work=null,verify=null,ledger=null,reserved=false;
 try{
- if(!fs.existsSync(path.join(sessionDir,'preflight.json')))throw Error('preflight record missing');
- const pf=JSON.parse(fs.readFileSync(path.join(sessionDir,'preflight.json'),'utf8'));if(!pf.ok||pf.providerCalls!==0)throw Error('preflight is not a zero-call PASS');
+ const pre=readJson(path.join(sessionDir,'preflight.json')),post=readJson(path.join(sessionDir,'post-push-preflight.json'));
+ if(!pre.ok||!post.ok||pre.providerCalls!==0||post.providerCalls!==0||pre.benchmarkHead!==post.benchmarkHead)throw Error('preflight gates not PASS');
  if(must('git',['branch','--show-current'],sourceRepo)!=='research/bounded-vs-codex-robustness-v1')throw Error('benchmark branch mismatch');
- if(fs.existsSync(ledgerPath)){const ledger=JSON.parse(fs.readFileSync(ledgerPath,'utf8'));if(ledger.some(x=>x.obsId===obsId))throw Error('run identity already consumed');}
- if(fs.existsSync(obsDir))throw Error('observation directory already exists');
+ assertAuthority(post.benchmarkHead);
+ if(fs.existsSync(path.join(sessionDir,'infrastructure-stop.json')))throw Error('session infrastructure stop exists');
+ ledger=fs.existsSync(ledgerPath)?readJson(ledgerPath):[];
+ if(!Array.isArray(ledger)||ledger.length>=sequence.length||sequence[ledger.length]!==obsId||ledger.some(e=>e.obsId===obsId||e.state!=='completed'))throw Error('observation order or ledger state mismatch');
+ if(fs.existsSync(obsDir))throw Error('observation identity already consumed');
  work=clone('robustness-generation-');prepare(work.checkout);
- const before={head:must('git',['rev-parse','HEAD'],work.checkout),status:status(work.checkout),untracked:untracked(work.checkout)};before.untrackedHashes=Object.fromEntries(before.untracked.map(f=>[f,hashFile(path.join(work.checkout,f))]));
- if(before.head!==manifest.sourceHead)throw Error('source SHA mismatch');
+ const before=snapshot(work.checkout);if(before.head!==manifest.sourceHead)throw Error('source SHA mismatch');
  fs.mkdirSync(obsDir,{recursive:true,mode:0o700});writeJson(path.join(obsDir,'before-source.json'),before);
- const ledger=fs.existsSync(ledgerPath)?JSON.parse(fs.readFileSync(ledgerPath,'utf8')):[];
- ledger.push({obsId,taskId:task.taskId,system,taskHash:task.taskHash,sourceHead:manifest.sourceHead,state:'reserved',reservedAt:new Date().toISOString()});writeJson(ledgerPath,ledger);
+ ledger.push({obsId,taskId:task.taskId,system,taskHash:task.taskHash,sourceHead:manifest.sourceHead,state:'reserved',reservedAt:new Date().toISOString()});writeJson(ledgerPath,ledger);reserved=true;
  const start=process.hrtime.bigint();
  const env={...process.env,BOUNDED_CODEX_MODEL:manifest.model,BOUNDED_CODEX_INVOCATION_JOURNAL_PATH:path.join(sessionDir,'provider-invocations.sqlite')};
- const args=system==='normal' ? ['exec','--json','--model',manifest.model,'-c','model_reasoning_effort="medium"','-c','approval_policy="never"','--sandbox','workspace-write','-C',work.checkout,task.providerPrompt] : ['dist/apps/cli/src/index.js','codex','--task',task.providerPrompt,...task.allowedFiles.flatMap(f=>['--allow',f]),'--json'];
  const command=system==='normal'?'codex':'node';
+ const args=system==='normal'?['exec','--json','--model',manifest.model,'-c',`model_reasoning_effort="${manifest.reasoning}"`,'-c','approval_policy="never"','--sandbox','workspace-write','-C',work.checkout,task.providerPrompt]:['dist/apps/cli/src/index.js','codex','--task',task.providerPrompt,...task.allowedFiles.flatMap(f=>['--allow',f]),'--json'];
  generation=run(command,args,work.checkout,20*60*1000,env);
  const elapsedMs=Number(process.hrtime.bigint()-start)/1e6;
- fs.writeFileSync(path.join(obsDir,'raw.stdout'),generation.stdout,{mode:0o600});fs.writeFileSync(path.join(obsDir,'raw.stderr'),generation.stderr,{mode:0o600});
- const after={head:must('git',['rev-parse','HEAD'],work.checkout),status:status(work.checkout),changedFiles:changed(work.checkout,before)};writeJson(path.join(obsDir,'after-source.json'),after);
+ const rawFile=path.join(obsDir,'raw.stdout');fs.writeFileSync(rawFile,generation.stdout,{mode:0o600});fs.writeFileSync(path.join(obsDir,'raw.stderr'),generation.stderr,{mode:0o600});
+ if(generation.error||generation.signal||generation.status===null)throw Error('generation process infrastructure: '+(generation.error||generation.signal));
+ const after={head:must('git',['rev-parse','HEAD'],work.checkout),status:must('git',['status','--porcelain=v1','--untracked-files=all'],work.checkout),changedFiles:changed(work.checkout,before)};writeJson(path.join(obsDir,'after-source.json'),after);
  if(after.head!==manifest.sourceHead)throw Error('generation source HEAD changed');
- let candidateFiles=[],candidateProduced=false,agentReported='unknown',boundedRaw=null,normalRaw=null,handoff=null;
+ let candidateFiles=[],candidateProduced=false,agentReported='unknown',boundedRaw=null,normalRaw=null,mutation=null;
  if(system==='normal'){
-  candidateFiles=after.changedFiles;candidateProduced=candidateFiles.length>0;agentReported=generation.status===0?'completed':'failed';normalRaw=parseNormal(generation.stdout);
+  normalRaw=normalEvents(generation.stdout);if(!normalRaw.terminalObserved&&generation.status!==0)throw Error('Normal generation failure has no terminal event');
+  candidateFiles=after.changedFiles;candidateProduced=candidateFiles.length>0;agentReported=generation.status===0?'completed':'failed';
   fs.writeFileSync(path.join(obsDir,'candidate.patch'),run('git',['diff','--binary','HEAD'],work.checkout).stdout,{mode:0o600});
  }else{
-  boundedRaw=parseBounded(generation.stdout);agentReported=boundedRaw?.decision||'unparsed';candidateFiles=boundedRaw?.candidate?.files||[];candidateProduced=candidateFiles.length>0;
-  const handoffPath=path.join(work.checkout,'.bounded/state/candidate-handoff.json');if(fs.existsSync(handoffPath)){handoff=JSON.parse(fs.readFileSync(handoffPath,'utf8'));fs.copyFileSync(handoffPath,path.join(obsDir,'candidate-handoff.json'));}
+  boundedRaw=parseBounded(generation.stdout);if(!boundedRaw)throw Error('Bounded generation output unparseable');
+  if(boundedRaw.model!==manifest.model||boundedRaw.reasoning!==manifest.reasoning)throw Error('Bounded effective model/reasoning mismatch');
   if(after.changedFiles.length)throw Error('Bounded mutated source checkout');
+  agentReported=boundedRaw.decision||'unreported';candidateFiles=boundedRaw.candidate?.files||[];
+  if(boundedRaw.recovery?.registryRoot&&boundedRaw.taskId){mutation=extractMutation(work.checkout,rawFile);}
+  if(candidateFiles.length&&!mutation)throw Error('Bounded Candidate reported without recoverable mutation');
+  if(mutation){if(mutation.role!=='coder'||mutation.target!=='patchDraft'||!Array.isArray(mutation.claims)||!mutation.claims.length)throw Error('Bounded mutation shape ambiguous');candidateFiles=mutation.claims.map(c=>c.file).sort();candidateProduced=true;writeJson(path.join(obsDir,'bounded-candidate-mutation.json'),mutation);}
+  const handoffPath=path.join(work.checkout,'.bounded/state/candidate-handoff.json');if(fs.existsSync(handoffPath))fs.copyFileSync(handoffPath,path.join(obsDir,'candidate-handoff.json'));
  }
- if(generation.error||generation.signal)throw Error('generation process timeout/signal: '+(generation.error||generation.signal));
- let scopePass=false,build='NOT_RUN',typecheck='NOT_RUN',test='NOT_RUN',behavior='NOT_RUN',sourceUnchanged=system==='bounded'?after.changedFiles.length===0:true;
- if(candidateProduced && (system==='normal'||handoff)){
+ const unauthorizedFiles=candidateFiles.filter(f=>!task.allowedFiles.includes(f)),scope=candidateProduced&&unauthorizedFiles.length===0?'PASS':'FAIL';
+ let build='NOT_RUN',typecheck='NOT_RUN',tests='NOT_RUN',behavior='NOT_RUN',patchBytes=null;
+ if(candidateProduced && !(system==='bounded' && unauthorizedFiles.length)){
   verify=clone('robustness-validation-');prepare(verify.checkout);
-  if(system==='normal'){
-   for(const file of candidateFiles){const from=path.join(work.checkout,file),to=path.join(verify.checkout,file);if(fs.existsSync(from)){fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);}else if(fs.existsSync(to))fs.rmSync(to);}
-  }else{
-   for(const claim of handoff.coderMutation.claims){const to=path.join(verify.checkout,claim.file);if(hashFile(to)!==claim.expectedContentHash)throw Error('Bounded Candidate source hash mismatch: '+claim.file);fs.writeFileSync(to,claim.newContent);}
-   candidateFiles=handoff.coderMutation.claims.map(x=>x.file).sort();
-  }
-  scopePass=candidateFiles.every(f=>task.allowedFiles.includes(f)) && candidateFiles.length>0;
-  if(scopePass){build=checkCmd('build','npm',['run','build'],verify.checkout).status;typecheck=checkCmd('typecheck','npm',['run','typecheck'],verify.checkout).status;test=checkCmd('test','npm',['test'],verify.checkout).status;
-   if(build==='PASS'){const parts=task.oracle.replace('{benchmark}',root).replace('{candidate}',verify.checkout).split(' ');behavior=checkCmd('behavior',parts[0],parts.slice(1),verify.checkout).status;}
-  }
-  fs.writeFileSync(path.join(obsDir,'candidate.patch'),run('git',['diff','--binary','HEAD'],verify.checkout).stdout,{mode:0o600});
+  if(system==='normal'){for(const file of candidateFiles){const from=path.join(work.checkout,file),to=path.join(verify.checkout,file);if(fs.existsSync(from)){fs.mkdirSync(path.dirname(to),{recursive:true});fs.copyFileSync(from,to);}else if(fs.existsSync(to))fs.rmSync(to);}}
+  else{for(const claim of mutation.claims){if(typeof claim.file!=='string'||typeof claim.newContent!=='string'||typeof claim.expectedContentHash!=='string')throw Error('Bounded mutation claim ambiguous');const to=path.join(verify.checkout,claim.file);if(hashFile(to)!==claim.expectedContentHash)throw Error('Bounded Candidate source hash mismatch: '+claim.file);fs.writeFileSync(to,claim.newContent);}}
+  saveCandidateFiles(verify.checkout,candidateFiles);
+  const patch=run('git',['diff','--binary','HEAD'],verify.checkout).stdout;fs.writeFileSync(path.join(obsDir,'candidate.patch'),patch,{mode:0o600});patchBytes=Buffer.byteLength(patch);
+  build=validationCommand('build','npm',['run','build'],verify.checkout).status;
+  typecheck=validationCommand('typecheck','npm',['run','typecheck'],verify.checkout).status;
+  tests=validationCommand('test','npm',['test'],verify.checkout).status;
+  const parts=task.oracle.replace('{benchmark}',root).replace('{candidate}',verify.checkout).split(' ');
+  behavior=validationCommand('behavior',parts[0],parts.slice(1),verify.checkout).status;
  }
- validation={scope:scopePass?'PASS':'FAIL',build,typecheck,test,behavior};writeJson(path.join(obsDir,'validation.json'),validation);
- const input=system==='normal'?normalRaw?.input:boundedRaw?.tokens?.input??null;
- const cached=system==='normal'?normalRaw?.cached:boundedRaw?.tokens?.cached??null;
- const output=system==='normal'?normalRaw?.output:boundedRaw?.tokens?.output??null;
- const turns=system==='normal'?normalRaw?.turns:(boundedRaw?.tokens?.tokenObservability||[]).reduce((n,x)=>n+(x.providerTurnCount||0),0)||null;
- const tools=system==='normal'?normalRaw?.tools:(boundedRaw?.tokens?.tokenObservability||[]).reduce((n,x)=>n+(x.toolCallCount||0),0)||null;
- normalized={benchmarkVersion:manifest.benchmarkVersion,sessionId:manifest.sessionId,taskId:task.taskId,difficulty:task.difficulty,system,sourceHead:manifest.sourceHead,taskHash:task.taskHash,executionOrder:orderPosition,model:manifest.model,reasoning:manifest.reasoning,allowedFiles:task.allowedFiles,candidateFiles,candidateProduced,agentReported,scopePass:validation.scope,build,typecheck,test,behavior,benchmarkSuccess:Object.values(validation).every(v=>v==='PASS'),sourceUnchanged,applyState:'NOT_RUN',inputTokens:input,cachedInputTokens:cached,uncachedInputTokens:Number.isSafeInteger(input)&&Number.isSafeInteger(cached)?input-cached:null,outputTokens:output,totalTokens:Number.isSafeInteger(input)&&Number.isSafeInteger(output)?input+output:null,turns,toolCalls:tools,elapsedMs,rawResultPath:path.join(obsDir,'raw.stdout'),exitCode:generation.status,stageTelemetry:system==='bounded'?(boundedRaw?.tokens?.tokenObservability||null):null,normalUsageSemantics:normalRaw?.usageSemantics||null,boundedInternalValidation:boundedRaw?.validation||null};
- writeJson(path.join(obsDir,'normalized.json'),normalized);
- ledger.at(-1).state='completed';ledger.at(-1).completedAt=new Date().toISOString();writeJson(ledgerPath,ledger);
+ const validation={scope,build,typecheck,tests,behavior};writeJson(path.join(obsDir,'validation.json'),validation);
+ const t=system==='normal'?normalRaw:tokens(boundedRaw?.tokens?.input,boundedRaw?.tokens?.cached,boundedRaw?.tokens?.output);
+ const boundedStage=system==='bounded'?stageTelemetry(boundedRaw):null;
+ const sourceUnchanged=assertAuthority(post.benchmarkHead).status===''&&after.head===manifest.sourceHead&&(system!=='bounded'||after.changedFiles.length===0);
+ const normalized={benchmarkVersion:manifest.benchmarkVersion,sessionId:manifest.sessionId,taskId:task.taskId,difficulty:task.difficulty,system,executionPosition:position,sourceHead:manifest.sourceHead,taskHash:task.taskHash,model:manifest.model,reasoning:manifest.reasoning,allowedFiles:task.allowedFiles,candidateFiles,changedFileCount:candidateFiles.length,unauthorizedFiles,approximatePatchBytes:patchBytes,candidateProduced,agentReported,sharedValidation:validation,benchmarkSuccess:Object.values(validation).every(x=>x==='PASS'),sourceUnchanged,applyState:'NOT_RUN',inputTokens:t.inputTokens,cachedInputTokens:t.cachedInputTokens,uncachedInputTokens:t.uncachedInputTokens,outputTokens:t.outputTokens,totalTokens:t.totalTokens,providerTurns:system==='normal'?normalRaw.turns:boundedStage.turns,toolCalls:system==='normal'?normalRaw.toolCalls:boundedStage.tools,elapsedMs,elapsedDefinition:'generation command wall time, excludes shared validation and dependency setup',stageTelemetry:boundedStage?.stages||null,contextExpansions:boundedStage?.contextExpansions??null,normalUsageSemantics:normalRaw?.usageSemantics||null,boundedInternalValidation:boundedRaw?.validation||null,rawResultPath:rawFile,exitCode:generation.status};
+ writeJson(path.join(obsDir,'normalized.json'),normalized);ledger.at(-1).state='completed';ledger.at(-1).completedAt=new Date().toISOString();writeJson(ledgerPath,ledger);
  process.stdout.write(JSON.stringify({obsId,success:normalized.benchmarkSuccess,agentReported,candidateProduced,validation,elapsedMs})+'\n');
 }catch(error){
  const event={obsId,at:new Date().toISOString(),error:String(error.stack||error),classification:'infrastructure_or_ambiguous',providerMayHaveRun:!!generation};
  if(fs.existsSync(obsDir))writeJson(path.join(obsDir,'infrastructure-event.json'),event);
+ try{if(fs.existsSync(sessionDir))writeJson(path.join(sessionDir,'infrastructure-stop.json'),event);}catch{}
  process.stderr.write(JSON.stringify(event)+'\n');process.exitCode=2;
 }finally{if(work)fs.rmSync(work.dir,{recursive:true,force:true});if(verify)fs.rmSync(verify.dir,{recursive:true,force:true});}
