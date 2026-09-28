@@ -1,0 +1,22 @@
+{
+  "version": "context-token-matrix-replacement-review/v1",
+  "protocolVersion": "context-token-matrix-protocol/v1",
+  "manifestHash": "sha256:b40e40acf1a5cce7a879123881a6e3c0336c4a1f091bc2340296826f5a8a1332",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "failedSessionId": "stage1-70a2d3b048822c4ab11b779d",
+  "failedHarnessHead": "d1bf4fef8614fa9adcad5fe18715cfda8b63edeb",
+  "failedCellId": "A.1.minimal",
+  "failedCellHash": "sha256:da6eebbc95bf552910b5c415474565276d4cc91a5dac6971e23ebb8eafd7b78c",
+  "failedPlannerRunId": "matrix.4b6d7a5bb5efa0d1.minimal.planner.codex.3905526266859afa1a06d66471a09a87",
+  "terminalClassification": "infrastructure_invalidated",
+  "defect": "research-runner-nested-taskContext-coder-binding",
+  "fixCommit": "d0e31ad73d7279839f0746b8e4f16fa30186b5c6",
+  "evidence": {
+    "stage1SummarySha256": "sha256:0e05028b180d474b70c6771aff132c6fae79fffabe33f16be7fc0e44bc05ca33",
+    "cellSummarySha256": "sha256:5c8d84f92174688a84a48aff8ca81f7f657a087ff050a8b2354b1ac246b25c86",
+    "rawProductSha256": "sha256:e07fe724b64619d7b23ac4e466b296edef35ebdc58b99401ef424e2b989863e5",
+    "adapterCallsSha256": "sha256:23c08337a1ef4d93103ca9b1ae0b381791f442e24be76991a0beb89cd3d9c0a2"
+  },
+  "replacementAttemptIndex": 2,
+  "maximumReplacementAttempts": 1
+}

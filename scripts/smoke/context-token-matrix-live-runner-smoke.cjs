@@ -55,7 +55,7 @@ const { pathToFileURL } = require('node:url');
     const statBefore = fs.statSync(journal);
     assert.equal(runtime.verifyJournal(journal, source.root, fakeHome).path, fs.realpathSync(journal));
     assert.equal(fs.statSync(journal).size, statBefore.size);
-    const pre = await runtime.preflight({ harnessRoot: harness, home: fakeHome,
+    const pre = await runtime.preflight({ attemptIndex: 1, harnessRoot: harness, home: fakeHome,
       resultParent: runtime.outputParent(fakeHome) });
     assert.equal(pre.ok, true);
     assert.equal(pre.providerModelCalls, 0);

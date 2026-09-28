@@ -3,7 +3,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
-import { validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
+import { readPlannedReplacementReview, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
 import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
@@ -80,6 +80,22 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
 const STAGES: readonly InvocationStage[] = ["discovery", "planner", "coder", "repair", "baseline"];
 const TERMINAL: readonly InvocationState[] = ["completed", "failed", "outcome_unknown"];
+function replacementPriorValid(records: readonly InvocationRecord[], authority: PlannedExperimentAuthority): boolean {
+  if (authority.replacementAttemptIndex !== 2 || !authority.replacesSessionId) return false;
+  const review = readPlannedReplacementReview(authority.manifestPath);
+  const prior = records.filter((record) =>
+    record.plannedExperiment?.sessionId === review.failedSessionId);
+  return prior.length === 1 && prior[0].stage === "planner" &&
+    prior[0].state === "completed" && prior[0].runId === review.failedPlannerRunId &&
+    prior[0].plannedExperiment?.cellHash === review.failedCellHash &&
+    prior[0].plannedExperiment?.harnessHead === review.failedHarnessHead &&
+    prior[0].plannedExperiment?.manifestHash === authority.manifestHash &&
+    prior[0].plannedExperiment?.sourceHead === authority.sourceHead &&
+    records.every((record) => record.plannedExperiment?.planSlotHash !==
+      prior[0].plannedExperiment?.planSlotHash ||
+      record.plannedExperiment?.sessionId === review.failedSessionId ||
+      record.plannedExperiment?.sessionId === authority.sessionId);
+}
 const SAFE_DIAGNOSTIC_CODES = new Set([
   "agent_command_budget_exceeded", "agent_event_budget_exceeded",
   "agent_model_call_budget_exceeded", "agent_output_limit", "agent_protocol_invalid",
@@ -236,6 +252,14 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           consumed_at INTEGER,
           UNIQUE(supersedes_run_id, stage)
         )`);
+        db.exec(`CREATE TABLE IF NOT EXISTS planned_experiment_replacements (
+          failed_session_id TEXT PRIMARY KEY,
+          replacement_session_id TEXT NOT NULL UNIQUE,
+          replacement_session_hash TEXT NOT NULL,
+          review_hash TEXT NOT NULL,
+          harness_head TEXT NOT NULL,
+          authorized_at INTEGER NOT NULL
+        )`);
       } catch (error) { db.close(); throw error; }
       return db;
     } catch {
@@ -273,6 +297,28 @@ export function createDurableInvocationJournal(file: string, now: () => number =
       return next;
     });
   return Object.freeze({
+    authorizePlannedReplacement(authority: PlannedExperimentAuthority,
+      sourceRepositoryPath: string): void {
+      try { validatePlannedContextMatrixAuthority(authority, {
+        sourceRepositoryPath, model: authority.model, reasoning: authority.reasoning,
+        stage: "planner" }); }
+      catch { throw new InvocationJournalError("invocation_replay_forbidden",
+        "Invalid replacement authority."); }
+      transaction((db) => {
+        const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+          .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+        if (!replacementPriorValid(rows, authority) ||
+            rows.some((row) => row.plannedExperiment?.sessionId === authority.sessionId) ||
+            db.prepare("SELECT 1 FROM planned_experiment_replacements WHERE failed_session_id = ? OR replacement_session_id = ?")
+              .get(authority.replacesSessionId ?? "", authority.sessionId))
+          throw new InvocationJournalError("invocation_replay_forbidden",
+            "Replacement requires one reviewed infrastructure-invalidated prior session.");
+        db.prepare(`INSERT INTO planned_experiment_replacements
+          (failed_session_id, replacement_session_id, replacement_session_hash, review_hash, harness_head, authorized_at)
+          VALUES (?, ?, ?, ?, ?, ?)`).run(authority.replacesSessionId ?? "", authority.sessionId,
+            authority.sessionHash, authority.replacementReviewHash ?? "", authority.harnessHead, now());
+      });
+    },
     authorizeRetry(decision: InvocationRetryDecision): void {
       if (!ID.test(decision.decisionId) || !ID.test(decision.supersedesRunId) ||
           !ID.test(decision.newRunId) || decision.newRunId === decision.supersedesRunId ||
@@ -317,8 +363,18 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           const allPlanned = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
             .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
             .filter((record) => record.plannedExperiment !== undefined);
-          if (allPlanned.some((record) => record.stage === input.stage &&
-                record.plannedExperiment?.planSlotHash === planned.planSlotHash) ||
+          const replacement = planned.replacementAttemptIndex === 2;
+          const replacementRow = replacement ? db.prepare(`SELECT * FROM planned_experiment_replacements
+            WHERE replacement_session_id = ?`).get(planned.sessionId) as Record<string, unknown> | undefined : null;
+          if ((replacement && (!replacementRow ||
+                replacementRow.failed_session_id !== planned.replacesSessionId ||
+                replacementRow.replacement_session_hash !== planned.sessionHash ||
+                replacementRow.review_hash !== planned.replacementReviewHash ||
+                replacementRow.harness_head !== planned.harnessHead ||
+                !replacementPriorValid(allPlanned, planned))) ||
+              allPlanned.some((record) => record.stage === input.stage &&
+                record.plannedExperiment?.planSlotHash === planned.planSlotHash &&
+                (!replacement || record.plannedExperiment?.sessionId !== planned.replacesSessionId)) ||
               allPlanned.some((record) => record.plannedExperiment?.sessionId === planned.sessionId &&
                 record.plannedExperiment?.sessionHash !== planned.sessionHash))
             throw new InvocationJournalError("invocation_replay_forbidden",
@@ -457,7 +513,9 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
   authority: PlannedExperimentAuthority; sourceRepositoryPath: string;
 }>[]): readonly Readonly<{ cellId: string; authorized: boolean; consumed: boolean;
   replayForbidden: boolean; plannerState: InvocationState | null;
-  coderState: InvocationState | null; }>[] {
+  coderState: InvocationState | null;
+  availability: "available" | "consumed_successfully" | "consumed_infrastructure_invalidated" |
+    "replacement_authorized" | "replacement_consumed" | "blocked"; }>[] {
   if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
     throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
   for (const cell of cells) validatePlannedContextMatrixAuthority(cell.authority, {
@@ -467,18 +525,37 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
   try {
     const records = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
       .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+    const hasReplacementTable = Boolean(db.prepare(`SELECT 1 FROM sqlite_master
+      WHERE type = 'table' AND name = 'planned_experiment_replacements'`).get());
     return Object.freeze(cells.map((cell) => {
       const matching = records.filter((record) =>
         record.plannedExperiment?.planSlotHash === cell.authority.planSlotHash);
       const sessionCollision = records.some((record) =>
         record.plannedExperiment?.sessionId === cell.authority.sessionId &&
         record.plannedExperiment?.sessionHash !== cell.authority.sessionHash);
-      const planner = matching.find((record) => record.stage === "planner");
-      const coder = matching.find((record) => record.stage === "coder");
+      const own = matching.filter((record) =>
+        record.plannedExperiment?.sessionId === cell.authority.sessionId);
+      const planner = own.find((record) => record.stage === "planner");
+      const coder = own.find((record) => record.stage === "coder");
       const consumed = matching.length > 0;
+      const replacement = cell.authority.replacementAttemptIndex === 2;
+      const existing = hasReplacementTable ? db.prepare(`SELECT * FROM planned_experiment_replacements
+        WHERE failed_session_id = ? OR replacement_session_id = ?`)
+        .get(cell.authority.replacesSessionId ?? "", cell.authority.sessionId) as
+        Record<string, unknown> | undefined : undefined;
+      const replacementAllowed = replacement && replacementPriorValid(records, cell.authority) &&
+        (!existing || existing.replacement_session_id === cell.authority.sessionId &&
+          existing.replacement_session_hash === cell.authority.sessionHash);
+      const authorized = replacement ? replacementAllowed && own.length === 0 && !sessionCollision :
+        !consumed && !sessionCollision;
+      const availability = replacement ?
+        (replacementAllowed ? own.length === 0 ? "replacement_authorized" : "replacement_consumed" : "blocked") :
+        (!consumed && !sessionCollision ? "available" : matching.some((record) =>
+          record.plannedExperiment?.sessionId === "stage1-70a2d3b048822c4ab11b779d") ?
+          "consumed_infrastructure_invalidated" : consumed ? "consumed_successfully" : "blocked");
       return Object.freeze({ cellId: cell.authority.cellId,
-        authorized: !consumed && !sessionCollision,
-        consumed, replayForbidden: consumed || sessionCollision,
+        authorized, consumed, replayForbidden: !authorized,
+        availability,
         plannerState: planner?.state ?? null,
         coderState: coder?.state ?? null });
     }));
