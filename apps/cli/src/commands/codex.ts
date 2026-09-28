@@ -753,6 +753,7 @@ export async function codexCommand(
     result.verifierResult ? "FAIL" : "NOT_RUN";
   const testStatus = validationStatus(tests?.status);
   const actualModel = recordedRuns.at(-1)?.result.modelId ?? model;
+  const expansionSummary = result.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.summary;
   const behavior = testStatus === "PASS" && requiredTestFiles.length > 0
     ? "PASS" as const
     : "NOT_DEMONSTRATED" as const;
@@ -786,6 +787,16 @@ export async function codexCommand(
       aggregation: "sum of per-provider-call cumulative thread usage (planner + coder); cached input is a subset",
       tokenObservability: tokenObservability(result, recordedRuns)
     },
+    ...(process.env.ROBUSTNESS_CODER_TRAJECTORY === "1" ? {
+      coderTrajectoryTelemetry: recordedRuns.find(run => run.request.mode === "coder")
+        ?.result.trajectoryTelemetry ?? null,
+      contextExpansionTelemetry: expansionSummary ? {
+        attemptCount: expansionSummary.expansionAttemptCount,
+        requestedFileCount: expansionSummary.requestedFileCount,
+        loadedExpansionFileCount: expansionSummary.loadedExpansionFileCount,
+        contextRequestProviderCallCount: expansionSummary.contextRequestProviderCallCount
+      } : null
+    } : {}),
     candidate: {
       changedFileCount: changedFiles.length,
       files: changedFiles

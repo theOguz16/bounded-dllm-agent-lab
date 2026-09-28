@@ -136,6 +136,8 @@ export interface AgentRunResult {
   commands: AgentCommandEvent[];
   fileChanges: AgentFileChangeEvent[];
   diagnostics: AgentDiagnostic[];
+  /** Additive, bounded Codex coder observations; never part of provider control. */
+  trajectoryTelemetry?: import("./codex-coder-trajectory.js").CodexCoderTrajectory | null;
 }
 
 export interface AgentAdapter {

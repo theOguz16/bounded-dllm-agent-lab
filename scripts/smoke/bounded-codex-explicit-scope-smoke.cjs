@@ -204,6 +204,8 @@ function fakeAdapter(sourceRepository) {
         fileChanges: [
           { sequence: 1, path: "src/session.ts", operation: "modify" }
         ],
+        trajectoryTelemetry: { schemaVersion: "codex-coder-trajectory/v1",
+          status: "unavailable", bounded: true, truncated: false, turns: [], tools: [] },
         diagnostics: []
       };
     }
@@ -277,6 +279,13 @@ async function main() {
     assert.equal(command.exitCode, 0, JSON.stringify(command.output));
     assert.equal(command.output.ok, true);
     assert.equal(command.output.command, "codex");
+    if (process.env.ROBUSTNESS_CODER_TRAJECTORY === "1") {
+      assert.equal(command.output.coderTrajectoryTelemetry.schemaVersion, "codex-coder-trajectory/v1");
+      assert.equal(typeof command.output.contextExpansionTelemetry.attemptCount, "number");
+    } else {
+      assert.equal(Object.hasOwn(command.output, "coderTrajectoryTelemetry"), false);
+      assert.equal(Object.hasOwn(command.output, "contextExpansionTelemetry"), false);
+    }
     assert.equal(command.output.explicitScopeVersion, "bounded-codex-explicit-scope/v0");
     assert.equal(command.output.agent, "Codex");
     assert.equal(command.output.model, "fixture-model-actual");

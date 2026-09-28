@@ -1,0 +1,11 @@
+# Bounded coder trajectory observation
+
+This harness selectively incorporates `codex-coder-trajectory/v1` from context-research commit `55e8767d641bbe093dc0af8dd78ed459718d0929`. It does not incorporate context-matrix authority, session, task, or policy code. The frozen benchmark manifest, protocol, five tasks, and pinned source SHA remain unchanged.
+
+Each Bounded generation clone is built from the frozen source SHA. After that build, the harness copies three compiled observational modules from its own clean build into the clone's ignored `dist/`: the trajectory collector, Codex adapter, and explicit-scope CLI command. The tracked source tree and HEAD stay at the frozen SHA. The Normal generation clone receives no overlay. The CLI only includes `coderTrajectoryTelemetry` in its JSON output when the Bounded-only `ROBUSTNESS_CODER_TRAJECTORY=1` flag is set. The flag is absent for Normal and for regular product use.
+
+`normalized.json` includes the existing aggregate/stage usage, elapsed time, and context fields, plus `trajectoryTelemetry` for Bounded or null for Normal. Bounded also saves `coder-trajectory.json` and aggregate context expansion counts from the existing adaptive-flow summary where available. The first trajectory turn receives the existing coder initial prompt estimate and selected file count/bytes where available. Later SDK-managed prompts, context changes, tool-result carry-forward, and per-turn expansion material are unavailable and remain null. Tool output bytes and estimated result tokens are metadata only. No raw prompt, output, source content, arbitrary stderr, or runtime authority text enters the trajectory schema.
+
+After the five-task sweep, `node trajectory-analysis.cjs <five Bounded normalized.json files>` prints descriptive per-task amplification, coder share, turn/tool counts, input and uncached growth by turn, tool-result byte volume, and pairwise tool-activity/traffic direction counts. It makes no causal claim or ranking. Historical or Normal observations without trajectory remain null.
+
+The overlay and analysis are offline-tested by `node trajectory.test.cjs`. Live execution still requires a new session, full zero-call preflight, push and direct remote verification. This integration task does not start the benchmark.

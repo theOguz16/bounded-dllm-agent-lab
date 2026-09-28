@@ -58,6 +58,7 @@ import {
   type CodexEventParserResult,
   type CodexNormalizedCommandEvent
 } from "./codex-event-parser.js";
+import { deriveCodexCoderTrajectory } from "./codex-coder-trajectory.js";
 
 export const CODEX_AGENT_ID = "codex" as const;
 export const CODEX_SDK_VERSION = "0.153.4" as const;
@@ -520,6 +521,11 @@ export class CodexAgentAdapter implements AgentAdapter {
     const parsed = parseCodexJsonl(lines.join("\n"), {
       processAborted: finalTermination !== "none", durationMs
     });
+    let trajectoryTelemetry: ReturnType<typeof deriveCodexCoderTrajectory> | null = null;
+    if (request.mode === "coder") {
+      try { trajectoryTelemetry = deriveCodexCoderTrajectory(lines.join("\n"), commandTimings); }
+      catch { trajectoryTelemetry = null; }
+    }
     const workerDiagnostic = workerResult !== null &&
       (workerResult.exitCode !== 0 || parsed.status !== "completed")
       ? createWorkerFailureDiagnostic({
@@ -659,7 +665,8 @@ export class CodexAgentAdapter implements AgentAdapter {
       },
       commands,
       fileChanges: mapFileChanges(parsed),
-      diagnostics
+      diagnostics,
+      ...(request.mode === "coder" ? { trajectoryTelemetry } : {})
     };
   }
 }
