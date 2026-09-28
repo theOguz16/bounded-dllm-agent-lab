@@ -1,0 +1,43 @@
+name: Controlled Pilot Observed Evidence
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/controlled-coding-pilot-observed-evidence.cjs'
+      - 'scripts/controlled-coding-pilot-observed-evidence-verify.cjs'
+      - 'scripts/controlled-coding-pilot-observed-evidence-smoke.cjs'
+      - 'scripts/controlled-coding-pilot-v2-observed-run.cjs'
+      - 'scripts/controlled-coding-pilot.cjs'
+      - 'scripts/controlled-coding-pilot-context-selector.cjs'
+      - 'pilots/controlled-real-coding-v2/**'
+      - '.github/workflows/controlled-pilot-observed-evidence.yml'
+      - 'bounded-agent.policy.yml'
+
+jobs:
+  observed-evidence-contract:
+    name: Controlled Pilot Observed Evidence V3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - name: Syntax check observed-run tooling
+        run: |
+          node --check scripts/controlled-coding-pilot-observed-evidence.cjs
+          node --check scripts/controlled-coding-pilot-observed-evidence-verify.cjs
+          node --check scripts/controlled-coding-pilot-observed-evidence-smoke.cjs
+          node --check scripts/controlled-coding-pilot-v2-observed-run.cjs
+      - name: Verify success and failed-run evidence preservation
+        run: node scripts/controlled-coding-pilot-observed-evidence-smoke.cjs
+        env:
+          LLM_UPSTREAM_URL: ''
+          MODEL_WORKER_UPSTREAM_URL: ''
+          LLM_UPSTREAM_API_KEY: ''
+          MODEL_WORKER_UPSTREAM_API_KEY: ''
+          OPENAI_API_KEY: ''
+          RUNPOD_API_KEY: ''
+          CONTROLLED_OBSERVED_RUN_ATTESTATION: ''
