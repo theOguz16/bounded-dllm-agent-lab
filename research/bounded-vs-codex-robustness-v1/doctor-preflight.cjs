@@ -131,4 +131,20 @@ function parseDoctorResult(result) {
   return { report, diagnostic };
 }
 
-module.exports = { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, DoctorPreflightError, parseDoctorResult };
+const PERSISTED_DIAGNOSTIC_FIELDS = Object.freeze([
+  'invocationStatus', 'exitCode', 'signal', 'timedOut', 'stdoutBytes', 'stderrBytes',
+  'structuredStream', 'structuredFormat', 'reportParsed', 'schemaVersion',
+  'overallStatus', 'codexVersion',
+  'okCount', 'warningCount', 'failCount', 'failedCheckIds', 'warningCheckIds',
+  'benchmarkCriticalFailures', 'reviewedNonBlockingFailures', 'benchmarkDoctorReady',
+  'issueCode', 'reasonCode', 'evidenceHash'
+]);
+function persistedDoctorDiagnostic(diagnostic) {
+  if (!diagnostic) return null;
+  const source = { ...diagnostic, reportParsed: diagnostic.parseSucceeded,
+    issueCode: diagnostic.issueCode ?? null, reasonCode: diagnostic.reasonCode ?? null };
+  return Object.fromEntries(PERSISTED_DIAGNOSTIC_FIELDS.map(field => [field, source[field]]));
+}
+
+module.exports = { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, DoctorPreflightError,
+  parseDoctorResult, persistedDoctorDiagnostic, PERSISTED_DIAGNOSTIC_FIELDS };

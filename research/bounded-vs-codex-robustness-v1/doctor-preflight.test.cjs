@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, DoctorPreflightError, parseDoctorResult } = require('./doctor-preflight.cjs');
+const { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, DoctorPreflightError, parseDoctorResult,
+  persistedDoctorDiagnostic, PERSISTED_DIAGNOSTIC_FIELDS } = require('./doctor-preflight.cjs');
 
 assert.deepEqual(NORMAL_DOCTOR_ARGS, ['--strict-config', 'doctor', '--json', '-c',
   'model="gpt-5.6-luna"', '-c', 'model_reasoning_effort="medium"']);
@@ -39,6 +40,10 @@ assert.equal(good.diagnostic.okCount, 6);
 assert.equal(good.diagnostic.invocationStatus, 'valid_report');
 assert.equal(good.diagnostic.parseSucceeded, true);
 assert.equal(good.diagnostic.exitCode, 0);
+assert.deepEqual(Object.keys(persistedDoctorDiagnostic(good.diagnostic)), PERSISTED_DIAGNOSTIC_FIELDS);
+assert.equal(persistedDoctorDiagnostic(good.diagnostic).reportParsed, true);
+assert.equal(persistedDoctorDiagnostic(good.diagnostic).issueCode, null);
+assert.equal(persistedDoctorDiagnostic(good.diagnostic).stdout, undefined);
 
 const warning = report({ 'terminal.env': { status: 'warn', details: terminalDetails } });
 warning.overallStatus = 'warn';
@@ -59,6 +64,8 @@ assert.equal(tolerated.diagnostic.benchmarkDoctorReady, true);
 
 const critical = report({ 'auth.credentials': { status: 'fail' } }); critical.overallStatus = 'fail';
 const criticalError = fails(processResult(critical, { status: 1 }), 'doctor_benchmark_not_ready', 'critical_check_failed');
+assert.deepEqual(Object.keys(persistedDoctorDiagnostic(criticalError.diagnostic)), PERSISTED_DIAGNOSTIC_FIELDS);
+assert.equal(persistedDoctorDiagnostic(criticalError.diagnostic).reasonCode, 'critical_check_failed');
 assert.deepEqual(criticalError.diagnostic.benchmarkCriticalFailures, ['auth.credentials']);
 const multiple = report({ 'terminal.env': { status: 'fail', details: terminalDetails, issues: terminalIssues },
   'state.paths': { status: 'fail' } }); multiple.overallStatus = 'fail';

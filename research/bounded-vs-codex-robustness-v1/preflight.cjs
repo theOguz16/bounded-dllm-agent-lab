@@ -8,7 +8,7 @@ const cp = require('node:child_process');
 const { codexLoginReady } = require('./preflight-support.cjs');
 const { installObservationOverlay } = require('./observation-overlay.cjs');
 const { parseSessionId, sessionPath, assertUnusedSession, observationSlots, preflightRecord } = require('./session-identity.cjs');
-const { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, parseDoctorResult } = require('./doctor-preflight.cjs');
+const { MAX_DOCTOR_BYTES, NORMAL_DOCTOR_ARGS, parseDoctorResult, persistedDoctorDiagnostic } = require('./doctor-preflight.cjs');
 const root = __dirname;
 const repo = path.resolve(root, '../..');
 const branchName = 'research/bounded-vs-codex-robustness-v1';
@@ -154,11 +154,11 @@ try {
     const remote = run('git', ['ls-remote', 'origin', `refs/heads/${branchName}`], repo, 30000).split(/\s+/)[0];
     check('direct remote SHA', remote === head, remote);
   }
-  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, mode: postPush ? 'post-push-read-only' : 'initial', checks, doctorDiagnostic, providerCalls: 0, ok: true });
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), benchmarkHead: head, sourceHead: manifest.sourceHead, mode: postPush ? 'post-push-read-only' : 'initial', checks, doctorDiagnostic: persistedDoctorDiagnostic(doctorDiagnostic), providerCalls: 0, ok: true });
   fs.writeFileSync(path.join(sessionDir, postPush ? 'post-push-preflight.json' : 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   process.stdout.write(JSON.stringify({ ok: true, preflightId: result.preflightId, checks: checks.length, providerCalls: 0, head }) + '\n');
 } catch (error) {
-  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), checks, doctorDiagnostic: error.diagnostic || doctorDiagnostic, issueCode: error.issueCode || null, reasonCode: error.reasonCode || null, providerCalls: 0, ok: false, error: String(error.message || error) });
+  const result = preflightRecord(sessionId, postPush ? 'post-push' : 'initial', { at: new Date().toISOString(), checks, doctorDiagnostic: persistedDoctorDiagnostic(error.diagnostic || doctorDiagnostic), issueCode: error.issueCode || null, reasonCode: error.reasonCode || null, providerCalls: 0, ok: false, error: String(error.message || error) });
   if (!postPush && sessionCreated) {
     try { fs.writeFileSync(path.join(sessionDir, 'preflight.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx', mode: 0o600 }); } catch {}
   }
