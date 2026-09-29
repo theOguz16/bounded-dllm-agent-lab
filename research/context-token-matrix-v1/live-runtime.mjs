@@ -345,9 +345,14 @@ export async function preflight({ keepSource = false, attemptIndex = 3, harnessR
   } finally { if (!keepSource) fs.rmSync(parent, { recursive: true, force: true }); }
 }
 
+export function assertJournalRunIdentity(identity) {
+  requireValue(/^[a-z0-9][a-z0-9.-]{1,63}$/.test(identity), 'run identity');
+  return identity;
+}
+
 export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAuthority = null,
   onResult = null) {
-  requireValue(/^[a-z0-9][a-z0-9.-]{1,63}$/.test(identity), 'run identity');
+  assertJournalRunIdentity(identity);
   const counts = new Map();
   return { agentId: adapter.agentId, agentVersion: adapter.agentVersion,
     async run(request) {

@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { HARNESS_ROOT, MODEL, REASONING, expectedJournalPath, outputParent,
   verifyHarnessIdentity, verifySourceIdentity, verifyJournal, prepareSourceCheckout,
-  makeJournalScopedAdapter, annotateCoderTrajectory } from './live-runtime.mjs';
+  makeJournalScopedAdapter, assertJournalRunIdentity, annotateCoderTrajectory } from './live-runtime.mjs';
 import { calibrateTaskB } from './task-b-calibrate.mjs';
 import { createResearchConfig, selectResearchContext, prepareResearchTaskInput } from './policy.mjs';
 import { createExperimentResult } from './result.mjs';
@@ -133,14 +133,42 @@ export function selectTask(selection) {
   gate(selection === 'A' || selection === 'B', 'explicit task selection required');
   return selection;
 }
-export function stage1Slots(plan, sessionId) {
+/** Preserve the frozen research ID; derive a separate adapter-safe ID from its exact fields. */
+export function deriveTaskBRuntimeIdentity({ sessionId, position, replicate, variant }) {
+  gate(typeof sessionId === 'string' && /^task-b-stage1-[a-z0-9-]{8,24}$/.test(sessionId) &&
+    !/--|-$/.test(sessionId) && Number.isInteger(position) && position >= 1 && position <= 6 &&
+    ['A', 'B'].includes(replicate) && ['minimal', 'current', 'expanded'].includes(variant),
+  'runtime identity fields');
+  return `${sessionId}.task-b.${position}.${replicate.toLowerCase()}.${variant}`;
+}
+export function assertTaskBRuntimeIdentities(slots) {
+  gate(Array.isArray(slots) && slots.length === 6, 'six runtime identities required');
+  const seen = new Set();
+  for (const slot of slots) {
+    assertJournalRunIdentity(slot.runtimeIdentity);
+    gate(!seen.has(slot.runtimeIdentity), 'runtime identity normalization collision');
+    seen.add(slot.runtimeIdentity);
+    gate(slot.runtimeIdentity === deriveTaskBRuntimeIdentity({ sessionId: slot.sessionId,
+      position: slot.position, replicate: slot.replicate, variant: slot.variant }),
+    'runtime identity derivation changed');
+  }
+  return slots;
+}
+export function stage1Slots(plan, sessionId, runtimeIdentityDeriver = deriveTaskBRuntimeIdentity) {
   gate(typeof sessionId === 'string' && /^task-b-stage1-[a-z0-9-]{8,24}$/.test(sessionId) &&
     !/--|-$/.test(sessionId), 'fresh explicit Stage 1 session ID required');
   gate(same(plan.order, ORDER) && plan.providerBudget.observations === 6 &&
     plan.providerBudget.stageInvocations === 18, 'Stage 1 authority');
-  return plan.order.map((label, index) => ({ position: index + 1,
-    replicate: label[0], variant: label.slice(2),
-    observationId: `${sessionId}.${index + 1}.${label.replace(':', '.')}` }));
+  const runtimeSlots = plan.order.map((label, index) => {
+    const position = index + 1;
+    const replicate = label[0];
+    const variant = label.slice(2);
+    return { position, replicate, variant, sessionId,
+      runtimeIdentity: runtimeIdentityDeriver({ sessionId, position, replicate, variant }) };
+  });
+  assertTaskBRuntimeIdentities(runtimeSlots);
+  return runtimeSlots.map(slot => ({ ...slot,
+    observationId: `${sessionId}.${slot.position}.${slot.replicate}.${slot.variant}` }));
 }
 export function createTaskBBudget() {
   const identities = new Set();
@@ -161,17 +189,29 @@ export function createTaskBBudget() {
   };
 }
 export function assertFreshTaskBSession(slots, parent, journalPath, { checkDirectory = true } = {}) {
+  if (slots.length === 6) assertTaskBRuntimeIdentities(slots);
+  else gate(slots.length === 1 &&
+    slots[0].runtimeIdentity === deriveTaskBRuntimeIdentity(slots[0]) &&
+    assertJournalRunIdentity(slots[0].runtimeIdentity), 'runtime identity for one slot');
   if (checkDirectory) gate(!fs.existsSync(path.join(parent, slots[0].observationId.split('.')[0])),
     'historical session reuse');
   const db = new DatabaseSync(journalPath, { readOnly: true });
   try {
     for (const slot of slots) {
-      const prefix = `matrix.${slot.observationId}.`;
-      const row = db.prepare('SELECT count(*) AS n FROM provider_invocations WHERE substr(run_id,1,?)=?')
-        .get(prefix.length, prefix);
-      gate(row.n === 0, `observation identity consumed: ${slot.observationId}`);
+      for (const identity of [slot.runtimeIdentity, slot.observationId]) {
+        const prefix = `matrix.${identity}.`;
+        const row = db.prepare('SELECT count(*) AS n FROM provider_invocations WHERE substr(run_id,1,?)=?')
+          .get(prefix.length, prefix);
+        gate(row.n === 0, `observation identity consumed: ${slot.observationId}`);
+      }
     }
   } finally { db.close(); }
+}
+export function preflightTaskBIdentities({ plan, sessionId, resultParent,
+  journalPath, runtimeIdentityDeriver = deriveTaskBRuntimeIdentity }) {
+  const slots = stage1Slots(plan, sessionId, runtimeIdentityDeriver);
+  assertFreshTaskBSession(slots, resultParent, journalPath);
+  return slots;
 }
 
 function evidence(root, files) {
@@ -202,13 +242,12 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
   resultParent = outputParent(home), journalPath = expectedJournalPath(home),
   verifyRemote = true } = {}) {
   const plan = loadTaskBPlan();
-  const slots = stage1Slots(plan, sessionId);
+  gate(fs.existsSync(journalPath), 'persistent journal absent');
+  const slots = preflightTaskBIdentities({ plan, sessionId, resultParent, journalPath });
   const harnessHead = verifyHarnessIdentity();
   const remoteHead = verifyRemote ? checked(HARNESS_ROOT, 'git',
     ['ls-remote', 'origin', 'refs/heads/research/context-token-matrix-v1'], 30_000).split(/\s+/)[0] : null;
   if (verifyRemote) gate(remoteHead === harnessHead, 'remote harness HEAD mismatch');
-  gate(fs.existsSync(journalPath), 'persistent journal absent');
-  assertFreshTaskBSession(slots, resultParent, journalPath);
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-preflight-'));
   try {
     const source = await prepareSourceCheckout(temporary, plan.proposal);
@@ -324,7 +363,7 @@ async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterF
     const { config, selected } = await selectTaskBContext(plan, slot.variant, source.root);
     const calls = [];
     let trajectory = null;
-    const adapter = makeJournalScopedAdapter(adapterFactory(), slot.observationId,
+    const adapter = makeJournalScopedAdapter(adapterFactory(), slot.runtimeIdentity,
       call => { budget.recordInvocation(slot.observationId); calls.push(call); }, null,
       (mode, result) => { if (mode === 'coder') trajectory = result?.trajectoryTelemetry ?? null; });
     let bounded = null;
@@ -395,6 +434,7 @@ export async function runTaskBStage1({ sessionId, adapterFactory = () => new Cod
     process.env.BOUNDED_CODEX_MODEL === MODEL, 'frozen journal/model environment');
   const preflight = await preflightTaskB({ sessionId });
   const plan = loadTaskBPlan();
+  assertTaskBRuntimeIdentities(preflight.slots);
   fs.mkdirSync(outputParent(), { recursive: true, mode: 0o700 });
   const sessionRoot = path.join(outputParent(), sessionId);
   fs.mkdirSync(sessionRoot, { recursive: false, mode: 0o700 });
