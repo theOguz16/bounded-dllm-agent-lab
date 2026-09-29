@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "robustness-r10-derived-interpretation/v1",
+  "sessionId": "robustness-v1-2026-09-29-r10",
+  "historicalResultAuthority": "frozen robustness-v1 session artifacts; this file is not part of the original benchmark result",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "frozenFullyValidated": { "normal": 3, "bounded": 4, "tasksPerArm": 5 },
+  "scopeAttributionInterpretation": {
+    "preparedPaths": [".bounded/.gitignore", ".bounded/config.json", ".bounded/policy.yml"],
+    "preparedPathProvenance": "benchmark_harness_created_before_agent",
+    "preparedPathPreAgentHashes": {
+      ".bounded/.gitignore": "sha256:cfc3c8381a22a7977d625fc63bfce4c5d5f07a06a03c4aa33b3c06cdbb4588f9",
+      ".bounded/config.json": "sha256:52e300487f1572a3833edf99b27ead2791c8d737f152d54c49f6b4b333681cdd",
+      ".bounded/policy.yml": "sha256:2599ef9e20dc3af03c2b1b4297deb4392669cf867df41b1cc520ad165a788b0d"
+    },
+    "affectedObservations": [
+      {
+        "id": "R1-normal",
+        "frozenV1": { "scope": "FAIL", "benchmarkSuccess": false },
+        "derived": { "candidatePatchScopePass": true, "agentWorkspaceMutationScopePass": false, "preparedFileDeletionByAgent": true, "candidatePatchFiles": ["apps/cli/src/model-worker-runpod-live-smoke.ts"] },
+        "functionalChecks": { "build": "PASS", "typecheck": "PASS", "tests": "PASS", "behavior": "PASS" }
+      },
+      {
+        "id": "R4-normal",
+        "frozenV1": { "scope": "FAIL", "benchmarkSuccess": false },
+        "derived": { "candidatePatchScopePass": true, "agentWorkspaceMutationScopePass": false, "preparedFileDeletionByAgent": true, "candidatePatchFiles": ["packages/integrations/src/codex-event-parser.ts", "scripts/smoke/codex-event-parser-smoke.cjs"] },
+        "functionalChecks": { "build": "PASS", "typecheck": "PASS", "tests": "PASS", "behavior": "PASS" }
+      }
+    ],
+    "patchLevelDerivedFullyValidated": { "normal": 5, "bounded": 4, "tasksPerArm": 5, "replacesFrozenBenchmarkMetric": false }
+  },
+  "boundedHardTask": {
+    "id": "R5-bounded",
+    "candidateProduced": false,
+    "coderInvocationOccurred": false,
+    "coderJournalReservationOccurred": false,
+    "coderContextGateReached": false,
+    "stopStage": "preventive_minimality",
+    "planRiskClass": "high",
+    "decision": "planner_minimality_task_stopped",
+    "route": "human_review_required",
+    "issueCode": "minimality_high_risk_human_review_required",
+    "primaryClassification": "product_policy_limitation",
+    "contextFailure": false,
+    "candidateFailure": false
+  }
+}
