@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "context-token-matrix-task-definition/v2",
+  "category": "B",
+  "name": "Codex event ordering",
+  "sourceBenchmark": "bounded-vs-codex-robustness/v1",
+  "sourceTask": {
+    "taskId": "R4",
+    "difficulty": "medium_c",
+    "source": "packages/integrations/src/codex-event-parser.ts; scripts/smoke/codex-event-parser-smoke.cjs",
+    "taskText": "Harden Codex JSONL event-order validation. A turn.completed or turn.failed without a preceding active turn.started, a duplicate thread.started, and duplicate terminal events for one turn must yield agent_protocol_invalid with a protocol diagnostic. Preserve valid multi-turn streams, cumulative usage semantics, and existing error-event classification. Extend the existing parser smoke with regression assertions for invalid and valid sequences. Change only the allowed files.",
+    "allowedFiles": [
+      "packages/integrations/src/codex-event-parser.ts",
+      "scripts/smoke/codex-event-parser-smoke.cjs"
+    ],
+    "oracle": "node {benchmark}/oracles/event-order.cjs {candidate}",
+    "basis": {
+      "relevantFiles": 2,
+      "interfaceReasoning": "event stream state and telemetry contract",
+      "behavior": "several valid and invalid state transitions",
+      "ambiguity": "moderate",
+      "validationBreadth": "build/typecheck/test plus independent event-order oracle"
+    },
+    "order": ["bounded", "normal"],
+    "providerPrompt": "Harden Codex JSONL event-order validation. A turn.completed or turn.failed without a preceding active turn.started, a duplicate thread.started, and duplicate terminal events for one turn must yield agent_protocol_invalid with a protocol diagnostic. Preserve valid multi-turn streams, cumulative usage semantics, and existing error-event classification. Extend the existing parser smoke with regression assertions for invalid and valid sequences. Change only the allowed files.\nAllowed files: packages/integrations/src/codex-event-parser.ts, scripts/smoke/codex-event-parser-smoke.cjs\nRequired validation: npm run build; npm run typecheck; npm test. The behavioral acceptance described above must also pass.",
+    "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+    "model": "gpt-5.6-luna",
+    "reasoning": "medium",
+    "validationCommands": [
+      "npm run build",
+      "npm run typecheck",
+      "npm test",
+      "node {benchmark}/oracles/event-order.cjs {candidate}"
+    ],
+    "policy": {
+      "retry": 0,
+      "repair": 0,
+      "apply": 0,
+      "boundedContext": "production-current",
+      "plannerBypass": false
+    },
+    "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0"
+  },
+  "oracleCopy": "research/context-token-matrix-v1/oracles/event-order.cjs",
+  "oracleSha256": "sha256:dfdaa7e7a48ee28f86854d53c729bbddf3d9bb5cfca1c74892847c3177af1a85",
+  "liveExecutionAuthorized": false
+}

@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "context-token-matrix-task-b-calibration/v1",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+  "oracleSha256": "sha256:dfdaa7e7a48ee28f86854d53c729bbddf3d9bb5cfca1c74892847c3177af1a85",
+  "providerModelCalls": 0,
+  "seedFiles": [
+    "packages/integrations/src/codex-event-parser.ts",
+    "scripts/smoke/codex-event-parser-smoke.cjs"
+  ],
+  "requiredTestFiles": [
+    "scripts/smoke/codex-event-parser-smoke.cjs"
+  ],
+  "variants": {
+    "minimal": {
+      "selectedFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedFileCount": 2,
+      "selectedBytes": 24668,
+      "estimatedInitialTokens": 6944,
+      "estimateSemantics": "offline coder-context gate estimate using frozen Task B provider prompt",
+      "selectedFileHashes": [
+        {
+          "path": "packages/integrations/src/codex-event-parser.ts",
+          "sha256": "sha256:2fddcdcc6f346d5db20eafc6843551b64a9cb52e5fd25e94f6968be0472b2f12",
+          "bytes": 18225
+        },
+        {
+          "path": "scripts/smoke/codex-event-parser-smoke.cjs",
+          "sha256": "sha256:23d3a00af138742767eabc51bbcf6c1dcdb25372226751b6f011f7914be27a9d",
+          "bytes": 6443
+        }
+      ],
+      "gateDecision": "repo_context_binding_completed",
+      "gateIssues": [],
+      "offlineStubInvocations": 1,
+      "withinConfiguredHardLimit": true
+    },
+    "current": {
+      "selectedFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedFileCount": 2,
+      "selectedBytes": 24668,
+      "estimatedInitialTokens": 6944,
+      "estimateSemantics": "offline coder-context gate estimate using frozen Task B provider prompt",
+      "selectedFileHashes": [
+        {
+          "path": "packages/integrations/src/codex-event-parser.ts",
+          "sha256": "sha256:2fddcdcc6f346d5db20eafc6843551b64a9cb52e5fd25e94f6968be0472b2f12",
+          "bytes": 18225
+        },
+        {
+          "path": "scripts/smoke/codex-event-parser-smoke.cjs",
+          "sha256": "sha256:23d3a00af138742767eabc51bbcf6c1dcdb25372226751b6f011f7914be27a9d",
+          "bytes": 6443
+        }
+      ],
+      "gateDecision": "repo_context_binding_completed",
+      "gateIssues": [],
+      "offlineStubInvocations": 1,
+      "withinConfiguredHardLimit": true
+    },
+    "expanded": {
+      "selectedFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs",
+        "packages/integrations/src/agent-adapter.ts",
+        "packages/integrations/src/agent-telemetry.ts"
+      ],
+      "selectedFileCount": 4,
+      "selectedBytes": 33962,
+      "estimatedInitialTokens": 9435,
+      "estimateSemantics": "offline coder-context gate estimate using frozen Task B provider prompt",
+      "selectedFileHashes": [
+        {
+          "path": "packages/integrations/src/codex-event-parser.ts",
+          "sha256": "sha256:2fddcdcc6f346d5db20eafc6843551b64a9cb52e5fd25e94f6968be0472b2f12",
+          "bytes": 18225
+        },
+        {
+          "path": "scripts/smoke/codex-event-parser-smoke.cjs",
+          "sha256": "sha256:23d3a00af138742767eabc51bbcf6c1dcdb25372226751b6f011f7914be27a9d",
+          "bytes": 6443
+        },
+        {
+          "path": "packages/integrations/src/agent-adapter.ts",
+          "sha256": "sha256:6d83b7b17a23497ea445d3211357decd31239d50d99cd8137bae2ba952fb55e3",
+          "bytes": 4163
+        },
+        {
+          "path": "packages/integrations/src/agent-telemetry.ts",
+          "sha256": "sha256:cf21f344a5bfb6c64048b8ae00176caa75fc6a0c592327b8deace38b18446478",
+          "bytes": 5131
+        }
+      ],
+      "gateDecision": "repo_context_binding_completed",
+      "gateIssues": [],
+      "offlineStubInvocations": 1,
+      "withinConfiguredHardLimit": true
+    }
+  },
+  "expandedAdditions": [
+    {
+      "path": "packages/integrations/src/agent-adapter.ts",
+      "directEdges": [
+        {
+          "from": "packages/integrations/src/codex-event-parser.ts",
+          "to": "packages/integrations/src/agent-adapter.ts",
+          "kind": "import"
+        }
+      ]
+    },
+    {
+      "path": "packages/integrations/src/agent-telemetry.ts",
+      "directEdges": [
+        {
+          "from": "packages/integrations/src/codex-event-parser.ts",
+          "to": "packages/integrations/src/agent-telemetry.ts",
+          "kind": "import"
+        }
+      ]
+    }
+  ]
+}
