@@ -16,6 +16,7 @@ import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-boun
 import { runContainerizedWorkspaceExecution, GIT_VALIDATION_CONTAINER_IMAGE } from '../../dist/packages/product-runtime/src/containerized-workspace-execution-runner.js';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
 import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
+import { authorizeCandidateFile, CandidatePathAuthorityError } from './candidate-path-authority.mjs';
 
 const HERE = path.join(HARNESS_ROOT, 'research/context-token-matrix-v1');
 const SOURCE = 'ea6bc88e947e78b7539b9614b4c637dd9b2805a9';
@@ -250,6 +251,13 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
   if (verifyRemote) gate(remoteHead === harnessHead, 'remote harness HEAD mismatch');
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-preflight-'));
   try {
+    const probeRoot = path.join(temporary, 'candidate-path-probe');
+    fs.mkdirSync(probeRoot);
+    const probeFile = path.join(probeRoot, 'probe.txt');
+    fs.writeFileSync(probeFile, 'offline path authority probe\n');
+    const pathProbe = authorizeCandidateFile({ authorityRoot: probeRoot,
+      candidatePath: probeFile, expectedCanonicalRoot: fs.realpathSync.native(probeRoot) });
+    gate(pathProbe.comparisonOutcome === 'inside_authority', 'Candidate path preflight probe');
     const source = await prepareSourceCheckout(temporary, plan.proposal);
     verifySourceIdentity(source.root, SOURCE);
     const journal = verifyJournal(journalPath, source.root, home);
@@ -284,6 +292,7 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
       sessionId, taskHash: TASK_HASH, sourceHead: SOURCE, harnessHead, remoteHead,
       doctor: source.doctor, journal, validationDocker: docker.stdout.trim(),
       validationImage: image,
+      candidatePathAuthority: { status: 'PASS', ...pathProbe },
       dependencyProvisioning: source.dependencyProvisioning, slots, bindings,
       retry: 0, repair: 0, apply: 0, providerModelCalls: 0 };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
@@ -293,25 +302,43 @@ function save(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 
 function mutation(result) {
   return result?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.coderResult?.providerOutput ?? null;
 }
-async function checkCandidate(sourceRoot, providerOutput) {
+export function candidateClaimsWithinScope(claims) {
+  return Array.isArray(claims) && claims.length > 0 &&
+    claims.every(claim => typeof claim?.file === 'string' && FILES.includes(claim.file));
+}
+async function checkCandidate(sourceRoot, providerOutput, cellRoot) {
   if (!providerOutput) return { status: 'NOT_RUN', reason: 'candidate_unavailable' };
   let claims;
   try { claims = parseTextFileUpdates(providerOutput); }
   catch (error) { return { status: 'CANDIDATE_INVALID', reason: error.message }; }
-  if (claims.length === 0 || claims.some(claim => !FILES.includes(claim.file)))
+  if (!candidateClaimsWithinScope(claims))
     return { status: 'CANDIDATE_INVALID', reason: 'Candidate scope violation' };
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-candidate-'));
   try {
     const root = path.join(temporary, 'candidate');
     fs.cpSync(sourceRoot, root, { recursive: true, verbatimSymlinks: true,
       filter: entry => path.basename(entry) !== '.git' });
+    const canonicalRoot = fs.realpathSync.native(root);
+    const pathReceipts = [];
     for (const claim of claims) {
       const target = path.join(root, claim.file);
-      gate(fs.realpathSync(target) === target && target.startsWith(root + path.sep), 'Candidate path alias');
-      try { validateUpdateSource(claim, fs.readFileSync(target)); }
+      let authority;
+      try {
+        authority = authorizeCandidateFile({ authorityRoot: root, candidatePath: target,
+          expectedCanonicalRoot: canonicalRoot });
+      } catch (error) {
+        if (error instanceof CandidatePathAuthorityError)
+          save(path.join(cellRoot, 'candidate-path-authority.json'), { status: 'REJECTED',
+            path: claim.file, diagnostic: error.diagnostic });
+        throw error;
+      }
+      pathReceipts.push({ path: claim.file, ...authority });
+      try { validateUpdateSource(claim, fs.readFileSync(authority.canonicalNormalizedPath)); }
       catch (error) { return { status: 'CANDIDATE_INVALID', reason: error.message }; }
-      fs.writeFileSync(target, claim.newContent);
+      fs.writeFileSync(authority.canonicalNormalizedPath, claim.newContent);
     }
+    save(path.join(cellRoot, 'candidate-path-authority.json'), { status: 'PASS',
+      authorityCanonicalRoot: canonicalRoot, files: pathReceipts });
     fs.mkdirSync(path.join(root, '.validation-output'));
     const configuration = JSON.parse(fs.readFileSync(path.join(sourceRoot, '.bounded/config.json'), 'utf8'));
     const specification = validationSpecification(configuration, sourceRoot);
@@ -386,7 +413,7 @@ async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterF
     const after = verifySourceIdentity(source.root, SOURCE);
     gate(before === after && commandResult.output?.sourceRepositoryUnchanged === true &&
       commandResult.output?.apply === 'NOT_RUN', 'source changed or apply occurred');
-    const behavior = await checkCandidate(source.root, mutation(bounded));
+    const behavior = await checkCandidate(source.root, mutation(bounded), cellRoot);
     const traces = bounded?.plannerResult?.taskSeedResult?.repoResult?.adaptiveResult?.traces;
     const expansion = Array.isArray(traces) ? {
       requested: traces.length,
