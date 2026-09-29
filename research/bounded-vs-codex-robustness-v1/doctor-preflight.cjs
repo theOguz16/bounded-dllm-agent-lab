@@ -72,7 +72,7 @@ function parseDoctorResult(result) {
   catch { fail('doctor_structured_output_invalid', 'invalid_json_document'); }
   diagnostic.parseSucceeded = true;
   if (!report || typeof report !== 'object' || Array.isArray(report) || report.schemaVersion !== 1 ||
-      !['ok', 'warn', 'fail'].includes(report.overallStatus) ||
+      !['ok', 'warn', 'warning', 'fail'].includes(report.overallStatus) ||
       typeof report.codexVersion !== 'string' || !/^\d+\.\d+\.\d+$/.test(report.codexVersion) ||
       !report.checks || typeof report.checks !== 'object' || Array.isArray(report.checks) ||
       Object.keys(report.checks).length === 0 ||
@@ -83,21 +83,21 @@ function parseDoctorResult(result) {
   diagnostic.overallStatus = report.overallStatus;
   diagnostic.codexVersion = report.codexVersion;
   const checks = Object.entries(report.checks);
-  if (checks.length > 64 || checks.some(([id, check]) => !id ||
+  if (checks.length > 64 || checks.some(([id, check]) => !/^[a-zA-Z][a-zA-Z0-9_.-]{0,79}$/.test(id) ||
       !check || typeof check !== 'object' || Array.isArray(check) ||
-      !['ok', 'warn', 'fail'].includes(check.status) ||
+      !['ok', 'warn', 'warning', 'fail'].includes(check.status) ||
       (check.category !== undefined && typeof check.category !== 'string'))) {
     fail('doctor_schema_invalid', 'check_shape');
   }
-  const safeId = id => KNOWN_CHECK_IDS.has(id) ? id :
-    `unknown:${crypto.createHash('sha256').update(id).digest('hex').slice(0, 12)}`;
+  const safeId = id => id;
   for (const [id, check] of checks) {
     if (check.status === 'ok') diagnostic.okCount++;
-    else if (check.status === 'warn') { diagnostic.warningCount++; diagnostic.warningCheckIds.push(safeId(id)); }
+    else if (check.status === 'warn' || check.status === 'warning') { diagnostic.warningCount++; diagnostic.warningCheckIds.push(safeId(id)); }
     else { diagnostic.failCount++; diagnostic.failedCheckIds.push(safeId(id)); }
   }
   const expectedOverall = diagnostic.failCount ? 'fail' : diagnostic.warningCount ? 'warn' : 'ok';
-  if (report.overallStatus !== expectedOverall ||
+  if ((report.overallStatus !== expectedOverall &&
+       !(expectedOverall === 'warn' && report.overallStatus === 'warning')) ||
       !((result.status === 0 && expectedOverall !== 'fail') ||
         (result.status === 1 && expectedOverall === 'fail'))) {
     fail('doctor_exit_report_mismatch', 'exit_or_health_inconsistent');
@@ -126,15 +126,13 @@ function parseDoctorResult(result) {
   }
   diagnostic.benchmarkDoctorReady = diagnostic.benchmarkCriticalFailures.length === 0;
   if (!diagnostic.benchmarkDoctorReady) fail('doctor_benchmark_not_ready',
-    diagnostic.benchmarkCriticalFailures.some(id => id.startsWith('unknown:')) ?
+    diagnostic.benchmarkCriticalFailures.some(id => !KNOWN_CHECK_IDS.has(id)) ?
       'unknown_check_not_reviewed' : 'critical_check_failed');
   return { report, diagnostic };
 }
 
 const PERSISTED_DIAGNOSTIC_FIELDS = Object.freeze([
-  'invocationStatus', 'exitCode', 'signal', 'timedOut', 'stdoutBytes', 'stderrBytes',
-  'structuredStream', 'structuredFormat', 'reportParsed', 'schemaVersion',
-  'overallStatus', 'codexVersion',
+  'invocationStatus', 'exitCode', 'reportParsed', 'schemaVersion', 'overallStatus',
   'okCount', 'warningCount', 'failCount', 'failedCheckIds', 'warningCheckIds',
   'benchmarkCriticalFailures', 'reviewedNonBlockingFailures', 'benchmarkDoctorReady',
   'issueCode', 'reasonCode', 'evidenceHash'

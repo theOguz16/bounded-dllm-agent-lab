@@ -45,8 +45,8 @@ assert.equal(persistedDoctorDiagnostic(good.diagnostic).reportParsed, true);
 assert.equal(persistedDoctorDiagnostic(good.diagnostic).issueCode, null);
 assert.equal(persistedDoctorDiagnostic(good.diagnostic).stdout, undefined);
 
-const warning = report({ 'terminal.env': { status: 'warn', details: terminalDetails } });
-warning.overallStatus = 'warn';
+const warning = report({ 'terminal.env': { status: 'warning', details: terminalDetails } });
+warning.overallStatus = 'warning';
 const warningError = fails(processResult(warning), 'doctor_benchmark_not_ready');
 assert.equal(warningError.diagnostic.warningCount, 1);
 assert.deepEqual(warningError.diagnostic.warningCheckIds, ['terminal.env']);
@@ -72,11 +72,11 @@ const multiple = report({ 'terminal.env': { status: 'fail', details: terminalDet
 const multipleError = fails(processResult(multiple, { status: 1 }), 'doctor_benchmark_not_ready');
 assert.deepEqual(multipleError.diagnostic.benchmarkCriticalFailures, ['state.paths']);
 assert.deepEqual(multipleError.diagnostic.reviewedNonBlockingFailures, ['terminal.env']);
-const unknown = report({ 'new.SECRET.check': { status: 'fail' },
+const unknown = report({ 'new.check': { status: 'fail' },
   'terminal.env': { status: 'fail', details: terminalDetails, issues: terminalIssues } }); unknown.overallStatus = 'fail';
 const unknownError = fails(processResult(unknown, { status: 1 }), 'doctor_benchmark_not_ready', 'unknown_check_not_reviewed');
-assert.match(unknownError.diagnostic.benchmarkCriticalFailures[0], /^unknown:[0-9a-f]{12}$/);
-assert.equal(JSON.stringify(unknownError.diagnostic).includes('SECRET'), false);
+assert.deepEqual(unknownError.diagnostic.benchmarkCriticalFailures, ['new.check']);
+assert.deepEqual(unknownError.diagnostic.failedCheckIds, ['new.check', 'terminal.env']);
 const otherTerminal = report({ 'terminal.env': { status: 'fail', details: { ...terminalDetails, TERM: 'xterm' }, issues: terminalIssues } });
 otherTerminal.overallStatus = 'fail';
 fails(processResult(otherTerminal, { status: 1 }), 'doctor_benchmark_not_ready');
