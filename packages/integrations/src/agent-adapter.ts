@@ -112,6 +112,7 @@ export interface AgentRunRequest {
   abortSignal?: AbortSignal;
   invocationRetryDecision?: import("./durable-invocation-journal.js").InvocationRetryDecision;
   plannedExperiment?: import("./planned-experiment-authority.js").PlannedExperimentAuthority;
+  plannedTaskB?: import("./task-b-invocation-authority.js").TaskBInvocationAuthority;
 }
 
 export interface AgentRunResult {

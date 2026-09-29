@@ -15,6 +15,8 @@ import { codexCommand, validationSpecification } from '../../dist/apps/cli/src/c
 import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-bounded-task.js';
 import { runContainerizedWorkspaceExecution, GIT_VALIDATION_CONTAINER_IMAGE } from '../../dist/packages/product-runtime/src/containerized-workspace-execution-runner.js';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
+import { createTaskBInvocationAuthority } from '../../dist/packages/integrations/src/task-b-invocation-authority.js';
+import { inspectTaskBExperimentJournal } from '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
 import { authorizeCandidateFile, CandidatePathAuthorityError } from './candidate-path-authority.mjs';
 
@@ -238,13 +240,61 @@ export async function selectTaskBContext(plan, variant, sourceRoot) {
   return { config, selected };
 }
 
+/** Capture the exact deterministic planner request with an offline adapter. */
+export async function capturePlannerRequest(plan, variant, temporary) {
+  const source = await prepareSourceCheckout(temporary, plan.proposal);
+  const { selected } = await selectTaskBContext(plan, variant, source.root);
+  let captured = null;
+  const adapter = { agentId: 'codex', agentVersion: 'offline-task-b-authority',
+    async run(request) {
+      gate(request.mode === 'planner' && captured === null, 'planner request capture');
+      captured = { runId: request.runId, task: request.task };
+      throw Error('offline planner authority capture; no provider');
+    } };
+  await codexCommand({ task: plan.task.providerPrompt, allowFiles: FILES }, source.root,
+    { adapter, model: MODEL, reasoningEffort: REASONING,
+      runTask: input => runBoundedTask(prepareResearchTaskInput(input, selected)) });
+  gate(captured !== null, 'planner request unavailable before observation reservation');
+  return { sourceRoot: source.root, ...captured };
+}
+export async function preflightTaskBJournalAuthority(plan, slots, journalPath, temporary) {
+  const requests = [];
+  const boundSlots = [];
+  for (const slot of slots) {
+    const root = path.join(temporary, `planner-capture-${slot.position}`);
+    fs.mkdirSync(root);
+    const captured = await capturePlannerRequest(plan, slot.variant, root);
+    const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: captured.sourceRoot,
+      sessionId: slot.sessionId, position: slot.position, replicate: slot.replicate,
+      variant: slot.variant, replacement: slot.position === 1 };
+    const planner = createTaskBInvocationAuthority({ ...input, stage: 'planner' });
+    const coder = createTaskBInvocationAuthority({ ...input, stage: 'coder' });
+    gate(planner.observationId === slot.observationId &&
+      planner.runtimeIdentity === slot.runtimeIdentity &&
+      coder.observationHash === planner.observationHash &&
+      coder.stageHash !== planner.stageHash, 'stage-bound planned observation');
+    gate(sha(captured.task) === planner.plannerPayloadHash,
+      'frozen planner payload hash');
+    requests.push({ authority: planner, sourceRepositoryPath: captured.sourceRoot,
+      runId: `matrix.${slot.runtimeIdentity}.${captured.runId}`, task: captured.task });
+    boundSlots.push({ ...slot, taskBPlannerAuthority: planner,
+      taskBCoderAuthority: coder });
+  }
+  const inspected = inspectTaskBExperimentJournal(journalPath, requests);
+  gate(inspected.length === 6 && inspected.every(item =>
+    item.authorized && item.coderFutureAdmissible), 'Task B planned journal authority unavailable');
+  gate(inspected[0].status === 'reviewed_replacement_required' &&
+    inspected.slice(1).every(item => item.status === 'fresh_planned_observation'),
+  'historical Task B slot classification');
+  return { slots: boundSlots, inspected };
+}
 /** Zero-call preparation. This never creates a result session directory. */
 export async function preflightTaskB({ sessionId, home = os.homedir(),
   resultParent = outputParent(home), journalPath = expectedJournalPath(home),
   verifyRemote = true } = {}) {
   const plan = loadTaskBPlan();
   gate(fs.existsSync(journalPath), 'persistent journal absent');
-  const slots = preflightTaskBIdentities({ plan, sessionId, resultParent, journalPath });
+  const identitySlots = preflightTaskBIdentities({ plan, sessionId, resultParent, journalPath });
   const harnessHead = verifyHarnessIdentity();
   const remoteHead = verifyRemote ? checked(HARNESS_ROOT, 'git',
     ['ls-remote', 'origin', 'refs/heads/research/context-token-matrix-v1'], 30_000).split(/\s+/)[0] : null;
@@ -261,6 +311,8 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
     const source = await prepareSourceCheckout(temporary, plan.proposal);
     verifySourceIdentity(source.root, SOURCE);
     const journal = verifyJournal(journalPath, source.root, home);
+    const authority = await preflightTaskBJournalAuthority(plan, identitySlots, journalPath, temporary);
+    const slots = authority.slots;
     const cleanEnv = { ...process.env };
     delete cleanEnv.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH;
     for (const args of [['run', 'build'], ['run', 'typecheck'], ['test']]) {
@@ -293,7 +345,8 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
       doctor: source.doctor, journal, validationDocker: docker.stdout.trim(),
       validationImage: image,
       candidatePathAuthority: { status: 'PASS', ...pathProbe },
-      dependencyProvisioning: source.dependencyProvisioning, slots, bindings,
+      dependencyProvisioning: source.dependencyProvisioning, slots,
+      plannedJournal: authority.inspected, bindings,
       retry: 0, repair: 0, apply: 0, providerModelCalls: 0 };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
@@ -392,7 +445,8 @@ async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterF
     let trajectory = null;
     const adapter = makeJournalScopedAdapter(adapterFactory(), slot.runtimeIdentity,
       call => { budget.recordInvocation(slot.observationId); calls.push(call); }, null,
-      (mode, result) => { if (mode === 'coder') trajectory = result?.trajectoryTelemetry ?? null; });
+      (mode, result) => { if (mode === 'coder') trajectory = result?.trajectoryTelemetry ?? null; },
+      { planner: slot.taskBPlannerAuthority, coder: slot.taskBCoderAuthority });
     let bounded = null;
     let validationSpecificationHash = null;
     const started = Date.now();

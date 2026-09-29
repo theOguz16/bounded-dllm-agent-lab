@@ -1,0 +1,40 @@
+{
+  "version": "task-b-infrastructure-replacement-review/v1",
+  "experimentId": "codex-event-ordering",
+  "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "historicalSessionId": "task-b-stage1-20260929-r2",
+  "historicalObservationId": "task-b-stage1-20260929-r2.1.A.minimal",
+  "slot": "A:minimal",
+  "invalidationClassification": "infrastructure_invalidated",
+  "defect": "Candidate path alias between /var and canonical /private/var",
+  "fixCommit": "9fb7f41c41ea93701a0244030a339679bf6bcccb",
+  "evidence": {
+    "stage1SummarySha256": "sha256:8a0f9040e5a102052fb13a2c42eae3a4d60a7ecc52053b9004d31264c581c176",
+    "reservationSha256": "sha256:59933f9644920ad740fa0a5a8eb09d30a8cae7db4de5cbd597da5f931ba4bc9c",
+    "plannerRunId": "matrix.task-b-stage1-20260929-r2.task-b.1.a.minimal.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+    "plannerRecordHash": "sha256:a7cce45e2a85dec3fb863fafe2ed3e5662a8f1139ca58eb1f687f1551adddcfa",
+    "coderRunId": "matrix.task-b-stage1-20260929-r2.task-b.1.a.minimal.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+    "coderRecordHash": "sha256:8e445d3e4b8ccef71fdb2b3f9801fbf4ac1c0c74bef83f20cd8933af9cbeb55d"
+  },
+  "replacementOrdinal": 1,
+  "maximumReplacements": 1,
+  "zeroRowStoppedSessions": [
+    {
+      "sessionId": "task-b-stage1-20260929-r1",
+      "stage1SummarySha256": "sha256:b996e168526f574b643cd539efc03ac17b82e9173643bcee6e7cc93c5750bff5",
+      "reservationSha256": "sha256:27fb4c4f6512994eaf554ccf98f4c50606d9d9a3c26e21b82967aabcfae49a33",
+      "providerStageInvocations": 0,
+      "stop": "infrastructure_or_ambiguous: context_matrix_preflight_invalid: run identity"
+    },
+    {
+      "sessionId": "task-b-stage1-20260929-r3",
+      "stage1SummarySha256": "sha256:6f30e72a64351b81e764ca9be4f7dcb2f83b872b2ae72c63375ac8e1d84e12dd",
+      "reservationSha256": "sha256:fcf1a8055d6189dee139de220dd47da519bee9c9eca57f05a4507e3addb852c2",
+      "providerStageInvocations": 1,
+      "stop": "ambiguous_failure"
+    }
+  ]
+}

@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
 import { readPlannedReplacementReview, readPlannedFinalReplacementReview, readPlannedStage2Review, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
 import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
+import { validateTaskBInvocationAuthority, readTaskBReplacementReview } from "./task-b-invocation-authority.js";
+import type { TaskBInvocationAuthority } from "./task-b-invocation-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
 /** One transactional authority for a provider invocation, never a retry queue. */
@@ -32,6 +34,7 @@ export type InvocationIdentity = Readonly<{
   deadlineAt: number;
   retryDecision?: InvocationRetryDecision;
   plannedExperiment?: PlannedExperimentAuthority;
+  plannedTaskB?: TaskBInvocationAuthority;
   sourceRepositoryPath?: string;
   reasoningEffort?: string;
 }>;
@@ -64,6 +67,7 @@ export type InvocationRecord = Readonly<{
   recoveryId?: string;
   ownerPid?: number;
   plannedExperiment?: PlannedExperimentAuthority;
+  plannedTaskB?: TaskBInvocationAuthority;
   workerDiagnostic?: Readonly<Record<string, unknown>> | null;
 }>;
 
@@ -236,6 +240,18 @@ function assertIdentity(input: InvocationIdentity): void {
     } catch { throw new InvocationJournalError(
       "invocation_replay_forbidden", "Planned experiment authority is invalid."); }
   }
+  if (input.plannedTaskB !== undefined) {
+    if (input.plannedExperiment !== undefined || input.retryDecision !== undefined ||
+        !input.sourceRepositoryPath || !input.reasoningEffort)
+      throw new InvocationJournalError("invocation_replay_forbidden",
+        "Task B planned observation cannot be a retry or omit source/reasoning.");
+    try { validateTaskBInvocationAuthority(input.plannedTaskB, {
+      sourceRepositoryPath: input.sourceRepositoryPath, runId: input.runId,
+      stage: input.stage, model: input.model, reasoning: input.reasoningEffort,
+      task: input.task, retryDecision: input.retryDecision
+    }); } catch { throw new InvocationJournalError("invocation_replay_forbidden",
+      "Task B planned authority is invalid."); }
+  }
 }
 function keyOf(input: Pick<InvocationIdentity, "runId" | "stage">): string {
   return hash(JSON.stringify([input.runId, input.stage]));
@@ -253,6 +269,124 @@ function checkedRow(row: unknown, expectedKey: string): InvocationRecord {
     throw Error("Journal record version or identity mismatch.");
   }
   return Object.freeze(record as InvocationRecord);
+}
+
+export type TaskBSlotStatus = "fresh_planned_observation" | "reviewed_replacement_required" |
+  "already_completed" | "already_consumed_not_replaceable" | "authority_conflict";
+function taskBAdmissibility(db: DatabaseSync, authority: TaskBInvocationAuthority,
+  stage: InvocationStage, preflight: boolean, journalPath?: string):
+  { status: TaskBSlotStatus; authorized: boolean } {
+  const conflict = { status: "authority_conflict" as const, authorized: false };
+  if (!["planner", "coder"].includes(stage) || stage !== authority.stage) return conflict;
+  const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+    .all().map(row => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+  const sameSlot = rows.filter(row => row.plannedTaskB?.slotHash === authority.slotHash);
+  const unrelated = sameSlot.filter(row =>
+    row.plannedTaskB?.observationHash !== authority.observationHash ||
+    row.plannedTaskB?.sessionId !== authority.sessionId);
+  if (unrelated.length > 0) {
+    const complete = unrelated.some(row => row.stage === "coder" && row.state === "completed");
+    return { status: complete ? "already_completed" : "already_consumed_not_replaceable",
+      authorized: false };
+  }
+  const ownPlanner = sameSlot.find(row => row.stage === "planner");
+  const ownCoder = sameSlot.find(row => row.stage === "coder");
+  if (stage === "planner" && ownPlanner)
+    return { status: "already_consumed_not_replaceable", authorized: false };
+  if (stage === "coder" && (ownCoder || !preflight &&
+      (!ownPlanner || ownPlanner.state !== "completed")))
+    return { status: "already_consumed_not_replaceable", authorized: false };
+  if (rows.some(row => row.plannedTaskB?.sessionId === authority.sessionId &&
+      row.plannedTaskB?.sessionHash !== authority.sessionHash)) return conflict;
+  if (authority.position !== 1)
+    return { status: "fresh_planned_observation", authorized: true };
+  if (!authority.replacement || !journalPath) return conflict;
+  const review = readTaskBReplacementReview(authority.harnessRoot);
+  for (const stopped of review.zeroRowStoppedSessions) {
+    const stoppedRoot = resolve(dirname(journalPath), "live-runs/context-token-matrix-v1",
+      stopped.sessionId);
+    try {
+      const summaryBytes = readFileSync(resolve(stoppedRoot, "stage1-summary.json"));
+      const reservationBytes = readFileSync(resolve(stoppedRoot, "reservation-1.json"));
+      const summary = JSON.parse(summaryBytes.toString("utf8"));
+      const reservation = JSON.parse(reservationBytes.toString("utf8"));
+      if (hash(summaryBytes.toString("utf8")) !== stopped.stage1SummarySha256 ||
+          hash(reservationBytes.toString("utf8")) !== stopped.reservationSha256 ||
+          summary.sessionId !== stopped.sessionId ||
+          summary.budget?.observations !== 1 ||
+          summary.budget?.providerStageInvocations !== stopped.providerStageInvocations ||
+          summary.stop !== stopped.stop || reservation.position !== 1 ||
+          reservation.replicate !== "A" || reservation.variant !== "minimal" ||
+          db.prepare("SELECT 1 FROM provider_invocations WHERE run_id LIKE ?")
+            .get(`matrix.${stopped.sessionId}.%`)) return conflict;
+    } catch { return conflict; }
+  }
+  const selected = [review.evidence.plannerRunId, review.evidence.coderRunId].map(runId =>
+    db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ?")
+      .get(runId) as { invocation_key: string; record_json: string; record_hash: string } | undefined);
+  if (selected.some(row => !row)) return conflict;
+  const [planner, coder] = selected.map(row => checkedRow(row!, row!.invocation_key));
+  if (selected[0]!.record_hash !== review.evidence.plannerRecordHash ||
+      selected[1]!.record_hash !== review.evidence.coderRecordHash ||
+      planner.stage !== "planner" || coder.stage !== "coder" ||
+      planner.state !== "completed" || coder.state !== "completed" ||
+      planner.invocationOccurred !== true || coder.invocationOccurred !== true ||
+      planner.plannedExperiment !== undefined || coder.plannedExperiment !== undefined ||
+      planner.plannedTaskB !== undefined || coder.plannedTaskB !== undefined ||
+      planner.taskHash !==
+        "sha256:3788096e8d83dfd915af9b98faa7fcbca511e675193f1e5f7404d74e259f65de" ||
+      planner.model !== authority.model || coder.model !== authority.model ||
+      authority.replacement.originalPlannerRunId !== planner.runId ||
+      authority.replacement.originalCoderRunId !== coder.runId ||
+      authority.replacement.originalPlannerRecordHash !== selected[0]!.record_hash ||
+      authority.replacement.originalCoderRecordHash !== selected[1]!.record_hash)
+    return conflict;
+  const history = dirname(journalPath);
+  const root = resolve(history, "live-runs/context-token-matrix-v1",
+    review.historicalSessionId);
+  let summary: any, reservation: any;
+  try {
+    const summaryBytes = readFileSync(resolve(root, "stage1-summary.json"));
+    const reservationBytes = readFileSync(resolve(root, "reservation-1.json"));
+    if (hash(summaryBytes.toString("utf8")) !== review.evidence.stage1SummarySha256 ||
+        hash(reservationBytes.toString("utf8")) !== review.evidence.reservationSha256)
+      return conflict;
+    summary = JSON.parse(summaryBytes.toString("utf8"));
+    reservation = JSON.parse(reservationBytes.toString("utf8"));
+  } catch { return conflict; }
+  if (summary.sessionId !== review.historicalSessionId ||
+      summary.budget?.observations !== 1 || summary.budget?.providerStageInvocations !== 2 ||
+      summary.stop !== "infrastructure_or_ambiguous: task_b_authority_invalid: Candidate path alias" ||
+      reservation.observationId !== review.historicalObservationId ||
+      reservation.position !== 1 || reservation.replicate !== "A" ||
+      reservation.variant !== "minimal") return conflict;
+  return { status: "reviewed_replacement_required", authorized: true };
+}
+/** Read-only Task B planner authority inspection; never reserves a journal row. */
+export function inspectTaskBExperimentJournal(file: string, cells: readonly Readonly<{
+  authority: TaskBInvocationAuthority; sourceRepositoryPath: string;
+  runId: string; task: string;
+}>[]): readonly Readonly<{ observationId: string; status: TaskBSlotStatus;
+  authorized: boolean; plannerTaskHash: string; coderFutureAdmissible: boolean }> [] {
+  if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
+    throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    return Object.freeze(cells.map(cell => {
+      validateTaskBInvocationAuthority(cell.authority, {
+        sourceRepositoryPath: cell.sourceRepositoryPath, runId: cell.runId,
+        stage: "planner", model: cell.authority.model,
+        reasoning: cell.authority.reasoning, task: cell.task
+      });
+      const verdict = taskBAdmissibility(db, cell.authority, "planner", true, file);
+      const coderFutureAdmissible = verdict.authorized &&
+        !db.prepare("SELECT 1 FROM provider_invocations WHERE run_id LIKE ?")
+          .get(`matrix.${cell.authority.runtimeIdentity}.%coder.%`);
+      return Object.freeze({ observationId: cell.authority.observationId,
+        status: verdict.status, authorized: verdict.authorized,
+        plannerTaskHash: hash(cell.task), coderFutureAdmissible });
+    }));
+  } finally { db.close(); }
 }
 
 export function createDurableInvocationJournal(file: string, now: () => number = Date.now) {
@@ -468,7 +602,11 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           .all(input.stage)
           .map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
           .filter((record) => record.taskHash === taskHash && record.runId !== input.runId);
-        if (input.plannedExperiment !== undefined) {
+        if (input.plannedTaskB !== undefined) {
+          const verdict = taskBAdmissibility(db, input.plannedTaskB, input.stage, false, path);
+          if (!verdict.authorized) throw new InvocationJournalError("invocation_replay_forbidden",
+            `Task B planned observation unavailable: ${verdict.status}.`);
+        } else if (input.plannedExperiment !== undefined) {
           const planned = input.plannedExperiment;
           const allPlanned = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
             .all().map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
@@ -548,7 +686,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           retryDecisionId: input.retryDecision?.decisionId ?? null,
           supersedesRunId: input.retryDecision?.supersedesRunId ?? null,
           recoveryId: randomUUID(), ownerPid: process.pid,
-          ...(input.plannedExperiment === undefined ? {} : { plannedExperiment: input.plannedExperiment })
+          ...(input.plannedExperiment === undefined ? {} : { plannedExperiment: input.plannedExperiment }),
+          ...(input.plannedTaskB === undefined ? {} : { plannedTaskB: input.plannedTaskB })
         });
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")

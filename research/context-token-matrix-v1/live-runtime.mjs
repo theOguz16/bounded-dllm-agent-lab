@@ -351,7 +351,7 @@ export function assertJournalRunIdentity(identity) {
 }
 
 export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAuthority = null,
-  onResult = null) {
+  onResult = null, taskBAuthorities = null) {
   assertJournalRunIdentity(identity);
   const counts = new Map();
   return { agentId: adapter.agentId, agentVersion: adapter.agentVersion,
@@ -366,7 +366,8 @@ export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAutho
       onCall?.({ mode: request.mode, runId, model: request.model,
         reasoning: request.reasoningEffort });
       const result = await adapter.run({ ...request, runId,
-        ...(plannedAuthority === null ? {} : { plannedExperiment: plannedAuthority }) });
+        ...(plannedAuthority === null ? {} : { plannedExperiment: plannedAuthority }),
+        ...(taskBAuthorities === null ? {} : { plannedTaskB: taskBAuthorities[request.mode] }) });
       try { onResult?.(request.mode, result); } catch { /* Telemetry cannot alter provider result. */ }
       return result;
     } };
