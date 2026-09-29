@@ -308,6 +308,7 @@
     "test:containerized-workspace-execution-runner": "npm run build && node scripts/containerized-workspace-execution-runner-smoke.cjs && node scripts/smoke/emitting-typescript-validation-smoke.cjs && node scripts/smoke/stale-generated-output-validation-smoke.cjs && node scripts/smoke/validation-git-context-smoke.cjs",
     "test:context-token-matrix-v1": "npm run build && node scripts/smoke/context-token-matrix-v1-smoke.cjs",
     "test:context-token-matrix-task-b": "npm run build && node research/context-token-matrix-v1/task-b-freeze.test.mjs",
+    "test:context-token-matrix-task-b-live": "npm run build && node research/context-token-matrix-v1/task-b-live.test.mjs",
     "test:codex-coder-trajectory": "npm run build && node scripts/smoke/codex-coder-trajectory-smoke.cjs",
     "research:context-token-matrix:trajectory": "node research/context-token-matrix-v1/trajectory-analysis.mjs",
     "research:context-token-matrix:compare": "node research/context-token-matrix-v1/compare.mjs",
