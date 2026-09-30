@@ -55,6 +55,7 @@ main(invokedArguments).catch(error => {
   process.stderr.write(`FAIL: ${error.message}\n`);
   process.stdout.write(JSON.stringify({ preflightSchema: 'context-token-matrix-preflight/v1',
     ok: false, error: error.message,
+    ...(error.remoteAuthority ? { remoteAuthority: error.remoteAuthority } : {}),
     providerModelCalls: invokedArguments[0] === 'preflight' ? 0 : null }) + '\n');
   process.exitCode = 1;
 });

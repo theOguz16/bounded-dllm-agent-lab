@@ -8,11 +8,63 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { selectTask, loadTaskBPlan, validateTaskBPlan, stage1Slots,
   createTaskBBudget, assertFreshTaskBSession, classifyTaskBObservation,
-  deriveTaskBRuntimeIdentity, preflightTaskBIdentities } from './task-b-live.mjs';
+  deriveTaskBRuntimeIdentity, preflightTaskBIdentities,
+  verifyTaskBRemoteAuthority } from './task-b-live.mjs';
 import { annotateCoderTrajectory, assertJournalRunIdentity, makeJournalScopedAdapter } from './live-runtime.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const plan = loadTaskBPlan();
+const expectedRemoteHead = '53828feba915734cf573488a2383b4a11ff42e8a';
+const remoteRef = 'refs/heads/research/context-token-matrix-v1';
+const remoteSuccess = (sha = expectedRemoteHead, ref = remoteRef) =>
+  ({ status: 0, stdout: `${sha}\t${ref}\n`, stderr: '' });
+const remoteFailure = stderr => ({ status: 128, stdout: '', stderr });
+const remoteFixture = async (responses, expected, backoff) => {
+  const commands = [];
+  const waits = [];
+  let index = 0;
+  const options = { root: '/offline-fixture',
+    invoke: (...args) => { commands.push(args); return responses[index++]; },
+    wait: async ms => { waits.push(ms); } };
+  if (expected.finalStatus === 'PASS')
+    assert.deepEqual(await verifyTaskBRemoteAuthority(expectedRemoteHead, options), expected);
+  else await assert.rejects(verifyTaskBRemoteAuthority(expectedRemoteHead, options), error => {
+    assert.deepEqual(error.remoteAuthority, expected);
+    assert.doesNotMatch(JSON.stringify(error), /secret-stderr/);
+    return true;
+  });
+  assert.equal(commands.length, expected.attemptCount);
+  for (const args of commands) assert.deepEqual(args,
+    ['/offline-fixture', 'git', ['ls-remote', 'origin', remoteRef], 30_000]);
+  assert.deepEqual(waits, backoff);
+};
+const remoteDiagnostic = (attemptCount, finalStatus, transientFailureCodes = [],
+  issueCode = null, reasonCode = null, finalRemoteSha = null, successfulAttempt = null) => ({ attemptCount,
+  successfulAttempt: finalStatus === 'PASS' ? attemptCount : successfulAttempt,
+  finalStatus, finalRemoteSha: finalStatus === 'PASS' ? expectedRemoteHead : finalRemoteSha,
+  transientFailureCodes, issueCode, reasonCode });
+await remoteFixture([remoteSuccess()], remoteDiagnostic(1, 'PASS'), []);
+await remoteFixture([remoteFailure('Could not resolve host: github.com'), remoteSuccess()],
+  remoteDiagnostic(2, 'PASS', ['dns_resolution_failure']), [250]);
+await remoteFixture([remoteFailure('Connection reset by peer'),
+  remoteFailure('TLS handshake failed'), remoteSuccess()],
+  remoteDiagnostic(3, 'PASS', ['connection_reset', 'tls_transport_failure']), [250, 500]);
+await remoteFixture(Array(3).fill(remoteFailure('Network is unreachable')),
+  remoteDiagnostic(3, 'FAIL', Array(3).fill('remote_unreachable'),
+    'task_b_remote_transport_exhausted', 'transient_transport_failure'), [250, 500]);
+await remoteFixture([remoteSuccess('0'.repeat(40)), remoteSuccess()],
+  remoteDiagnostic(1, 'FAIL', [], 'task_b_remote_head_mismatch',
+    'authority_mismatch', '0'.repeat(40), 1), []);
+await remoteFixture([{ status: 0, stdout: `${expectedRemoteHead}\t${remoteRef} extra\n`,
+  stderr: '' }, remoteSuccess()],
+remoteDiagnostic(1, 'FAIL', [], 'task_b_remote_output_malformed',
+  'malformed_successful_output', null, 1), []);
+await remoteFixture([remoteSuccess(expectedRemoteHead, 'refs/heads/other'), remoteSuccess()],
+  remoteDiagnostic(1, 'FAIL', [], 'task_b_remote_ref_mismatch',
+    'wrong_branch_result', expectedRemoteHead, 1), []);
+await remoteFixture([remoteFailure('fatal: repository not found; secret-stderr'), remoteSuccess()],
+  remoteDiagnostic(1, 'FAIL', [], 'task_b_remote_git_error',
+    'non_transport_git_failure'), []);
 const copy = value => structuredClone(value);
 const invalid = (mutate, pattern) => {
   const [p, d, c] = [copy(plan.proposal), copy(plan.definition), copy(plan.calibration)];

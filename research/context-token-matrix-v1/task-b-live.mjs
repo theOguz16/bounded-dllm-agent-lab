@@ -40,11 +40,71 @@ function command(root, executable, args, timeout = 120_000, env = process.env) {
   return spawnSync(executable, args, { cwd: root, encoding: 'utf8', timeout,
     env, maxBuffer: 2_000_000, stdio: ['ignore', 'pipe', 'pipe'] });
 }
-function checked(root, executable, args, timeout) {
-  const result = command(root, executable, args, timeout);
-  gate(!result.error && result.status === 0,
-    `${executable} ${args.join(' ')} failed: ${(result.stderr ?? '').slice(-500)}`);
-  return result.stdout.trim();
+const REMOTE_REF = 'refs/heads/research/context-token-matrix-v1';
+const REMOTE_BACKOFF_MS = [250, 500];
+
+export class TaskBRemoteAuthorityError extends Error {
+  constructor(diagnostic) {
+    super(`task_b_authority_invalid: ${diagnostic.issueCode}`);
+    this.remoteAuthority = diagnostic;
+  }
+}
+
+function transportFailureCode(result) {
+  const code = result?.error?.code;
+  if (['EAI_AGAIN', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED',
+    'ENETUNREACH', 'EHOSTUNREACH'].includes(code)) return {
+    EAI_AGAIN: 'dns_resolution_failure', ETIMEDOUT: 'network_timeout',
+    ECONNRESET: 'connection_reset', ECONNREFUSED: 'connection_refused',
+    ENETUNREACH: 'remote_unreachable', EHOSTUNREACH: 'remote_unreachable' }[code];
+  const stderr = result?.stderr ?? '';
+  for (const [pattern, failureCode] of [
+    [/could not resolve (?:host|proxy)|temporary failure in name resolution|name or service not known/i,
+      'dns_resolution_failure'],
+    [/connection reset|recv failure: connection was reset/i, 'connection_reset'],
+    [/connection refused/i, 'connection_refused'],
+    [/network is unreachable|no route to host|could not connect to server/i, 'remote_unreachable'],
+    [/connection timed out|operation timed out/i, 'network_timeout'],
+    [/ssl connect error|tls handshake|gnutls_handshake\(\) failed|ssl_error_syscall/i,
+      'tls_transport_failure']
+  ]) if (pattern.test(stderr)) return failureCode;
+  return null;
+}
+
+/** Preflight transport retries only; no Candidate or provider operation is retried. */
+export async function verifyTaskBRemoteAuthority(expectedHead, {
+  root = HARNESS_ROOT, invoke = command,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+} = {}) {
+  const transientFailureCodes = [];
+  const fail = (attemptCount, issueCode, reasonCode, finalRemoteSha = null,
+    successfulAttempt = null) => {
+    throw new TaskBRemoteAuthorityError({ attemptCount, successfulAttempt,
+      finalStatus: 'FAIL', finalRemoteSha, transientFailureCodes: [...transientFailureCodes],
+      issueCode, reasonCode });
+  };
+  for (let attemptCount = 1; attemptCount <= 3; attemptCount++) {
+    const result = invoke(root, 'git', ['ls-remote', 'origin', REMOTE_REF], 30_000);
+    if (!result.error && result.status === 0) {
+      const match = typeof result.stdout === 'string' &&
+        /^([0-9a-f]{40})\t(refs\/heads\/[^\s]+)\r?\n?$/.exec(result.stdout);
+      if (!match) fail(attemptCount, 'task_b_remote_output_malformed',
+        'malformed_successful_output', null, attemptCount);
+      if (match[2] !== REMOTE_REF)
+        fail(attemptCount, 'task_b_remote_ref_mismatch', 'wrong_branch_result', match[1], attemptCount);
+      if (match[1] !== expectedHead)
+        fail(attemptCount, 'task_b_remote_head_mismatch', 'authority_mismatch', match[1], attemptCount);
+      return { attemptCount, successfulAttempt: attemptCount, finalStatus: 'PASS',
+        finalRemoteSha: match[1], transientFailureCodes, issueCode: null, reasonCode: null };
+    }
+    const failureCode = transportFailureCode(result);
+    if (failureCode === null)
+      fail(attemptCount, 'task_b_remote_git_error', 'non_transport_git_failure');
+    transientFailureCodes.push(failureCode);
+    if (attemptCount === 3)
+      fail(attemptCount, 'task_b_remote_transport_exhausted', 'transient_transport_failure');
+    await wait(REMOTE_BACKOFF_MS[attemptCount - 1]);
+  }
 }
 function committed(file) {
   const bytes = fs.readFileSync(path.join(HARNESS_ROOT, file));
@@ -297,9 +357,8 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
   gate(fs.existsSync(journalPath), 'persistent journal absent');
   const identitySlots = preflightTaskBIdentities({ plan, sessionId, resultParent, journalPath });
   const harnessHead = verifyHarnessIdentity();
-  const remoteHead = verifyRemote ? checked(HARNESS_ROOT, 'git',
-    ['ls-remote', 'origin', 'refs/heads/research/context-token-matrix-v1'], 30_000).split(/\s+/)[0] : null;
-  if (verifyRemote) gate(remoteHead === harnessHead, 'remote harness HEAD mismatch');
+  const remoteAuthority = verifyRemote ? await verifyTaskBRemoteAuthority(harnessHead) : null;
+  const remoteHead = remoteAuthority?.finalRemoteSha ?? null;
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-preflight-'));
   try {
     const probeRoot = path.join(temporary, 'candidate-path-probe');
@@ -351,6 +410,7 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
       'network-disabled validation container unavailable');
     return { schemaVersion: 'context-token-matrix-task-b-preflight/v1', ok: true,
       sessionId, taskHash: TASK_HASH, sourceHead: SOURCE, harnessHead, remoteHead,
+      remoteAuthority,
       doctor: source.doctor, journal, validationDocker: docker.stdout.trim(),
       validationImage: image,
       candidatePathAuthority: { status: 'PASS', ...pathProbe },
