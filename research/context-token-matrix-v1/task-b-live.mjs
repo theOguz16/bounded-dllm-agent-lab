@@ -319,7 +319,8 @@ export async function capturePlannerRequest(plan, variant, temporary) {
   gate(captured !== null, 'planner request unavailable before observation reservation');
   return { sourceRoot: source.root, ...captured };
 }
-export async function preflightTaskBJournalAuthority(plan, slots, journalPath, temporary) {
+export async function preflightTaskBJournalAuthority(plan, slots, journalPath, temporary,
+  expectedCount = 6) {
   const requests = [];
   const boundSlots = [];
   for (const slot of slots) {
@@ -343,7 +344,7 @@ export async function preflightTaskBJournalAuthority(plan, slots, journalPath, t
       taskBCoderAuthority: coder });
   }
   const inspected = inspectTaskBExperimentJournal(journalPath, requests);
-  gate(inspected.length === 6 && inspected.every(item =>
+  gate(inspected.length === expectedCount && inspected.every(item =>
     item.authorized && item.coderFutureAdmissible), 'Task B planned journal authority unavailable');
   gate(inspected.every(item => item.status === 'reviewed_replacement_required'),
   'historical Task B slot classification');
@@ -356,6 +357,15 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
   const plan = loadTaskBPlan();
   gate(fs.existsSync(journalPath), 'persistent journal absent');
   const identitySlots = preflightTaskBIdentities({ plan, sessionId, resultParent, journalPath });
+  return preflightTaskBForSlots({ plan, sessionId, identitySlots, home, journalPath,
+    verifyRemote });
+}
+
+/** Shared zero-call checks; the caller supplies already-authorized ordered slots. */
+export async function preflightTaskBForSlots({ plan, sessionId, identitySlots,
+  home = os.homedir(), journalPath = expectedJournalPath(home), verifyRemote = true } = {}) {
+  gate(fs.existsSync(journalPath) && Array.isArray(identitySlots) &&
+    [3, 6].includes(identitySlots.length), 'preflight slot identity');
   const harnessHead = verifyHarnessIdentity();
   const remoteAuthority = verifyRemote ? await verifyTaskBRemoteAuthority(harnessHead) : null;
   const remoteHead = remoteAuthority?.finalRemoteSha ?? null;
@@ -371,7 +381,8 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
     const source = await prepareSourceCheckout(temporary, plan.proposal);
     verifySourceIdentity(source.root, SOURCE);
     const journal = verifyJournal(journalPath, source.root, home);
-    const authority = await preflightTaskBJournalAuthority(plan, identitySlots, journalPath, temporary);
+    const authority = await preflightTaskBJournalAuthority(plan, identitySlots, journalPath,
+      temporary, identitySlots.length);
     const slots = authority.slots;
     const cleanEnv = { ...process.env };
     delete cleanEnv.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH;
@@ -585,7 +596,7 @@ export function taskBMayContinue(classification) {
     .includes(classification);
 }
 
-async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterFactory) {
+export async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterFactory) {
   const cellRoot = path.join(sessionRoot, `${String(slot.position).padStart(2, '0')}-${slot.replicate}-${slot.variant}`);
   fs.mkdirSync(cellRoot, { mode: 0o700 });
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-observation-'));
