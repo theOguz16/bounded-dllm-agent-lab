@@ -5,7 +5,8 @@ import { DatabaseSync } from "node:sqlite";
 import { createAgentOutputRedactor } from "./agent-output-redaction.js";
 import { readPlannedReplacementReview, readPlannedFinalReplacementReview, readPlannedStage2Review, validatePlannedContextMatrixAuthority } from "./planned-experiment-authority.js";
 import type { PlannedExperimentAuthority } from "./planned-experiment-authority.js";
-import { validateTaskBInvocationAuthority, readTaskBReplacementReview } from "./task-b-invocation-authority.js";
+import { validateTaskBInvocationAuthority, readTaskBReplacementReview,
+  readTaskBOracleReplacementReview } from "./task-b-invocation-authority.js";
 import type { TaskBInvocationAuthority } from "./task-b-invocation-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
@@ -277,90 +278,121 @@ function taskBAdmissibility(db: DatabaseSync, authority: TaskBInvocationAuthorit
   stage: InvocationStage, preflight: boolean, journalPath?: string):
   { status: TaskBSlotStatus; authorized: boolean } {
   const conflict = { status: "authority_conflict" as const, authorized: false };
-  if (!["planner", "coder"].includes(stage) || stage !== authority.stage) return conflict;
+  if (!["planner", "coder"].includes(stage) || stage !== authority.stage ||
+      !authority.replacement || !journalPath) return conflict;
   const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
     .all().map(row => checkedRow(row, (row as { invocation_key: string }).invocation_key));
   const sameSlot = rows.filter(row => row.plannedTaskB?.slotHash === authority.slotHash);
+  const permittedHistory = new Set(["task-b-stage1-20260930-r4",
+    ...(authority.position === 1 ? ["task-b-stage1-20260929-r2"] : [])]);
   const unrelated = sameSlot.filter(row =>
-    row.plannedTaskB?.observationHash !== authority.observationHash ||
-    row.plannedTaskB?.sessionId !== authority.sessionId);
+    row.plannedTaskB?.sessionId !== authority.sessionId &&
+    !permittedHistory.has(row.plannedTaskB?.sessionId ?? ""));
   if (unrelated.length > 0) {
     const complete = unrelated.some(row => row.stage === "coder" && row.state === "completed");
     return { status: complete ? "already_completed" : "already_consumed_not_replaceable",
       authorized: false };
   }
-  const ownPlanner = sameSlot.find(row => row.stage === "planner");
-  const ownCoder = sameSlot.find(row => row.stage === "coder");
-  if (stage === "planner" && ownPlanner)
-    return { status: "already_consumed_not_replaceable", authorized: false };
-  if (stage === "coder" && (ownCoder || !preflight &&
+  const ownPlanner = sameSlot.find(row => row.plannedTaskB?.sessionId === authority.sessionId &&
+    row.stage === "planner");
+  const ownCoder = sameSlot.find(row => row.plannedTaskB?.sessionId === authority.sessionId &&
+    row.stage === "coder");
+  if (stage === "planner" && ownPlanner || stage === "coder" && (ownCoder || !preflight &&
       (!ownPlanner || ownPlanner.state !== "completed")))
     return { status: "already_consumed_not_replaceable", authorized: false };
   if (rows.some(row => row.plannedTaskB?.sessionId === authority.sessionId &&
       row.plannedTaskB?.sessionHash !== authority.sessionHash)) return conflict;
-  if (authority.position !== 1)
-    return { status: "fresh_planned_observation", authorized: true };
-  if (!authority.replacement || !journalPath) return conflict;
-  const review = readTaskBReplacementReview(authority.harnessRoot);
-  for (const stopped of review.zeroRowStoppedSessions) {
-    const stoppedRoot = resolve(dirname(journalPath), "live-runs/context-token-matrix-v1",
-      stopped.sessionId);
-    try {
-      const summaryBytes = readFileSync(resolve(stoppedRoot, "stage1-summary.json"));
-      const reservationBytes = readFileSync(resolve(stoppedRoot, "reservation-1.json"));
-      const summary = JSON.parse(summaryBytes.toString("utf8"));
-      const reservation = JSON.parse(reservationBytes.toString("utf8"));
-      if (hash(summaryBytes.toString("utf8")) !== stopped.stage1SummarySha256 ||
-          hash(reservationBytes.toString("utf8")) !== stopped.reservationSha256 ||
-          summary.sessionId !== stopped.sessionId ||
-          summary.budget?.observations !== 1 ||
-          summary.budget?.providerStageInvocations !== stopped.providerStageInvocations ||
-          summary.stop !== stopped.stop || reservation.position !== 1 ||
-          reservation.replicate !== "A" || reservation.variant !== "minimal" ||
-          db.prepare("SELECT 1 FROM provider_invocations WHERE run_id LIKE ?")
-            .get(`matrix.${stopped.sessionId}.%`)) return conflict;
-    } catch { return conflict; }
-  }
-  const selected = [review.evidence.plannerRunId, review.evidence.coderRunId].map(runId =>
-    db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ?")
-      .get(runId) as { invocation_key: string; record_json: string; record_hash: string } | undefined);
-  if (selected.some(row => !row)) return conflict;
-  const [planner, coder] = selected.map(row => checkedRow(row!, row!.invocation_key));
-  if (selected[0]!.record_hash !== review.evidence.plannerRecordHash ||
-      selected[1]!.record_hash !== review.evidence.coderRecordHash ||
-      planner.stage !== "planner" || coder.stage !== "coder" ||
-      planner.state !== "completed" || coder.state !== "completed" ||
-      planner.invocationOccurred !== true || coder.invocationOccurred !== true ||
-      planner.plannedExperiment !== undefined || coder.plannedExperiment !== undefined ||
-      planner.plannedTaskB !== undefined || coder.plannedTaskB !== undefined ||
-      planner.taskHash !==
-        "sha256:3788096e8d83dfd915af9b98faa7fcbca511e675193f1e5f7404d74e259f65de" ||
-      planner.model !== authority.model || coder.model !== authority.model ||
-      authority.replacement.originalPlannerRunId !== planner.runId ||
-      authority.replacement.originalCoderRunId !== coder.runId ||
-      authority.replacement.originalPlannerRecordHash !== selected[0]!.record_hash ||
-      authority.replacement.originalCoderRecordHash !== selected[1]!.record_hash)
-    return conflict;
-  const history = dirname(journalPath);
-  const root = resolve(history, "live-runs/context-token-matrix-v1",
-    review.historicalSessionId);
-  let summary: any, reservation: any;
   try {
-    const summaryBytes = readFileSync(resolve(root, "stage1-summary.json"));
-    const reservationBytes = readFileSync(resolve(root, "reservation-1.json"));
-    if (hash(summaryBytes.toString("utf8")) !== review.evidence.stage1SummarySha256 ||
-        hash(reservationBytes.toString("utf8")) !== review.evidence.reservationSha256)
-      return conflict;
-    summary = JSON.parse(summaryBytes.toString("utf8"));
-    reservation = JSON.parse(reservationBytes.toString("utf8"));
+    const review = readTaskBOracleReplacementReview(authority.harnessRoot);
+    const reviewed = review.slots[authority.position - 1];
+    if (!reviewed || authority.replacement.historicalObservationId !== reviewed.observationId ||
+        authority.replacement.replacementOrdinal !== reviewed.replacementOrdinal ||
+        authority.replacement.originalPlannerRunId !== reviewed.planner.runId ||
+        authority.replacement.originalCoderRunId !== reviewed.coder.runId ||
+        authority.replacement.originalPlannerRecordHash !== reviewed.planner.recordHash ||
+        authority.replacement.originalCoderRecordHash !== reviewed.coder.recordHash) return conflict;
+    const historyRoot = resolve(dirname(journalPath), "live-runs/context-token-matrix-v1");
+    const r4 = resolve(historyRoot, review.historicalSessionId);
+    const summaryBytes = readFileSync(resolve(r4, "stage1-summary.json"));
+    const summary = JSON.parse(summaryBytes.toString("utf8"));
+    if (hash(summaryBytes.toString("utf8")) !== review.stage1SummarySha256 ||
+        summary.sessionId !== review.historicalSessionId ||
+        summary.providerModelCalls !== 12 || summary.budget?.providerStageInvocations !== 12 ||
+        summary.stop !== null || summary.observations?.length !== 6) return conflict;
+    for (const item of review.slots) {
+      const cell = resolve(r4, `${String(item.position).padStart(2, "0")}-${item.replicate}-${item.variant}`);
+      const reservationBytes = readFileSync(resolve(r4, `reservation-${item.position}.json`));
+      const behaviorBytes = readFileSync(resolve(cell, "behavior-check.json"));
+      const cellBytes = readFileSync(resolve(cell, "cell-summary.json"));
+      if (hash(reservationBytes.toString("utf8")) !== item.reservationSha256 ||
+          hash(behaviorBytes.toString("utf8")) !== item.behaviorCheckSha256 ||
+          hash(cellBytes.toString("utf8")) !== item.cellSummarySha256) return conflict;
+      const reservation = JSON.parse(reservationBytes.toString("utf8"));
+      const behavior = JSON.parse(behaviorBytes.toString("utf8"));
+      const cellSummary = JSON.parse(cellBytes.toString("utf8"));
+      if (reservation.observationId !== item.observationId ||
+          reservation.position !== item.position || reservation.replicate !== item.replicate ||
+          reservation.variant !== item.variant ||
+          reservation.taskBPlannerAuthority?.slotHash !== authority.slotHash &&
+            item.position === authority.position ||
+          cellSummary.observationId !== item.observationId ||
+          cellSummary.classification !== "candidate_validation_failure" ||
+          cellSummary.providerStageInvocations !== 2 ||
+          behavior.status !== "FAIL" ||
+          !["build", "typecheck", "tests"].every(name => behavior.results?.[name]?.passed === true) ||
+          behavior.results?.behavior?.exitCode !== 1 ||
+          !/dist\/packages\/integrations\/src\/codex-event-parser\.js/.test(
+            behavior.results?.behavior?.stderrTail ?? "") ||
+          /AssertionError/.test(behavior.results?.behavior?.stderrTail ?? "")) return conflict;
+      if (item.position === authority.position &&
+          (reservation.taskBPlannerAuthority?.observationHash !==
+            authority.replacement.originalObservationHash ||
+           reservation.taskBPlannerAuthority?.slotHash !== authority.replacement.originalSlotHash))
+        return conflict;
+      for (const [expectedStage, reference] of [["planner", item.planner],
+          ["coder", item.coder]] as const) {
+        const selected = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ?")
+          .get(reference.runId) as { invocation_key: string; record_json: string; record_hash: string } | undefined;
+        if (!selected || selected.record_hash !== reference.recordHash) return conflict;
+        const row = checkedRow(selected, selected.invocation_key);
+        if (row.stage !== expectedStage || row.state !== "completed" ||
+            row.invocationOccurred !== true || row.model !== authority.model ||
+            row.plannedTaskB?.sessionId !== review.historicalSessionId ||
+            row.plannedTaskB?.position !== item.position ||
+            row.plannedTaskB?.stage !== expectedStage ||
+            row.plannedTaskB?.observationId !== item.observationId) return conflict;
+      }
+    }
+    if (authority.position === 1) {
+      const prior = readTaskBReplacementReview(authority.harnessRoot);
+      const r2 = resolve(historyRoot, prior.historicalSessionId);
+      const r2Summary = readFileSync(resolve(r2, "stage1-summary.json"));
+      const r2Reservation = readFileSync(resolve(r2, "reservation-1.json"));
+      if (hash(r2Summary.toString("utf8")) !== prior.evidence.stage1SummarySha256 ||
+          hash(r2Reservation.toString("utf8")) !== prior.evidence.reservationSha256 ||
+          JSON.parse(r2Summary.toString("utf8")).stop !==
+            "infrastructure_or_ambiguous: task_b_authority_invalid: Candidate path alias") return conflict;
+      for (const [runId, recordHash] of [[prior.evidence.plannerRunId,
+          prior.evidence.plannerRecordHash], [prior.evidence.coderRunId,
+          prior.evidence.coderRecordHash]]) {
+        const selected = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations WHERE run_id = ?")
+          .get(runId) as { invocation_key: string; record_json: string; record_hash: string } | undefined;
+        if (!selected || selected.record_hash !== recordHash) return conflict;
+        const row = checkedRow(selected, selected.invocation_key);
+        if (row.state !== "completed" || row.invocationOccurred !== true) return conflict;
+      }
+      for (const stopped of prior.zeroRowStoppedSessions) {
+        const stoppedRoot = resolve(historyRoot, stopped.sessionId);
+        const stoppedSummary = readFileSync(resolve(stoppedRoot, "stage1-summary.json"));
+        const stoppedReservation = readFileSync(resolve(stoppedRoot, "reservation-1.json"));
+        if (hash(stoppedSummary.toString("utf8")) !== stopped.stage1SummarySha256 ||
+            hash(stoppedReservation.toString("utf8")) !== stopped.reservationSha256 ||
+            db.prepare("SELECT 1 FROM provider_invocations WHERE run_id LIKE ?")
+              .get(`matrix.${stopped.sessionId}.%`)) return conflict;
+      }
+    }
+    return { status: "reviewed_replacement_required", authorized: true };
   } catch { return conflict; }
-  if (summary.sessionId !== review.historicalSessionId ||
-      summary.budget?.observations !== 1 || summary.budget?.providerStageInvocations !== 2 ||
-      summary.stop !== "infrastructure_or_ambiguous: task_b_authority_invalid: Candidate path alias" ||
-      reservation.observationId !== review.historicalObservationId ||
-      reservation.position !== 1 || reservation.replicate !== "A" ||
-      reservation.variant !== "minimal") return conflict;
-  return { status: "reviewed_replacement_required", authorized: true };
 }
 /** Read-only Task B planner authority inspection; never reserves a journal row. */
 export function inspectTaskBExperimentJournal(file: string, cells: readonly Readonly<{

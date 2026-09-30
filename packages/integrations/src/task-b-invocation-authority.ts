@@ -6,6 +6,7 @@ import { hashCanonicalJson } from "../../product-runtime/src/agent-event-ledger.
 
 export const TASK_B_INVOCATION_VERSION = "task-b-planned-invocation/v1" as const;
 export const TASK_B_REVIEW_HASH = "sha256:1d9658a70fe793a0d4aa4eada91a85ad8ed32f0384dd896421b8d1a640d36520" as const;
+export const TASK_B_ORACLE_REVIEW_HASH = "sha256:58f2083080e5eeba0f2cf618ee5e66bd6e7fe7d373bcab1c66649662b2a27c0d" as const;
 const DEFINITION_HASH = "sha256:361bfb3fc8f50df2f89eb71435f137eaa3a7dd9bff0acf1958427013688f2d8c";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const TASK_HASH = "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0";
@@ -26,13 +27,14 @@ function git(root: string, args: string[]): string {
   return result.stdout.trim();
 }
 export type TaskBReplacement = Readonly<{
-  version: "task-b-infrastructure-replacement-review/v1";
-  historicalSessionId: "task-b-stage1-20260929-r2";
-  historicalObservationId: "task-b-stage1-20260929-r2.1.A.minimal";
-  slot: "A:minimal";
+  version: "task-b-infrastructure-replacement-review/v2";
+  historicalSessionId: "task-b-stage1-20260930-r4";
+  historicalObservationId: string;
+  slot: string;
   invalidationClassification: "infrastructure_invalidated";
-  replacementOrdinal: 1;
-  reviewHash: typeof TASK_B_REVIEW_HASH;
+  replacementOrdinal: 1 | 2;
+  reviewHash: typeof TASK_B_ORACLE_REVIEW_HASH;
+  priorReviewHash: typeof TASK_B_REVIEW_HASH | null;
   originalSlotHash: string;
   originalObservationHash: string;
   originalPlannerRunId: string;
@@ -67,7 +69,7 @@ export type TaskBInvocationAuthority = Readonly<{
   replacement: TaskBReplacement | null;
 }>;
 export type TaskBReview = Readonly<{
-  version: TaskBReplacement["version"];
+  version: "task-b-infrastructure-replacement-review/v1";
   experimentId: string; taskHash: string; sourceHead: string; model: string;
   reasoning: string; historicalSessionId: string; historicalObservationId: string;
   slot: string; invalidationClassification: string; defect: string; fixCommit: string;
@@ -104,6 +106,42 @@ export function readTaskBReplacementReview(harnessRoot: string): TaskBReview {
     deny("review fields");
   return review;
 }
+export type TaskBOracleReviewSlot = Readonly<{
+  position: number; replicate: "A" | "B"; variant: "minimal" | "current" | "expanded";
+  observationId: string; replacementOrdinal: 1 | 2;
+  reservationSha256: string; behaviorCheckSha256: string; cellSummarySha256: string;
+  planner: Readonly<{ runId: string; recordHash: string }>;
+  coder: Readonly<{ runId: string; recordHash: string }>;
+}>;
+export type TaskBOracleReview = Readonly<{
+  version: "task-b-infrastructure-replacement-review/v2";
+  experimentId: string; taskHash: string; sourceHead: string; model: string;
+  reasoning: string; historicalSessionId: string; invalidationClassification: string;
+  defect: string; priorReviewHash: string; stage1SummarySha256: string;
+  providerStageInvocations: number; slots: readonly TaskBOracleReviewSlot[];
+  telemetryClassification: string; correctnessEvidence: boolean; stage2EligibilityEvidence: boolean;
+}>;
+export function readTaskBOracleReplacementReview(harnessRoot: string): TaskBOracleReview {
+  const file = path.join(realpathSync(harnessRoot),
+    "research/context-token-matrix-v1/task-b-oracle-replacement-review.json");
+  const bytes = readFileSync(file);
+  if (sha(bytes) !== TASK_B_ORACLE_REVIEW_HASH) deny("oracle review hash");
+  const review = JSON.parse(bytes.toString("utf8")) as TaskBOracleReview;
+  if (review.version !== "task-b-infrastructure-replacement-review/v2" ||
+      review.experimentId !== "codex-event-ordering" || review.taskHash !== TASK_HASH ||
+      review.sourceHead !== SOURCE || review.model !== "gpt-5.6-luna" ||
+      review.reasoning !== "medium" || review.historicalSessionId !== "task-b-stage1-20260930-r4" ||
+      review.invalidationClassification !== "infrastructure_invalidated" ||
+      review.priorReviewHash !== TASK_B_REVIEW_HASH || review.providerStageInvocations !== 12 ||
+      review.telemetryClassification !== "generation telemetry from infrastructure-invalidated observations" ||
+      review.correctnessEvidence !== false || review.stage2EligibilityEvidence !== false ||
+      !same(review.slots?.map(slot => [slot.position, `${slot.replicate}:${slot.variant}`,
+        slot.replacementOrdinal, slot.observationId]), ORDER.map((name, index) => [
+          index + 1, name, index === 0 ? 2 : 1,
+          `task-b-stage1-20260930-r4.${index + 1}.${name.replace(':', '.')}`])))
+    deny("oracle review fields");
+  return review;
+}
 export function createTaskBInvocationAuthority(input: Readonly<{
   harnessRoot: string; sourceRepositoryPath: string; sessionId: string;
   position: number; replicate: "A" | "B"; variant: "minimal" | "current" | "expanded";
@@ -130,27 +168,46 @@ export function createTaskBInvocationAuthority(input: Readonly<{
       !same(definition.sourceTask?.policy &&
         [definition.sourceTask.policy.retry, definition.sourceTask.policy.repair,
           definition.sourceTask.policy.apply], [0, 0, 0])) deny("frozen definition");
-  const review = readTaskBReplacementReview(harness);
-  git(harness, ["merge-base", "--is-ancestor", review.fixCommit, harnessHead]);
-  if ((input.position === 1) !== (input.replacement === true)) deny("replacement slot binding");
+  const prior = readTaskBReplacementReview(harness);
+  git(harness, ["merge-base", "--is-ancestor", prior.fixCommit, harnessHead]);
+  const review = readTaskBOracleReplacementReview(harness);
+  if (input.replacement !== true) deny("replacement slot binding");
+  const reviewedSlot = review.slots[input.position - 1];
   const slotHash = sha(JSON.stringify([TASK_B_INVOCATION_VERSION, TASK_HASH, SOURCE,
     input.position, input.replicate, input.variant, "gpt-5.6-luna", "medium", 0, 0, 0]));
   const historicalSessionHash = sha(JSON.stringify([TASK_B_INVOCATION_VERSION, TASK_HASH, SOURCE,
-    review.historicalSessionId, "gpt-5.6-luna", "medium", 0, 0, 0]));
-  const replacement: TaskBReplacement | null = input.replacement ? {
-    version: "task-b-infrastructure-replacement-review/v1",
-    historicalSessionId: "task-b-stage1-20260929-r2",
-    historicalObservationId: "task-b-stage1-20260929-r2.1.A.minimal",
-    slot: "A:minimal", invalidationClassification: "infrastructure_invalidated",
-    replacementOrdinal: 1, reviewHash: TASK_B_REVIEW_HASH,
+    "5d080a71216e555b5199d00b44934d04a0f7703d", review.historicalSessionId,
+    "gpt-5.6-luna", "medium", 0, 0, 0]));
+  const historicalObservationHash = sha(JSON.stringify([historicalSessionHash, slotHash,
+    input.position === 1 ? { version: "task-b-infrastructure-replacement-review/v1",
+      historicalSessionId: prior.historicalSessionId,
+      historicalObservationId: prior.historicalObservationId, slot: prior.slot,
+      invalidationClassification: "infrastructure_invalidated", replacementOrdinal: 1,
+      reviewHash: TASK_B_REVIEW_HASH, originalSlotHash: slotHash,
+      originalObservationHash: sha(JSON.stringify([sha(JSON.stringify([TASK_B_INVOCATION_VERSION,
+        TASK_HASH, SOURCE, prior.historicalSessionId, "gpt-5.6-luna", "medium", 0, 0, 0])), slotHash, null])),
+      originalPlannerRunId: prior.evidence.plannerRunId,
+      originalPlannerRecordHash: prior.evidence.plannerRecordHash,
+      originalCoderRunId: prior.evidence.coderRunId,
+      originalCoderRecordHash: prior.evidence.coderRecordHash,
+      newSessionId: review.historicalSessionId } : null]));
+  const replacement: TaskBReplacement = {
+    version: "task-b-infrastructure-replacement-review/v2",
+    historicalSessionId: "task-b-stage1-20260930-r4",
+    historicalObservationId: reviewedSlot.observationId,
+    slot: `${input.replicate}:${input.variant}`,
+    invalidationClassification: "infrastructure_invalidated",
+    replacementOrdinal: reviewedSlot.replacementOrdinal,
+    reviewHash: TASK_B_ORACLE_REVIEW_HASH,
+    priorReviewHash: input.position === 1 ? TASK_B_REVIEW_HASH : null,
     originalSlotHash: slotHash,
-    originalObservationHash: sha(JSON.stringify([historicalSessionHash, slotHash, null])),
-    originalPlannerRunId: review.evidence.plannerRunId,
-    originalPlannerRecordHash: review.evidence.plannerRecordHash,
-    originalCoderRunId: review.evidence.coderRunId,
-    originalCoderRecordHash: review.evidence.coderRecordHash,
+    originalObservationHash: historicalObservationHash,
+    originalPlannerRunId: reviewedSlot.planner.runId,
+    originalPlannerRecordHash: reviewedSlot.planner.recordHash,
+    originalCoderRunId: reviewedSlot.coder.runId,
+    originalCoderRecordHash: reviewedSlot.coder.recordHash,
     newSessionId: input.sessionId
-  } : null;
+  };
   const sessionHash = sha(JSON.stringify([TASK_B_INVOCATION_VERSION, TASK_HASH, SOURCE,
     harnessHead, input.sessionId, "gpt-5.6-luna", "medium", 0, 0, 0]));
   const observationId = `${input.sessionId}.${input.position}.${input.replicate}.${input.variant}`;

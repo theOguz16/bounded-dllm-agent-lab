@@ -1,0 +1,127 @@
+{
+  "version": "task-b-infrastructure-replacement-review/v2",
+  "experimentId": "codex-event-ordering",
+  "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "historicalSessionId": "task-b-stage1-20260930-r4",
+  "invalidationClassification": "infrastructure_invalidated",
+  "defect": "Behavioral oracle imported a Candidate build artifact from the host checkout after containerized build; artifact existed only in disposable validation container",
+  "priorReviewHash": "sha256:1d9658a70fe793a0d4aa4eada91a85ad8ed32f0384dd896421b8d1a640d36520",
+  "stage1SummarySha256": "sha256:385a14722b900c478d18f70823ff6ef1d700391bcd739323836ecdca7f9d1378",
+  "providerStageInvocations": 12,
+  "slots": [
+    {
+      "position": 1,
+      "replicate": "A",
+      "variant": "minimal",
+      "observationId": "task-b-stage1-20260930-r4.1.A.minimal",
+      "replacementOrdinal": 2,
+      "reservationSha256": "sha256:e032e283f85a65f203777a8b1ad2dfada714ef250efe1e6eee296293535bb034",
+      "behaviorCheckSha256": "sha256:5a10c595db1693116b8b9656c3ed65b43fe60218e641a9a5b85653af1cb125a4",
+      "cellSummarySha256": "sha256:0776454f5368131b7d78a55bb47ffab076a3a8d9bde8e57fa36adc46c6e4cfd3",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.1.a.minimal.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:95a36c0985952af811e7d16d6622544f65148eb8e2f972f3b4e773a4c567dccd"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.1.a.minimal.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:a65effdc73a81d2c72f1dad4cf28b2a9dd9df0ba2740715b6d88fdb841dd3502"
+      }
+    },
+    {
+      "position": 2,
+      "replicate": "A",
+      "variant": "current",
+      "observationId": "task-b-stage1-20260930-r4.2.A.current",
+      "replacementOrdinal": 1,
+      "reservationSha256": "sha256:3ab296f9c2a3a5df38f4d09c3e7bd41e118c2bf004270e955419ad6c820dedb1",
+      "behaviorCheckSha256": "sha256:fcfa3d1f2d317869dda84fb96fe97abc05ec5a71cbf7e157606a300c9604a9b4",
+      "cellSummarySha256": "sha256:1537a50d6d33f242273fbf61287749d1ac2182078fcd04feb306b1c77551ba37",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.2.a.current.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:77ef10520e9aab006514ff3398ec9fceb824591f9a358f6032a48e694117d1e1"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.2.a.current.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:be93120f64f33b1b400d0c154a36de57d832b7a8bea26baf7b6d69b9e6365da5"
+      }
+    },
+    {
+      "position": 3,
+      "replicate": "A",
+      "variant": "expanded",
+      "observationId": "task-b-stage1-20260930-r4.3.A.expanded",
+      "replacementOrdinal": 1,
+      "reservationSha256": "sha256:14656b5cba554a8b6e1a83b9f3e6925e153f19210b48274b3f4cabd028cb4a03",
+      "behaviorCheckSha256": "sha256:71816010907b9f79fc861234defb2492081a74c08c17d2af74892761dfda5ffa",
+      "cellSummarySha256": "sha256:8c7142cb90a9f696f1c9b4101c5c3a2fa08acc3706aa26583571d9128ef98052",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.3.a.expanded.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:c2ee3b4d6fa58c761cb6b7485a8dd636ee508eedd4200bdc74dc694ef3fbf551"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.3.a.expanded.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:0a886505ab85b71e5343bd3048e7545513a233622ccd138891d36b36c9dd0d93"
+      }
+    },
+    {
+      "position": 4,
+      "replicate": "B",
+      "variant": "current",
+      "observationId": "task-b-stage1-20260930-r4.4.B.current",
+      "replacementOrdinal": 1,
+      "reservationSha256": "sha256:52eb3a43db2ba451ee5480ee4852669563adf158b63e1f167a40576101ee21de",
+      "behaviorCheckSha256": "sha256:1fb594280570e913ead018ca70a431a7d582c4ad0fac5953870aa5cdd34c99f7",
+      "cellSummarySha256": "sha256:cc26c4bb02f963b3a452ed5d13c5a2ac13dfdc77cc87155b6452fc4b071804fa",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.4.b.current.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:8bb43751eaec3b1cf087a5e0f50d3c96f2a3e02a7d8aedac329fbfd413ac3bb2"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.4.b.current.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:4f0f36f0671f61b248edf5f29255a70f1c0dc45afa343e887181dc91ef3ab6da"
+      }
+    },
+    {
+      "position": 5,
+      "replicate": "B",
+      "variant": "expanded",
+      "observationId": "task-b-stage1-20260930-r4.5.B.expanded",
+      "replacementOrdinal": 1,
+      "reservationSha256": "sha256:dfcd57ae23e4570bb397803ac75e2cfa815d9a77eaaf537f4959f558c1c5dd12",
+      "behaviorCheckSha256": "sha256:2a7d951e328c538bfcc23e4184e2938e8eddfd507db72a2846c20823da5bdf5f",
+      "cellSummarySha256": "sha256:44fd02ed5768b4b5b4fd1aad6874ffc31ffa4866d5e465fdc662d355c25b2c0a",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.5.b.expanded.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:204bb3cd90f2c5e1e7433340d934e1c5db2c183c5c4c635ccc87d7f05e0e6b10"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.5.b.expanded.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:180428f85ab28e458efcdff610c3ce4a99b24847516c1bcaa5e82ede4958bd65"
+      }
+    },
+    {
+      "position": 6,
+      "replicate": "B",
+      "variant": "minimal",
+      "observationId": "task-b-stage1-20260930-r4.6.B.minimal",
+      "replacementOrdinal": 1,
+      "reservationSha256": "sha256:93b3092661ec861257173e7db4c57d6a653adf6a5f7db8a4536b4944e2d95956",
+      "behaviorCheckSha256": "sha256:d2a8369dd55a17c01dd01539b20e3e7b4026bd5eaf3a3cb2175725d791179517",
+      "cellSummarySha256": "sha256:d028e5c8765e5a81b820e4f3eba020d7dfe7c198323a7e7a8f9656a269cca8ca",
+      "planner": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.6.b.minimal.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+        "recordHash": "sha256:f69b96cc7c145712b43f1b9019e3ac09b989b640f6818759b52df17d5a23d32b"
+      },
+      "coder": {
+        "runId": "matrix.task-b-stage1-20260930-r4.task-b.6.b.minimal.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+        "recordHash": "sha256:ab27a4d3be3e1f45293a78b129749bcb18a2401112eba9ef0535dc8663e4807e"
+      }
+    }
+  ],
+  "telemetryClassification": "generation telemetry from infrastructure-invalidated observations",
+  "correctnessEvidence": false,
+  "stage2EligibilityEvidence": false
+}

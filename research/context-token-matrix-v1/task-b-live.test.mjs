@@ -119,13 +119,19 @@ assert.equal(annotated.turns[0].promptEstimatedTokensBeforeTurn, 6944);
 assert.equal(annotated.selectedContextSemantics, 'initial-selection-only');
 const safeProduct = { sourceRepositoryUnchanged: true, apply: 'NOT_RUN',
   decision: 'bounded_task_completed' };
+const passedBehavior = { status: 'PASS', infrastructurePass: true,
+  behaviorPass: true, assertionsCompleted: true };
+const failedBehavior = { status: 'FAIL', infrastructurePass: true,
+  reasonCode: 'candidate_behavior_failure', moduleLoaded: true, assertionsStarted: true };
 assert.equal(classifyTaskBObservation(safeProduct,
-  { decision: 'bounded_task_completed' }, { status: 'PASS' }), 'completed');
+  { decision: 'bounded_task_completed' }, passedBehavior), 'completed');
 assert.equal(classifyTaskBObservation(safeProduct,
-  { decision: 'bounded_task_completed' }, { status: 'FAIL' }), 'candidate_validation_failure');
+  { decision: 'bounded_task_completed' }, failedBehavior), 'candidate_validation_failure');
 assert.equal(classifyTaskBObservation({ ...safeProduct, decision: 'bounded_task_stopped',
   failure: { stage: 'validation' } }, { verifierResult: { decision: 'approve' } },
-{ status: 'FAIL' }), 'candidate_validation_failure');
+failedBehavior), 'candidate_validation_failure');
+assert.equal(classifyTaskBObservation(safeProduct,
+  { decision: 'bounded_task_completed' }, { status: 'FAIL' }), 'infrastructure_failure');
 assert.equal(classifyTaskBObservation(safeProduct, {}, { status: 'INFRASTRUCTURE_STOP' }),
   'infrastructure_failure');
 assert.equal(classifyTaskBObservation(safeProduct, {}, { status: 'CANDIDATE_INVALID' }),

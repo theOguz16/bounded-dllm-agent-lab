@@ -30,6 +30,8 @@ const FILES = Object.freeze(['packages/integrations/src/codex-event-parser.ts',
 const EXTRAS = Object.freeze(['packages/integrations/src/agent-adapter.ts',
   'packages/integrations/src/agent-telemetry.ts']);
 const ORACLE = 'node {benchmark}/oracles/event-order.cjs {candidate}';
+const ORACLE_COPY = '.task-b-oracle/event-order.cjs';
+const BUILT_PARSER = 'dist/packages/integrations/src/codex-event-parser.js';
 const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const read = name => JSON.parse(fs.readFileSync(path.join(HERE, name), 'utf8'));
@@ -266,7 +268,7 @@ export async function preflightTaskBJournalAuthority(plan, slots, journalPath, t
     const captured = await capturePlannerRequest(plan, slot.variant, root);
     const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: captured.sourceRoot,
       sessionId: slot.sessionId, position: slot.position, replicate: slot.replicate,
-      variant: slot.variant, replacement: slot.position === 1 };
+      variant: slot.variant, replacement: true };
     const planner = createTaskBInvocationAuthority({ ...input, stage: 'planner' });
     const coder = createTaskBInvocationAuthority({ ...input, stage: 'coder' });
     gate(planner.observationId === slot.observationId &&
@@ -283,8 +285,7 @@ export async function preflightTaskBJournalAuthority(plan, slots, journalPath, t
   const inspected = inspectTaskBExperimentJournal(journalPath, requests);
   gate(inspected.length === 6 && inspected.every(item =>
     item.authorized && item.coderFutureAdmissible), 'Task B planned journal authority unavailable');
-  gate(inspected[0].status === 'reviewed_replacement_required' &&
-    inspected.slice(1).every(item => item.status === 'fresh_planned_observation'),
+  gate(inspected.every(item => item.status === 'reviewed_replacement_required'),
   'historical Task B slot classification');
   return { slots: boundSlots, inspected };
 }
@@ -323,6 +324,14 @@ export async function preflightTaskB({ sessionId, home = os.homedir(),
       [path.join(HERE, 'oracles/event-order.cjs'), source.root], 30_000, cleanEnv);
     gate(!unchangedOracle.error && unchangedOracle.status === 1 &&
       /AssertionError/.test(unchangedOracle.stderr ?? ''), 'unchanged source oracle rejection');
+    const oracleWorkspace = path.join(temporary, 'oracle-preflight-workspace');
+    fs.cpSync(source.root, oracleWorkspace, { recursive: true, verbatimSymlinks: true,
+      filter: entry => path.basename(entry) !== '.git' });
+    const oracleProbe = await runTaskBValidation(source.root, oracleWorkspace);
+    gate(oracleProbe.infrastructurePass === true && oracleProbe.moduleLoaded === true &&
+      oracleProbe.assertionsStarted === true && oracleProbe.behaviorPass === false &&
+      oracleProbe.issueCode === 'task_b_behavior_assertion_failed',
+    'containerized behavior oracle preflight');
     const computed = await calibrateTaskB(source.root);
     gate(same(computed, plan.calibration), 'source context bytes or token estimate drift');
     const bindings = {};
@@ -392,34 +401,113 @@ async function checkCandidate(sourceRoot, providerOutput, cellRoot) {
     }
     save(path.join(cellRoot, 'candidate-path-authority.json'), { status: 'PASS',
       authorityCanonicalRoot: canonicalRoot, files: pathReceipts });
-    fs.mkdirSync(path.join(root, '.validation-output'));
-    const configuration = JSON.parse(fs.readFileSync(path.join(sourceRoot, '.bounded/config.json'), 'utf8'));
-    const specification = validationSpecification(configuration, sourceRoot);
-    gate(same(specification.commands.map(item => item.args),
-      [['run', 'build'], ['run', 'typecheck'], ['run', 'test']]), 'validation command drift');
-    const validation = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
-      tempApplyDecision: 'temp_apply_ready', tempWorkspaceCleanedUp: false,
-      ...specification }, async () => null, { runtime: 'docker', sourceRepositoryPath: sourceRoot });
-    const results = Object.fromEntries(['build', 'typecheck', 'tests'].map((name, index) =>
-      [name, { exitCode: validation.commandResults?.[index]?.exitCode ?? null,
-        passed: validation.commandResults?.[index]?.passed ?? false }]));
-    if (validation.issues?.some(item => /container|docker|runtime|image/i.test(item.code)))
-      return { status: 'INFRASTRUCTURE_STOP', results, issues: validation.issues };
-    const oracle = command(root, process.execPath,
-      [path.join(HERE, 'oracles/event-order.cjs'), root], 30_000);
-    results.behavior = { exitCode: oracle.status, error: oracle.error?.message ?? null,
-      stderrTail: (oracle.stderr ?? '').slice(-1000) };
-    if (oracle.error || oracle.status === null) return { status: 'INFRASTRUCTURE_STOP', results };
-    return { status: validation.decision === 'temp_validation_passed' && oracle.status === 0
-      ? 'PASS' : 'FAIL', changedFiles: claims.map(claim => claim.file), results,
-      issues: validation.issues };
+    try {
+      const validation = await runTaskBValidation(sourceRoot, root);
+      return { ...validation, changedFiles: claims.map(claim => claim.file) };
+    } catch {
+      return { status: 'INFRASTRUCTURE_STOP', oracleStarted: false, moduleLoaded: false,
+        assertionsStarted: false, assertionsCompleted: false, behaviorPass: false,
+        infrastructurePass: false, issueCode: 'task_b_validator_invocation_failed',
+        reasonCode: 'validator_infrastructure', changedFiles: claims.map(claim => claim.file) };
+    }
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
+}
+
+/** The immutable oracle runs beside the built Candidate in the isolated validation container. */
+export async function runTaskBValidation(sourceRoot, root) {
+  fs.mkdirSync(path.join(root, '.validation-output'), { recursive: true });
+  const oracleBytes = fs.readFileSync(path.join(HERE, 'oracles/event-order.cjs'));
+  gate(sha(oracleBytes) === loadTaskBPlan().definition.oracleSha256, 'oracle copy hash');
+  fs.mkdirSync(path.join(root, '.task-b-oracle'), { recursive: true });
+  fs.writeFileSync(path.join(root, ORACLE_COPY), oracleBytes);
+  const configuration = JSON.parse(fs.readFileSync(path.join(sourceRoot, '.bounded/config.json'), 'utf8'));
+  const specification = validationSpecification(configuration, sourceRoot);
+  gate(same(specification.commands.map(item => item.args),
+    [['run', 'build'], ['run', 'typecheck'], ['run', 'test']]), 'validation command drift');
+  const commands = [...specification.commands,
+    { id: 'task-b.module-probe', checkKind: 'behavior_test', executable: 'node',
+      args: ['-e', `import('/workspace/${BUILT_PARSER}').then(() => process.stdout.write('TASK_B_MODULE_LOADED\\n'))`],
+      timeoutMs: 30_000, expectedExitCodes: [0] },
+    { id: 'task-b.behavior-oracle', checkKind: 'behavior_test', executable: 'node',
+      args: [`/workspace/${ORACLE_COPY}`, '/workspace'], timeoutMs: 30_000,
+      expectedExitCodes: [0] }];
+  const validation = await runContainerizedWorkspaceExecution({ tempWorkspacePath: root,
+    tempApplyDecision: 'temp_apply_ready', tempWorkspaceCleanedUp: false,
+    ...specification, commands, allowedExecutables: [...specification.allowedExecutables, 'node'],
+    maxCommands: 5 }, async () => null,
+  { runtime: 'docker', sourceRepositoryPath: sourceRoot });
+  return interpretTaskBValidation(validation);
+}
+
+/** Only a loaded oracle that reports an assertion error may fail as Candidate behavior. */
+export function interpretTaskBValidation(validation) {
+  const entries = validation?.commandResults;
+  const results = Object.fromEntries(['build', 'typecheck', 'tests'].map((name, index) =>
+    [name, { exitCode: entries?.[index]?.exitCode ?? null,
+      passed: entries?.[index]?.passed ?? false }]));
+  const base = { oracleStarted: false, moduleLoaded: false, assertionsStarted: false,
+    assertionsCompleted: false, behaviorPass: false, infrastructurePass: false,
+    issueCode: null, reasonCode: null, results };
+  if (!validation || !Array.isArray(entries) || !Array.isArray(validation.issues) ||
+      !['temp_validation_passed', 'temp_validation_failed'].includes(validation.decision))
+    return { ...base, status: 'INFRASTRUCTURE_STOP', issueCode: 'task_b_validator_result_invalid',
+      reasonCode: 'malformed_validator_result' };
+  const infrastructureIssues = validation.issues.filter(item => item?.code !== 'validation_command_failed');
+  if (infrastructureIssues.length || entries.length === 0)
+    return { ...base, status: 'INFRASTRUCTURE_STOP',
+      issueCode: infrastructureIssues[0]?.code ?? 'task_b_validator_result_missing',
+      reasonCode: 'validator_infrastructure' };
+  for (let index = 0; index < 3; index++) {
+    if (!entries[index] || entries[index].id !== ['validation.syntax', 'validation.typecheck', 'validation.test'][index] ||
+        typeof entries[index].passed !== 'boolean' || !Number.isInteger(entries[index].exitCode))
+      return { ...base, status: 'INFRASTRUCTURE_STOP', issueCode: 'task_b_validator_result_invalid',
+        reasonCode: 'malformed_validator_result' };
+    if (!entries[index].passed)
+      return { ...base, status: 'FAIL', infrastructurePass: true,
+        issueCode: `task_b_candidate_${['build', 'typecheck', 'test'][index]}_failed`,
+        reasonCode: 'candidate_validation_failure' };
+  }
+  const probe = entries[3];
+  if (!probe || probe.id !== 'task-b.module-probe' || typeof probe.passed !== 'boolean' ||
+      !Number.isInteger(probe.exitCode))
+    return { ...base, status: 'INFRASTRUCTURE_STOP', issueCode: 'task_b_validator_result_invalid',
+      reasonCode: 'malformed_validator_result' };
+  if (!probe.passed || probe.stdout !== 'TASK_B_MODULE_LOADED\n')
+    return { ...base, status: 'INFRASTRUCTURE_STOP', issueCode: 'task_b_oracle_module_load_failed',
+      reasonCode: 'module_import_failure' };
+  const loaded = { ...base, moduleLoaded: true };
+  const oracle = entries[4];
+  if (!oracle || oracle.id !== 'task-b.behavior-oracle' || typeof oracle.passed !== 'boolean' ||
+      !Number.isInteger(oracle.exitCode))
+    return { ...loaded, status: 'INFRASTRUCTURE_STOP', issueCode: 'task_b_validator_result_invalid',
+      reasonCode: 'malformed_validator_result' };
+  const started = { ...loaded, oracleStarted: true };
+  if (oracle.passed && oracle.exitCode === 0 && oracle.stdout === 'event-order behavior PASS\n')
+    return { ...started, status: 'PASS', assertionsStarted: true,
+      assertionsCompleted: true, behaviorPass: true, infrastructurePass: true };
+  if (oracle.exitCode === 1 && /AssertionError/.test(oracle.stderr ?? ''))
+    return { ...started, status: 'FAIL', assertionsStarted: true,
+      infrastructurePass: true, issueCode: 'task_b_behavior_assertion_failed',
+      reasonCode: 'candidate_behavior_failure' };
+  return { ...started, status: 'INFRASTRUCTURE_STOP',
+    issueCode: 'task_b_oracle_process_failed', reasonCode: 'oracle_runtime_failure' };
 }
 
 export function classifyTaskBObservation(product, bounded, behavior) {
   if (behavior?.status === 'INFRASTRUCTURE_STOP') return 'infrastructure_failure';
   if (behavior?.status === 'CANDIDATE_INVALID') return 'candidate_model_failure';
   if (product?.sourceRepositoryUnchanged !== true || product?.apply !== 'NOT_RUN')
+    return 'infrastructure_failure';
+  if (behavior?.status === 'FAIL' &&
+      (behavior.infrastructurePass !== true ||
+       !['candidate_validation_failure', 'candidate_behavior_failure'].includes(behavior.reasonCode) ||
+       behavior.reasonCode === 'candidate_behavior_failure' &&
+         (behavior.moduleLoaded !== true || behavior.assertionsStarted !== true)))
+    return 'infrastructure_failure';
+  if (behavior?.status === 'PASS' &&
+      (behavior.infrastructurePass !== true || behavior.behaviorPass !== true ||
+       behavior.assertionsCompleted !== true)) return 'infrastructure_failure';
+  if (behavior && !['PASS', 'FAIL', 'CANDIDATE_INVALID', 'NOT_RUN'].includes(behavior.status))
     return 'infrastructure_failure';
   if (product.decision === 'bounded_task_completed' && bounded?.decision === 'bounded_task_completed')
     return behavior?.status === 'PASS' ? 'completed' :
@@ -431,6 +519,10 @@ export function classifyTaskBObservation(product, bounded, behavior) {
   if (product.failure?.stage === 'validation' && bounded?.verifierResult?.decision === 'approve' &&
       behavior?.status === 'FAIL') return 'candidate_validation_failure';
   return 'ambiguous_failure';
+}
+export function taskBMayContinue(classification) {
+  return ['completed', 'candidate_model_failure', 'candidate_validation_failure']
+    .includes(classification);
 }
 
 async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterFactory) {
@@ -534,7 +626,7 @@ export async function runTaskBStage1({ sessionId, adapterFactory = () => new Cod
       save(path.join(sessionRoot, `reservation-${slot.position}.json`), slot);
       const result = await executeTaskBObservation(plan, slot, sessionRoot, budget, adapterFactory);
       observations.push(result);
-      if (!['completed', 'candidate_model_failure', 'candidate_validation_failure'].includes(result.classification)) {
+      if (!taskBMayContinue(result.classification)) {
         stop = result.classification; break;
       }
     } catch (error) {
