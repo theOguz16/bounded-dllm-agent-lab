@@ -22,6 +22,12 @@ try {
   const source = createSourceCheckout(temp);
   const journalPath = path.join(temp, 'provider-invocations.sqlite');
   fs.copyFileSync(expectedJournalPath(), journalPath);
+  // Replay the historical pre-r7 authority state in this disposable journal only.
+  // The durable journal now correctly records r7 A slots as consumed.
+  const fixtureDb = new DatabaseSync(journalPath);
+  fixtureDb.prepare("DELETE FROM provider_invocations WHERE run_id LIKE ?")
+    .run('matrix.task-b-stage1-20260930-r7.%');
+  fixtureDb.close();
   const history = path.join(os.homedir(), '.bounded-agent/bounded-dllm-agent-lab/live-runs',
     'context-token-matrix-v1');
   const copied = path.join(temp, 'live-runs/context-token-matrix-v1');

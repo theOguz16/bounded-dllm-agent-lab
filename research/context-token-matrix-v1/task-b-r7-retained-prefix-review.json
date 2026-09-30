@@ -1,0 +1,217 @@
+{
+  "version": "task-b-r7-retained-prefix/v1",
+  "sessionId": "task-b-stage1-20260930-r7",
+  "frozenFileHashes": {
+    "task-b-definition.json": "sha256:361bfb3fc8f50df2f89eb71435f137eaa3a7dd9bff0acf1958427013688f2d8c",
+    "task-b-calibration.json": "sha256:d78c88c4185ff878120494db09832fb586e7dd80c89de519f52becd5c8230183",
+    "task-b-prospective-manifest.json": "sha256:c08cda7e9f0c50d987fca14b048482750010f81dc41f67d72c8ef1787d5ab242"
+  },
+  "summaryHash": "sha256:9b88526d0fc8df608172541a9f5f0c9382ecdac1520ee856dc8f2003ba9b1d2c",
+  "observations": [
+    {
+      "sessionId": "task-b-stage1-20260930-r7",
+      "observationId": "task-b-stage1-20260930-r7.1.A.minimal",
+      "runtimeIdentity": "task-b-stage1-20260930-r7.task-b.1.a.minimal",
+      "position": 1,
+      "replicate": "A",
+      "variant": "minimal",
+      "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "contextDefinitionHash": "sha256:4c38d78cf29a5268f6e356385c8d8e661ec1874ad4915d5699503a5b5bb1f30c",
+      "reservationHash": "sha256:0dad343f2ba5756fe784b975092bc4bf667d3dc8ef50b856a0d5a85ac94a85e3",
+      "artifactHashes": {
+        "adapter-calls.json": "sha256:f41cf0d91a1dc11131f6c7d6c6ce77d383b0b50f4e6f7b1eff6f73bb298167e2",
+        "behavior-check.json": "sha256:b4cc46caf3b473c3b4e1d4a26b3ac95b6d3ae03314f9a2b66bb48876a83fccc3",
+        "candidate-path-authority.json": "sha256:404d84a5924a5f6b6b04e6387b3e2e502c9c27670ac9253dde0b71e6ebf23f0c",
+        "cell-summary.json": "sha256:5e286052ec91d503a926445ef2d6795d9662446ff32d54229838011762f1aa27",
+        "coder-trajectory.json": "sha256:214f7f64964a264416f437379b64311ff3796a47721937f35e8f61dd035adcd9",
+        "context-expansion.json": "sha256:99d3842550c4c3acc661579ca03566562b755b323bb12ebb5f55e04b97692464",
+        "experiment-result.json": "sha256:24eba4aeca39256533eabcb69e9011448f0094bee96de87ffe21e941b7d0adc4",
+        "raw-bounded-result.json": "sha256:6edb57c30ade84ff961d288a433d39a9af0796f5c3635d819adeaf7fbf15be38",
+        "raw-product-result.json": "sha256:afc47a6e42c2eabb7dbdd1847879862139d88326f5975ef82e76a85addb9b1a3",
+        "selection.json": "sha256:4c38d78cf29a5268f6e356385c8d8e661ec1874ad4915d5699503a5b5bb1f30c",
+        "source-status.json": "sha256:effad5779491bd1b871281250fb46f6d25eb48ae65dc77837d1af926c7571cae"
+      },
+      "journal": [
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.1.a.minimal.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+          "stage": "planner",
+          "recordHash": "sha256:e9784bfb08fee5b57c1f89f4d79a093221af6e8ac2c63fd6a6118d0825f12b78",
+          "state": "completed",
+          "failureCode": null,
+          "terminalTurnObserved": true
+        },
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.1.a.minimal.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+          "stage": "coder",
+          "recordHash": "sha256:4d45163eb6ed163d58f2558a5c3556ac3bc3867bf6105d58291b0658e0cede81",
+          "state": "completed",
+          "failureCode": null,
+          "terminalTurnObserved": true
+        }
+      ],
+      "normalizedOutcome": {
+        "status": "completed",
+        "decision": "bounded_task_completed",
+        "behavior": "PASS",
+        "validation": {
+          "scope": "PASS",
+          "syntax": null,
+          "typecheck": "PASS",
+          "tests": "PASS"
+        },
+        "candidateChangedFiles": [
+          "packages/integrations/src/codex-event-parser.ts",
+          "scripts/smoke/codex-event-parser-smoke.cjs"
+        ]
+      },
+      "recordedClassification": "completed",
+      "classification": "clean_pass",
+      "replacementEligible": false
+    },
+    {
+      "sessionId": "task-b-stage1-20260930-r7",
+      "observationId": "task-b-stage1-20260930-r7.2.A.current",
+      "runtimeIdentity": "task-b-stage1-20260930-r7.task-b.2.a.current",
+      "position": 2,
+      "replicate": "A",
+      "variant": "current",
+      "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "contextDefinitionHash": "sha256:4c38d78cf29a5268f6e356385c8d8e661ec1874ad4915d5699503a5b5bb1f30c",
+      "reservationHash": "sha256:85912c2d9d0b50a5df67f333326c59eccf9d31e714ad503e5ade235e693814b5",
+      "artifactHashes": {
+        "adapter-calls.json": "sha256:600e02c37d78f195ccd0f392fe06c924bae50c2866ee87a898af4ac94de035ec",
+        "behavior-check.json": "sha256:b4cc46caf3b473c3b4e1d4a26b3ac95b6d3ae03314f9a2b66bb48876a83fccc3",
+        "candidate-path-authority.json": "sha256:c995b6e58f8951e6ac6d8a86c28b4d547bfd880261aa3ccb958e490c6ee034ff",
+        "cell-summary.json": "sha256:91e1187332287fb6ec718d44b2992e9faa83d0b69d3ba333fe596e1afd44fb74",
+        "coder-trajectory.json": "sha256:b45e1ad2d36ba38f6bd3b86bf1c55bd67cf6c4915bb5293b292bd7d478bb48a6",
+        "context-expansion.json": "sha256:99d3842550c4c3acc661579ca03566562b755b323bb12ebb5f55e04b97692464",
+        "experiment-result.json": "sha256:d1b4e8e988f5f2d8f0cf43fb790cd2d00f56276fa6a2f817c0d64ee933beb592",
+        "raw-bounded-result.json": "sha256:805a37c1bded34e867896d9e95c29b77f85795e35a9ddfdb6bd533e17d924849",
+        "raw-product-result.json": "sha256:705e2e3f2f5950437e3671aa3df894515cd974cd5a0e7a2a3a30538bea3d9698",
+        "selection.json": "sha256:4c38d78cf29a5268f6e356385c8d8e661ec1874ad4915d5699503a5b5bb1f30c",
+        "source-status.json": "sha256:effad5779491bd1b871281250fb46f6d25eb48ae65dc77837d1af926c7571cae"
+      },
+      "journal": [
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.2.a.current.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+          "stage": "planner",
+          "recordHash": "sha256:b88fd5fa72106f3ac94fe06e27c35d9bc91d1256a8c62d7693278125c8ee1821",
+          "state": "completed",
+          "failureCode": null,
+          "terminalTurnObserved": true
+        },
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.2.a.current.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+          "stage": "coder",
+          "recordHash": "sha256:6c99957a360d52366d7ee31052b6ee04d2277a5d3374001bdd7e6a4f4e987e78",
+          "state": "completed",
+          "failureCode": null,
+          "terminalTurnObserved": true
+        }
+      ],
+      "normalizedOutcome": {
+        "status": "completed",
+        "decision": "bounded_task_completed",
+        "behavior": "PASS",
+        "validation": {
+          "scope": "PASS",
+          "syntax": null,
+          "typecheck": "PASS",
+          "tests": "PASS"
+        },
+        "candidateChangedFiles": [
+          "packages/integrations/src/codex-event-parser.ts",
+          "scripts/smoke/codex-event-parser-smoke.cjs"
+        ]
+      },
+      "recordedClassification": "completed",
+      "classification": "clean_pass",
+      "replacementEligible": false
+    },
+    {
+      "sessionId": "task-b-stage1-20260930-r7",
+      "observationId": "task-b-stage1-20260930-r7.3.A.expanded",
+      "runtimeIdentity": "task-b-stage1-20260930-r7.task-b.3.a.expanded",
+      "position": 3,
+      "replicate": "A",
+      "variant": "expanded",
+      "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+      "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+      "model": "gpt-5.6-luna",
+      "reasoning": "medium",
+      "contextDefinitionHash": "sha256:1298d27661ac1aab3bb3f4849a420da73f929f2a57958bc9ae6f15ac69e0478b",
+      "reservationHash": "sha256:6d1bec9a045cbdcc5bd662590d476d12ba080bcff95d043177dcf87f8b05d19f",
+      "artifactHashes": {
+        "adapter-calls.json": "sha256:54c01f4999ce341bcdacead73caddf9fba70c715eeed797aa266399da472a05b",
+        "behavior-check.json": "sha256:9275b66ed9f09e5aa0acce9413936bf3bb472f0101618ed85b0f1da7797ff0d3",
+        "cell-summary.json": "sha256:2fda03c39cb525cd76a61d3e5678b9367e6728d1c39546b9bc94a25e703a9528",
+        "coder-trajectory.json": "sha256:e498cb595f38937d40c7d3b945ff7e8bf03d31b74c55eea58d3d8d7f3e971eb2",
+        "context-expansion.json": "sha256:99d3842550c4c3acc661579ca03566562b755b323bb12ebb5f55e04b97692464",
+        "experiment-result.json": "sha256:8940e7a34ba90b407da5a4465f944d0f59a1a8f7185a27a2ae30180f5ee2bfe2",
+        "raw-bounded-result.json": "sha256:edbe1cf88a84b2d2f3b11b8d3d8a53cc73abc710567000f3ca7a1e942c753d4e",
+        "raw-product-result.json": "sha256:78d512c17dca373ce511c94038ec1c48fc2d6fa89881535edd701bad3ed55266",
+        "selection.json": "sha256:1298d27661ac1aab3bb3f4849a420da73f929f2a57958bc9ae6f15ac69e0478b",
+        "source-status.json": "sha256:effad5779491bd1b871281250fb46f6d25eb48ae65dc77837d1af926c7571cae"
+      },
+      "journal": [
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.3.a.expanded.planner.codex.1d8d194fa79199e49b666ea7678dc6ef",
+          "stage": "planner",
+          "recordHash": "sha256:2df8e6be6f90365c6142b68dfd8ab36bb22ccabafb83d22b6c78d20b1c532cb7",
+          "state": "completed",
+          "failureCode": null,
+          "terminalTurnObserved": true
+        },
+        {
+          "runId": "matrix.task-b-stage1-20260930-r7.task-b.3.a.expanded.coder.b9fc8aa7c3b972936cdc3afc27dce1ad",
+          "stage": "coder",
+          "recordHash": "sha256:8805775b371a7d742225d0e69e92337bf87c27a4e7d3c93c4dc5701504bad58e",
+          "state": "outcome_unknown",
+          "failureCode": "agent_timeout",
+          "terminalTurnObserved": false
+        }
+      ],
+      "normalizedOutcome": {
+        "status": "stopped",
+        "decision": "bounded_task_stopped",
+        "behavior": "NOT_RUN",
+        "validation": {
+          "scope": "NOT_RUN",
+          "syntax": null,
+          "typecheck": "NOT_RUN",
+          "tests": "NOT_RUN"
+        },
+        "candidateChangedFiles": []
+      },
+      "recordedClassification": "ambiguous_failure",
+      "classification": "production_product_timeout",
+      "replacementEligible": false
+    }
+  ],
+  "untouchedSuffix": [
+    {
+      "position": 4,
+      "replicate": "B",
+      "variant": "current",
+      "status": "never_reserved_or_executed_in_r7"
+    },
+    {
+      "position": 5,
+      "replicate": "B",
+      "variant": "expanded",
+      "status": "never_reserved_or_executed_in_r7"
+    },
+    {
+      "position": 6,
+      "replicate": "B",
+      "variant": "minimal",
+      "status": "never_reserved_or_executed_in_r7"
+    }
+  ]
+}
