@@ -1,0 +1,897 @@
+{
+  "schemaVersion": "combined-context-token-matrix-analysis/v1",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "sourceSessions": [
+    "stage1-63ffc26412212dc72f5e2971",
+    "stage2-5c41e2532d3bd1637f97dd2e",
+    "task-b-stage1-20260930-r7",
+    "task-b-stage1-20260930-suffix-r1",
+    "task-b-stage2-20260930-r1",
+    "task-b-stage2-20260930-r1"
+  ],
+  "notes": {
+    "taskAExpansionRequested": "unavailable in result records",
+    "taskAExpansionGranted": "zero per frozen Task A finding; result field unavailable",
+    "durations": "journal terminalAt minus startedAt; wall-clock stage durations",
+    "amplification": "coder cumulative input divided by initial coder prompt estimate",
+    "timeout": "Task B Stage 1 A expanded has no inferred aggregate or coder usage"
+  },
+  "rows": [
+    {
+      "id": "A1-single-minimal",
+      "task": "A",
+      "stage": 1,
+      "replicate": null,
+      "variant": "minimal",
+      "sourceSession": "stage1-63ffc26412212dc72f5e2971",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage1-63ffc26412212dc72f5e2971/01-minimal",
+      "sourceResultSha256": "sha256:9762c2e3c4a33060c14725b28a285c44c1440bcd0b8d4de672d1b81300b19b34",
+      "sourceCellSummarySha256": "sha256:5767e04910016b50374042e174c5be20c03af11f04a5a581c63853f24c42674b",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "selectedContextBytes": 51881,
+      "initialCoderContextTokenEstimate": 14373,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "PASS",
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 217142,
+      "cachedInput": 172288,
+      "uncachedInput": 44854,
+      "output": 2388,
+      "plannerInput": 12420,
+      "coderInput": 204722,
+      "totalElapsedMs": 105987,
+      "plannerDurationMs": 15093,
+      "coderDurationMs": 46262,
+      "coderShareOfAggregateInput": 0.9428024057989702,
+      "coderAmplification": 14.243512140819591,
+      "normalizedToolCount": 4,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "A1-single-current",
+      "task": "A",
+      "stage": 1,
+      "replicate": null,
+      "variant": "current",
+      "sourceSession": "stage1-63ffc26412212dc72f5e2971",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage1-63ffc26412212dc72f5e2971/02-current",
+      "sourceResultSha256": "sha256:e26d52a0f77ee009bba943ac60b9784813f119bb5823bcb11c2760a82039625e",
+      "sourceCellSummarySha256": "sha256:459ab25f9490d59549acaf818e5b4d9a138c80d3c9486f5acab39f5cc513feb3",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "selectedContextBytes": 51881,
+      "initialCoderContextTokenEstimate": 14373,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "PASS",
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 394164,
+      "cachedInput": 344064,
+      "uncachedInput": 50100,
+      "output": 4089,
+      "plannerInput": 12314,
+      "coderInput": 381850,
+      "totalElapsedMs": 152294,
+      "plannerDurationMs": 14778,
+      "coderDurationMs": 93687,
+      "coderShareOfAggregateInput": 0.9687591966795547,
+      "coderAmplification": 26.56717456341752,
+      "normalizedToolCount": 8,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "A1-single-expanded",
+      "task": "A",
+      "stage": 1,
+      "replicate": null,
+      "variant": "expanded",
+      "sourceSession": "stage1-63ffc26412212dc72f5e2971",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage1-63ffc26412212dc72f5e2971/03-expanded",
+      "sourceResultSha256": "sha256:b45f869a34daeb465f622f515516b6346a7339b7a5c5ae5d6292db4cfc0c707f",
+      "sourceCellSummarySha256": "sha256:f539dfe169b10aea319c6932601d20f35f069db796c94742aa05b3fb5cfdf8d5",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts",
+        "apps/web/src/index.ts",
+        "packages/integrations/src/index.ts"
+      ],
+      "selectedContextBytes": 62183,
+      "initialCoderContextTokenEstimate": 17118,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "PASS",
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 496891,
+      "cachedInput": 438272,
+      "uncachedInput": 58619,
+      "output": 4584,
+      "plannerInput": 12318,
+      "coderInput": 484573,
+      "totalElapsedMs": 154898,
+      "plannerDurationMs": 14640,
+      "coderDurationMs": 95887,
+      "coderShareOfAggregateInput": 0.9752098548776291,
+      "coderAmplification": 28.307804650075944,
+      "normalizedToolCount": 8,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "A2-single-minimal",
+      "task": "A",
+      "stage": 2,
+      "replicate": null,
+      "variant": "minimal",
+      "sourceSession": "stage2-5c41e2532d3bd1637f97dd2e",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage2-5c41e2532d3bd1637f97dd2e/01-minimal",
+      "sourceResultSha256": "sha256:84d53cd7fae97d4613ae5cd653e13bdf122091f93f2e2f9771351860eee0d99d",
+      "sourceCellSummarySha256": "sha256:2119f98cded82bb9a2d505c30f7016cd7844cbdfac54d37cafcbe4c53916581e",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "selectedContextBytes": 51881,
+      "initialCoderContextTokenEstimate": 14373,
+      "candidateProduced": true,
+      "correctness": "FAIL",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "FAIL",
+        "typecheck": "NOT_RUN",
+        "tests": "NOT_RUN"
+      },
+      "aggregateInput": 123994,
+      "cachedInput": 83968,
+      "uncachedInput": 40026,
+      "output": 1836,
+      "plannerInput": 12407,
+      "coderInput": 111587,
+      "totalElapsedMs": 77343,
+      "plannerDurationMs": 17063,
+      "coderDurationMs": 37203,
+      "coderShareOfAggregateInput": 0.8999387067116151,
+      "coderAmplification": 7.763654073610241,
+      "normalizedToolCount": 1,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "candidate_validation_failure",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "A2-single-current",
+      "task": "A",
+      "stage": 2,
+      "replicate": null,
+      "variant": "current",
+      "sourceSession": "stage2-5c41e2532d3bd1637f97dd2e",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage2-5c41e2532d3bd1637f97dd2e/02-current",
+      "sourceResultSha256": "sha256:84116fcbf1f358cfe257c31143ea1fb475c524a4e6d3f3fad5808cecae3bb23a",
+      "sourceCellSummarySha256": "sha256:dfc4236555eeefdc76bf7f555c61ea844651c8b0d3c9a919f6cf71f7399fb00c",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts"
+      ],
+      "selectedContextBytes": 51881,
+      "initialCoderContextTokenEstimate": 14373,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "PASS",
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 185780,
+      "cachedInput": 154880,
+      "uncachedInput": 30900,
+      "output": 2183,
+      "plannerInput": 12301,
+      "coderInput": 173479,
+      "totalElapsedMs": 105848,
+      "plannerDurationMs": 14786,
+      "coderDurationMs": 45664,
+      "coderShareOfAggregateInput": 0.9337872752718269,
+      "coderAmplification": 12.069783622069158,
+      "normalizedToolCount": 4,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "A2-single-expanded",
+      "task": "A",
+      "stage": 2,
+      "replicate": null,
+      "variant": "expanded",
+      "sourceSession": "stage2-5c41e2532d3bd1637f97dd2e",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/stage2-5c41e2532d3bd1637f97dd2e/03-expanded",
+      "sourceResultSha256": "sha256:ba839b20438f7c2de42c08b438a4d27ef54c6547eddb4bcf9d111c02cd8fc6c5",
+      "sourceCellSummarySha256": "sha256:3af6834f6ad4b50ff5a845740b0d55953e987bec8e4647b104cd2b055a984ee4",
+      "selectedContextFiles": [
+        "packages/worker-contract/src/index.ts",
+        "tests/smoke/contracts.ts",
+        "apps/web/src/index.ts",
+        "packages/integrations/src/index.ts"
+      ],
+      "selectedContextBytes": 62183,
+      "initialCoderContextTokenEstimate": 17118,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": "PASS",
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 397806,
+      "cachedInput": 353280,
+      "uncachedInput": 44526,
+      "output": 4469,
+      "plannerInput": 12409,
+      "coderInput": 385397,
+      "totalElapsedMs": 156055,
+      "plannerDurationMs": 15968,
+      "coderDurationMs": 96451,
+      "coderShareOfAggregateInput": 0.9688064031211193,
+      "coderAmplification": 22.514137165556726,
+      "normalizedToolCount": 6,
+      "contextExpansionRequested": null,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B1-A-minimal",
+      "task": "B",
+      "stage": 1,
+      "replicate": "A",
+      "variant": "minimal",
+      "sourceSession": "task-b-stage1-20260930-r7",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-r7/01-A-minimal",
+      "sourceResultSha256": "sha256:24eba4aeca39256533eabcb69e9011448f0094bee96de87ffe21e941b7d0adc4",
+      "sourceCellSummarySha256": "sha256:5e286052ec91d503a926445ef2d6795d9662446ff32d54229838011762f1aa27",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 169793,
+      "cachedInput": 136192,
+      "uncachedInput": 33601,
+      "output": 3412,
+      "plannerInput": 12638,
+      "coderInput": 157155,
+      "totalElapsedMs": 169931,
+      "plannerDurationMs": 17815,
+      "coderDurationMs": 64157,
+      "coderShareOfAggregateInput": 0.9255681918571437,
+      "coderAmplification": 21.584260403790687,
+      "normalizedToolCount": 6,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B1-A-current",
+      "task": "B",
+      "stage": 1,
+      "replicate": "A",
+      "variant": "current",
+      "sourceSession": "task-b-stage1-20260930-r7",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-r7/02-A-current",
+      "sourceResultSha256": "sha256:d1b4e8e988f5f2d8f0cf43fb790cd2d00f56276fa6a2f817c0d64ee933beb592",
+      "sourceCellSummarySha256": "sha256:91e1187332287fb6ec718d44b2992e9faa83d0b69d3ba333fe596e1afd44fb74",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 249592,
+      "cachedInput": 213504,
+      "uncachedInput": 36088,
+      "output": 3954,
+      "plannerInput": 12244,
+      "coderInput": 237348,
+      "totalElapsedMs": 181339,
+      "plannerDurationMs": 15675,
+      "coderDurationMs": 77916,
+      "coderShareOfAggregateInput": 0.9509439405109138,
+      "coderAmplification": 32.59826946847961,
+      "normalizedToolCount": 9,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B1-A-expanded",
+      "task": "B",
+      "stage": 1,
+      "replicate": "A",
+      "variant": "expanded",
+      "sourceSession": "task-b-stage1-20260930-r7",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-r7/03-A-expanded",
+      "sourceResultSha256": "sha256:8940e7a34ba90b407da5a4465f944d0f59a1a8f7185a27a2ae30180f5ee2bfe2",
+      "sourceCellSummarySha256": "sha256:2fda03c39cb525cd76a61d3e5678b9367e6728d1c39546b9bc94a25e703a9528",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs",
+        "packages/integrations/src/agent-adapter.ts",
+        "packages/integrations/src/agent-telemetry.ts"
+      ],
+      "selectedContextBytes": 33962,
+      "initialCoderContextTokenEstimate": 9773,
+      "candidateProduced": false,
+      "correctness": "NOT_RUN",
+      "validation": {
+        "scope": "NOT_RUN",
+        "syntax": null,
+        "typecheck": "NOT_RUN",
+        "tests": "NOT_RUN"
+      },
+      "aggregateInput": null,
+      "cachedInput": null,
+      "uncachedInput": null,
+      "output": null,
+      "plannerInput": 12642,
+      "coderInput": null,
+      "totalElapsedMs": 141247,
+      "plannerDurationMs": 18409,
+      "coderDurationMs": 119908,
+      "coderShareOfAggregateInput": null,
+      "coderAmplification": null,
+      "normalizedToolCount": 8,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "production_agent_timeout",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "outcome_unknown",
+        "failureCode": "agent_timeout"
+      }
+    },
+    {
+      "id": "B1-B-current",
+      "task": "B",
+      "stage": 1,
+      "replicate": "B",
+      "variant": "current",
+      "sourceSession": "task-b-stage1-20260930-suffix-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-suffix-r1/04-B-current",
+      "sourceResultSha256": "sha256:9f6a2e6d45265993b97be593a1afdbbfafce16e2f78344b7c40b910caf9b4810",
+      "sourceCellSummarySha256": "sha256:cd6715e42b8857ba74c374049187a6e30ced8fc57721e245ee7c218d38c60fd8",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 165473,
+      "cachedInput": 133376,
+      "uncachedInput": 32097,
+      "output": 3464,
+      "plannerInput": 12638,
+      "coderInput": 152835,
+      "totalElapsedMs": 166272,
+      "plannerDurationMs": 17256,
+      "coderDurationMs": 64500,
+      "coderShareOfAggregateInput": 0.9236250022662308,
+      "coderAmplification": 20.990935311083643,
+      "normalizedToolCount": 4,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B1-B-expanded",
+      "task": "B",
+      "stage": 1,
+      "replicate": "B",
+      "variant": "expanded",
+      "sourceSession": "task-b-stage1-20260930-suffix-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-suffix-r1/05-B-expanded",
+      "sourceResultSha256": "sha256:9f956c10690c67aecd3d98cef56cbc4813600e89a5706feeb07aaa7b88b3e8ed",
+      "sourceCellSummarySha256": "sha256:dfab212e1c3f99bc4df4a0285f48d99dcf3230d4d05207db5c4b6d590c27ce62",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs",
+        "packages/integrations/src/agent-adapter.ts",
+        "packages/integrations/src/agent-telemetry.ts"
+      ],
+      "selectedContextBytes": 33962,
+      "initialCoderContextTokenEstimate": 9773,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 271067,
+      "cachedInput": 196608,
+      "uncachedInput": 74459,
+      "output": 4714,
+      "plannerInput": 12642,
+      "coderInput": 258425,
+      "totalElapsedMs": 200410,
+      "plannerDurationMs": 15680,
+      "coderDurationMs": 97826,
+      "coderShareOfAggregateInput": 0.9533620839128334,
+      "coderAmplification": 26.442750434871584,
+      "normalizedToolCount": 6,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B1-B-minimal",
+      "task": "B",
+      "stage": 1,
+      "replicate": "B",
+      "variant": "minimal",
+      "sourceSession": "task-b-stage1-20260930-suffix-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage1-20260930-suffix-r1/06-B-minimal",
+      "sourceResultSha256": "sha256:fec95e34ebd48641b7b241b8fcdc9dc816aaf98a042aa38d97c3d7bae1c83d84",
+      "sourceCellSummarySha256": "sha256:19b59159aa9f495d43070a87f589fed2a44e4f660bfa0224de8e1f3f0a06a59a",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 245389,
+      "cachedInput": 205312,
+      "uncachedInput": 40077,
+      "output": 4033,
+      "plannerInput": 12244,
+      "coderInput": 233145,
+      "totalElapsedMs": 187403,
+      "plannerDurationMs": 15356,
+      "coderDurationMs": 85193,
+      "coderShareOfAggregateInput": 0.9501037128803654,
+      "coderAmplification": 32.021013597033374,
+      "normalizedToolCount": 8,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-A-minimal",
+      "task": "B",
+      "stage": 2,
+      "replicate": "A",
+      "variant": "minimal",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/01-A-minimal",
+      "sourceResultSha256": "sha256:756a298caa6f8b5cd3ee4a0c331f3650fc84e7e9712dbf57754aff4dd2739e91",
+      "sourceCellSummarySha256": "sha256:51040edad6247ae8d8f4a16144afb1ad81ac657e0a0a55ef74927219316be67d",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 190194,
+      "cachedInput": 144128,
+      "uncachedInput": 46066,
+      "output": 3225,
+      "plannerInput": 12674,
+      "coderInput": 177520,
+      "totalElapsedMs": 176478,
+      "plannerDurationMs": 19226,
+      "coderDurationMs": 70434,
+      "coderShareOfAggregateInput": 0.9333627769540574,
+      "coderAmplification": 24.38126630957286,
+      "normalizedToolCount": 5,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-A-current",
+      "task": "B",
+      "stage": 2,
+      "replicate": "A",
+      "variant": "current",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/02-A-current",
+      "sourceResultSha256": "sha256:1de3547f4a5bdaa2fd772b8021ff7269fcb66f3102b2328f94f3b80a97290438",
+      "sourceCellSummarySha256": "sha256:6302757ea64b6167679b5812d6cca77d23be777dd024eacd8d8c5d0bf2c98472",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 138893,
+      "cachedInput": 116992,
+      "uncachedInput": 21901,
+      "output": 3107,
+      "plannerInput": 12280,
+      "coderInput": 126613,
+      "totalElapsedMs": 158929,
+      "plannerDurationMs": 15359,
+      "coderDurationMs": 59611,
+      "coderShareOfAggregateInput": 0.9115866170361357,
+      "coderAmplification": 17.38950693586046,
+      "normalizedToolCount": 5,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-A-expanded",
+      "task": "B",
+      "stage": 2,
+      "replicate": "A",
+      "variant": "expanded",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/03-A-expanded",
+      "sourceResultSha256": "sha256:bd65546290d51669882fa199fbffcbdfec0c5a0b356773915fbe7e23a170e303",
+      "sourceCellSummarySha256": "sha256:195534cb77d1c0ba2bf6cf347feea6b5131279f4e209485599399f5b21a85156",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs",
+        "packages/integrations/src/agent-adapter.ts",
+        "packages/integrations/src/agent-telemetry.ts"
+      ],
+      "selectedContextBytes": 33962,
+      "initialCoderContextTokenEstimate": 9773,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 213919,
+      "cachedInput": 183296,
+      "uncachedInput": 30623,
+      "output": 3496,
+      "plannerInput": 12674,
+      "coderInput": 201245,
+      "totalElapsedMs": 167908,
+      "plannerDurationMs": 16224,
+      "coderDurationMs": 68793,
+      "coderShareOfAggregateInput": 0.9407532757726055,
+      "coderAmplification": 20.59193696920086,
+      "normalizedToolCount": 7,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-B-current",
+      "task": "B",
+      "stage": 2,
+      "replicate": "B",
+      "variant": "current",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/04-B-current",
+      "sourceResultSha256": "sha256:dc7dad5f8db4d9423a2b0d9e26eef24e27b74f7a42bb84885336c585b5591272",
+      "sourceCellSummarySha256": "sha256:716ed2023eed581eb9a3f1bd36ef12acba4a547d9518157f894391707a67d9f2",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 144961,
+      "cachedInput": 92928,
+      "uncachedInput": 52033,
+      "output": 3330,
+      "plannerInput": 12278,
+      "coderInput": 132683,
+      "totalElapsedMs": 165245,
+      "plannerDurationMs": 15246,
+      "coderDurationMs": 66172,
+      "coderShareOfAggregateInput": 0.9153013569166879,
+      "coderAmplification": 18.223183628622444,
+      "normalizedToolCount": 5,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-B-expanded",
+      "task": "B",
+      "stage": 2,
+      "replicate": "B",
+      "variant": "expanded",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/05-B-expanded",
+      "sourceResultSha256": "sha256:f7b69d5e70bd1e94964d7866d3b7be1c5e4a61f9e513e93f4d6258dfdd733e45",
+      "sourceCellSummarySha256": "sha256:7c179242dcccac476153917ae41ff2894988a4b8d5c132b33c4a731f1d675592",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs",
+        "packages/integrations/src/agent-adapter.ts",
+        "packages/integrations/src/agent-telemetry.ts"
+      ],
+      "selectedContextBytes": 33962,
+      "initialCoderContextTokenEstimate": 9773,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 291989,
+      "cachedInput": 225792,
+      "uncachedInput": 66197,
+      "output": 3868,
+      "plannerInput": 12676,
+      "coderInput": 279313,
+      "totalElapsedMs": 200647,
+      "plannerDurationMs": 34198,
+      "coderDurationMs": 83843,
+      "coderShareOfAggregateInput": 0.9565874056899404,
+      "coderAmplification": 28.580067532999077,
+      "normalizedToolCount": 10,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    },
+    {
+      "id": "B2-B-minimal",
+      "task": "B",
+      "stage": 2,
+      "replicate": "B",
+      "variant": "minimal",
+      "sourceSession": "task-b-stage2-20260930-r1",
+      "sourceCell": "/Users/oguzhanuyar/.bounded-agent/bounded-dllm-agent-lab/live-runs/context-token-matrix-v1/task-b-stage2-20260930-r1/06-B-minimal",
+      "sourceResultSha256": "sha256:d9b29deb8e08cc6b708398ad7b7040e63fa7fb249b2c7dbf0cafc7a85e7e74e9",
+      "sourceCellSummarySha256": "sha256:d57dfd4611f3844b8ab479efaf7185b2326149e1c234cf9d52b65eb3c0150b7a",
+      "selectedContextFiles": [
+        "packages/integrations/src/codex-event-parser.ts",
+        "scripts/smoke/codex-event-parser-smoke.cjs"
+      ],
+      "selectedContextBytes": 24668,
+      "initialCoderContextTokenEstimate": 7281,
+      "candidateProduced": true,
+      "correctness": "PASS",
+      "validation": {
+        "scope": "PASS",
+        "syntax": null,
+        "typecheck": "PASS",
+        "tests": "PASS"
+      },
+      "aggregateInput": 188148,
+      "cachedInput": 130048,
+      "uncachedInput": 58100,
+      "output": 3393,
+      "plannerInput": 12676,
+      "coderInput": 175472,
+      "totalElapsedMs": 165558,
+      "plannerDurationMs": 16315,
+      "coderDurationMs": 66006,
+      "coderShareOfAggregateInput": 0.9326275060059103,
+      "coderAmplification": 24.099986265622853,
+      "normalizedToolCount": 5,
+      "contextExpansionRequested": 0,
+      "contextExpansionGranted": 0,
+      "stopFailureClassification": "completed",
+      "plannerJournalState": {
+        "state": "completed",
+        "failureCode": null
+      },
+      "coderJournalState": {
+        "state": "completed",
+        "failureCode": null
+      }
+    }
+  ]
+}

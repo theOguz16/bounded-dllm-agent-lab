@@ -1,0 +1,463 @@
+{
+  "schemaVersion": "combined-context-token-matrix-comparisons/v1",
+  "summary": {
+    "observationCount": 18,
+    "taskACount": 6,
+    "taskBCount": 12,
+    "completeUsageCount": 17,
+    "candidateProducedCount": 17,
+    "candidatePassCount": 16,
+    "candidateFailureCount": 1,
+    "productionTimeoutCount": 1,
+    "sameContextCandidateProducedCount": 12,
+    "sameContextCandidatePassCount": 11,
+    "sameContextObservationCount": 12,
+    "completeInputRange": [
+      123994,
+      496891
+    ],
+    "completeUncachedRange": [
+      21901,
+      74459
+    ],
+    "completeElapsedMsRange": [
+      77343,
+      200647
+    ],
+    "coderShareRange": [
+      0.8999387067116151,
+      0.9752098548776291
+    ],
+    "coderShareMedian": 0.9407532757726055,
+    "coderAmplificationRange": [
+      7.763654073610241,
+      32.59826946847961
+    ],
+    "coderAmplificationMedian": 22.514137165556726,
+    "coderInputToInitialEstimateRange": [
+      7.763654073610241,
+      32.59826946847961
+    ],
+    "toolCoderInputPearsonExploratory": 0.6055323664432349,
+    "expandedComparablePairs": 10,
+    "expandedInputIncreasePairs": 10,
+    "expandedUncachedIncreasePairs": 9,
+    "expandedElapsedIncreasePairs": 9,
+    "expandedToolIncreasePairs": 8,
+    "expandedToolDecreasePairs": 1,
+    "expandedCandidatePassCount": 5,
+    "expandedCandidateCount": 5
+  },
+  "sameContextGroups": [
+    {
+      "group": "A Stage 1",
+      "minimalId": "A1-single-minimal",
+      "currentId": "A1-single-current",
+      "selectedBytes": 51881,
+      "inputRange": [
+        217142,
+        394164
+      ],
+      "uncachedRange": [
+        44854,
+        50100
+      ],
+      "outputRange": [
+        2388,
+        4089
+      ],
+      "elapsedMsRange": [
+        105987,
+        152294
+      ],
+      "amplificationRange": [
+        14.243512140819591,
+        26.56717456341752
+      ],
+      "toolCountRange": [
+        4,
+        8
+      ],
+      "inputAbsoluteSpread": 177022,
+      "inputSpreadPctOfLower": 81.52361127741294,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 1.0
+    },
+    {
+      "group": "A Stage 2",
+      "minimalId": "A2-single-minimal",
+      "currentId": "A2-single-current",
+      "selectedBytes": 51881,
+      "inputRange": [
+        123994,
+        185780
+      ],
+      "uncachedRange": [
+        30900,
+        40026
+      ],
+      "outputRange": [
+        1836,
+        2183
+      ],
+      "elapsedMsRange": [
+        77343,
+        105848
+      ],
+      "amplificationRange": [
+        7.763654073610241,
+        12.069783622069158
+      ],
+      "toolCountRange": [
+        1,
+        4
+      ],
+      "inputAbsoluteSpread": 61786,
+      "inputSpreadPctOfLower": 49.829830475668174,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 0.5
+    },
+    {
+      "group": "B Stage 1 A",
+      "minimalId": "B1-A-minimal",
+      "currentId": "B1-A-current",
+      "selectedBytes": 24668,
+      "inputRange": [
+        169793,
+        249592
+      ],
+      "uncachedRange": [
+        33601,
+        36088
+      ],
+      "outputRange": [
+        3412,
+        3954
+      ],
+      "elapsedMsRange": [
+        169931,
+        181339
+      ],
+      "amplificationRange": [
+        21.584260403790687,
+        32.59826946847961
+      ],
+      "toolCountRange": [
+        6,
+        9
+      ],
+      "inputAbsoluteSpread": 79799,
+      "inputSpreadPctOfLower": 46.99781498648354,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 1.0
+    },
+    {
+      "group": "B Stage 1 B",
+      "minimalId": "B1-B-minimal",
+      "currentId": "B1-B-current",
+      "selectedBytes": 24668,
+      "inputRange": [
+        165473,
+        245389
+      ],
+      "uncachedRange": [
+        32097,
+        40077
+      ],
+      "outputRange": [
+        3464,
+        4033
+      ],
+      "elapsedMsRange": [
+        166272,
+        187403
+      ],
+      "amplificationRange": [
+        20.990935311083643,
+        32.021013597033374
+      ],
+      "toolCountRange": [
+        4,
+        8
+      ],
+      "inputAbsoluteSpread": 79916,
+      "inputSpreadPctOfLower": 48.29549231596695,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 1.0
+    },
+    {
+      "group": "B Stage 2 A",
+      "minimalId": "B2-A-minimal",
+      "currentId": "B2-A-current",
+      "selectedBytes": 24668,
+      "inputRange": [
+        138893,
+        190194
+      ],
+      "uncachedRange": [
+        21901,
+        46066
+      ],
+      "outputRange": [
+        3107,
+        3225
+      ],
+      "elapsedMsRange": [
+        158929,
+        176478
+      ],
+      "amplificationRange": [
+        17.38950693586046,
+        24.38126630957286
+      ],
+      "toolCountRange": [
+        5,
+        5
+      ],
+      "inputAbsoluteSpread": 51301,
+      "inputSpreadPctOfLower": 36.93562670544952,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 1.0
+    },
+    {
+      "group": "B Stage 2 B",
+      "minimalId": "B2-B-minimal",
+      "currentId": "B2-B-current",
+      "selectedBytes": 24668,
+      "inputRange": [
+        144961,
+        188148
+      ],
+      "uncachedRange": [
+        52033,
+        58100
+      ],
+      "outputRange": [
+        3330,
+        3393
+      ],
+      "elapsedMsRange": [
+        165245,
+        165558
+      ],
+      "amplificationRange": [
+        18.223183628622444,
+        24.099986265622853
+      ],
+      "toolCountRange": [
+        5,
+        5
+      ],
+      "inputAbsoluteSpread": 43187,
+      "inputSpreadPctOfLower": 29.79215099233587,
+      "candidateProductionRate": 1.0,
+      "candidatePassRate": 1.0
+    }
+  ],
+  "expandedVersusControls": [
+    {
+      "group": "A Stage 1",
+      "expandedId": "A1-single-expanded",
+      "controlId": "A1-single-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 279749,
+      "inputDifferencePercent": 128.83228486428237,
+      "uncachedDifference": 13765,
+      "elapsedMsDifference": 48911,
+      "amplificationDifference": 14.064292509256353,
+      "toolCountDifference": 4,
+      "comparableUsage": true
+    },
+    {
+      "group": "A Stage 1",
+      "expandedId": "A1-single-expanded",
+      "controlId": "A1-single-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 102727,
+      "inputDifferencePercent": 26.06199449975137,
+      "uncachedDifference": 8519,
+      "elapsedMsDifference": 2604,
+      "amplificationDifference": 1.740630086658424,
+      "toolCountDifference": 0,
+      "comparableUsage": true
+    },
+    {
+      "group": "A Stage 2",
+      "expandedId": "A2-single-expanded",
+      "controlId": "A2-single-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "FAIL",
+      "inputDifference": 273812,
+      "inputDifferencePercent": 220.82681420068712,
+      "uncachedDifference": 4500,
+      "elapsedMsDifference": 78712,
+      "amplificationDifference": 14.750483091946485,
+      "toolCountDifference": 5,
+      "comparableUsage": true
+    },
+    {
+      "group": "A Stage 2",
+      "expandedId": "A2-single-expanded",
+      "controlId": "A2-single-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 212026,
+      "inputDifferencePercent": 114.1274625901604,
+      "uncachedDifference": 13626,
+      "elapsedMsDifference": 50207,
+      "amplificationDifference": 10.444353543487567,
+      "toolCountDifference": 2,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 1 A",
+      "expandedId": "B1-A-expanded",
+      "controlId": "B1-A-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": false,
+      "expandedCorrectness": "NOT_RUN",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": null,
+      "inputDifferencePercent": null,
+      "uncachedDifference": null,
+      "elapsedMsDifference": -28684,
+      "amplificationDifference": null,
+      "toolCountDifference": null,
+      "comparableUsage": false
+    },
+    {
+      "group": "B Stage 1 A",
+      "expandedId": "B1-A-expanded",
+      "controlId": "B1-A-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": false,
+      "expandedCorrectness": "NOT_RUN",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": null,
+      "inputDifferencePercent": null,
+      "uncachedDifference": null,
+      "elapsedMsDifference": -40092,
+      "amplificationDifference": null,
+      "toolCountDifference": null,
+      "comparableUsage": false
+    },
+    {
+      "group": "B Stage 1 B",
+      "expandedId": "B1-B-expanded",
+      "controlId": "B1-B-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 25678,
+      "inputDifferencePercent": 10.46420173683417,
+      "uncachedDifference": 34382,
+      "elapsedMsDifference": 13007,
+      "amplificationDifference": -5.5782631621617895,
+      "toolCountDifference": -2,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 1 B",
+      "expandedId": "B1-B-expanded",
+      "controlId": "B1-B-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 105594,
+      "inputDifferencePercent": 63.81343179854115,
+      "uncachedDifference": 42362,
+      "elapsedMsDifference": 34138,
+      "amplificationDifference": 5.4518151237879415,
+      "toolCountDifference": 2,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 2 A",
+      "expandedId": "B2-A-expanded",
+      "controlId": "B2-A-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 23725,
+      "inputDifferencePercent": 12.474105387131035,
+      "uncachedDifference": -15443,
+      "elapsedMsDifference": -8570,
+      "amplificationDifference": -3.789329340372003,
+      "toolCountDifference": 2,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 2 A",
+      "expandedId": "B2-A-expanded",
+      "controlId": "B2-A-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 75026,
+      "inputDifferencePercent": 54.01712109321564,
+      "uncachedDifference": 8722,
+      "elapsedMsDifference": 8979,
+      "amplificationDifference": 3.2024300333403986,
+      "toolCountDifference": 2,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 2 B",
+      "expandedId": "B2-B-expanded",
+      "controlId": "B2-B-minimal",
+      "controlVariant": "minimal",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 103841,
+      "inputDifferencePercent": 55.19112613474499,
+      "uncachedDifference": 8097,
+      "elapsedMsDifference": 35089,
+      "amplificationDifference": 4.4800812673762245,
+      "toolCountDifference": 5,
+      "comparableUsage": true
+    },
+    {
+      "group": "B Stage 2 B",
+      "expandedId": "B2-B-expanded",
+      "controlId": "B2-B-current",
+      "controlVariant": "current",
+      "expandedCandidateProduced": true,
+      "expandedCorrectness": "PASS",
+      "controlCandidateProduced": true,
+      "controlCorrectness": "PASS",
+      "inputDifference": 147028,
+      "inputDifferencePercent": 101.42590075951463,
+      "uncachedDifference": 14164,
+      "elapsedMsDifference": 35402,
+      "amplificationDifference": 10.356883904376634,
+      "toolCountDifference": 5,
+      "comparableUsage": true
+    }
+  ]
+}
