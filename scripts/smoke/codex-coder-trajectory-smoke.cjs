@@ -28,6 +28,7 @@ async function main() {
     started, usage(330, 230, 35)];
   const trajectory = deriveCodexCoderTrajectory(stream(events), new Map([
     ['one', { startedAtMs: 10, completedAtMs: 20 }] ]));
+  assert.equal(trajectory.schemaVersion, 'codex-coder-trajectory/v2');
   assert.equal(trajectory.status, 'observed');
   assert.deepEqual(trajectory.turns.map(t => t.toolCallsInTurn), [1, 2, 0]);
   assert.deepEqual(trajectory.turns.map(t => t.cumulativeToolCalls), [1, 3, 3]);
@@ -47,7 +48,69 @@ async function main() {
   assert.equal(trajectory.turns[1].promptEstimatedTokensBeforeTurn, null);
   assert.equal(trajectory.tools[2].responseBytes, 0);
   assert.equal(trajectory.tools[2].responseEstimatedTokens, 0);
+  assert.equal(trajectory.tools[0].providerInputBeforeToolEvent, null);
+  assert.equal(trajectory.tools[0].providerInputAfterToolEvent, 100);
+  assert.equal(trajectory.tools[0].inputDeltaAfterToolEvent, null);
+  assert.equal(trajectory.tools[1].providerInputBeforeToolEvent, 100);
+  assert.equal(trajectory.tools[1].providerInputAfterToolEvent, 220);
+  assert.equal(trajectory.tools[1].inputDeltaAfterToolEvent, null);
+  assert.equal(trajectory.tools[1].observationIntervalToolCount, 2);
+  assert.equal(trajectory.tools[2].observationIntervalToolCount, 2);
   assert.equal(JSON.stringify(trajectory).includes('SECRET_'), false);
+
+  // Every interval below has one tool event and two observed cumulative samples.
+  const intervals = deriveCodexCoderTrajectory(stream([started, usage(100, 40, 20),
+    started, command('small', 'x'), usage(180, 90, 28),
+    started, command('large', 'RESULT_SECRET'.repeat(10)), usage(330, 170, 40)]));
+  assert.deepEqual(intervals.tools.map(t => t.sequence), [1, 2]);
+  assert.deepEqual(intervals.tools.map(t => t.responseBytes), [1, 130]);
+  assert.deepEqual(intervals.tools.map(t => t.inputDeltaAfterToolEvent), [80, 150]);
+  assert.deepEqual(intervals.tools.map(t => t.cachedDeltaAfterToolEvent), [50, 80]);
+  assert.deepEqual(intervals.tools.map(t => t.uncachedDeltaAfterToolEvent), [30, 70]);
+  assert.deepEqual(intervals.tools.map(t => t.outputDeltaAfterToolEvent), [8, 12]);
+  assert.equal(intervals.tools[0].providerInputBeforeToolEvent, 100);
+  assert.equal(intervals.tools[0].providerCachedInputBeforeToolEvent, 40);
+  assert.equal(intervals.tools[0].providerUncachedInputBeforeToolEvent, 60);
+  assert.equal(intervals.tools[0].providerOutputBeforeToolEvent, 20);
+  assert.equal(intervals.tools[0].providerInputAfterToolEvent, 180);
+  assert.equal(intervals.tools[0].providerCachedInputAfterToolEvent, 90);
+  assert.equal(intervals.tools[0].providerUncachedInputAfterToolEvent, 90);
+  assert.equal(intervals.tools[0].providerOutputAfterToolEvent, 28);
+  assert.equal(intervals.tools[1].providerInputBeforeToolEvent, 180);
+  assert.equal(intervals.tools[1].providerInputAfterToolEvent, 330);
+  assert.equal(intervals.tools[1].cumulativeCoderInputAtEvent, null);
+  assert.equal(JSON.stringify(intervals).includes('RESULT_SECRET'), false);
+  assert.equal(JSON.stringify(intervals).includes('SECRET_COMMAND'), false);
+  assert.equal(JSON.stringify(intervals).includes('SECRET_RUNTIME_PROMPT'), false);
+  assert.deepEqual(intervals, deriveCodexCoderTrajectory(stream([started, usage(100, 40, 20),
+    started, command('small', 'x'), usage(180, 90, 28),
+    started, command('large', 'RESULT_SECRET'.repeat(10)), usage(330, 170, 40)])));
+  const intervalAnalysis = summarizeCoderTrajectory(intervals);
+  assert.equal(intervalAnalysis.toolEventSummary.totalToolResultBytes, 131);
+  assert.equal(intervalAnalysis.toolEventSummary.medianToolResultBytes, 65.5);
+  assert.equal(intervalAnalysis.toolEventSummary.totalObservedInputGrowthAfterToolEvents, 230);
+  assert.equal(intervalAnalysis.toolEventSummary.largestObservedInputDeltaAfterToolEvent, 150);
+  assert.equal(intervalAnalysis.toolEventSummary.largestObservedDeltaToolCategory, 'command_execution');
+  assert.match(renderCoderTrajectoryTable(intervalAnalysis), /2 \| command_execution \| 130 \| 180 \| 330 \| 150/);
+
+  const unavailableInterval = deriveCodexCoderTrajectory(stream([started,
+    command('unknown', 'a'.repeat(4000)), { type: 'turn.completed' }]));
+  assert.equal(unavailableInterval.tools[0].responseBytes, 4000);
+  assert.equal(unavailableInterval.tools[0].providerInputAfterToolEvent, null);
+  assert.equal(unavailableInterval.tools[0].inputDeltaAfterToolEvent, null);
+  assert.equal(unavailableInterval.tools[0].cachedDeltaAfterToolEvent, null);
+  assert.equal(unavailableInterval.tools[0].uncachedDeltaAfterToolEvent, null);
+  const invalidInterval = deriveCodexCoderTrajectory(stream([started, usage(100, 80, 10),
+    started, command('invalid-cache'), usage(110, 100, 11)]));
+  assert.equal(invalidInterval.status, 'invalid');
+  assert.equal(invalidInterval.tools[0].providerInputBeforeToolEvent, 100);
+  assert.equal(invalidInterval.tools[0].inputDeltaAfterToolEvent, null);
+  assert.equal(invalidInterval.tools[0].cachedDeltaAfterToolEvent, null);
+  assert.equal(invalidInterval.tools[0].uncachedDeltaAfterToolEvent, null);
+  const oldV1 = { ...trajectory, schemaVersion: 'codex-coder-trajectory/v1',
+    tools: trajectory.tools.map(({ providerInputBeforeToolEvent, providerInputAfterToolEvent,
+      inputDeltaAfterToolEvent, ...oldTool }) => oldTool) };
+  assert.equal(summarizeCoderTrajectory(oldV1).toolEvents, undefined);
 
   const single = deriveCodexCoderTrajectory(stream([started, command('only'), usage(0, 0, 0)]));
   assert.equal(single.status, 'observed');

@@ -375,7 +375,8 @@ export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAutho
 }
 
 export function annotateCoderTrajectory(trajectory, normalized, selected) {
-  if (trajectory?.schemaVersion !== 'codex-coder-trajectory/v1') return null;
+  if (!['codex-coder-trajectory/v1', 'codex-coder-trajectory/v2']
+    .includes(trajectory?.schemaVersion)) return null;
   const initialEstimate = normalized.usage.coder?.initialPromptEstimatedTokens ?? null;
   const turns = trajectory.turns.map(turn => ({ ...turn,
     promptEstimatedTokensBeforeTurn: turn.turnIndex === 1 ? initialEstimate : null,

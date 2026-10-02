@@ -10,7 +10,8 @@ const show = value => value === null ? '—' : String(value);
 export function summarizeCoderTrajectory(trajectory) {
   if (trajectory === null) return { schemaVersion: 'codex-coder-trajectory-analysis/v1',
     status: 'unavailable', rows: [], amplification: null };
-  if (trajectory?.schemaVersion !== 'codex-coder-trajectory/v1' ||
+  if (!['codex-coder-trajectory/v1', 'codex-coder-trajectory/v2']
+    .includes(trajectory?.schemaVersion) ||
       !Array.isArray(trajectory.turns) || !Array.isArray(trajectory.tools))
     throw new Error('unsupported coder trajectory');
   const turns = trajectory.turns;
@@ -40,13 +41,39 @@ export function summarizeCoderTrajectory(trajectory) {
       cachedShare: ratio(cached, input),
       cachedDeltaShare: ratio(cachedDelta, inputDelta) };
   });
+  const toolEvents = trajectory.schemaVersion === 'codex-coder-trajectory/v2' ?
+    trajectory.tools.map(tool => ({ sequence: tool.sequence, category: tool.category,
+      resultBytes: integer(tool.responseBytes),
+      inputBefore: integer(tool.providerInputBeforeToolEvent),
+      inputAfter: integer(tool.providerInputAfterToolEvent),
+      inputDeltaAfterToolEvent: integer(tool.inputDeltaAfterToolEvent),
+      observationIntervalToolCount: integer(tool.observationIntervalToolCount) })) : null;
+  const observedDeltas = toolEvents?.map(tool => tool.inputDeltaAfterToolEvent)
+    .filter(value => value !== null) ?? [];
+  const knownBytes = responseBytes.filter(value => value !== null);
+  const sortedBytes = [...knownBytes].sort((a, b) => a - b);
+  const middle = Math.floor(sortedBytes.length / 2);
+  const medianResultBytes = sortedBytes.length === 0 ? null : sortedBytes.length % 2 ?
+    sortedBytes[middle] : (sortedBytes[middle - 1] + sortedBytes[middle]) / 2;
+  const largest = toolEvents?.filter(tool => tool.inputDeltaAfterToolEvent !== null)
+    .sort((a, b) => b.inputDeltaAfterToolEvent - a.inputDeltaAfterToolEvent)[0] ?? null;
   return { schemaVersion: 'codex-coder-trajectory-analysis/v1',
     status: trajectory.status, rows,
     amplification: { cumulativeInputToInitialEstimate: ratio(cumulativeInput, initialEstimate),
       cumulativeInputPerToolCall: ratio(cumulativeInput, toolCount),
       uncachedInputPerToolCall: ratio(cumulativeUncached, toolCount),
       toolResultBytesPerToolCall: ratio(totalResultBytes, toolCount) },
-    interpretation: 'Descriptive ratios only; no causal claim.' };
+    ...(toolEvents === null ? {} : { toolEvents, toolEventSummary: {
+      totalToolResultBytes: totalResultBytes,
+      medianToolResultBytes: medianResultBytes,
+      totalObservedInputGrowthAfterToolEvents: observedDeltas.length ?
+        observedDeltas.reduce((sum, value) => sum + value, 0) : null,
+      largestObservedInputDeltaAfterToolEvent: largest?.inputDeltaAfterToolEvent ?? null,
+      largestObservedDeltaToolCategory: largest?.category ?? null,
+      measuredEventCount: observedDeltas.length,
+      cumulativeInputGrowthPerToolEvent: observedDeltas.length && toolCount ?
+        ratio(observedDeltas.reduce((sum, value) => sum + value, 0), toolCount) : null } }),
+    interpretation: 'Observed interval deltas may include other session processing; no causal tool cost claim.' };
 }
 
 export function renderCoderTrajectoryTable(analysis) {
@@ -55,7 +82,12 @@ export function renderCoderTrajectoryTable(analysis) {
     row.cumulativeInput, row.cached, row.uncached, row.inputDelta,
     row.tool, row.toolResultBytes, row.cumulativeTools, row.cachedShare].map(show).join(' | '));
   const amplification = analysis.amplification;
-  return [header, ...rows, '',
+  const toolRows = analysis.toolEvents ? ['',
+    'tool seq | category | result bytes | input before | input after | input delta after event',
+    ...analysis.toolEvents.map(tool => [tool.sequence, tool.category, tool.resultBytes,
+      tool.inputBefore, tool.inputAfter, tool.inputDeltaAfterToolEvent]
+      .map(show).join(' | '))] : [];
+  return [header, ...rows, ...toolRows, '',
     `cumulative input / initial estimate: ${show(amplification?.cumulativeInputToInitialEstimate ?? null)}`,
     `cumulative input / tool call: ${show(amplification?.cumulativeInputPerToolCall ?? null)}`,
     `uncached input / tool call: ${show(amplification?.uncachedInputPerToolCall ?? null)}`,

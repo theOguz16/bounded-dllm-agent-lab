@@ -2,13 +2,14 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 
 /** Bounded observations from Codex JSONL. No prompt, command, or output text is retained. */
-export const CODEX_CODER_TRAJECTORY_VERSION = "codex-coder-trajectory/v1" as const;
+export const CODEX_CODER_TRAJECTORY_VERSION = "codex-coder-trajectory/v2" as const;
 const MAX_TURNS = 64;
 const MAX_TOOLS = 128;
 const MAX_PATHS = 8;
 const MAX_PATH_LENGTH = 160;
 type Nullable = number | null;
 type ObjectValue = Record<string, unknown>;
+type UsageSnapshot = Readonly<{ input: number; cached: number; output: number }>;
 const object = (value: unknown): value is ObjectValue =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const count = (value: unknown): Nullable =>
@@ -41,6 +42,16 @@ export type CodexTrajectoryTool = Readonly<{
   referencedPaths: readonly string[] | null; filesReturnedOrRead: Nullable;
   resultRepresentedInNextTurn: null;
   elapsedMs: Nullable;
+  /** Last/first observed SDK cumulative usage bracketing this event, not an exact tool cost. */
+  providerInputBeforeToolEvent: Nullable; providerCachedInputBeforeToolEvent: Nullable;
+  providerUncachedInputBeforeToolEvent: Nullable; providerOutputBeforeToolEvent: Nullable;
+  providerInputAfterToolEvent: Nullable; providerCachedInputAfterToolEvent: Nullable;
+  providerUncachedInputAfterToolEvent: Nullable; providerOutputAfterToolEvent: Nullable;
+  inputDeltaAfterToolEvent: Nullable; cachedDeltaAfterToolEvent: Nullable;
+  uncachedDeltaAfterToolEvent: Nullable; outputDeltaAfterToolEvent: Nullable;
+  observationIntervalToolCount: Nullable;
+  cumulativeCoderInputAtEvent: Nullable; cumulativeCachedInputAtEvent: Nullable;
+  cumulativeUncachedInputAtEvent: Nullable; cumulativeOutputAtEvent: Nullable;
 }>;
 export type CodexTrajectoryTurn = Readonly<{
   turnIndex: number;
@@ -59,6 +70,7 @@ export type CodexTrajectoryTurn = Readonly<{
 }>;
 export type CodexCoderTrajectory = Readonly<{
   schemaVersion: typeof CODEX_CODER_TRAJECTORY_VERSION;
+  toolEventUsageSemantics: "surrounding-completed-turn-observations; unique-tool-interval-delta-only";
   status: "observed" | "partial" | "unavailable" | "invalid";
   turns: readonly CodexTrajectoryTurn[];
   tools: readonly CodexTrajectoryTool[];
@@ -80,6 +92,8 @@ export function deriveCodexCoderTrajectory(jsonl: string,
   // has a known zero baseline. Later gaps deliberately break delta derivation.
   let prior: { input: Nullable; cached: Nullable; output: Nullable } | null =
     { input: 0, cached: 0, output: 0 };
+  let lastObserved: UsageSnapshot | null = null;
+  let pendingToolIndices: number[] = [];
   let invalid = false, truncated = false;
   const recordIncomplete = () => {
     if (turnIndex === 0 || turns.at(-1)?.turnIndex === turnIndex) return;
@@ -96,6 +110,8 @@ export function deriveCodexCoderTrajectory(jsonl: string,
       provenance: Object.freeze({ cumulative: "unavailable", deltas: "unavailable",
         promptEstimate: "unavailable", carryForward: "unavailable" }) }));
     prior = null;
+    lastObserved = null;
+    pendingToolIndices = [];
   };
   for (const line of jsonl.split(/\r?\n/)) {
     if (line.trim() === "") continue;
@@ -132,6 +148,7 @@ export function deriveCodexCoderTrajectory(jsonl: string,
           nextResultBytes + responseBytes;
       }
       const paths = command ? null : changePaths(item.changes);
+      const before = lastObserved;
       tools.push(Object.freeze({ sequence: tools.length + 1,
         turnIndex: turnIndex > 0 ? turnIndex : null,
         category: command ? "command_execution" : "file_change",
@@ -142,7 +159,20 @@ export function deriveCodexCoderTrajectory(jsonl: string,
         responseTokenProvenance: responseBytes === null ? "unavailable" : "estimated",
         referencedPaths: paths,
         filesReturnedOrRead: null,
-        resultRepresentedInNextTurn: null, elapsedMs }));
+        resultRepresentedInNextTurn: null, elapsedMs,
+        providerInputBeforeToolEvent: before?.input ?? null,
+        providerCachedInputBeforeToolEvent: before?.cached ?? null,
+        providerUncachedInputBeforeToolEvent: before === null ? null : before.input - before.cached,
+        providerOutputBeforeToolEvent: before?.output ?? null,
+        providerInputAfterToolEvent: null, providerCachedInputAfterToolEvent: null,
+        providerUncachedInputAfterToolEvent: null, providerOutputAfterToolEvent: null,
+        inputDeltaAfterToolEvent: null, cachedDeltaAfterToolEvent: null,
+        uncachedDeltaAfterToolEvent: null, outputDeltaAfterToolEvent: null,
+        observationIntervalToolCount: null,
+        // The SDK has no usage snapshot at the tool event itself.
+        cumulativeCoderInputAtEvent: null, cumulativeCachedInputAtEvent: null,
+        cumulativeUncachedInputAtEvent: null, cumulativeOutputAtEvent: null }));
+      pendingToolIndices.push(tools.length - 1);
       continue;
     }
     if (event.type !== "turn.completed") continue;
@@ -171,6 +201,32 @@ export function deriveCodexCoderTrajectory(jsonl: string,
     const cachedDelta = validDelta ? cached! - previousCached : null;
     const outputDelta = validDelta ? output! - previousOutput : null;
     const uncachedDelta = validDelta ? inputDelta! - cachedDelta! : null;
+    const after = monotonic && (!deltaKnown || validDelta) ?
+      { input: input!, cached: cached!, output: output! } : null;
+    for (const index of pendingToolIndices) {
+      const tool = tools[index];
+      const beforeInput = tool.providerInputBeforeToolEvent;
+      const beforeCached = tool.providerCachedInputBeforeToolEvent;
+      const beforeOutput = tool.providerOutputBeforeToolEvent;
+      const unique = pendingToolIndices.length === 1;
+      const intervalValid = unique && after !== null && beforeInput !== null &&
+        beforeCached !== null && beforeOutput !== null &&
+        after.input >= beforeInput && after.cached >= beforeCached &&
+        after.output >= beforeOutput &&
+        after.cached - beforeCached <= after.input - beforeInput;
+      tools[index] = Object.freeze({ ...tool,
+        providerInputAfterToolEvent: after?.input ?? null,
+        providerCachedInputAfterToolEvent: after?.cached ?? null,
+        providerUncachedInputAfterToolEvent: after === null ? null : after.input - after.cached,
+        providerOutputAfterToolEvent: after?.output ?? null,
+        inputDeltaAfterToolEvent: intervalValid ? after!.input - beforeInput : null,
+        cachedDeltaAfterToolEvent: intervalValid ? after!.cached - beforeCached : null,
+        uncachedDeltaAfterToolEvent: intervalValid ?
+          (after!.input - beforeInput) - (after!.cached - beforeCached) : null,
+        outputDeltaAfterToolEvent: intervalValid ? after!.output - beforeOutput : null,
+        observationIntervalToolCount: pendingToolIndices.length });
+    }
+    pendingToolIndices = [];
     turns.push(Object.freeze({ turnIndex,
       cumulativeInputTokens: valid ? input : null,
       cumulativeCachedInputTokens: valid ? cached : null,
@@ -188,10 +244,12 @@ export function deriveCodexCoderTrajectory(jsonl: string,
       deltas: deltaProvenance, promptEstimate: "unavailable",
       carryForward: "unavailable" }) }));
     prior = monotonic ? { input, cached, output } : null;
+    lastObserved = after;
     callsInTurn = 0;
   }
   if (!truncated) recordIncomplete();
   return Object.freeze({ schemaVersion: CODEX_CODER_TRAJECTORY_VERSION,
+    toolEventUsageSemantics: "surrounding-completed-turn-observations; unique-tool-interval-delta-only",
     status: invalid ? "invalid" : turns.length === 0 ? "unavailable" :
       turns.some(turn => turn.cumulativeInputTokens === null) || truncated ? "partial" : "observed",
     turns: Object.freeze(turns), tools: Object.freeze(tools), bounded: true, truncated });
