@@ -651,6 +651,9 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
         ? traces.reduce((sum, item) => sum + item.estimatedTokens, 0) : null,
       bytes: null
     } : null;
+    if (slot.matrixAuthorities?.planner?.experimentKind === 'trajectory-v2-validation')
+      gate(expansion?.requested === 0 && expansion.granted === 0,
+        'telemetry-validation context expansion');
     const normalized = createExperimentResult({ config, runId: slot.observationId,
       selectedContext: selected, codexOutput: { ...commandResult.output,
         validation: { ...commandResult.output.validation, behavior: behavior.status } },

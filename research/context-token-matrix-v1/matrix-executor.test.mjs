@@ -11,6 +11,7 @@ import { createDurableInvocationJournal, inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { createProspectiveMatrixAuthority, hashMatrixPlanBytes,
   readProspectiveMatrixPlan, validateFrozenTaskBStage2Plan, validateMatrixPlan,
+  validateTaskBTrajectoryV2Plan, TASK_B_TRAJECTORY_V2_PLAN_HASH,
   validateProspectiveMatrixAuthority } from '../../dist/packages/integrations/src/prospective-matrix-authority.js';
 
 const planPath = path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/task-b-stage2-plan.json');
@@ -18,6 +19,10 @@ const compositionPath = path.join(outputParent(), 'task-b-stage1-20260930-suffix
   'stage1-composition.json');
 const bytes = fs.readFileSync(planPath);
 const plan = JSON.parse(bytes.toString('utf8'));
+const telemetryPath = path.join(HARNESS_ROOT,
+  'research/context-token-matrix-v1/fixtures/task-b-telemetry-v2-plan.json');
+const telemetryBytes = fs.readFileSync(telemetryPath);
+const telemetryPlan = JSON.parse(telemetryBytes.toString('utf8'));
 const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const edit = (pathParts, value) => {
   const copy = structuredClone(plan);
@@ -32,6 +37,33 @@ assert.equal(taskBMayContinue('production_product_timeout'), false);
 assert.equal(classifyTaskBStage2Timeout('ambiguous_failure', 'agent_timeout', true, 'NOT_RUN'),
   'ambiguous_failure');
 assert.equal(hashMatrixPlanBytes(bytes), sha(bytes));
+assert.equal(hashMatrixPlanBytes(telemetryBytes), TASK_B_TRAJECTORY_V2_PLAN_HASH);
+assert.deepEqual(validateTaskBTrajectoryV2Plan(telemetryPlan, HARNESS_ROOT), telemetryPlan);
+assert.deepEqual(telemetryPlan.orderedSlots.map(slot => `${slot.replicate}:${slot.variant}`),
+  ['A:current', 'A:minimal', 'B:expanded']);
+for (const [field, value] of [
+  ['taskHash', 'sha256:' + 'f'.repeat(64)], ['sourceHead', 'f'.repeat(40)],
+  ['model', 'gpt-5.6-sol'], ['reasoning', 'high'],
+  ['stage', 'stage1'], ['experimentId', 'unrelated'],
+  ['taskId', 'Task-A']
+]) assert.throws(() => validateTaskBTrajectoryV2Plan(
+  { ...telemetryPlan, [field]: value }, HARNESS_ROOT));
+for (const [part, value] of [
+  [['orderedSlots', 0, 'variant'], 'minimal'],
+  [['limits', 'maxObservations'], 4], [['limits', 'maxProviderStages'], 7],
+  [['limits', 'maxProviderStagesPerObservation'], 3],
+  [['policy', 'retry'], 1], [['policy', 'repair'], 1], [['policy', 'apply'], 1],
+  [['timeoutPolicy', 'override'], true],
+  [['stopPolicy', 'infrastructureOrAmbiguousFailure'], 'continue'],
+  [['contextDefinition', 'definitionHash'], 'sha256:' + 'f'.repeat(64)],
+  [['priorStage', 'compositionHash'], 'sha256:' + 'f'.repeat(64)]
+]) {
+  const changed = structuredClone(telemetryPlan);
+  let target = changed;
+  for (const key of part.slice(0, -1)) target = target[key];
+  target[part.at(-1)] = value;
+  assert.throws(() => validateTaskBTrajectoryV2Plan(changed, HARNESS_ROOT));
+}
 assert.deepEqual(validateMatrixPlan(structuredClone(plan)), plan);
 assert.deepEqual(validateFrozenTaskBStage2Plan(structuredClone(plan)), plan);
 assert.deepEqual(plan.orderedSlots.map(slot => `${slot.replicate}:${slot.variant}`),
@@ -53,8 +85,22 @@ for (const changed of [
 ]) assert.throws(() => validateFrozenTaskBStage2Plan(changed));
 const read = readProspectiveMatrixPlan(HARNESS_ROOT, planPath, compositionPath);
 assert.equal(read.planHash, sha(bytes));
+assert.equal(read.experimentKind, 'context-matrix-stage2');
+const telemetryRead = readProspectiveMatrixPlan(HARNESS_ROOT, telemetryPath, compositionPath);
+assert.equal(telemetryRead.planHash, TASK_B_TRAJECTORY_V2_PLAN_HASH);
+assert.equal(telemetryRead.experimentKind, 'trajectory-v2-validation');
+assert.equal(telemetryRead.trajectoryTelemetry, 'codex-coder-trajectory/v2');
+assert.equal(telemetryRead.contextExpansion, 'none');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-stage2-offline-test-'));
 try {
+  const alternatePath = path.join(temp, 'alternate-plan.json');
+  fs.copyFileSync(telemetryPath, alternatePath);
+  assert.equal(readProspectiveMatrixPlan(HARNESS_ROOT, alternatePath,
+    compositionPath).planHash, TASK_B_TRAJECTORY_V2_PLAN_HASH);
+  fs.chmodSync(alternatePath, 0o600);
+  fs.appendFileSync(alternatePath, ' ');
+  assert.throws(() => readProspectiveMatrixPlan(HARNESS_ROOT, alternatePath,
+    compositionPath), /approved plan hash/);
   const source = createSourceCheckout(path.join(temp, 'source-parent'));
   const sessionId = 'task-b-stage2-offline-fixture';
   const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: source,
@@ -82,6 +128,12 @@ try {
   assert.throws(() => readProspectiveMatrixPlan(HARNESS_ROOT, planPath, corrupt));
   const journalPath = path.join(temp, 'journal.sqlite');
   fs.copyFileSync(expectedJournalPath(), journalPath);
+  // Replay the state before prospective Stage 2. Prior Stage 1 evidence remains intact.
+  const fixtureDb = new (await import('node:sqlite')).DatabaseSync(journalPath);
+  for (const row of fixtureDb.prepare('SELECT run_id, record_json FROM provider_invocations').all())
+    if (JSON.parse(row.record_json).plannedMatrix)
+      fixtureDb.prepare('DELETE FROM provider_invocations WHERE run_id=?').run(row.run_id);
+  fixtureDb.close();
   const journalBefore = fs.readFileSync(journalPath);
   assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source, [authority]),
     [{ observationId: authority.observationId, authorized: true }]);
@@ -103,6 +155,46 @@ try {
   assert.equal(reserved.runId, plannedRequest.runId);
   assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source, [authority]),
     [{ observationId: authority.observationId, authorized: false }]);
+  const telemetrySessionId = 'task-b-telemetry-offline-fixture';
+  const telemetryInput = { ...input, planPath: telemetryPath,
+    sessionId: telemetrySessionId, slot: telemetryPlan.orderedSlots[0] };
+  const telemetryAuthority = createProspectiveMatrixAuthority(telemetryInput);
+  assert.equal(telemetryAuthority.version, 'prospective-matrix-stage/v2');
+  assert.equal(telemetryAuthority.experimentKind, 'trajectory-v2-validation');
+  assert.equal(telemetryAuthority.trajectoryTelemetry, 'codex-coder-trajectory/v2');
+  assert.equal(telemetryAuthority.contextExpansion, 'none');
+  const telemetryRequest = { ...request, planPath: telemetryPath,
+    runId: `matrix.${telemetryAuthority.runtimeIdentity}.planner.fixture` };
+  assert.doesNotThrow(() => validateProspectiveMatrixAuthority(
+    telemetryAuthority, telemetryRequest));
+  for (const changed of [
+    { ...telemetryAuthority, experimentKind: 'context-matrix-stage2' },
+    { ...telemetryAuthority, version: 'prospective-matrix-stage/v1' },
+    { ...telemetryAuthority, stage: 'stage1' },
+    { ...telemetryAuthority, replacement: true },
+    { ...telemetryAuthority, planHash: read.planHash },
+    { ...telemetryAuthority, trajectoryTelemetry: 'codex-coder-trajectory/v1' },
+    { ...telemetryAuthority, limits: { ...telemetryAuthority.limits,
+      maxProviderStages: 7 } }
+  ]) assert.throws(() => validateProspectiveMatrixAuthority(changed, telemetryRequest));
+  assert.throws(() => validateProspectiveMatrixAuthority(authority, telemetryRequest));
+  assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source,
+    [telemetryAuthority]), [{ observationId: telemetryAuthority.observationId,
+      authorized: true }]);
+  const telemetryCaptured = await capturePlannerRequest(loadTaskBPlan(), 'current',
+    path.join(temp, 'telemetry-capture'));
+  const telemetryPlannedRequest = { ...plannedRequest,
+    runId: telemetryRequest.runId, task: telemetryCaptured.task,
+    plannedMatrix: telemetryAuthority };
+  journal.reserve(telemetryPlannedRequest);
+  assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source,
+    [telemetryAuthority]), [{ observationId: telemetryAuthority.observationId,
+      authorized: false }]);
+  const replayAuthority = createProspectiveMatrixAuthority({ ...telemetryInput,
+    sessionId: 'task-b-telemetry-replay-fixture' });
+  assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source,
+    [replayAuthority]), [{ observationId: replayAuthority.observationId,
+      authorized: false }]);
   const slots = plan.orderedSlots.map(slot => ({ ...slot, sessionId,
     observationId: `${sessionId}.${slot.position}.${slot.replicate}.${slot.variant}` }));
   const fixtureRoot = path.join(temp, 'fixture-session');
@@ -117,6 +209,21 @@ try {
   assert.equal(result.budget.providerStageInvocations, 12);
   assert.equal(result.stop, null);
   assert.throws(() => fs.mkdirSync(fixtureRoot));
+  const telemetrySlots = telemetryPlan.orderedSlots.map(slot => ({ ...slot,
+    sessionId: telemetrySessionId,
+    observationId: `${telemetrySessionId}.${slot.position}.${slot.replicate}.${slot.variant}` }));
+  const telemetryResult = await executeOrderedMatrix({ plan: telemetryPlan,
+    planHash: telemetryRead.planHash, sessionId: telemetrySessionId,
+    slots: telemetrySlots, sessionRoot: path.join(temp, 'telemetry-session'),
+    executeObservation: async (slot, budget) => {
+      budget.recordInvocation(slot.observationId);
+      budget.recordInvocation(slot.observationId);
+      return { ...slot, classification: 'completed' };
+    }, mayContinue: classification => classification === 'completed' });
+  assert.deepEqual(telemetryResult.observations.map(item =>
+    `${item.replicate}:${item.variant}`), ['A:current', 'A:minimal', 'B:expanded']);
+  assert.deepEqual(telemetryResult.budget,
+    { observations: 3, providerStageInvocations: 6 });
   const limited = edit(['limits', 'maxProviderStages'], 1);
   const limitedResult = await executeOrderedMatrix({ plan: limited, planHash: read.planHash, sessionId, slots,
     sessionRoot: path.join(temp, 'limited-session'),
@@ -136,7 +243,6 @@ try {
   assert.equal(timeoutResult.stop, 'ambiguous_failure');
   assert.equal(timeoutResult.observations[0].replacementEligible, false);
   assert.equal(timeoutResult.observations[0].failureCode, 'agent_timeout');
-  assert.equal(fs.existsSync(path.join(outputParent(), 'task-b-stage2-20260930-r1')), false);
   const frozen = JSON.parse(fs.readFileSync(path.join(HARNESS_ROOT,
     'research/context-token-matrix-v1/task-b-prospective-manifest.json')));
   for (const [file, expected] of [[frozen.taskBDefinition, frozen.taskBDefinitionSha256],

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "context-matrix-execution-plan/v1",
+  "experimentId": "codex-event-ordering",
+  "taskId": "R4",
+  "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+  "stage": "stage2",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "orderedSlots": [
+    {
+      "position": 1,
+      "replicate": "A",
+      "variant": "current"
+    },
+    {
+      "position": 2,
+      "replicate": "A",
+      "variant": "minimal"
+    },
+    {
+      "position": 3,
+      "replicate": "B",
+      "variant": "expanded"
+    }
+  ],
+  "contextDefinition": {
+    "selector": "selectTaskBContext/v1",
+    "definitionPath": "research/context-token-matrix-v1/task-b-definition.json",
+    "definitionHash": "sha256:361bfb3fc8f50df2f89eb71435f137eaa3a7dd9bff0acf1958427013688f2d8c",
+    "calibrationPath": "research/context-token-matrix-v1/task-b-calibration.json",
+    "calibrationHash": "sha256:d78c88c4185ff878120494db09832fb586e7dd80c89de519f52becd5c8230183"
+  },
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "timeoutPolicy": {
+    "provider": "existing-production-default",
+    "override": false,
+    "agentTimeout": "product_behavior_no_automatic_replacement"
+  },
+  "limits": {
+    "maxObservations": 3,
+    "maxProviderStages": 6,
+    "maxProviderStagesPerObservation": 2
+  },
+  "policy": {
+    "retry": 0,
+    "repair": 0,
+    "apply": 0
+  },
+  "stopPolicy": {
+    "candidateOrModelFailure": "persist_and_continue_if_infrastructure_healthy",
+    "infrastructureOrAmbiguousFailure": "stop_immediately"
+  },
+  "priorStage": {
+    "compositionSessionId": "task-b-stage1-20260930-suffix-r1",
+    "compositionPath": "stage1-composition.json",
+    "compositionHash": "sha256:ded1ea3cb0c09635857860a122c4b86649c0ae54c179d7afe135bd3ed380e14c",
+    "retainedPrefixReviewHash": "sha256:507e11da3aef91a4a7fd8893aafad31b240e568356bb6a78fb938d1ce6beab1e"
+  }
+}

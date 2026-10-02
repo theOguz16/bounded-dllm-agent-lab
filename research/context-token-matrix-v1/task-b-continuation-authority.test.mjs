@@ -9,6 +9,17 @@ import { authorizeTaskBContinuation, createTaskBContinuationBudget,
   inspectR7RetainedPrefix, verifyR7RetainedPrefix } from './task-b-continuation-authority.mjs';
 
 const sessionId = 'task-b-stage1-future-offline-fixture';
+const authorityTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-authority-state-'));
+const authorityJournal = path.join(authorityTemp, 'journal.sqlite');
+fs.copyFileSync(expectedJournalPath(), authorityJournal);
+const authorityDb = new DatabaseSync(authorityJournal);
+for (const row of authorityDb.prepare('SELECT run_id, record_json FROM provider_invocations').all()) {
+  const item = JSON.parse(row.record_json).plannedTaskB;
+  if (item?.position >= 4 && item.position <= 6 &&
+      item.sessionId !== 'task-b-stage1-20260930-r4')
+    authorityDb.prepare('DELETE FROM provider_invocations WHERE run_id=?').run(row.run_id);
+}
+authorityDb.close();
 const review = verifyR7RetainedPrefix();
 assert.deepEqual(inspectR7RetainedPrefix(), review);
 assert.deepEqual(review.observations.map(item => item.position), [1, 2, 3]);
@@ -22,7 +33,8 @@ assert.equal(review.observations[2].replacementEligible, false);
 assert.equal(review.observations[2].journal[1].failureCode, 'agent_timeout');
 assert.equal(review.observations[2].journal[1].state, 'outcome_unknown');
 assert.deepEqual(review.observations[2].normalizedOutcome.candidateChangedFiles, []);
-const authority = authorizeTaskBContinuation(sessionId);
+const authority = authorizeTaskBContinuation(sessionId,
+  { journalPath: authorityJournal, resultParent: authorityTemp });
 assert.deepEqual(authority.authorizedPositions, [4, 5, 6]);
 assert.deepEqual(authority.suffix.map(item => item.position), [4, 5, 6]);
 assert.deepEqual(authority.suffix.map(item => `${item.replicate}:${item.variant}`),
@@ -48,8 +60,10 @@ assert.throws(() => budget.reserveObservation(authority.suffix[0].observationId)
   /unauthorized or duplicate/);
 assert.throws(() => budget.recordInvocation(authority.suffix[0].observationId),
   /suffix provider-stage budget/);
-assert.throws(() => authorizeTaskBContinuation('task-b-stage1-20260930-r7'), /fresh explicit/);
-assert.throws(() => authorizeTaskBContinuation('r8'), /fresh explicit/);
+assert.throws(() => authorizeTaskBContinuation('task-b-stage1-20260930-r7',
+  { journalPath: authorityJournal, resultParent: authorityTemp }), /fresh explicit/);
+assert.throws(() => authorizeTaskBContinuation('r8',
+  { journalPath: authorityJournal, resultParent: authorityTemp }), /fresh explicit/);
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-continuation-fixture-'));
 try {
   const reviewPath = path.join(temporary, 'review.json');
@@ -90,4 +104,5 @@ try {
     /continuation session reuse/);
 } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 assert.equal(fs.existsSync(path.join(outputParent(), sessionId)), false);
+fs.rmSync(authorityTemp, { recursive: true, force: true });
 console.log('Task B r7 retained prefix and untouched suffix authority: PASS (provider/model calls 0)');

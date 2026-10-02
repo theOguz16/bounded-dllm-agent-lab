@@ -17,7 +17,8 @@ import { inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
 
 const PLAN_PATH = path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/task-b-stage2-plan.json');
-const SESSION = /^task-b-stage2-[a-z0-9-]{8,24}$/;
+const SESSION_STAGE2 = /^task-b-stage2-[a-z0-9-]{8,24}$/;
+const SESSION_TELEMETRY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
 const hash = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function gate(ok, reason) { if (!ok) throw Error(`task_b_stage2_invalid: ${reason}`); }
@@ -25,8 +26,10 @@ function stage1CompositionPath(home) {
   return path.join(outputParent(home), 'task-b-stage1-20260930-suffix-r1',
     'stage1-composition.json');
 }
-function verifyUnusedSession(sessionId, home, journalPath) {
-  gate(SESSION.test(sessionId) && !/--|-$/.test(sessionId), 'Stage 2 session ID');
+function verifyUnusedSession(sessionId, home, journalPath, experimentKind) {
+  const pattern = experimentKind === 'trajectory-v2-validation' ?
+    SESSION_TELEMETRY : SESSION_STAGE2;
+  gate(pattern.test(sessionId) && !/--|-$/.test(sessionId), 'matrix session ID');
   gate(!fs.existsSync(path.join(outputParent(home), sessionId)), 'session directory reused');
   const db = new DatabaseSync(journalPath, { readOnly: true });
   try {
@@ -37,20 +40,23 @@ function verifyUnusedSession(sessionId, home, journalPath) {
 }
 /** Read-only against the durable journal and live-session directory. Only temporary checkouts are created. */
 export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
-  journalPath = expectedJournalPath(home), verifyRemote = true } = {}) {
-  gate(typeof sessionId === 'string' && SESSION.test(sessionId) && !/--|-$/.test(sessionId),
-    'Stage 2 session ID');
+  journalPath = expectedJournalPath(home), verifyRemote = true,
+  planPath = PLAN_PATH } = {}) {
+  gate(typeof sessionId === 'string', 'matrix session ID');
   const harnessHead = verifyHarnessIdentity();
   const remoteHead = verifyRemote
     ? (await verifyTaskBRemoteAuthority(harnessHead)).finalRemoteSha : null;
   if (verifyRemote) gate(remoteHead === harnessHead, 'remote HEAD mismatch');
-  verifyUnusedSession(sessionId, home, journalPath);
   const compositionPath = stage1CompositionPath(home);
-  const { plan, planHash } = readProspectiveMatrixPlan(HARNESS_ROOT, PLAN_PATH, compositionPath);
+  const { plan, planHash, experimentKind, trajectoryTelemetry,
+    contextExpansion } = readProspectiveMatrixPlan(HARNESS_ROOT, planPath, compositionPath);
+  verifyUnusedSession(sessionId, home, journalPath, experimentKind);
   const taskPlan = loadTaskBPlan();
   gate(plan.taskHash === taskPlan.task.taskHash && plan.sourceHead === taskPlan.task.sourceHead &&
     plan.model === taskPlan.task.model && plan.reasoning === taskPlan.task.reasoning &&
-    same(plan.orderedSlots.map(slot => `${slot.replicate}:${slot.variant}`), taskPlan.order),
+    same(plan.orderedSlots.map(slot => `${slot.replicate}:${slot.variant}`),
+      experimentKind === 'trajectory-v2-validation' ?
+        ['A:current', 'A:minimal', 'B:expanded'] : taskPlan.order),
   'Task B frozen definition drift');
   const continuationRoot = path.dirname(compositionPath);
   const authority = JSON.parse(fs.readFileSync(path.join(continuationRoot,
@@ -67,7 +73,7 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     const journal = verifyJournal(journalPath, source.root, home);
     const slots = plan.orderedSlots.map(slot => {
       const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: source.root,
-        planPath: PLAN_PATH, priorCompositionPath: compositionPath, sessionId, slot };
+        planPath, priorCompositionPath: compositionPath, sessionId, slot };
       const planner = createProspectiveMatrixAuthority({ ...input, providerStage: 'planner' });
       const coder = createProspectiveMatrixAuthority({ ...input, providerStage: 'coder' });
       gate(planner.observationId === coder.observationId &&
@@ -78,22 +84,23 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     });
     const inspected = inspectProspectiveMatrixJournal(journalPath, source.root,
       slots.map(slot => slot.matrixAuthorities.planner));
-    gate(inspected.length === 6 && inspected.every(item => item.authorized),
-      'Stage 2 journal authority unavailable');
+    gate(inspected.length === plan.orderedSlots.length &&
+      inspected.every(item => item.authorized), 'matrix journal authority unavailable');
     return { schemaVersion: 'task-b-stage2-preflight/v1', ok: true, sessionId,
-      planHash, taskHash: plan.taskHash, sourceHead: plan.sourceHead,
+      planHash, experimentKind, trajectoryTelemetry, contextExpansion,
+      taskHash: plan.taskHash, sourceHead: plan.sourceHead,
       harnessHead, remoteHead, remoteHeadVerified: verifyRemote, slots, journal, priorCompositionHash: plan.priorStage.compositionHash,
       providerModelCalls: 0, journalMutations: 0, liveSessionsCreated: 0 };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
 
 /** Prospective live entrypoint. It is never called by offline tests. */
-export async function runTaskBStage2({ sessionId,
+export async function runTaskBStage2({ sessionId, planPath = PLAN_PATH,
   adapterFactory = () => new CodexAgentAdapter() } = {}) {
   gate(process.env.BOUNDED_CODEX_INVOCATION_JOURNAL_PATH === expectedJournalPath() &&
     process.env.BOUNDED_CODEX_MODEL === MODEL, 'journal/model environment');
-  const preflight = await preflightTaskBStage2({ sessionId });
-  const { plan, planHash } = readProspectiveMatrixPlan(HARNESS_ROOT, PLAN_PATH,
+  const preflight = await preflightTaskBStage2({ sessionId, planPath });
+  const { plan, planHash } = readProspectiveMatrixPlan(HARNESS_ROOT, planPath,
     stage1CompositionPath(os.homedir()));
   const taskPlan = loadTaskBPlan();
   return executeOrderedMatrix({ plan, planHash, sessionId, slots: preflight.slots,

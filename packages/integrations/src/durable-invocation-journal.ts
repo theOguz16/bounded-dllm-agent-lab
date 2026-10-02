@@ -308,8 +308,12 @@ function prospectiveMatrixAdmissible(db: DatabaseSync, authority: ProspectiveMat
       }
     }
     const own = rows.filter(row => row.plannedMatrix?.sessionId === authority.sessionId);
-    if (rows.some(row => row.plannedMatrix && row.plannedMatrix.sessionId !== authority.sessionId) ||
-        own.some(row => row.plannedMatrix?.sessionHash !== authority.sessionHash)) return false;
+    // A separately approved plan kind may follow a completed matrix. The same
+    // plan cannot be replayed under a new session, and a session cannot change plans.
+    if (rows.some(row => row.plannedMatrix?.planHash === authority.planHash &&
+          row.plannedMatrix.sessionId !== authority.sessionId) ||
+        own.some(row => row.plannedMatrix?.sessionHash !== authority.sessionHash ||
+          row.plannedMatrix?.planHash !== authority.planHash)) return false;
     const slotRows = own.filter(row => row.plannedMatrix?.slotHash === authority.slotHash);
     if (slotRows.some(row => row.stage === stage)) return false;
     if (stage === "coder" && !slotRows.some(row => row.stage === "planner" &&

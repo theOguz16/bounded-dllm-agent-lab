@@ -27,6 +27,8 @@ try {
   const fixtureDb = new DatabaseSync(journalPath);
   fixtureDb.prepare("DELETE FROM provider_invocations WHERE run_id LIKE ?")
     .run('matrix.task-b-stage1-20260930-r7.%');
+  fixtureDb.prepare("DELETE FROM provider_invocations WHERE run_id LIKE ?")
+    .run('matrix.task-b-stage1-20260930-suffix-r1.%');
   fixtureDb.close();
   const history = path.join(os.homedir(), '.bounded-agent/bounded-dllm-agent-lab/live-runs',
     'context-token-matrix-v1');

@@ -14,8 +14,25 @@ import { assertTaskBSuffixOrder, composeTaskBStage1,
 
 const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const sessionId = 'task-b-stage1-suffix-offline-fixture';
+const authorityTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-suffix-state-'));
+const authorityJournal = path.join(authorityTemp, 'journal.sqlite');
+fs.copyFileSync(expectedJournalPath(), authorityJournal);
+const authorityDb = new DatabaseSync(authorityJournal);
+for (const row of authorityDb.prepare('SELECT run_id, record_json FROM provider_invocations').all()) {
+  const item = JSON.parse(row.record_json).plannedTaskB;
+  if (item?.position >= 4 && item.position <= 6 &&
+      item.sessionId !== 'task-b-stage1-20260930-r4')
+    authorityDb.prepare('DELETE FROM provider_invocations WHERE run_id=?').run(row.run_id);
+}
+authorityDb.close();
+const historyRoot = path.join(authorityTemp, 'live-runs/context-token-matrix-v1');
+fs.mkdirSync(historyRoot, { recursive: true });
+for (const session of ['task-b-stage1-20260929-r2', 'task-b-stage1-20260930-r4'])
+  fs.cpSync(path.join(outputParent(), session), path.join(historyRoot, session),
+    { recursive: true });
 const prefix = verifyR7RetainedPrefix();
-const authority = authorizeTaskBContinuation(sessionId);
+const authority = authorizeTaskBContinuation(sessionId,
+  { journalPath: authorityJournal, resultParent: authorityTemp });
 const slots = assertTaskBSuffixOrder(authority, authority.suffix);
 assert.deepEqual(slots.map(item => item.position), [4, 5, 6]);
 assert.deepEqual(slots.map(item => `${item.replicate}:${item.variant}`),
@@ -61,12 +78,13 @@ const thrown = await executeAuthorizedTaskBSuffix({ authority, slots,
   execute: async slot => { thrownSeen.push(slot.position); throw Error('offline infrastructure'); } });
 assert.deepEqual(thrownSeen, [4]);
 assert.match(thrown.stop, /infrastructure_or_ambiguous/);
-assert.throws(() => authorizeTaskBContinuation('task-b-stage1-20260930-r7'), /fresh explicit/);
+assert.throws(() => authorizeTaskBContinuation('task-b-stage1-20260930-r7',
+  { journalPath: authorityJournal, resultParent: authorityTemp }), /fresh explicit/);
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-suffix-composition-'));
 try {
   const journalProbe = await preflightTaskBJournalAuthority(loadTaskBPlan(), slots,
-    expectedJournalPath(), temp, 3);
+    authorityJournal, temp, 3);
   assert.deepEqual(journalProbe.inspected.map(item => item.status),
     Array(3).fill('reviewed_replacement_required'));
   assert.deepEqual(journalProbe.slots.map(item => item.position), [4, 5, 6]);
@@ -126,4 +144,5 @@ try {
   db.close();
 } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 assert.equal(fs.existsSync(path.join(outputParent(), sessionId)), false);
+fs.rmSync(authorityTemp, { recursive: true, force: true });
 console.log('Task B suffix executor and additive composition: PASS (provider/model calls 0)');
