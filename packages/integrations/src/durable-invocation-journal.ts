@@ -8,6 +8,8 @@ import type { PlannedExperimentAuthority } from "./planned-experiment-authority.
 import { validateTaskBInvocationAuthority, readTaskBReplacementReview,
   readTaskBOracleReplacementReview } from "./task-b-invocation-authority.js";
 import type { TaskBInvocationAuthority } from "./task-b-invocation-authority.js";
+import { validateProspectiveMatrixAuthority } from "./prospective-matrix-authority.js";
+import type { ProspectiveMatrixAuthority } from "./prospective-matrix-authority.js";
 import type { AgentProviderFailureClass, AgentWorkerOutcome } from "./agent-adapter.js";
 
 /** One transactional authority for a provider invocation, never a retry queue. */
@@ -36,6 +38,7 @@ export type InvocationIdentity = Readonly<{
   retryDecision?: InvocationRetryDecision;
   plannedExperiment?: PlannedExperimentAuthority;
   plannedTaskB?: TaskBInvocationAuthority;
+  plannedMatrix?: ProspectiveMatrixAuthority;
   sourceRepositoryPath?: string;
   reasoningEffort?: string;
 }>;
@@ -69,6 +72,7 @@ export type InvocationRecord = Readonly<{
   ownerPid?: number;
   plannedExperiment?: PlannedExperimentAuthority;
   plannedTaskB?: TaskBInvocationAuthority;
+  plannedMatrix?: ProspectiveMatrixAuthority;
   workerDiagnostic?: Readonly<Record<string, unknown>> | null;
 }>;
 
@@ -241,6 +245,21 @@ function assertIdentity(input: InvocationIdentity): void {
     } catch { throw new InvocationJournalError(
       "invocation_replay_forbidden", "Planned experiment authority is invalid."); }
   }
+  if (input.plannedMatrix !== undefined) {
+    if (input.plannedExperiment !== undefined || input.plannedTaskB !== undefined ||
+        input.retryDecision !== undefined || !input.sourceRepositoryPath ||
+        !input.reasoningEffort) throw new InvocationJournalError("invocation_replay_forbidden",
+      "Prospective matrix authority conflicts with existing authority.");
+    try { validateProspectiveMatrixAuthority(input.plannedMatrix, {
+      harnessRoot: input.plannedMatrix.harnessRoot,
+      sourceRepositoryPath: input.sourceRepositoryPath,
+      planPath: input.plannedMatrix.planPath,
+      priorCompositionPath: input.plannedMatrix.priorCompositionPath,
+      runId: input.runId, stage: input.stage, model: input.model,
+      reasoning: input.reasoningEffort, task: input.task, retryDecision: input.retryDecision
+    }); } catch { throw new InvocationJournalError("invocation_replay_forbidden",
+      "Prospective matrix authority is invalid."); }
+  }
   if (input.plannedTaskB !== undefined) {
     if (input.plannedExperiment !== undefined || input.retryDecision !== undefined ||
         !input.sourceRepositoryPath || !input.reasoningEffort)
@@ -272,6 +291,32 @@ function checkedRow(row: unknown, expectedKey: string): InvocationRecord {
   return Object.freeze(record as InvocationRecord);
 }
 
+function prospectiveMatrixAdmissible(db: DatabaseSync, authority: ProspectiveMatrixAuthority,
+  stage: InvocationStage): boolean {
+  if ((stage !== "planner" && stage !== "coder") || authority.providerStage !== stage ||
+      authority.stage !== "stage2" || authority.replacement !== false) return false;
+  try {
+    const rows = db.prepare("SELECT invocation_key, record_json, record_hash FROM provider_invocations")
+      .all().map(row => checkedRow(row, (row as { invocation_key: string }).invocation_key));
+    const composition = JSON.parse(readFileSync(authority.priorCompositionPath, "utf8"));
+    if (composition.rows?.length !== 6) return false;
+    for (const item of composition.rows) {
+      for (const ref of item.journal ?? []) {
+        const matching = rows.find(row => row.runId === ref.runId);
+        if (!matching || hash(JSON.stringify(matching)) !== ref.recordHash ||
+            matching.plannedTaskB?.observationId !== item.observationId) return false;
+      }
+    }
+    const own = rows.filter(row => row.plannedMatrix?.sessionId === authority.sessionId);
+    if (rows.some(row => row.plannedMatrix && row.plannedMatrix.sessionId !== authority.sessionId) ||
+        own.some(row => row.plannedMatrix?.sessionHash !== authority.sessionHash)) return false;
+    const slotRows = own.filter(row => row.plannedMatrix?.slotHash === authority.slotHash);
+    if (slotRows.some(row => row.stage === stage)) return false;
+    if (stage === "coder" && !slotRows.some(row => row.stage === "planner" &&
+        row.state === "completed")) return false;
+    return true;
+  } catch { return false; }
+}
 export type TaskBSlotStatus = "fresh_planned_observation" | "reviewed_replacement_required" |
   "already_completed" | "already_consumed_not_replaceable" | "authority_conflict";
 function taskBAdmissibility(db: DatabaseSync, authority: TaskBInvocationAuthority,
@@ -634,7 +679,11 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           .all(input.stage)
           .map((row) => checkedRow(row, (row as { invocation_key: string }).invocation_key))
           .filter((record) => record.taskHash === taskHash && record.runId !== input.runId);
-        if (input.plannedTaskB !== undefined) {
+        if (input.plannedMatrix !== undefined) {
+          if (!prospectiveMatrixAdmissible(db, input.plannedMatrix, input.stage))
+            throw new InvocationJournalError("invocation_replay_forbidden",
+              "Prospective matrix slot is unavailable.");
+        } else if (input.plannedTaskB !== undefined) {
           const verdict = taskBAdmissibility(db, input.plannedTaskB, input.stage, false, path);
           if (!verdict.authorized) throw new InvocationJournalError("invocation_replay_forbidden",
             `Task B planned observation unavailable: ${verdict.status}.`);
@@ -719,7 +768,8 @@ export function createDurableInvocationJournal(file: string, now: () => number =
           supersedesRunId: input.retryDecision?.supersedesRunId ?? null,
           recoveryId: randomUUID(), ownerPid: process.pid,
           ...(input.plannedExperiment === undefined ? {} : { plannedExperiment: input.plannedExperiment }),
-          ...(input.plannedTaskB === undefined ? {} : { plannedTaskB: input.plannedTaskB })
+          ...(input.plannedTaskB === undefined ? {} : { plannedTaskB: input.plannedTaskB }),
+          ...(input.plannedMatrix === undefined ? {} : { plannedMatrix: input.plannedMatrix })
         });
         const json = JSON.stringify(record);
         db.prepare("INSERT INTO provider_invocations (invocation_key, run_id, stage, record_json, record_hash) VALUES (?, ?, ?, ?, ?)")
@@ -899,6 +949,29 @@ export function inspectPlannedExperimentJournal(file: string, cells: readonly Re
         availability,
         plannerState: planner?.state ?? null,
         coderState: coder?.state ?? null });
+    }));
+  } finally { db.close(); }
+}
+
+/** Prospective matrix inspection does not reserve an invocation or create a table. */
+export function inspectProspectiveMatrixJournal(file: string, sourceRepositoryPath: string,
+  authorities: readonly ProspectiveMatrixAuthority[]): readonly Readonly<{
+    observationId: string; authorized: boolean;
+  }>[] {
+  if (!isAbsolute(file) || !existsSync(file) || lstatSync(file).isSymbolicLink())
+    throw new InvocationJournalError("invocation_journal_unavailable", "Existing journal is required.");
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    return Object.freeze(authorities.map(authority => {
+      validateProspectiveMatrixAuthority(authority, {
+        harnessRoot: authority.harnessRoot,
+        sourceRepositoryPath,
+        planPath: authority.planPath, priorCompositionPath: authority.priorCompositionPath,
+        runId: `matrix.${authority.runtimeIdentity}.${authority.providerStage}.preflight`,
+        stage: authority.providerStage, model: authority.model, reasoning: authority.reasoning
+      });
+      return Object.freeze({ observationId: authority.observationId,
+        authorized: prospectiveMatrixAdmissible(db, authority, "planner") });
     }));
   } finally { db.close(); }
 }

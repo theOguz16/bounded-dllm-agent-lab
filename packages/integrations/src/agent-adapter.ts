@@ -113,6 +113,7 @@ export interface AgentRunRequest {
   invocationRetryDecision?: import("./durable-invocation-journal.js").InvocationRetryDecision;
   plannedExperiment?: import("./planned-experiment-authority.js").PlannedExperimentAuthority;
   plannedTaskB?: import("./task-b-invocation-authority.js").TaskBInvocationAuthority;
+  plannedMatrix?: import("./prospective-matrix-authority.js").ProspectiveMatrixAuthority;
 }
 
 export interface AgentRunResult {

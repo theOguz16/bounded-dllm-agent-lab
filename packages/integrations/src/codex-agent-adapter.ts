@@ -296,7 +296,8 @@ export class CodexAgentAdapter implements AgentAdapter {
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     const startedAtMs = this.now();
-    if ((request.plannedExperiment !== undefined || request.plannedTaskB !== undefined) &&
+    if ((request.plannedExperiment !== undefined || request.plannedTaskB !== undefined ||
+      request.plannedMatrix !== undefined) &&
         this.invocationJournalPath === null) {
       return emptyResult(request, "rejected", 0, [diagnostic(
         "invocation_journal_unavailable", "error", "Planned experiment requires a durable invocation journal."
@@ -399,6 +400,10 @@ export class CodexAgentAdapter implements AgentAdapter {
           model: request.model, deadlineAt: this.now() + processControl.limits.totalTimeoutMs,
           ...(request.plannedTaskB === undefined ? {} : {
             plannedTaskB: request.plannedTaskB,
+            sourceRepositoryPath: sourceRepositoryRoot ?? undefined,
+            reasoningEffort: request.reasoningEffort }),
+          ...(request.plannedMatrix === undefined ? {} : {
+            plannedMatrix: request.plannedMatrix,
             sourceRepositoryPath: sourceRepositoryRoot ?? undefined,
             reasoningEffort: request.reasoningEffort }),
           ...(request.plannedExperiment === undefined ? {} : {

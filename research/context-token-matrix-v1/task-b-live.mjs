@@ -591,6 +591,12 @@ export function classifyTaskBObservation(product, bounded, behavior) {
       behavior?.status === 'FAIL') return 'candidate_validation_failure';
   return 'ambiguous_failure';
 }
+export function classifyTaskBStage2Timeout(baseClassification, coderFailureCode,
+  candidateAvailable, behaviorStatus) {
+  return baseClassification === 'ambiguous_failure' &&
+    coderFailureCode === 'agent_timeout' && candidateAvailable === false &&
+    behaviorStatus === 'NOT_RUN' ? 'production_product_timeout' : baseClassification;
+}
 export function taskBMayContinue(classification) {
   return ['completed', 'candidate_model_failure', 'candidate_validation_failure']
     .includes(classification);
@@ -606,10 +612,16 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const { config, selected } = await selectTaskBContext(plan, slot.variant, source.root);
     const calls = [];
     let trajectory = null;
+    let coderFailureCode = null;
     const adapter = makeJournalScopedAdapter(adapterFactory(), slot.runtimeIdentity,
       call => { budget.recordInvocation(slot.observationId); calls.push(call); }, null,
-      (mode, result) => { if (mode === 'coder') trajectory = result?.trajectoryTelemetry ?? null; },
-      { planner: slot.taskBPlannerAuthority, coder: slot.taskBCoderAuthority });
+      (mode, result) => { if (mode === 'coder') {
+        trajectory = result?.trajectoryTelemetry ?? null;
+        coderFailureCode = result?.failureCode ?? null;
+      } },
+      slot.matrixAuthorities ? null :
+        { planner: slot.taskBPlannerAuthority, coder: slot.taskBCoderAuthority },
+      slot.matrixAuthorities ?? null);
     let bounded = null;
     let validationSpecificationHash = null;
     const started = Date.now();
@@ -654,7 +666,10 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const aggregateInput = normalized.usage.aggregate.input;
     const coderShareOfInput = coderInput === null || aggregateInput === null || aggregateInput === 0
       ? null : Number((coderInput / aggregateInput).toFixed(4));
-    const classification = classifyTaskBObservation(commandResult.output, bounded, behavior);
+    const baseClassification = classifyTaskBObservation(commandResult.output, bounded, behavior);
+    const classification = slot.matrixAuthorities ? classifyTaskBStage2Timeout(
+      baseClassification, coderFailureCode, mutation(bounded) !== null, behavior.status) :
+      baseClassification;
     save(path.join(cellRoot, 'source-status.json'), { before, after });
     save(path.join(cellRoot, 'adapter-calls.json'), calls);
     save(path.join(cellRoot, 'raw-product-result.json'), commandResult.output);
@@ -667,7 +682,9 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     if (annotated) save(path.join(cellRoot, 'coder-trajectory.json'), annotated);
     save(path.join(cellRoot, 'cell-summary.json'), { ...slot, classification,
       providerStageInvocations: calls.length, behavior: behavior.status,
-      trajectorySummary, coderShareOfInput, sourceHead: SOURCE, taskHash: TASK_HASH });
+      trajectorySummary, coderShareOfInput, sourceHead: SOURCE, taskHash: TASK_HASH,
+      ...(slot.matrixAuthorities ? { replacementEligible: false,
+        stopClassification: classification, coderFailureCode } : {}) });
     return { ...slot, classification, providerStageInvocations: calls.length };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
