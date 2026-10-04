@@ -29,8 +29,9 @@ export async function executeOrderedMatrix({ plan, planHash, sessionId, slots, s
     'plan hash');
   gate(slots.length === plan.orderedSlots.length &&
     slots.length <= plan.limits.maxObservations &&
-    slots.every((slot, index) => same({ position: slot.position,
-      replicate: slot.replicate, variant: slot.variant }, plan.orderedSlots[index]) &&
+    slots.every((slot, index) => same(Object.fromEntries(
+      Object.keys(plan.orderedSlots[index]).map(key => [key, slot[key]])),
+      plan.orderedSlots[index]) &&
       slot.sessionId === sessionId), 'ordered slots');
   gate(plan.policy.retry === 0 && plan.policy.repair === 0 && plan.policy.apply === 0,
     'nonzero mutation or retry policy');
@@ -64,7 +65,9 @@ export async function executeOrderedMatrix({ plan, planHash, sessionId, slots, s
       const result = await executeObservation(slot, budget);
       gate(result?.observationId === slot.observationId &&
         result?.position === slot.position && result?.replicate === slot.replicate &&
-        result?.variant === slot.variant, 'observation result identity');
+        result?.variant === slot.variant &&
+        Object.keys(plan.orderedSlots[slot.position - 1]).every(key =>
+          same(result?.[key], slot[key])), 'observation result identity');
       observations.push(result);
       if (!mayContinue(result.classification)) { stop = result.classification; break; }
       if (!meetsTelemetryValidity(plan.telemetryValidity, result)) {

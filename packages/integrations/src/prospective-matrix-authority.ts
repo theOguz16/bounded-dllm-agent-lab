@@ -6,12 +6,17 @@ import { hashCanonicalJson } from "../../product-runtime/src/agent-event-ledger.
 
 export const TASK_B_STAGE2_PLAN_HASH = "sha256:62ea975ceac53992dbd30b578099d152958d99704606267aa668a7bf10e1a7b1";
 export const TASK_B_TRAJECTORY_V2_PLAN_HASH = "sha256:581395330b7d77c49b1645013894eb39fe883275977f5a218123825e2a42590a";
+export const TASK_B_INSPECTION_PLAN_HASH = "sha256:2ef01b65dc466891a8db4a6b59902ec0f96d7bc4c33bc1e2ecc918a172f1072d";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const TASK = "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0";
 const ORDER = ["A:minimal", "A:current", "A:expanded", "B:current", "B:expanded", "B:minimal"];
 const SESSION_STAGE2 = /^task-b-stage2-[a-z0-9-]{8,24}$/;
 const SESSION_TRAJECTORY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
+const SESSION_INSPECTION = /^task-b-inspection-[a-z0-9-]{8,24}$/;
 const TELEMETRY_ORDER = ["A:current", "A:minimal", "B:expanded"];
+const INSPECTION_INSTRUCTION = "Minimize redundant repository inspection. When practical, batch related read-only inspections, do not reread files that have not changed since your previous inspection, and begin implementation once you have sufficient evidence to make the required change. Do not skip any required build, typecheck, test, scope, or validation checks.";
+const CONTROL_PREFIX_HASH = "sha256:4603fac5b703f785b570f75b9e06804f68c5e354fdb2ef6876533024fe7888e2";
+const TREATMENT_PREFIX_HASH = "sha256:b71156c3b1667aec4ee44fbec6ba6da83d69a4c25d860bc5a0ad17bc5cd617a7";
 const PLANNER_HASH = "sha256:3788096e8d83dfd915af9b98faa7fcbca511e675193f1e5f7404d74e259f65de";
 const FILES = ["packages/integrations/src/codex-event-parser.ts",
   "scripts/smoke/codex-event-parser-smoke.cjs"];
@@ -23,11 +28,14 @@ function git(root: string, args: string[]): string {
   gate(result.status === 0, "git identity");
   return result.stdout.trim();
 }
-export type MatrixSlot = Readonly<{ position: number; replicate: "A" | "B"; variant: "minimal" | "current" | "expanded" }>;
+export type MatrixSlot = Readonly<{ position: number; replicate: "A" | "B"; variant: "minimal" | "current" | "expanded";
+  condition?: "control" | "inspection-instruction" }>;
 export type MatrixPlan = Readonly<{
   schemaVersion: "context-matrix-execution-plan/v1";
   experimentId: string; taskId: string; taskHash: string; stage: "stage2"; sourceHead: string;
   orderedSlots: readonly MatrixSlot[];
+  conditionDefinitions?: Readonly<{ control: Readonly<{ instruction: null; coderPrefixHash: string }>;
+    "inspection-instruction": Readonly<{ instruction: string; coderPrefixHash: string }> }>;
   contextDefinition: Readonly<{ selector: string; definitionPath: string; definitionHash: string;
     calibrationPath: string; calibrationHash: string }>;
   model: string; reasoning: string;
@@ -42,13 +50,15 @@ export type MatrixPlan = Readonly<{
 }>;
 export type ProspectiveMatrixAuthority = Readonly<{
   version: "prospective-matrix-stage/v1" | "prospective-matrix-stage/v2";
-  experimentKind?: "trajectory-v2-validation";
+  experimentKind?: "trajectory-v2-validation" | "inspection-instruction-validation";
   planSchemaVersion?: MatrixPlan["schemaVersion"]; taskId?: string;
   contextDefinition?: MatrixPlan["contextDefinition"];
   limits?: MatrixPlan["limits"]; timeoutPolicy?: MatrixPlan["timeoutPolicy"];
   stopPolicy?: MatrixPlan["stopPolicy"]; priorStage?: MatrixPlan["priorStage"];
   trajectoryTelemetry?: "codex-coder-trajectory/v2";
   contextExpansion?: "none";
+  condition?: MatrixSlot["condition"];
+  coderPrefixHash?: string;
   planHash: string; experimentId: string;
   harnessRoot: string; planPath: string; priorCompositionPath: string;
   taskHash: string; sourceHead: string; stage: "stage2"; sessionId: string;
@@ -132,9 +142,30 @@ export function validateTaskBTrajectoryV2Plan(value: unknown, harnessRoot: strin
   gate(same(plan, expected), "trajectory-v2 plan identity or policy");
   return plan;
 }
+/** The prompt experiment is a separate exact plan; historical plan bytes remain untouched. */
+export function validateTaskBInspectionPlan(value: unknown, harnessRoot: string): MatrixPlan {
+  const plan = validateMatrixPlan(value);
+  const frozenBytes = readFileSync(path.join(realpathSync(harnessRoot),
+    "research/context-token-matrix-v1/task-b-stage2-plan.json"));
+  gate(sha(frozenBytes) === TASK_B_STAGE2_PLAN_HASH, "frozen Task B Stage 2 provenance");
+  const frozen = validateFrozenTaskBStage2Plan(JSON.parse(frozenBytes.toString("utf8")));
+  const orderedSlots: MatrixSlot[] = ["control", "inspection-instruction",
+    "inspection-instruction", "control"].map((condition, index) => ({
+      position: index + 1, replicate: condition === "control" ? "A" : "B",
+      variant: "current", condition: condition as MatrixSlot["condition"] }));
+  const expected = { ...frozen,
+    experimentId: "codex-event-ordering-inspection-instruction", orderedSlots,
+    conditionDefinitions: { control: { instruction: null, coderPrefixHash: CONTROL_PREFIX_HASH },
+      "inspection-instruction": { instruction: INSPECTION_INSTRUCTION,
+        coderPrefixHash: TREATMENT_PREFIX_HASH } },
+    limits: { maxObservations: 4, maxProviderStages: 8,
+      maxProviderStagesPerObservation: 2 } };
+  gate(hashCanonicalJson(plan) === hashCanonicalJson(expected), "inspection plan identity or policy");
+  return plan;
+}
 export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   priorCompositionPath: string): Readonly<{ plan: MatrixPlan; planHash: string;
-    experimentKind: "context-matrix-stage2" | "trajectory-v2-validation";
+    experimentKind: "context-matrix-stage2" | "trajectory-v2-validation" | "inspection-instruction-validation";
     trajectoryTelemetry: "codex-coder-trajectory/v1" | "codex-coder-trajectory/v2";
     contextExpansion: "existing-bounded-request" | "none" }> {
   const harness = realpathSync(harnessRoot);
@@ -143,10 +174,13 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
     "safe regular plan file");
   const planBytes = readFileSync(planPath);
   const planHash = sha(planBytes);
-  gate([TASK_B_STAGE2_PLAN_HASH, TASK_B_TRAJECTORY_V2_PLAN_HASH].includes(planHash),
+  gate([TASK_B_STAGE2_PLAN_HASH, TASK_B_TRAJECTORY_V2_PLAN_HASH,
+    TASK_B_INSPECTION_PLAN_HASH].includes(planHash),
     "approved plan hash");
   const trajectory = planHash === TASK_B_TRAJECTORY_V2_PLAN_HASH;
+  const inspection = planHash === TASK_B_INSPECTION_PLAN_HASH;
   const plan = trajectory ? validateTaskBTrajectoryV2Plan(
+    JSON.parse(planBytes.toString("utf8")), harness) : inspection ? validateTaskBInspectionPlan(
     JSON.parse(planBytes.toString("utf8")), harness) :
     validateFrozenTaskBStage2Plan(JSON.parse(planBytes.toString("utf8")));
   for (const [file, hash] of [[plan.contextDefinition.definitionPath,
@@ -168,9 +202,10 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
     composition.rows[2].classification === "production_product_timeout" &&
     composition.rows[2].replacementEligible !== true, "prior composition evidence");
   return { plan, planHash,
-    experimentKind: trajectory ? "trajectory-v2-validation" : "context-matrix-stage2",
-    trajectoryTelemetry: trajectory ? "codex-coder-trajectory/v2" : "codex-coder-trajectory/v1",
-    contextExpansion: trajectory ? "none" : "existing-bounded-request" };
+    experimentKind: trajectory ? "trajectory-v2-validation" : inspection ?
+      "inspection-instruction-validation" : "context-matrix-stage2",
+    trajectoryTelemetry: trajectory || inspection ? "codex-coder-trajectory/v2" : "codex-coder-trajectory/v1",
+    contextExpansion: trajectory || inspection ? "none" : "existing-bounded-request" };
 }
 export function createProspectiveMatrixAuthority(input: Readonly<{
   harnessRoot: string; sourceRepositoryPath: string; planPath: string;
@@ -179,7 +214,8 @@ export function createProspectiveMatrixAuthority(input: Readonly<{
 }>): ProspectiveMatrixAuthority {
   const { plan, planHash, experimentKind } = readProspectiveMatrixPlan(input.harnessRoot,
     input.planPath, input.priorCompositionPath);
-  gate((experimentKind === "trajectory-v2-validation" ? SESSION_TRAJECTORY : SESSION_STAGE2)
+  gate((experimentKind === "trajectory-v2-validation" ? SESSION_TRAJECTORY :
+    experimentKind === "inspection-instruction-validation" ? SESSION_INSPECTION : SESSION_STAGE2)
     .test(input.sessionId) && !/--|-$/.test(input.sessionId), "matrix session identity");
   gate(git(input.harnessRoot, ["branch", "--show-current"]) === "research/context-token-matrix-v1" &&
     git(input.sourceRepositoryPath, ["rev-parse", "HEAD"]) === SOURCE, "checkout identity");
@@ -191,15 +227,19 @@ export function createProspectiveMatrixAuthority(input: Readonly<{
   const sessionHash = sha(JSON.stringify([planHash, plan.taskHash, plan.stage, input.sessionId,
     plan.priorStage.compositionHash]));
   const slotHash = sha(JSON.stringify([sessionHash, slot]));
-  return Object.freeze({ version: experimentKind === "trajectory-v2-validation" ?
+  return Object.freeze({ version: experimentKind !== "context-matrix-stage2" ?
       "prospective-matrix-stage/v2" : "prospective-matrix-stage/v1",
-    ...(experimentKind === "trajectory-v2-validation" ? {
+    ...(experimentKind !== "context-matrix-stage2" ? {
       experimentKind, planSchemaVersion: plan.schemaVersion, taskId: plan.taskId,
       contextDefinition: plan.contextDefinition, limits: plan.limits,
       timeoutPolicy: plan.timeoutPolicy, stopPolicy: plan.stopPolicy,
       priorStage: plan.priorStage, trajectoryTelemetry: "codex-coder-trajectory/v2",
       contextExpansion: "none"
     } : {}), planHash,
+    ...(experimentKind === "inspection-instruction-validation" ? {
+      condition: slot.condition,
+      coderPrefixHash: plan.conditionDefinitions?.[slot.condition ?? "control"].coderPrefixHash
+    } : {}),
     harnessRoot: realpathSync(input.harnessRoot), planPath: realpathSync(input.planPath),
     priorCompositionPath: realpathSync(input.priorCompositionPath),
     experimentId: plan.experimentId, taskHash: plan.taskHash, sourceHead: plan.sourceHead,
@@ -253,13 +293,24 @@ export function validateProspectiveMatrixAuthority(authority: ProspectiveMatrixA
         "The runtime will deterministically capture git diff and derive expectedContentHash from its pre-agent manifest.",
         "Bounded coder context follows:"
       ].join("\n");
-      gate(prefix === coderPrefix, "coder payload binding");
+      if (authority.experimentKind === "inspection-instruction-validation") {
+        const condition = authority.condition;
+        gate(condition === "control" || condition === "inspection-instruction",
+          "inspection condition");
+        const treatmentPrefix = coderPrefix.replace("Bounded coder context follows:",
+          `${INSPECTION_INSTRUCTION}\nBounded coder context follows:`);
+        const expectedPrefix = condition === "control" ? coderPrefix : treatmentPrefix;
+        gate(prefix === expectedPrefix && sha(prefix) === authority.coderPrefixHash,
+          "inspection coder prompt binding");
+      } else gate(prefix === coderPrefix, "coder payload binding");
     }
   }
   const expected = createProspectiveMatrixAuthority({ harnessRoot: input.harnessRoot,
     sourceRepositoryPath: input.sourceRepositoryPath, planPath: input.planPath,
     priorCompositionPath: input.priorCompositionPath, sessionId: authority.sessionId,
     slot: { position: authority.position, replicate: authority.replicate,
-      variant: authority.variant }, providerStage: authority.providerStage });
+      variant: authority.variant,
+      ...(authority.experimentKind === "inspection-instruction-validation" ?
+        { condition: authority.condition } : {}) }, providerStage: authority.providerStage });
   gate(same(authority, expected), "authority differs from plan");
 }

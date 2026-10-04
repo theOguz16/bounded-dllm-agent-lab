@@ -68,6 +68,7 @@ type RecordedAgentRun = Readonly<{
 }>;
 
 export type CodexCommandDependencies = Readonly<{
+  coderPromptCondition?: "control" | "inspection-instruction";
   adapter?: AgentAdapter;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
@@ -650,6 +651,7 @@ export async function codexCommand(
   const recordedRuns: RecordedAgentRun[] = [];
   const adapter = recordingAdapter(dependencies.adapter ?? new CodexAgentAdapter(), recordedRuns);
   const bridge = createCodexBoundedProvider({
+    coderPromptCondition: dependencies.coderPromptCondition,
     repositoryPath: repositoryRoot,
     sourceSnapshotHash,
     allowedChangeFiles: allowFiles,

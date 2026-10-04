@@ -644,10 +644,14 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     let coderFailureCode = null;
     const adapter = makeJournalScopedAdapter(adapterFactory(), slot.runtimeIdentity,
       call => { budget.recordInvocation(slot.observationId); calls.push(call); }, null,
-      (mode, result) => { if (mode === 'coder') {
-        trajectory = result?.trajectoryTelemetry ?? null;
-        coderFailureCode = result?.failureCode ?? null;
-      } },
+      (mode, result, durationMs) => {
+        const call = calls.find(item => item.mode === mode);
+        if (call) call.durationMs = durationMs;
+        if (mode === 'coder') {
+          trajectory = result?.trajectoryTelemetry ?? null;
+          coderFailureCode = result?.failureCode ?? null;
+        }
+      },
       slot.matrixAuthorities ? null :
         { planner: slot.taskBPlannerAuthority, coder: slot.taskBCoderAuthority },
       slot.matrixAuthorities ?? null);
@@ -656,6 +660,7 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const started = Date.now();
     const commandResult = await codexCommand({ task: plan.task.providerPrompt,
       allowFiles: FILES }, source.root, { adapter, model: MODEL, reasoningEffort: REASONING,
+      ...(slot.condition === undefined ? {} : { coderPromptCondition: slot.condition }),
       runTask: async input => {
         gate(input.taskContext?.objective === plan.task.providerPrompt &&
           same(input.allowedChangeFiles, FILES) &&
@@ -680,14 +685,17 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
         ? traces.reduce((sum, item) => sum + item.estimatedTokens, 0) : null,
       bytes: null
     } : null;
-    if (slot.matrixAuthorities?.planner?.experimentKind === 'trajectory-v2-validation')
+    if (['trajectory-v2-validation', 'inspection-instruction-validation']
+      .includes(slot.matrixAuthorities?.planner?.experimentKind))
       gate(expansion?.requested === 0 && expansion.granted === 0,
         'telemetry-validation context expansion');
     const normalized = createExperimentResult({ config, runId: slot.observationId,
       selectedContext: selected, codexOutput: { ...commandResult.output,
         validation: { ...commandResult.output.validation, behavior: behavior.status } },
       validationProfile: 'existing_function_bug_fix', validationSpecificationHash,
-      expansion, providerCalls: calls.length, timing: { taskElapsedMs: Date.now() - started } });
+      expansion, providerCalls: calls.length, timing: { taskElapsedMs: Date.now() - started,
+        plannerElapsedMs: calls.find(call => call.mode === 'planner')?.durationMs ?? null,
+        coderElapsedMs: calls.find(call => call.mode === 'coder')?.durationMs ?? null } });
     let annotated = null;
     let trajectorySummary = null;
     try {
@@ -703,6 +711,39 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
       baseClassification, coderFailureCode, mutation(bounded) !== null, behavior.status) :
       baseClassification;
     const telemetryValidity = summarizeTelemetryValidity(annotated, plan.telemetryValidity);
+    const initialEstimate = normalized.usage.coder?.initialPromptEstimatedTokens ?? null;
+    const inspectionMeasurement = slot.condition === undefined ? null : {
+      schemaVersion: 'task-b-inspection-measurement/v1',
+      condition: slot.condition, replicate: slot.replicate,
+      candidateProduced: mutation(bounded) !== null,
+      scope: normalized.outcome.validation.scope,
+      build: behavior.results?.build ?? null,
+      typecheck: behavior.results?.typecheck ?? null,
+      tests: behavior.results?.tests ?? null,
+      moduleLoad: behavior.moduleLoaded ?? false,
+      behaviorOracle: behavior.status,
+      aggregateInput: normalized.usage.aggregate.input,
+      aggregateCachedInput: normalized.usage.aggregate.cached,
+      aggregateUncachedInput: normalized.usage.aggregate.uncached,
+      aggregateOutput: normalized.usage.aggregate.output,
+      plannerInput: normalized.usage.planner?.cumulativeInputTokens ?? null,
+      coderInput: normalized.usage.coder?.cumulativeInputTokens ?? null,
+      coderCachedInput: normalized.usage.coder?.cumulativeCachedInputTokens ?? null,
+      coderUncachedInput: normalized.usage.coder?.cumulativeUncachedInputTokens ?? null,
+      coderOutput: normalized.usage.coder?.outputTokens ?? null,
+      coderAmplification: Number.isSafeInteger(initialEstimate) && initialEstimate > 0 &&
+        Number.isSafeInteger(normalized.usage.coder?.cumulativeInputTokens) ?
+        normalized.usage.coder.cumulativeInputTokens / initialEstimate : null,
+      coderToolCount: normalized.usage.coder?.toolCallCount ?? null,
+      totalElapsedMs: normalized.timing.taskElapsedMs,
+      plannerDurationMs: normalized.timing.plannerElapsedMs,
+      coderDurationMs: normalized.timing.coderElapsedMs,
+      contextExpansionRequested: expansion?.requested ?? null,
+      contextExpansionGranted: expansion?.granted ?? null,
+      coderPromptHash: calls.find(call => call.mode === 'coder')?.promptHash ?? null,
+      coderPrefixHash: slot.matrixAuthorities.coder.coderPrefixHash,
+      trajectorySchemaVersion: annotated?.schemaVersion ?? null
+    };
     persistTaskBCellArtifacts(cellRoot, slot, { sourceStatus: { before, after }, calls,
       rawProduct: commandResult.output, rawBounded: bounded,
       selection: { files: selected.selectedFiles,
@@ -711,6 +752,12 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
       normalized, trajectory: annotated, summary: { ...slot, classification,
       providerStageInvocations: calls.length, behavior: behavior.status,
       trajectorySummary, coderShareOfInput, sourceHead: SOURCE, taskHash: TASK_HASH,
+      ...(inspectionMeasurement === null ? {} : { inspectionMeasurement }),
+      ...(slot.condition === undefined ? {} : {
+        condition: slot.condition,
+        coderPrefixHash: slot.matrixAuthorities.coder.coderPrefixHash,
+        coderPromptHash: calls.find(call => call.mode === 'coder')?.promptHash ?? null,
+        trajectorySchemaVersion: annotated?.schemaVersion ?? null }),
       ...(telemetryValidity === undefined ? {} : { telemetryValidity }),
       ...(slot.matrixAuthorities ? { replacementEligible: false,
         stopClassification: classification, coderFailureCode } : {}) } });

@@ -364,12 +364,14 @@ export function makeJournalScopedAdapter(adapter, identity, onCall, plannedAutho
       const runId = `matrix.${identity}.${request.runId}`;
       requireValue(runId.length <= 159, 'journal run ID too long');
       onCall?.({ mode: request.mode, runId, model: request.model,
-        reasoning: request.reasoningEffort });
+        reasoning: request.reasoningEffort, promptHash: sha(request.task) });
+      const stageStarted = Date.now();
       const result = await adapter.run({ ...request, runId,
         ...(plannedAuthority === null ? {} : { plannedExperiment: plannedAuthority }),
         ...(taskBAuthorities === null ? {} : { plannedTaskB: taskBAuthorities[request.mode] }),
         ...(matrixAuthorities === null ? {} : { plannedMatrix: matrixAuthorities[request.mode] }) });
-      try { onResult?.(request.mode, result); } catch { /* Telemetry cannot alter provider result. */ }
+      try { onResult?.(request.mode, result, Date.now() - stageStarted); }
+      catch { /* Telemetry cannot alter provider result. */ }
       return result;
     } };
 }

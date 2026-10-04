@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { HARNESS_ROOT, MODEL, expectedJournalPath, outputParent,
   prepareSourceCheckout, verifyHarnessIdentity, verifySourceIdentity,
   verifyJournal } from './live-runtime.mjs';
-import { executeTaskBObservation, loadTaskBPlan, taskBMayContinue,
+import { executeTaskBObservation, loadTaskBPlan, selectTaskBContext, taskBMayContinue,
   verifyTaskBRemoteAuthority } from './task-b-live.mjs';
 import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { executeOrderedMatrix } from './matrix-executor.mjs';
@@ -19,6 +19,7 @@ import { inspectProspectiveMatrixJournal } from
 const PLAN_PATH = path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/task-b-stage2-plan.json');
 const SESSION_STAGE2 = /^task-b-stage2-[a-z0-9-]{8,24}$/;
 const SESSION_TELEMETRY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
+const SESSION_INSPECTION = /^task-b-inspection-[a-z0-9-]{8,24}$/;
 const hash = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function gate(ok, reason) { if (!ok) throw Error(`task_b_stage2_invalid: ${reason}`); }
@@ -28,7 +29,8 @@ function stage1CompositionPath(evidenceRoot) {
 }
 function verifyUnusedSession(sessionId, home, journalPath, experimentKind) {
   const pattern = experimentKind === 'trajectory-v2-validation' ?
-    SESSION_TELEMETRY : SESSION_STAGE2;
+    SESSION_TELEMETRY : experimentKind === 'inspection-instruction-validation' ?
+      SESSION_INSPECTION : SESSION_STAGE2;
   gate(pattern.test(sessionId) && !/--|-$/.test(sessionId), 'matrix session ID');
   gate(!fs.existsSync(path.join(outputParent(home), sessionId)), 'session directory reused');
   const db = new DatabaseSync(journalPath, { readOnly: true });
@@ -56,7 +58,9 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     plan.model === taskPlan.task.model && plan.reasoning === taskPlan.task.reasoning &&
     same(plan.orderedSlots.map(slot => `${slot.replicate}:${slot.variant}`),
       experimentKind === 'trajectory-v2-validation' ?
-        ['A:current', 'A:minimal', 'B:expanded'] : taskPlan.order),
+        ['A:current', 'A:minimal', 'B:expanded'] :
+        experimentKind === 'inspection-instruction-validation' ?
+          ['A:current', 'B:current', 'B:current', 'A:current'] : taskPlan.order),
   'Task B frozen definition drift');
   const continuationRoot = path.dirname(compositionPath);
   const authority = JSON.parse(fs.readFileSync(path.join(continuationRoot,
@@ -71,7 +75,17 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     const source = await prepareSourceCheckout(temporary, plan);
     verifySourceIdentity(source.root, plan.sourceHead);
     const journal = verifyJournal(journalPath, source.root, home);
+    const inspectionContext = experimentKind === 'inspection-instruction-validation' ?
+      (await selectTaskBContext(taskPlan, 'current', source.root)).selected : null;
+    const contextBinding = inspectionContext === null ? null : {
+      files: inspectionContext.selectedFiles, bytes: inspectionContext.selectedBytes,
+      hashes: inspectionContext.initialEvidence.map(item =>
+        ({ path: item.path, sha256: item.contentHash })) };
     const slots = plan.orderedSlots.map(slot => {
+      if (experimentKind === 'inspection-instruction-validation')
+        gate(slot.variant === 'current' &&
+          ['control', 'inspection-instruction'].includes(slot.condition),
+        'inspection slot context or condition');
       const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: source.root,
         planPath, priorCompositionPath: compositionPath, sessionId, slot };
       const planner = createProspectiveMatrixAuthority({ ...input, providerStage: 'planner' });
@@ -89,6 +103,7 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     return { schemaVersion: 'task-b-stage2-preflight/v1', ok: true, sessionId,
       planHash, experimentKind, trajectoryTelemetry, contextExpansion,
       taskHash: plan.taskHash, sourceHead: plan.sourceHead,
+      ...(contextBinding === null ? {} : { contextBinding }),
       harnessHead, remoteHead, remoteHeadVerified: verifyRemote, slots, journal, priorCompositionHash: plan.priorStage.compositionHash,
       providerModelCalls: 0, journalMutations: 0, liveSessionsCreated: 0 };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }

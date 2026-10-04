@@ -54,6 +54,7 @@ const PLANNER_PROMPT_LINES = Object.freeze([
 export const CODEX_BOUNDED_PLANNER_PROMPT_HASH = hashCanonicalJson(PLANNER_PROMPT_LINES);
 
 export type CodexBoundedProviderOptions = Readonly<{
+  coderPromptCondition?: "control" | "inspection-instruction";
   repositoryPath: string;
   sourceSnapshotHash: string;
   allowedChangeFiles: readonly string[];
@@ -431,8 +432,12 @@ export function plannerPrompt(context: PlannerMinimalityProviderContext): string
 
 export function coderPrompt(
   context: CoderProviderContext,
-  allowedChangeFiles: readonly string[]
+  allowedChangeFiles: readonly string[],
+  condition: "control" | "inspection-instruction" = "control"
 ): string {
+  if (condition !== "control" && condition !== "inspection-instruction") {
+    throw new CodexBoundedProviderError("Unrecognized coder prompt condition.");
+  }
   return [
     "You are the bounded Codex coder inside an isolated disposable Git workspace.",
     "Edit files in the working directory directly. Do not return a patch or WorkspaceMutation JSON.",
@@ -440,6 +445,9 @@ export function coderPrompt(
     `Only these paths may be modified: ${JSON.stringify(allowedChangeFiles)}.`,
     "Do not configure remotes or object alternates. Do not access the source repository.",
     "The runtime will deterministically capture git diff and derive expectedContentHash from its pre-agent manifest.",
+    ...(condition === "inspection-instruction" ? [
+      "Minimize redundant repository inspection. When practical, batch related read-only inspections, do not reread files that have not changed since your previous inspection, and begin implementation once you have sufficient evidence to make the required change. Do not skip any required build, typecheck, test, scope, or validation checks."
+    ] : []),
     "Bounded coder context follows:",
     JSON.stringify(context)
   ].join("\n");
@@ -537,7 +545,7 @@ export function createCodexBoundedProvider(
         }).slice("sha256:".length, "sha256:".length + 32)}`,
         agentId: options.adapter.agentId,
         workingDirectory: workspace.workspacePath,
-        task: coderPrompt(context, changeAllowedFiles),
+        task: coderPrompt(context, changeAllowedFiles, input.coderPromptCondition ?? "control"),
         model: options.model,
         reasoningEffort: options.coderReasoningEffort,
         mode: "coder",
