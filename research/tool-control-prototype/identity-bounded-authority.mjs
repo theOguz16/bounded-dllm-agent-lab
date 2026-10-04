@@ -91,6 +91,10 @@ export async function loadAndValidatePlan({ requireCommitted = false } = {}) {
       'research/tool-control-prototype/identity-bounded-authority.mjs',
       'research/tool-control-prototype/identity-bounded-observation.mjs',
       'research/tool-control-prototype/identity-bounded-executor.mjs',
+      'research/tool-control-prototype/rollout-telemetry.mjs',
+      'research/tool-control-prototype/rollout-telemetry.test.mjs',
+      'research/tool-control-prototype/rollout-telemetry-preflight.mjs',
+      'research/tool-control-prototype/README.md',
       'research/tool-control-prototype/read-file.test.mjs',
       'research/tool-control-prototype/identity-bounded-authority.test.mjs'];
     const implementationHashes=Object.fromEntries(await Promise.all(implementationPaths.map(

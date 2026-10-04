@@ -21,3 +21,45 @@ Telemetry is prospective and bounded: tool name, sequence, mode, path request me
 Verdict **B — supported, but proof requires one small additional integration layer**. Pass the exact stdio MCP server configuration through the isolated research worker for both conditions, bind the approved checkout and path, and collect bounded MCP telemetry and trusted original evidence without changing validation. This is research plumbing, not a production tool framework. No extra model summarization call is needed; MCP results return within the normal coder turn. Local stdio needs no network service, but the final sandbox behavior must be checked in a future controlled run.
 
 Moving a read from native shell to MCP changes the coder's tool choice and result envelope, so a native-shell baseline would confound result representation with tool ownership. The first future A/B should compare **repository-owned identity mode** with **repository-owned bounded mode**, using the same task, model, planner, initial context, MCP tool, native-tool availability, validation, and zero retry/repair/apply policy. Vary only the `read_file` representation. Track Candidate correctness, coder/cached/uncached input, amplification, tool count, elapsed time, original bytes, and coder-visible bytes. Verify actual MCP usage and record any shell bypass; do not treat a bypassed call as evidence of result compaction. No such A/B is run here.
+
+## Prospective response telemetry
+
+The research executor now derives research-mcp-response-trajectory/v1 from its
+local Codex session rollout after a completed MCP observation. This is additive
+to the existing bounded SDK observation and trajectory v2 model. The collector
+keeps only ordered response usage, phase enums, ambient/system/developer block
+hashes and byte counts, separate runtime-context hashes, the supplied prompt
+hash and byte count, MCP result hashes and byte counts, and a canonical SHA-256
+of those metadata fields. An allowlist validator runs before persistence.
+Raw prompts, source, MCP result text, provider request bodies, stdout, and
+stderr are never copied into the telemetry object.
+
+A response's usage record belongs to the model response that generated its
+preceding assistant items. The MCP result may appear in the rollout before the
+usage record for the response that requested it. The collector therefore
+samples result delivery at the first assistant item of each response. It uses
+pre_tool_discovery, tool_call_generation, post_tool_result, and
+additional_post_tool_result only when the local record supports the label;
+otherwise it uses unknown_pre_tool or unknown_post_tool. Missing usage stays
+null. The first post-result response in the completed ABBA runs is response 3.
+
+The ambient identity is SHA-256 of the ordered JSON array of block sequence,
+role, type, UTF-8 byte count, and individual SHA-256 hashes. The canonical
+trajectory fingerprint hashes an ordered JSON metadata object containing the
+ambient identity, runtime-context identity, supplied-prompt identity, normalized
+tool configuration identity, MCP-use instruction hash, ordered result metadata,
+response-phase usage records, and pre-MCP assistant-activity flag. Checkout
+paths are excluded from the normalized tool configuration identity and captured
+as hashed runtime context instead. Different runtime paths are flagged as benign;
+an ambient identity mismatch in a nominal pair is
+AMBIENT_INSTRUCTION_DRIFT, an experiment-confounding flag.
+
+The SDK turn.completed stream itself exposes only final turn usage. Local
+rollout token_usage_record entries expose per-model-response usage, but
+provider HTTP request bodies, cache keys, segmentation, cached-prefix
+boundaries, and token attribution by content component remain unavailable.
+This telemetry is observational and does not change MCP result behavior or
+authorize another live run. Run the focused test with
+node research/tool-control-prototype/rollout-telemetry.test.mjs and the
+historical, read-only replay with
+node research/tool-control-prototype/rollout-telemetry-preflight.mjs.

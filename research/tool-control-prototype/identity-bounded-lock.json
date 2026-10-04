@@ -8,9 +8,13 @@
   "implementationHashes": {
     "research/tool-control-prototype/read-file.mjs": "sha256:ed3d6b6429ef743c0cbba59cf14fba3db900af7e60289807d899f6e826603f76",
     "research/tool-control-prototype/identity-integration-config.mjs": "sha256:2aeb155784c2eb26ab5d60825bca0ab245eb3e0601c58cc00bc8866b13ca5aaf",
-    "research/tool-control-prototype/identity-bounded-authority.mjs": "sha256:6a730232fa74cfb45ace9244442d86cefe163aa3a9795aa9b8a1fc8831237e3b",
+    "research/tool-control-prototype/identity-bounded-authority.mjs": "sha256:849fb9e6f99549cb5043cb4474a9d878508ed2db3089f7573346ebe534077543",
     "research/tool-control-prototype/identity-bounded-observation.mjs": "sha256:b728c355ac74ca109dcb8379831162636aa52f54cf0bc59df3d8b347b8bc2ea0",
-    "research/tool-control-prototype/identity-bounded-executor.mjs": "sha256:4c54a9907474355af967da23deab3e345847d588b52bd4ed9aac119e3cae3c4e",
+    "research/tool-control-prototype/identity-bounded-executor.mjs": "sha256:06a5957c883dc7a53d7a37c272d950efc4f88a4e4343c2bbcc952ed048efd2b9",
+    "research/tool-control-prototype/rollout-telemetry.mjs": "sha256:2029003c4e47b05f14d0feee6ca7b5413a597fca65eafeee08dd43fa5fde258d",
+    "research/tool-control-prototype/rollout-telemetry.test.mjs": "sha256:646915ea16fdf3d83e10282affe7d2b033fdfe75177f14c8e04c73139c647f1e",
+    "research/tool-control-prototype/rollout-telemetry-preflight.mjs": "sha256:14adb2cad75654388f01dbca65b2bdcb5954f71c95352dd7313e3a9fcdc2a999",
+    "research/tool-control-prototype/README.md": "sha256:84efae48c4684fe14ae48909e43a6e4571ec841b51c56d00782588914e317690",
     "research/tool-control-prototype/read-file.test.mjs": "sha256:e7b14b1ddd34b74855b84b800a0a6c293ebb63b746630c9cdf30e6569e776cff",
     "research/tool-control-prototype/identity-bounded-authority.test.mjs": "sha256:516bf4aaf08680968a160890aa5c3c231217d1c1d660bc7e221dd44602826b38"
   }
