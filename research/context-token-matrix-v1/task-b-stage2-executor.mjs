@@ -11,7 +11,8 @@ import { executeTaskBObservation, loadTaskBPlan, selectTaskBContext, taskBMayCon
 import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { executeOrderedMatrix } from './matrix-executor.mjs';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
-import { createProspectiveMatrixAuthority, readProspectiveMatrixPlan } from
+import { createProspectiveMatrixAuthority, readProspectiveMatrixPlan,
+  TASK_B_INSPECTION_MIRROR_PLAN_HASH } from
   '../../dist/packages/integrations/src/prospective-matrix-authority.js';
 import { inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
@@ -60,7 +61,9 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
       experimentKind === 'trajectory-v2-validation' ?
         ['A:current', 'A:minimal', 'B:expanded'] :
         experimentKind === 'inspection-instruction-validation' ?
-          ['A:current', 'B:current', 'B:current', 'A:current'] : taskPlan.order),
+          planHash === TASK_B_INSPECTION_MIRROR_PLAN_HASH ?
+            ['B:current', 'A:current', 'A:current', 'B:current'] :
+            ['A:current', 'B:current', 'B:current', 'A:current'] : taskPlan.order),
   'Task B frozen definition drift');
   const continuationRoot = path.dirname(compositionPath);
   const authority = JSON.parse(fs.readFileSync(path.join(continuationRoot,

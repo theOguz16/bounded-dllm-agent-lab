@@ -7,6 +7,7 @@ import { hashCanonicalJson } from "../../product-runtime/src/agent-event-ledger.
 export const TASK_B_STAGE2_PLAN_HASH = "sha256:62ea975ceac53992dbd30b578099d152958d99704606267aa668a7bf10e1a7b1";
 export const TASK_B_TRAJECTORY_V2_PLAN_HASH = "sha256:581395330b7d77c49b1645013894eb39fe883275977f5a218123825e2a42590a";
 export const TASK_B_INSPECTION_PLAN_HASH = "sha256:2ef01b65dc466891a8db4a6b59902ec0f96d7bc4c33bc1e2ecc918a172f1072d";
+export const TASK_B_INSPECTION_MIRROR_PLAN_HASH = "sha256:b2c358cfbcfca996f9c19a780283bf1b08fb205a6298a48bcb09c190de40285a";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const TASK = "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0";
 const ORDER = ["A:minimal", "A:current", "A:expanded", "B:current", "B:expanded", "B:minimal"];
@@ -143,18 +144,22 @@ export function validateTaskBTrajectoryV2Plan(value: unknown, harnessRoot: strin
   return plan;
 }
 /** The prompt experiment is a separate exact plan; historical plan bytes remain untouched. */
-export function validateTaskBInspectionPlan(value: unknown, harnessRoot: string): MatrixPlan {
+export function validateTaskBInspectionPlan(value: unknown, harnessRoot: string,
+  mirrored = false): MatrixPlan {
   const plan = validateMatrixPlan(value);
   const frozenBytes = readFileSync(path.join(realpathSync(harnessRoot),
     "research/context-token-matrix-v1/task-b-stage2-plan.json"));
   gate(sha(frozenBytes) === TASK_B_STAGE2_PLAN_HASH, "frozen Task B Stage 2 provenance");
   const frozen = validateFrozenTaskBStage2Plan(JSON.parse(frozenBytes.toString("utf8")));
-  const orderedSlots: MatrixSlot[] = ["control", "inspection-instruction",
-    "inspection-instruction", "control"].map((condition, index) => ({
+  const conditions = mirrored ? ["inspection-instruction", "control",
+    "control", "inspection-instruction"] : ["control", "inspection-instruction",
+    "inspection-instruction", "control"];
+  const orderedSlots: MatrixSlot[] = conditions.map((condition, index) => ({
       position: index + 1, replicate: condition === "control" ? "A" : "B",
       variant: "current", condition: condition as MatrixSlot["condition"] }));
   const expected = { ...frozen,
-    experimentId: "codex-event-ordering-inspection-instruction", orderedSlots,
+    experimentId: mirrored ? "codex-event-ordering-inspection-instruction-mirrored" :
+      "codex-event-ordering-inspection-instruction", orderedSlots,
     conditionDefinitions: { control: { instruction: null, coderPrefixHash: CONTROL_PREFIX_HASH },
       "inspection-instruction": { instruction: INSPECTION_INSTRUCTION,
         coderPrefixHash: TREATMENT_PREFIX_HASH } },
@@ -175,13 +180,14 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   const planBytes = readFileSync(planPath);
   const planHash = sha(planBytes);
   gate([TASK_B_STAGE2_PLAN_HASH, TASK_B_TRAJECTORY_V2_PLAN_HASH,
-    TASK_B_INSPECTION_PLAN_HASH].includes(planHash),
+    TASK_B_INSPECTION_PLAN_HASH, TASK_B_INSPECTION_MIRROR_PLAN_HASH].includes(planHash),
     "approved plan hash");
   const trajectory = planHash === TASK_B_TRAJECTORY_V2_PLAN_HASH;
-  const inspection = planHash === TASK_B_INSPECTION_PLAN_HASH;
+  const mirroredInspection = planHash === TASK_B_INSPECTION_MIRROR_PLAN_HASH;
+  const inspection = planHash === TASK_B_INSPECTION_PLAN_HASH || mirroredInspection;
   const plan = trajectory ? validateTaskBTrajectoryV2Plan(
     JSON.parse(planBytes.toString("utf8")), harness) : inspection ? validateTaskBInspectionPlan(
-    JSON.parse(planBytes.toString("utf8")), harness) :
+    JSON.parse(planBytes.toString("utf8")), harness, mirroredInspection) :
     validateFrozenTaskBStage2Plan(JSON.parse(planBytes.toString("utf8")));
   for (const [file, hash] of [[plan.contextDefinition.definitionPath,
       plan.contextDefinition.definitionHash], [plan.contextDefinition.calibrationPath,
