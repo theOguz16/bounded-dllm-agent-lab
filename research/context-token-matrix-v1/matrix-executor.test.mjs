@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { executeOrderedMatrix } from './matrix-executor.mjs';
+import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { createSourceCheckout, expectedJournalPath, HARNESS_ROOT, outputParent } from './live-runtime.mjs';
 import { capturePlannerRequest, classifyTaskBStage2Timeout, loadTaskBPlan,
   taskBMayContinue } from './task-b-live.mjs';
@@ -93,6 +95,65 @@ assert.equal(telemetryRead.trajectoryTelemetry, 'codex-coder-trajectory/v2');
 assert.equal(telemetryRead.contextExpansion, 'none');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-stage2-offline-test-'));
 try {
+  const realJournal = expectedJournalPath();
+  const realJournalBefore = sha(fs.readFileSync(realJournal));
+  const canonicalEvidenceRoot = outputParent();
+  const suffix = 'task-b-stage1-20260930-suffix-r1';
+  const r7 = 'task-b-stage1-20260930-r7';
+  const suffixRoot = path.join(canonicalEvidenceRoot, suffix);
+  const savedComposition = JSON.parse(fs.readFileSync(compositionPath, 'utf8'));
+  const compositionBefore = sha(fs.readFileSync(compositionPath));
+  const continuationAuthority = JSON.parse(fs.readFileSync(path.join(suffixRoot,
+    'continuation-authority.json'), 'utf8'));
+  const isolatedJournal = path.join(temp, 'isolated-journal.sqlite');
+  fs.copyFileSync(realJournal, isolatedJournal);
+  const snapshotBefore = sha(fs.readFileSync(isolatedJournal));
+  const compose = (root, journalFile) => composeTaskBStage1({
+    authority: continuationAuthority, sessionRoot: path.join(root, suffix),
+    journalPath: journalFile, resultParent: root });
+  assert.deepEqual(compose(canonicalEvidenceRoot, isolatedJournal), savedComposition);
+  assert.equal(sha(fs.readFileSync(isolatedJournal)), snapshotBefore);
+  const historicalFiles = [];
+  const collect = (root, relative = '') => {
+    for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
+      const next = path.join(relative, entry.name);
+      if (entry.isDirectory()) collect(root, next);
+      else if (entry.isFile()) historicalFiles.push(next);
+    }
+  };
+  for (const session of [r7, suffix]) collect(canonicalEvidenceRoot, session);
+  const historicalHashes = historicalFiles.map(file => sha(fs.readFileSync(
+    path.join(canonicalEvidenceRoot, file))));
+  const relocatedRoot = path.join(temp, 'relocated-evidence');
+  fs.mkdirSync(relocatedRoot);
+  for (const session of [r7, suffix]) fs.cpSync(
+    path.join(canonicalEvidenceRoot, session), path.join(relocatedRoot, session),
+    { recursive: true });
+  assert.deepEqual(historicalFiles.map(file => sha(fs.readFileSync(
+    path.join(relocatedRoot, file)))), historicalHashes);
+  assert.notDeepEqual(compose(relocatedRoot, isolatedJournal), savedComposition);
+  assert.equal(sha(fs.readFileSync(path.join(relocatedRoot, suffix,
+    'stage1-composition.json'))), compositionBefore);
+  const badJournal = path.join(temp, 'bad-journal.sqlite');
+  fs.copyFileSync(isolatedJournal, badJournal);
+  const badDb = new DatabaseSync(badJournal);
+  const historicalRunId = savedComposition.rows[0].journal[0].runId;
+  badDb.prepare('UPDATE provider_invocations SET record_hash=? WHERE run_id=?')
+    .run('sha256:' + 'f'.repeat(64), historicalRunId);
+  badDb.close();
+  assert.throws(() => compose(canonicalEvidenceRoot, badJournal), /journal binding/);
+  assert.equal(sha(fs.readFileSync(realJournal)), realJournalBefore);
+  assert.deepEqual(historicalFiles.map(file => sha(fs.readFileSync(
+    path.join(canonicalEvidenceRoot, file)))), historicalHashes);
+  assert.equal(readProspectiveMatrixPlan(HARNESS_ROOT, telemetryPath,
+    compositionPath).experimentKind, 'trajectory-v2-validation');
+  const realDb = new DatabaseSync(realJournal, { readOnly: true });
+  try {
+    assert.equal(realDb.prepare('SELECT count(*) AS n FROM provider_invocations WHERE run_id LIKE ?')
+      .get('matrix.task-b-telemetry-offline-fixture.%').n, 0);
+  } finally { realDb.close(); }
+  assert.equal(fs.existsSync(path.join(canonicalEvidenceRoot,
+    'task-b-telemetry-offline-fixture')), false);
   const alternatePath = path.join(temp, 'alternate-plan.json');
   fs.copyFileSync(telemetryPath, alternatePath);
   assert.equal(readProspectiveMatrixPlan(HARNESS_ROOT, alternatePath,
@@ -126,6 +187,16 @@ try {
   fs.writeFileSync(corrupt, fs.readFileSync(compositionPath));
   fs.appendFileSync(corrupt, '\n');
   assert.throws(() => readProspectiveMatrixPlan(HARNESS_ROOT, planPath, corrupt));
+  assert.throws(() => readProspectiveMatrixPlan(HARNESS_ROOT, telemetryPath, corrupt));
+  const telemetryAuthorities = telemetryPlan.orderedSlots.map(slot =>
+    createProspectiveMatrixAuthority({ harnessRoot: HARNESS_ROOT,
+      sourceRepositoryPath: source, planPath: telemetryPath,
+      priorCompositionPath: compositionPath,
+      sessionId: 'task-b-telemetry-offline-fixture', slot,
+      providerStage: 'planner' }));
+  assert.equal(telemetryAuthorities.length, 3);
+  assert.deepEqual(inspectProspectiveMatrixJournal(isolatedJournal, source,
+    telemetryAuthorities).map(item => item.authorized), [true, true, true]);
   const journalPath = path.join(temp, 'journal.sqlite');
   fs.copyFileSync(expectedJournalPath(), journalPath);
   // Replay the state before prospective Stage 2. Prior Stage 1 evidence remains intact.

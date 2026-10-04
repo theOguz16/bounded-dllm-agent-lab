@@ -22,8 +22,8 @@ const SESSION_TELEMETRY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
 const hash = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function gate(ok, reason) { if (!ok) throw Error(`task_b_stage2_invalid: ${reason}`); }
-function stage1CompositionPath(home) {
-  return path.join(outputParent(home), 'task-b-stage1-20260930-suffix-r1',
+function stage1CompositionPath(evidenceRoot) {
+  return path.join(evidenceRoot, 'task-b-stage1-20260930-suffix-r1',
     'stage1-composition.json');
 }
 function verifyUnusedSession(sessionId, home, journalPath, experimentKind) {
@@ -41,13 +41,13 @@ function verifyUnusedSession(sessionId, home, journalPath, experimentKind) {
 /** Read-only against the durable journal and live-session directory. Only temporary checkouts are created. */
 export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
   journalPath = expectedJournalPath(home), verifyRemote = true,
-  planPath = PLAN_PATH } = {}) {
+  planPath = PLAN_PATH, evidenceRoot = outputParent(home) } = {}) {
   gate(typeof sessionId === 'string', 'matrix session ID');
   const harnessHead = verifyHarnessIdentity();
   const remoteHead = verifyRemote
     ? (await verifyTaskBRemoteAuthority(harnessHead)).finalRemoteSha : null;
   if (verifyRemote) gate(remoteHead === harnessHead, 'remote HEAD mismatch');
-  const compositionPath = stage1CompositionPath(home);
+  const compositionPath = stage1CompositionPath(evidenceRoot);
   const { plan, planHash, experimentKind, trajectoryTelemetry,
     contextExpansion } = readProspectiveMatrixPlan(HARNESS_ROOT, planPath, compositionPath);
   verifyUnusedSession(sessionId, home, journalPath, experimentKind);
@@ -62,7 +62,7 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
   const authority = JSON.parse(fs.readFileSync(path.join(continuationRoot,
     'continuation-authority.json'), 'utf8'));
   const recomposed = composeTaskBStage1({ authority, sessionRoot: continuationRoot,
-    journalPath, resultParent: outputParent(home) });
+    journalPath, resultParent: evidenceRoot });
   gate(same(recomposed, JSON.parse(fs.readFileSync(compositionPath, 'utf8'))) &&
     hash(fs.readFileSync(compositionPath)) === plan.priorStage.compositionHash,
   'Stage 1 composition integrity');
@@ -101,7 +101,7 @@ export async function runTaskBStage2({ sessionId, planPath = PLAN_PATH,
     process.env.BOUNDED_CODEX_MODEL === MODEL, 'journal/model environment');
   const preflight = await preflightTaskBStage2({ sessionId, planPath });
   const { plan, planHash } = readProspectiveMatrixPlan(HARNESS_ROOT, planPath,
-    stage1CompositionPath(os.homedir()));
+    stage1CompositionPath(outputParent()));
   const taskPlan = loadTaskBPlan();
   return executeOrderedMatrix({ plan, planHash, sessionId, slots: preflight.slots,
     sessionRoot: path.join(outputParent(), sessionId),
