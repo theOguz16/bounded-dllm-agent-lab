@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "task-b-tool-output-perturbation-proposal/v1",
+  "status": "offline_frozen_design_not_live_authority",
+  "liveExecutionAuthorized": false,
+  "task": {
+    "taskId": "R4",
+    "taskHash": "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0",
+    "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+    "contextVariant": "current",
+    "contextSelector": "selectTaskBContext/v1",
+    "contextDefinitionHash": "sha256:361bfb3fc8f50df2f89eb71435f137eaa3a7dd9bff0acf1958427013688f2d8c",
+    "contextCalibrationHash": "sha256:d78c88c4185ff878120494db09832fb586e7dd80c89de519f52becd5c8230183",
+    "selectedContextBytes": 24668,
+    "selectedContextFiles": [
+      "packages/integrations/src/codex-event-parser.ts",
+      "scripts/smoke/codex-event-parser-smoke.cjs"
+    ],
+    "model": "gpt-5.6-luna",
+    "reasoning": "medium"
+  },
+  "independentVariable": "coder_facing_successful_exploratory_command_output_only",
+  "conditions": {
+    "control": { "transform": "identity" },
+    "compact-medium": { "transform": "safe_head_tail_v1", "headBytes": 4096, "tailBytes": 4096 },
+    "compact-strong": { "transform": "safe_head_tail_v1", "headBytes": 1024, "tailBytes": 1024 }
+  },
+  "orderedSlots": [
+    { "position": 1, "replicate": "A", "variant": "current", "condition": "control" },
+    { "position": 2, "replicate": "A", "variant": "current", "condition": "compact-medium" },
+    { "position": 3, "replicate": "A", "variant": "current", "condition": "compact-strong" },
+    { "position": 4, "replicate": "B", "variant": "current", "condition": "compact-strong" },
+    { "position": 5, "replicate": "B", "variant": "current", "condition": "compact-medium" },
+    { "position": 6, "replicate": "B", "variant": "current", "condition": "control" }
+  ],
+  "eligibility": {
+    "exactCommands": ["npm run build", "npm run typecheck", "npm test"],
+    "requiredExitCode": 0,
+    "requiredResultKind": "coder_exploratory_command_execution",
+    "diagnosticOrReferencePresent": "fail_closed_no_transform",
+    "unknownOrAmbiguousResult": "fail_closed_no_transform"
+  },
+  "excludedCategories": [
+    "source_or_file_reads",
+    "search_or_listing_output",
+    "git_status_or_diff_output",
+    "failed_commands_and_errors",
+    "authority_or_security_data",
+    "trusted_validation_or_oracle_output",
+    "journal_and_final_research_evidence"
+  ],
+  "transformSemantics": {
+    "encoding": "utf8_codepoint_safe",
+    "onlyIfOriginalExceedsHeadPlusTailAndMarker": true,
+    "middleMarker": "bounded_omission_with_original_byte_count_and_sha256",
+    "preserveExitCodeAndCommandIdentity": true,
+    "originalBytesRetainedOnlyInMemoryForTrustedProcessing": true,
+    "persistOriginalPayload": false,
+    "persistBoundedCountsAndHashes": true
+  },
+  "limits": {
+    "observations": 6,
+    "providerStagesPerObservation": 2,
+    "providerModelCallsMaximum": 12,
+    "retry": 0,
+    "repair": 0,
+    "apply": 0,
+    "contextExpansion": "none",
+    "timeoutOverride": false
+  },
+  "minimumEstablishedPerturbationPerCompactObservation": {
+    "absoluteBytes": 1024,
+    "fractionOfAllCoderCommandResultBytes": 0.1
+  },
+  "requiredMetrics": [
+    "condition", "replicate", "candidateProduced", "scope", "build", "typecheck",
+    "tests", "moduleLoad", "independentBehaviorOracle", "coderInput", "coderCachedInput",
+    "coderUncachedInput", "coderOutput", "plannerInput", "aggregateInput",
+    "coderAmplification", "elapsedMs", "plannerDurationMs", "coderDurationMs",
+    "toolCount", "originalToolResultBytes", "carriedToolResultBytes",
+    "byteReduction", "byteReductionPercent", "contextExpansionRequests",
+    "contextExpansionGrants", "timeoutOrFailureClassification"
+  ],
+  "stopConditions": [
+    "infrastructure_or_ambiguous_outcome",
+    "unverified_coder_facing_intervention",
+    "authority_or_journal_invariant_failure",
+    "candidate_or_oracle_evidence_missing",
+    "candidate_correctness_failure",
+    "condition_payload_eligibility_ambiguous",
+    "required_exact_usage_unavailable",
+    "compact_condition_without_measurable_byte_reduction"
+  ],
+  "preAuthorizationGates": [
+    "prove_real_pre_model_tool_output_interception_with_fake_events",
+    "prove_trusted_validation_receives_original_unmodified_evidence",
+    "prove_original_content_is_not_durably_retained_by_research_or_sdk_session",
+    "pin_and_authorize_new_condition_bound_plan_hash",
+    "offline_validate_six_slots_and_journal_replay_protection"
+  ]
+}
