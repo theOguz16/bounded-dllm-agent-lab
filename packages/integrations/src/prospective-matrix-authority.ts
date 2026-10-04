@@ -3,17 +3,24 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { hashCanonicalJson } from "../../product-runtime/src/agent-event-ledger.js";
+import { TASK_B_NAVIGATION_ANALYZER_HASH, TASK_B_NAVIGATION_BLOCK,
+  TASK_B_NAVIGATION_BYTES, TASK_B_NAVIGATION_CONTEXT_HASH,
+  TASK_B_NAVIGATION_ESTIMATED_TOKENS, TASK_B_NAVIGATION_FILES,
+  TASK_B_NAVIGATION_HASH, TASK_B_NAVIGATION_RULE } from "./task-b-navigation-cue.js";
 
 export const TASK_B_STAGE2_PLAN_HASH = "sha256:62ea975ceac53992dbd30b578099d152958d99704606267aa668a7bf10e1a7b1";
 export const TASK_B_TRAJECTORY_V2_PLAN_HASH = "sha256:581395330b7d77c49b1645013894eb39fe883275977f5a218123825e2a42590a";
 export const TASK_B_INSPECTION_PLAN_HASH = "sha256:2ef01b65dc466891a8db4a6b59902ec0f96d7bc4c33bc1e2ecc918a172f1072d";
 export const TASK_B_INSPECTION_MIRROR_PLAN_HASH = "sha256:b2c358cfbcfca996f9c19a780283bf1b08fb205a6298a48bcb09c190de40285a";
+export const TASK_B_NAVIGATION_PLAN_HASH = "sha256:fe8383016b01e9005515564c0a236ea442fc82451220f2b30d60652b3333da0d";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const TASK = "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0";
 const ORDER = ["A:minimal", "A:current", "A:expanded", "B:current", "B:expanded", "B:minimal"];
 const SESSION_STAGE2 = /^task-b-stage2-[a-z0-9-]{8,24}$/;
 const SESSION_TRAJECTORY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
 const SESSION_INSPECTION = /^task-b-inspection-[a-z0-9-]{8,24}$/;
+const SESSION_NAVIGATION = /^task-b-navigation-[a-z0-9-]{8,24}$/;
+const NAVIGATION_PREFIX_HASH = "sha256:f2a29076eb17300362ce044a2002cea35f2e50f8bb59b9b2fe1e990fe21d9b14";
 const TELEMETRY_ORDER = ["A:current", "A:minimal", "B:expanded"];
 const INSPECTION_INSTRUCTION = "Minimize redundant repository inspection. When practical, batch related read-only inspections, do not reread files that have not changed since your previous inspection, and begin implementation once you have sufficient evidence to make the required change. Do not skip any required build, typecheck, test, scope, or validation checks.";
 const CONTROL_PREFIX_HASH = "sha256:4603fac5b703f785b570f75b9e06804f68c5e354fdb2ef6876533024fe7888e2";
@@ -30,13 +37,17 @@ function git(root: string, args: string[]): string {
   return result.stdout.trim();
 }
 export type MatrixSlot = Readonly<{ position: number; replicate: "A" | "B"; variant: "minimal" | "current" | "expanded";
-  condition?: "control" | "inspection-instruction" }>;
+  condition?: "control" | "inspection-instruction" | "navigation-cue" }>;
 export type MatrixPlan = Readonly<{
   schemaVersion: "context-matrix-execution-plan/v1";
   experimentId: string; taskId: string; taskHash: string; stage: "stage2"; sourceHead: string;
   orderedSlots: readonly MatrixSlot[];
   conditionDefinitions?: Readonly<{ control: Readonly<{ instruction: null; coderPrefixHash: string }>;
     "inspection-instruction": Readonly<{ instruction: string; coderPrefixHash: string }> }>;
+  navigationCue?: Readonly<{ projectionRule: string; analyzerHash: string;
+    selectedContextHash: string; selectedFileHashes: readonly { path: string; sha256: string; bytes: number }[];
+    cueHash: string; cueBytes: number; cueEstimatedTokens: number; placement: string;
+    controlPrefixHash: string; navigationPrefixHash: string }>;
   contextDefinition: Readonly<{ selector: string; definitionPath: string; definitionHash: string;
     calibrationPath: string; calibrationHash: string }>;
   model: string; reasoning: string;
@@ -51,7 +62,7 @@ export type MatrixPlan = Readonly<{
 }>;
 export type ProspectiveMatrixAuthority = Readonly<{
   version: "prospective-matrix-stage/v1" | "prospective-matrix-stage/v2";
-  experimentKind?: "trajectory-v2-validation" | "inspection-instruction-validation";
+  experimentKind?: "trajectory-v2-validation" | "inspection-instruction-validation" | "navigation-cue-validation";
   planSchemaVersion?: MatrixPlan["schemaVersion"]; taskId?: string;
   contextDefinition?: MatrixPlan["contextDefinition"];
   limits?: MatrixPlan["limits"]; timeoutPolicy?: MatrixPlan["timeoutPolicy"];
@@ -60,6 +71,9 @@ export type ProspectiveMatrixAuthority = Readonly<{
   contextExpansion?: "none";
   condition?: MatrixSlot["condition"];
   coderPrefixHash?: string;
+  navigationCueHash?: string; navigationCueBytes?: number;
+  analyzerProvenanceHash?: string; selectedContextHash?: string;
+  navigationProjectionRule?: string; navigationPlacement?: string;
   planHash: string; experimentId: string;
   harnessRoot: string; planPath: string; priorCompositionPath: string;
   taskHash: string; sourceHead: string; stage: "stage2"; sessionId: string;
@@ -168,9 +182,34 @@ export function validateTaskBInspectionPlan(value: unknown, harnessRoot: string,
   gate(hashCanonicalJson(plan) === hashCanonicalJson(expected), "inspection plan identity or policy");
   return plan;
 }
+/** A separate exact plan whose cue is derived from existing Task B analyzer facts. */
+export function validateTaskBNavigationPlan(value: unknown, harnessRoot: string): MatrixPlan {
+  const plan = validateMatrixPlan(value);
+  const frozenBytes = readFileSync(path.join(realpathSync(harnessRoot),
+    "research/context-token-matrix-v1/task-b-stage2-plan.json"));
+  gate(sha(frozenBytes) === TASK_B_STAGE2_PLAN_HASH, "frozen Task B Stage 2 provenance");
+  const frozen = validateFrozenTaskBStage2Plan(JSON.parse(frozenBytes.toString("utf8")));
+  const orderedSlots: MatrixSlot[] = ["control", "navigation-cue", "navigation-cue", "control"]
+    .map((condition, index) => ({ position: index + 1,
+      replicate: condition === "control" ? "A" : "B", variant: "current",
+      condition: condition as MatrixSlot["condition"] }));
+  const expected = { ...frozen, experimentId: "codex-event-ordering-navigation-cue",
+    orderedSlots, navigationCue: {
+      projectionRule: TASK_B_NAVIGATION_RULE, analyzerHash: TASK_B_NAVIGATION_ANALYZER_HASH,
+      selectedContextHash: TASK_B_NAVIGATION_CONTEXT_HASH,
+      selectedFileHashes: TASK_B_NAVIGATION_FILES,
+      cueHash: TASK_B_NAVIGATION_HASH, cueBytes: TASK_B_NAVIGATION_BYTES,
+      cueEstimatedTokens: TASK_B_NAVIGATION_ESTIMATED_TOKENS,
+      placement: "line-before-bounded-coder-context/v1",
+      controlPrefixHash: CONTROL_PREFIX_HASH, navigationPrefixHash: NAVIGATION_PREFIX_HASH
+    }, limits: { maxObservations: 4, maxProviderStages: 8,
+      maxProviderStagesPerObservation: 2 } };
+  gate(hashCanonicalJson(plan) === hashCanonicalJson(expected), "navigation plan identity or policy");
+  return plan;
+}
 export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   priorCompositionPath: string): Readonly<{ plan: MatrixPlan; planHash: string;
-    experimentKind: "context-matrix-stage2" | "trajectory-v2-validation" | "inspection-instruction-validation";
+    experimentKind: "context-matrix-stage2" | "trajectory-v2-validation" | "inspection-instruction-validation" | "navigation-cue-validation";
     trajectoryTelemetry: "codex-coder-trajectory/v1" | "codex-coder-trajectory/v2";
     contextExpansion: "existing-bounded-request" | "none" }> {
   const harness = realpathSync(harnessRoot);
@@ -180,12 +219,15 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   const planBytes = readFileSync(planPath);
   const planHash = sha(planBytes);
   gate([TASK_B_STAGE2_PLAN_HASH, TASK_B_TRAJECTORY_V2_PLAN_HASH,
-    TASK_B_INSPECTION_PLAN_HASH, TASK_B_INSPECTION_MIRROR_PLAN_HASH].includes(planHash),
+    TASK_B_INSPECTION_PLAN_HASH, TASK_B_INSPECTION_MIRROR_PLAN_HASH,
+    TASK_B_NAVIGATION_PLAN_HASH].includes(planHash),
     "approved plan hash");
   const trajectory = planHash === TASK_B_TRAJECTORY_V2_PLAN_HASH;
   const mirroredInspection = planHash === TASK_B_INSPECTION_MIRROR_PLAN_HASH;
   const inspection = planHash === TASK_B_INSPECTION_PLAN_HASH || mirroredInspection;
-  const plan = trajectory ? validateTaskBTrajectoryV2Plan(
+  const navigation = planHash === TASK_B_NAVIGATION_PLAN_HASH;
+  const plan = navigation ? validateTaskBNavigationPlan(
+    JSON.parse(planBytes.toString("utf8")), harness) : trajectory ? validateTaskBTrajectoryV2Plan(
     JSON.parse(planBytes.toString("utf8")), harness) : inspection ? validateTaskBInspectionPlan(
     JSON.parse(planBytes.toString("utf8")), harness, mirroredInspection) :
     validateFrozenTaskBStage2Plan(JSON.parse(planBytes.toString("utf8")));
@@ -208,10 +250,11 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
     composition.rows[2].classification === "production_product_timeout" &&
     composition.rows[2].replacementEligible !== true, "prior composition evidence");
   return { plan, planHash,
-    experimentKind: trajectory ? "trajectory-v2-validation" : inspection ?
+    experimentKind: navigation ? "navigation-cue-validation" : trajectory ?
+      "trajectory-v2-validation" : inspection ?
       "inspection-instruction-validation" : "context-matrix-stage2",
-    trajectoryTelemetry: trajectory || inspection ? "codex-coder-trajectory/v2" : "codex-coder-trajectory/v1",
-    contextExpansion: trajectory || inspection ? "none" : "existing-bounded-request" };
+    trajectoryTelemetry: trajectory || inspection || navigation ? "codex-coder-trajectory/v2" : "codex-coder-trajectory/v1",
+    contextExpansion: trajectory || inspection || navigation ? "none" : "existing-bounded-request" };
 }
 export function createProspectiveMatrixAuthority(input: Readonly<{
   harnessRoot: string; sourceRepositoryPath: string; planPath: string;
@@ -221,7 +264,8 @@ export function createProspectiveMatrixAuthority(input: Readonly<{
   const { plan, planHash, experimentKind } = readProspectiveMatrixPlan(input.harnessRoot,
     input.planPath, input.priorCompositionPath);
   gate((experimentKind === "trajectory-v2-validation" ? SESSION_TRAJECTORY :
-    experimentKind === "inspection-instruction-validation" ? SESSION_INSPECTION : SESSION_STAGE2)
+    experimentKind === "inspection-instruction-validation" ? SESSION_INSPECTION :
+    experimentKind === "navigation-cue-validation" ? SESSION_NAVIGATION : SESSION_STAGE2)
     .test(input.sessionId) && !/--|-$/.test(input.sessionId), "matrix session identity");
   gate(git(input.harnessRoot, ["branch", "--show-current"]) === "research/context-token-matrix-v1" &&
     git(input.sourceRepositoryPath, ["rev-parse", "HEAD"]) === SOURCE, "checkout identity");
@@ -244,7 +288,19 @@ export function createProspectiveMatrixAuthority(input: Readonly<{
     } : {}), planHash,
     ...(experimentKind === "inspection-instruction-validation" ? {
       condition: slot.condition,
-      coderPrefixHash: plan.conditionDefinitions?.[slot.condition ?? "control"].coderPrefixHash
+      coderPrefixHash: slot.condition === "inspection-instruction" ?
+        plan.conditionDefinitions!["inspection-instruction"].coderPrefixHash :
+        plan.conditionDefinitions!.control.coderPrefixHash
+    } : {}),
+    ...(experimentKind === "navigation-cue-validation" ? {
+      condition: slot.condition,
+      coderPrefixHash: slot.condition === "control" ? CONTROL_PREFIX_HASH : NAVIGATION_PREFIX_HASH,
+      navigationCueHash: plan.navigationCue!.cueHash,
+      navigationCueBytes: plan.navigationCue!.cueBytes,
+      analyzerProvenanceHash: plan.navigationCue!.analyzerHash,
+      selectedContextHash: plan.navigationCue!.selectedContextHash,
+      navigationProjectionRule: plan.navigationCue!.projectionRule,
+      navigationPlacement: plan.navigationCue!.placement
     } : {}),
     harnessRoot: realpathSync(input.harnessRoot), planPath: realpathSync(input.planPath),
     priorCompositionPath: realpathSync(input.priorCompositionPath),
@@ -308,6 +364,18 @@ export function validateProspectiveMatrixAuthority(authority: ProspectiveMatrixA
         const expectedPrefix = condition === "control" ? coderPrefix : treatmentPrefix;
         gate(prefix === expectedPrefix && sha(prefix) === authority.coderPrefixHash,
           "inspection coder prompt binding");
+      } else if (authority.experimentKind === "navigation-cue-validation") {
+        gate(authority.condition === "control" || authority.condition === "navigation-cue",
+          "navigation condition");
+        const expectedPrefix = authority.condition === "control" ? coderPrefix :
+          coderPrefix.replace("Bounded coder context follows:",
+            `${TASK_B_NAVIGATION_BLOCK}\nBounded coder context follows:`);
+        gate(prefix === expectedPrefix && sha(prefix) === authority.coderPrefixHash &&
+          authority.navigationCueHash === TASK_B_NAVIGATION_HASH &&
+          authority.analyzerProvenanceHash === TASK_B_NAVIGATION_ANALYZER_HASH &&
+          authority.selectedContextHash === TASK_B_NAVIGATION_CONTEXT_HASH &&
+          authority.navigationPlacement === "line-before-bounded-coder-context/v1",
+        "navigation coder prompt binding");
       } else gate(prefix === coderPrefix, "coder payload binding");
     }
   }
@@ -316,7 +384,7 @@ export function validateProspectiveMatrixAuthority(authority: ProspectiveMatrixA
     priorCompositionPath: input.priorCompositionPath, sessionId: authority.sessionId,
     slot: { position: authority.position, replicate: authority.replicate,
       variant: authority.variant,
-      ...(authority.experimentKind === "inspection-instruction-validation" ?
-        { condition: authority.condition } : {}) }, providerStage: authority.providerStage });
+      ...(["inspection-instruction-validation", "navigation-cue-validation"]
+        .includes(authority.experimentKind ?? "") ? { condition: authority.condition } : {}) }, providerStage: authority.providerStage });
   gate(same(authority, expected), "authority differs from plan");
 }

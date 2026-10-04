@@ -28,6 +28,7 @@ import type {
 } from "../../../../packages/integrations/src/agent-adapter.js";
 import { captureAgentMutations } from "../../../../packages/integrations/src/agent-mutation-capture.js";
 import { CodexAgentAdapter } from "../../../../packages/integrations/src/codex-agent-adapter.js";
+import { TASK_B_NAVIGATION_BLOCK } from "../../../../packages/integrations/src/task-b-navigation-cue.js";
 import { createDisposableAgentWorkspace } from "../../../../packages/integrations/src/disposable-agent-workspace.js";
 
 export const CODEX_BOUNDED_PROVIDER_VERSION = "codex-bounded-provider/v1" as const;
@@ -54,7 +55,8 @@ const PLANNER_PROMPT_LINES = Object.freeze([
 export const CODEX_BOUNDED_PLANNER_PROMPT_HASH = hashCanonicalJson(PLANNER_PROMPT_LINES);
 
 export type CodexBoundedProviderOptions = Readonly<{
-  coderPromptCondition?: "control" | "inspection-instruction";
+  coderPromptCondition?: "control" | "inspection-instruction" | "navigation-cue";
+  navigationCueBlock?: string;
   repositoryPath: string;
   sourceSnapshotHash: string;
   allowedChangeFiles: readonly string[];
@@ -362,6 +364,7 @@ function validateOptions(options: CodexBoundedProviderOptions): Required<Pick<
   plannerReasoningEffort: AgentReasoningEffort;
   coderReasoningEffort: AgentReasoningEffort;
   providerTimeoutMs: number;
+  navigationCueBlock: string | undefined;
 }> {
   if (typeof options.repositoryPath !== "string" || options.repositoryPath.length === 0) {
     throw new CodexBoundedProviderError("repositoryPath is required.");
@@ -410,7 +413,13 @@ function validateOptions(options: CodexBoundedProviderOptions): Required<Pick<
   ) {
     throw new CodexBoundedProviderError("providerTimeoutMs is outside its permitted range.");
   }
+  if (options.coderPromptCondition === "navigation-cue" ?
+    options.navigationCueBlock !== TASK_B_NAVIGATION_BLOCK :
+    options.navigationCueBlock !== undefined) {
+    throw new CodexBoundedProviderError("Navigation cue differs from frozen condition.");
+  }
   return Object.freeze({
+    navigationCueBlock: options.navigationCueBlock,
     repositoryPath: options.repositoryPath,
     sourceSnapshotHash: options.sourceSnapshotHash,
     allowedChangeFiles: Object.freeze(allowedChangeFiles),
@@ -433,10 +442,15 @@ export function plannerPrompt(context: PlannerMinimalityProviderContext): string
 export function coderPrompt(
   context: CoderProviderContext,
   allowedChangeFiles: readonly string[],
-  condition: "control" | "inspection-instruction" = "control"
+  condition: "control" | "inspection-instruction" | "navigation-cue" = "control",
+  navigationCueBlock?: string
 ): string {
-  if (condition !== "control" && condition !== "inspection-instruction") {
+  if (!["control", "inspection-instruction", "navigation-cue"].includes(condition)) {
     throw new CodexBoundedProviderError("Unrecognized coder prompt condition.");
+  }
+  if (condition === "navigation-cue" ? navigationCueBlock !== TASK_B_NAVIGATION_BLOCK :
+    navigationCueBlock !== undefined) {
+    throw new CodexBoundedProviderError("Navigation cue differs from frozen condition.");
   }
   return [
     "You are the bounded Codex coder inside an isolated disposable Git workspace.",
@@ -448,6 +462,7 @@ export function coderPrompt(
     ...(condition === "inspection-instruction" ? [
       "Minimize redundant repository inspection. When practical, batch related read-only inspections, do not reread files that have not changed since your previous inspection, and begin implementation once you have sufficient evidence to make the required change. Do not skip any required build, typecheck, test, scope, or validation checks."
     ] : []),
+    ...(condition === "navigation-cue" ? [TASK_B_NAVIGATION_BLOCK] : []),
     "Bounded coder context follows:",
     JSON.stringify(context)
   ].join("\n");
@@ -545,7 +560,8 @@ export function createCodexBoundedProvider(
         }).slice("sha256:".length, "sha256:".length + 32)}`,
         agentId: options.adapter.agentId,
         workingDirectory: workspace.workspacePath,
-        task: coderPrompt(context, changeAllowedFiles, input.coderPromptCondition ?? "control"),
+        task: coderPrompt(context, changeAllowedFiles, input.coderPromptCondition ?? "control",
+          options.navigationCueBlock),
         model: options.model,
         reasoningEffort: options.coderReasoningEffort,
         mode: "coder",

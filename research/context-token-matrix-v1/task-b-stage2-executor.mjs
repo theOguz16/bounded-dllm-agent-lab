@@ -12,15 +12,18 @@ import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { executeOrderedMatrix } from './matrix-executor.mjs';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
 import { createProspectiveMatrixAuthority, readProspectiveMatrixPlan,
-  TASK_B_INSPECTION_MIRROR_PLAN_HASH } from
+  TASK_B_INSPECTION_MIRROR_PLAN_HASH, TASK_B_NAVIGATION_PLAN_HASH } from
   '../../dist/packages/integrations/src/prospective-matrix-authority.js';
 import { inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
+import { deriveTaskBNavigationCue } from
+  '../../dist/packages/integrations/src/task-b-navigation-cue.js';
 
 const PLAN_PATH = path.join(HARNESS_ROOT, 'research/context-token-matrix-v1/task-b-stage2-plan.json');
 const SESSION_STAGE2 = /^task-b-stage2-[a-z0-9-]{8,24}$/;
 const SESSION_TELEMETRY = /^task-b-telemetry-[a-z0-9-]{8,24}$/;
 const SESSION_INSPECTION = /^task-b-inspection-[a-z0-9-]{8,24}$/;
+const SESSION_NAVIGATION = /^task-b-navigation-[a-z0-9-]{8,24}$/;
 const hash = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function gate(ok, reason) { if (!ok) throw Error(`task_b_stage2_invalid: ${reason}`); }
@@ -31,7 +34,8 @@ function stage1CompositionPath(evidenceRoot) {
 function verifyUnusedSession(sessionId, home, journalPath, experimentKind) {
   const pattern = experimentKind === 'trajectory-v2-validation' ?
     SESSION_TELEMETRY : experimentKind === 'inspection-instruction-validation' ?
-      SESSION_INSPECTION : SESSION_STAGE2;
+      SESSION_INSPECTION : experimentKind === 'navigation-cue-validation' ?
+        SESSION_NAVIGATION : SESSION_STAGE2;
   gate(pattern.test(sessionId) && !/--|-$/.test(sessionId), 'matrix session ID');
   gate(!fs.existsSync(path.join(outputParent(home), sessionId)), 'session directory reused');
   const db = new DatabaseSync(journalPath, { readOnly: true });
@@ -63,6 +67,9 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
         experimentKind === 'inspection-instruction-validation' ?
           planHash === TASK_B_INSPECTION_MIRROR_PLAN_HASH ?
             ['B:current', 'A:current', 'A:current', 'B:current'] :
+            ['A:current', 'B:current', 'B:current', 'A:current'] :
+        experimentKind === 'navigation-cue-validation' &&
+          planHash === TASK_B_NAVIGATION_PLAN_HASH ?
             ['A:current', 'B:current', 'B:current', 'A:current'] : taskPlan.order),
   'Task B frozen definition drift');
   const continuationRoot = path.dirname(compositionPath);
@@ -78,17 +85,26 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
     const source = await prepareSourceCheckout(temporary, plan);
     verifySourceIdentity(source.root, plan.sourceHead);
     const journal = verifyJournal(journalPath, source.root, home);
-    const inspectionContext = experimentKind === 'inspection-instruction-validation' ?
+    const selectedContext = ['inspection-instruction-validation', 'navigation-cue-validation']
+      .includes(experimentKind) ?
       (await selectTaskBContext(taskPlan, 'current', source.root)).selected : null;
-    const contextBinding = inspectionContext === null ? null : {
-      files: inspectionContext.selectedFiles, bytes: inspectionContext.selectedBytes,
-      hashes: inspectionContext.initialEvidence.map(item =>
+    const contextBinding = selectedContext === null ? null : {
+      files: selectedContext.selectedFiles, bytes: selectedContext.selectedBytes,
+      hashes: selectedContext.initialEvidence.map(item =>
         ({ path: item.path, sha256: item.contentHash })) };
+    const navigationCue = experimentKind === 'navigation-cue-validation' ?
+      deriveTaskBNavigationCue(selectedContext.intelligence,
+        selectedContext.initialEvidence.map(item => ({ path: item.path,
+          sha256: item.contentHash, bytes: item.byteLength }))) : null;
     const slots = plan.orderedSlots.map(slot => {
       if (experimentKind === 'inspection-instruction-validation')
         gate(slot.variant === 'current' &&
           ['control', 'inspection-instruction'].includes(slot.condition),
         'inspection slot context or condition');
+      if (experimentKind === 'navigation-cue-validation')
+        gate(slot.variant === 'current' &&
+          ['control', 'navigation-cue'].includes(slot.condition),
+        'navigation slot context or condition');
       const input = { harnessRoot: HARNESS_ROOT, sourceRepositoryPath: source.root,
         planPath, priorCompositionPath: compositionPath, sessionId, slot };
       const planner = createProspectiveMatrixAuthority({ ...input, providerStage: 'planner' });
@@ -107,6 +123,12 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
       planHash, experimentKind, trajectoryTelemetry, contextExpansion,
       taskHash: plan.taskHash, sourceHead: plan.sourceHead,
       ...(contextBinding === null ? {} : { contextBinding }),
+      ...(navigationCue === null ? {} : { navigationCue: {
+        hash: navigationCue.cueHash, bytes: navigationCue.bytes,
+        estimatedTokens: navigationCue.estimatedTokens,
+        analyzerHash: navigationCue.analyzerHash, contextHash: navigationCue.contextHash,
+        projectionRule: navigationCue.projectionRule,
+        symbolInventory: navigationCue.symbolInventory } }),
       harnessHead, remoteHead, remoteHeadVerified: verifyRemote, slots, journal, priorCompositionHash: plan.priorStage.compositionHash,
       providerModelCalls: 0, journalMutations: 0, liveSessionsCreated: 0 };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }

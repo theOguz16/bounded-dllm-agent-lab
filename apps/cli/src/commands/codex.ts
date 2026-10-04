@@ -68,7 +68,8 @@ type RecordedAgentRun = Readonly<{
 }>;
 
 export type CodexCommandDependencies = Readonly<{
-  coderPromptCondition?: "control" | "inspection-instruction";
+  coderPromptCondition?: "control" | "inspection-instruction" | "navigation-cue";
+  navigationCueBlock?: string;
   adapter?: AgentAdapter;
   model?: string;
   reasoningEffort?: AgentReasoningEffort;
@@ -652,6 +653,7 @@ export async function codexCommand(
   const adapter = recordingAdapter(dependencies.adapter ?? new CodexAgentAdapter(), recordedRuns);
   const bridge = createCodexBoundedProvider({
     coderPromptCondition: dependencies.coderPromptCondition,
+    navigationCueBlock: dependencies.navigationCueBlock,
     repositoryPath: repositoryRoot,
     sourceSnapshotHash,
     allowedChangeFiles: allowFiles,

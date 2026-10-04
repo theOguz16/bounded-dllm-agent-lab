@@ -15,6 +15,7 @@ import { codexCommand, validationSpecification } from '../../dist/apps/cli/src/c
 import { runBoundedTask } from '../../dist/packages/product-runtime/src/run-bounded-task.js';
 import { runContainerizedWorkspaceExecution, GIT_VALIDATION_CONTAINER_IMAGE } from '../../dist/packages/product-runtime/src/containerized-workspace-execution-runner.js';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
+import { deriveTaskBNavigationCue } from '../../dist/packages/integrations/src/task-b-navigation-cue.js';
 import { createTaskBInvocationAuthority } from '../../dist/packages/integrations/src/task-b-invocation-authority.js';
 import { inspectTaskBExperimentJournal } from '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { parseTextFileUpdates, validateUpdateSource } from '../../dist/packages/product-runtime/src/text-file-update-contract.js';
@@ -639,6 +640,15 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const source = await prepareSourceCheckout(temporary, plan.proposal);
     const before = verifySourceIdentity(source.root, SOURCE);
     const { config, selected } = await selectTaskBContext(plan, slot.variant, source.root);
+    const navigationCue = slot.matrixAuthorities?.planner?.experimentKind ===
+      'navigation-cue-validation' ? deriveTaskBNavigationCue(selected.intelligence,
+        selected.initialEvidence.map(item => ({ path: item.path,
+          sha256: item.contentHash, bytes: item.byteLength }))) : null;
+    if (navigationCue !== null)
+      gate(navigationCue.cueHash === slot.matrixAuthorities.planner.navigationCueHash &&
+        navigationCue.analyzerHash === selected.intelligenceHash &&
+        navigationCue.contextHash === slot.matrixAuthorities.planner.selectedContextHash,
+      'navigation cue provenance');
     const calls = [];
     let trajectory = null;
     let coderFailureCode = null;
@@ -661,6 +671,7 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const commandResult = await codexCommand({ task: plan.task.providerPrompt,
       allowFiles: FILES }, source.root, { adapter, model: MODEL, reasoningEffort: REASONING,
       ...(slot.condition === undefined ? {} : { coderPromptCondition: slot.condition }),
+      ...(slot.condition === 'navigation-cue' ? { navigationCueBlock: navigationCue.block } : {}),
       runTask: async input => {
         gate(input.taskContext?.objective === plan.task.providerPrompt &&
           same(input.allowedChangeFiles, FILES) &&
@@ -685,7 +696,8 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
         ? traces.reduce((sum, item) => sum + item.estimatedTokens, 0) : null,
       bytes: null
     } : null;
-    if (['trajectory-v2-validation', 'inspection-instruction-validation']
+    if (['trajectory-v2-validation', 'inspection-instruction-validation',
+      'navigation-cue-validation']
       .includes(slot.matrixAuthorities?.planner?.experimentKind))
       gate(expansion?.requested === 0 && expansion.granted === 0,
         'telemetry-validation context expansion');
@@ -744,6 +756,14 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
       coderPrefixHash: slot.matrixAuthorities.coder.coderPrefixHash,
       trajectorySchemaVersion: annotated?.schemaVersion ?? null
     };
+    const navigationMeasurement = navigationCue === null ? null : {
+      ...inspectionMeasurement, schemaVersion: 'task-b-navigation-measurement/v1',
+      cueHash: navigationCue.cueHash, cueBytes: navigationCue.bytes,
+      cueEstimatedTokens: navigationCue.estimatedTokens,
+      analyzerProvenanceHash: navigationCue.analyzerHash,
+      selectedContextHash: navigationCue.contextHash,
+      projectionRule: navigationCue.projectionRule
+    };
     persistTaskBCellArtifacts(cellRoot, slot, { sourceStatus: { before, after }, calls,
       rawProduct: commandResult.output, rawBounded: bounded,
       selection: { files: selected.selectedFiles,
@@ -752,7 +772,9 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
       normalized, trajectory: annotated, summary: { ...slot, classification,
       providerStageInvocations: calls.length, behavior: behavior.status,
       trajectorySummary, coderShareOfInput, sourceHead: SOURCE, taskHash: TASK_HASH,
-      ...(inspectionMeasurement === null ? {} : { inspectionMeasurement }),
+      ...(inspectionMeasurement === null || navigationMeasurement !== null ? {} :
+        { inspectionMeasurement }),
+      ...(navigationMeasurement === null ? {} : { navigationMeasurement }),
       ...(slot.condition === undefined ? {} : {
         condition: slot.condition,
         coderPrefixHash: slot.matrixAuthorities.coder.coderPrefixHash,

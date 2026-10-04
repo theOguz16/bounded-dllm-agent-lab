@@ -122,6 +122,8 @@ export async function selectResearchContext({ config, repositoryPath, seedFiles,
     selectedFileCount: selected.length,
     selectedBytes: selected.reduce((sum, e) => sum + e.byteLength, 0),
     intelligenceHash: intelligence.intelligenceHash,
+    // Runtime-only facts from the analyzer pass already required for both conditions.
+    intelligence,
     policyOverrides: Object.freeze({ initialEvidence: Object.freeze(selected),
       hardTotalBudgetTokens: config.effectivePolicy.hardTotalBudgetTokens,
       reservedOutputTokens: config.effectivePolicy.reservedOutputTokens }) });
