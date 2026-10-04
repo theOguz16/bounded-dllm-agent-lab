@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "research-mcp-result-representation-plan/v1",
+  "experimentId": "known-events-owned-read-identity-vs-bounded-v1",
+  "stage": "initial-abba",
+  "task": {
+    "id": "codex-event-parser-known-events-inspection",
+    "provenance": "successful-instructed-identity-smoke",
+    "prompt": "Inspect the approved source file packages/integrations/src/codex-event-parser.ts. Report the exact first and fifth strings in its KNOWN_EVENTS set. Return only a JSON object with keys firstEvent and fifthEvent. Read the file before answering.",
+    "promptHash": "sha256:9dc85d8c5fda75cbb6e4c342592de21488f74a41bad16b7ddf8a8ed8055851d0",
+    "candidateKind": "final-answer",
+    "sourceFile": "packages/integrations/src/codex-event-parser.ts",
+    "sourceHash": "sha256:2fddcdcc6f346d5db20eafc6843551b64a9cb52e5fd25e94f6968be0472b2f12",
+    "validation": {
+      "kind": "read-only-known-events-oracle/v1",
+      "scope": "pinned-checkout-unchanged",
+      "build": "not-applicable",
+      "typecheck": "not-applicable",
+      "tests": "not-applicable",
+      "moduleLoad": "not-applicable",
+      "behaviorOracle": "exact-first-and-fifth-KNOWN_EVENTS-from-pinned-source"
+    },
+    "validationHash": "sha256:be885eb15eb5c2b2b5776623ef0a711920858c6a069547e7b6be8c257fa9bf4f"
+  },
+  "taskHash": "sha256:6fce72d245370052e91921722182ac7935b90e7a6076073ee422a302973c5196",
+  "sourceHead": "ea6bc88e947e78b7539b9614b4c637dd9b2805a9",
+  "model": "gpt-5.6-luna",
+  "reasoning": "medium",
+  "coderInstruction": "Use research_read_file.read_file for the requested source inspection.",
+  "coderInstructionHash": "sha256:e83a8262b010210eeddd61eeaf3900f6234d07268689f0c5e1f699988ade2c2d",
+  "fullCoderPromptHash": "sha256:28055046abef34727b09c56b3389a36c6b67b81747140a6dc0b9132263d54c5e",
+  "planner": {
+    "enabled": false,
+    "prompt": null,
+    "promptHash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stagesPerObservation": 0
+  },
+  "selectedInitialContext": {
+    "files": [],
+    "bytes": 0,
+    "hash": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  "tool": {
+    "server": "research_read_file",
+    "name": "read_file",
+    "arguments": {
+      "path": "packages/integrations/src/codex-event-parser.ts"
+    },
+    "approvalMode": "approve",
+    "sameNativeShellAvailability": true,
+    "sandboxMode": "read-only",
+    "networkAccessEnabled": false,
+    "webSearchMode": "disabled",
+    "configFileHash": "sha256:2aeb155784c2eb26ab5d60825bca0ab245eb3e0601c58cc00bc8866b13ca5aaf"
+  },
+  "transformation": {
+    "version": "edge-lines-128/v1",
+    "edgeLines": 128,
+    "marker": "... [omitted N lines] ...",
+    "hash": "sha256:abe7baa748c7b3f113f81fa5ba571b976f3b275ede0ecaf229d8743657a60386",
+    "serverFileHash": "sha256:ed3d6b6429ef743c0cbba59cf14fba3db900af7e60289807d899f6e826603f76"
+  },
+  "orderedSlots": [
+    {
+      "position": 1,
+      "slot": "A1",
+      "condition": "identity",
+      "replicate": 1,
+      "mode": "identity"
+    },
+    {
+      "position": 2,
+      "slot": "B1",
+      "condition": "bounded",
+      "replicate": 1,
+      "mode": "bounded"
+    },
+    {
+      "position": 3,
+      "slot": "B2",
+      "condition": "bounded",
+      "replicate": 2,
+      "mode": "bounded"
+    },
+    {
+      "position": 4,
+      "slot": "A2",
+      "condition": "identity",
+      "replicate": 2,
+      "mode": "identity"
+    }
+  ],
+  "limits": {
+    "maxObservations": 4,
+    "maxProviderStages": 4,
+    "maxProviderStagesPerObservation": 1,
+    "timeoutMs": 180000
+  },
+  "policy": {
+    "retry": 0,
+    "repair": 0,
+    "apply": 0,
+    "contextExpansion": 0
+  },
+  "comparison": {
+    "primary": "cumulative-coder-input",
+    "correctnessRequired": true,
+    "pairs": [
+      [
+        "B1",
+        "A1"
+      ],
+      [
+        "B2",
+        "A2"
+      ]
+    ],
+    "descriptiveOnly": true
+  },
+  "liveExecutionAuthorized": false,
+  "evidencePolicy": {
+    "persistRawSource": false,
+    "persistRawToolResult": false,
+    "persistRawPrompt": false,
+    "telemetry": "bounded-hashes-counts-and-outcomes-only"
+  },
+  "observationSchema": "research-mcp-representation-observation/v1"
+}

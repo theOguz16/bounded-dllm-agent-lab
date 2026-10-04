@@ -8,7 +8,12 @@ import { canonicalizeRepositoryRelativePath } from '../../dist/packages/product-
 
 const MAX_SOURCE_BYTES = 64 * 1024;
 const MAX_REQUEST_BYTES = 4096;
-const EDGE_LINES = 2;
+export const BOUNDED_TRANSFORMATION = Object.freeze({
+  version: 'edge-lines-128/v1', edgeLines: 128, marker: '... [omitted N lines] ...'
+});
+export const BOUNDED_TRANSFORMATION_HASH = `sha256:${createHash('sha256')
+  .update(JSON.stringify(BOUNDED_TRANSFORMATION)).digest('hex')}`;
+const EDGE_LINES = BOUNDED_TRANSFORMATION.edgeLines;
 const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const fail = code => { throw Error(`research_read_file_${code}`); };
 
@@ -62,7 +67,8 @@ export async function executeReadFile({ checkoutRoot, allowedPaths, mode, argume
     reductionPercent: bytes.length === 0 ? 0 :
       Math.round((bytes.length - coderBytes) / bytes.length * 10000) / 100,
     sourceHash: sha(bytes), resultHash: sha(coderText),
-    durationMs: Math.max(0, now() - started) });
+    transformationVersion: BOUNDED_TRANSFORMATION.version,
+    transformationHash: BOUNDED_TRANSFORMATION_HASH, durationMs: Math.max(0, now() - started) });
   return Object.freeze({
     trusted: Object.freeze({ path: relative, originalText: original,
       originalBytes: bytes.length, originalHash: sha(bytes) }),

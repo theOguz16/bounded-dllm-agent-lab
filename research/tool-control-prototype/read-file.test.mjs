@@ -7,12 +7,12 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { executeReadFile } from './read-file.mjs';
+import { executeReadFile, BOUNDED_TRANSFORMATION, BOUNDED_TRANSFORMATION_HASH } from './read-file.mjs';
 
 const sha = value => `sha256:${createHash('sha256').update(value).digest('hex')}`;
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'research-owned-read-file-'));
 const checkout = path.join(temp, 'checkout');
-const original = ['alpha', 'beta', ...Array.from({ length: 20 }, (_, i) =>
+const original = ['alpha', 'beta', ...Array.from({ length: 300 }, (_, i) =>
   `middle-${String(i).padStart(2, '0')}-${'x'.repeat(20)}`), 'epsilon', 'zeta'].join('\n');
 const serverPath = fileURLToPath(new URL('./read-file.mjs', import.meta.url));
 const repoPath = 'src/example.txt';
@@ -65,7 +65,15 @@ try {
   assert.equal(identity.trusted.originalText, original);
   assert.equal(bounded.trusted.originalText, original);
   assert.equal(bounded.trusted.originalHash, sha(original));
-  assert.equal(bounded.coder.text, 'alpha\nbeta\n... [omitted 20 lines] ...\nepsilon\nzeta');
+  const sourceLines = original.split('\n');
+  const edge = BOUNDED_TRANSFORMATION.edgeLines;
+  const expectedBounded = [...sourceLines.slice(0, edge),
+    `... [omitted ${sourceLines.length - 2 * edge} lines] ...`,
+    ...sourceLines.slice(-edge)].join('\n');
+  assert.equal(bounded.coder.text, expectedBounded);
+  assert.equal(BOUNDED_TRANSFORMATION.version, 'edge-lines-128/v1');
+  assert.equal(edge, 128);
+  assert.equal(bounded.telemetry.transformationHash, BOUNDED_TRANSFORMATION_HASH);
   assert.notEqual(bounded.coder.text, original);
   assert.ok(Buffer.byteLength(bounded.coder.text) < Buffer.byteLength(original));
   assert.equal(bounded.coder.text, boundedAgain.coder.text);
