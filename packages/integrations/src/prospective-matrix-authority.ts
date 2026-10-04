@@ -13,6 +13,8 @@ export const TASK_B_TRAJECTORY_V2_PLAN_HASH = "sha256:581395330b7d77c49b16450138
 export const TASK_B_INSPECTION_PLAN_HASH = "sha256:2ef01b65dc466891a8db4a6b59902ec0f96d7bc4c33bc1e2ecc918a172f1072d";
 export const TASK_B_INSPECTION_MIRROR_PLAN_HASH = "sha256:b2c358cfbcfca996f9c19a780283bf1b08fb205a6298a48bcb09c190de40285a";
 export const TASK_B_NAVIGATION_PLAN_HASH = "sha256:fe8383016b01e9005515564c0a236ea442fc82451220f2b30d60652b3333da0d";
+export const TASK_B_NAVIGATION_PREPARED_PLAN_HASH = "sha256:76fa7106e415e5722b1d7623853440a810d4587f9abe03139bd210c042be3335";
+const TASK_B_NAVIGATION_FAILED_ANALYZER_HASH = "sha256:9f9dd6ac6b83045163508cf5c7ffe1959afee5ecc88fd1d337740f71adfe1670";
 const SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";
 const TASK = "sha256:6bdb0008f1333479994b0070bb61a14e0cffa0e28c2cf4eb8452f9deea7ca5e0";
 const ORDER = ["A:minimal", "A:current", "A:expanded", "B:current", "B:expanded", "B:minimal"];
@@ -183,7 +185,8 @@ export function validateTaskBInspectionPlan(value: unknown, harnessRoot: string,
   return plan;
 }
 /** A separate exact plan whose cue is derived from existing Task B analyzer facts. */
-export function validateTaskBNavigationPlan(value: unknown, harnessRoot: string): MatrixPlan {
+function validateTaskBNavigationPlanIdentity(value: unknown, harnessRoot: string,
+  prepared: boolean): MatrixPlan {
   const plan = validateMatrixPlan(value);
   const frozenBytes = readFileSync(path.join(realpathSync(harnessRoot),
     "research/context-token-matrix-v1/task-b-stage2-plan.json"));
@@ -193,9 +196,11 @@ export function validateTaskBNavigationPlan(value: unknown, harnessRoot: string)
     .map((condition, index) => ({ position: index + 1,
       replicate: condition === "control" ? "A" : "B", variant: "current",
       condition: condition as MatrixSlot["condition"] }));
-  const expected = { ...frozen, experimentId: "codex-event-ordering-navigation-cue",
+  const expected = { ...frozen, experimentId: prepared ?
+    "codex-event-ordering-navigation-cue-prepared" : "codex-event-ordering-navigation-cue",
     orderedSlots, navigationCue: {
-      projectionRule: TASK_B_NAVIGATION_RULE, analyzerHash: TASK_B_NAVIGATION_ANALYZER_HASH,
+      projectionRule: TASK_B_NAVIGATION_RULE, analyzerHash: prepared ?
+        TASK_B_NAVIGATION_ANALYZER_HASH : TASK_B_NAVIGATION_FAILED_ANALYZER_HASH,
       selectedContextHash: TASK_B_NAVIGATION_CONTEXT_HASH,
       selectedFileHashes: TASK_B_NAVIGATION_FILES,
       cueHash: TASK_B_NAVIGATION_HASH, cueBytes: TASK_B_NAVIGATION_BYTES,
@@ -206,6 +211,12 @@ export function validateTaskBNavigationPlan(value: unknown, harnessRoot: string)
       maxProviderStagesPerObservation: 2 } };
   gate(hashCanonicalJson(plan) === hashCanonicalJson(expected), "navigation plan identity or policy");
   return plan;
+}
+export function validateTaskBNavigationPlan(value: unknown, harnessRoot: string): MatrixPlan {
+  return validateTaskBNavigationPlanIdentity(value, harnessRoot, false);
+}
+export function validateTaskBNavigationPreparedPlan(value: unknown, harnessRoot: string): MatrixPlan {
+  return validateTaskBNavigationPlanIdentity(value, harnessRoot, true);
 }
 export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   priorCompositionPath: string): Readonly<{ plan: MatrixPlan; planHash: string;
@@ -220,14 +231,16 @@ export function readProspectiveMatrixPlan(harnessRoot: string, planPath: string,
   const planHash = sha(planBytes);
   gate([TASK_B_STAGE2_PLAN_HASH, TASK_B_TRAJECTORY_V2_PLAN_HASH,
     TASK_B_INSPECTION_PLAN_HASH, TASK_B_INSPECTION_MIRROR_PLAN_HASH,
-    TASK_B_NAVIGATION_PLAN_HASH].includes(planHash),
+    TASK_B_NAVIGATION_PLAN_HASH, TASK_B_NAVIGATION_PREPARED_PLAN_HASH].includes(planHash),
     "approved plan hash");
   const trajectory = planHash === TASK_B_TRAJECTORY_V2_PLAN_HASH;
   const mirroredInspection = planHash === TASK_B_INSPECTION_MIRROR_PLAN_HASH;
   const inspection = planHash === TASK_B_INSPECTION_PLAN_HASH || mirroredInspection;
-  const navigation = planHash === TASK_B_NAVIGATION_PLAN_HASH;
-  const plan = navigation ? validateTaskBNavigationPlan(
-    JSON.parse(planBytes.toString("utf8")), harness) : trajectory ? validateTaskBTrajectoryV2Plan(
+  const navigation = planHash === TASK_B_NAVIGATION_PLAN_HASH ||
+    planHash === TASK_B_NAVIGATION_PREPARED_PLAN_HASH;
+  const plan = navigation ? (planHash === TASK_B_NAVIGATION_PREPARED_PLAN_HASH ?
+    validateTaskBNavigationPreparedPlan : validateTaskBNavigationPlan)(
+      JSON.parse(planBytes.toString("utf8")), harness) : trajectory ? validateTaskBTrajectoryV2Plan(
     JSON.parse(planBytes.toString("utf8")), harness) : inspection ? validateTaskBInspectionPlan(
     JSON.parse(planBytes.toString("utf8")), harness, mirroredInspection) :
     validateFrozenTaskBStage2Plan(JSON.parse(planBytes.toString("utf8")));

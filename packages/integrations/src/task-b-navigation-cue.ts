@@ -4,7 +4,7 @@ import { verifyCanonicalRepoIntelligence,
 
 export const TASK_B_NAVIGATION_RULE = "task-b-selected-seed-sole-function/v1";
 export const TASK_B_NAVIGATION_ANALYZER_HASH =
-  "sha256:9f9dd6ac6b83045163508cf5c7ffe1959afee5ecc88fd1d337740f71adfe1670";
+  "sha256:b229b293981755b0f79f5d11aa13e281168ed63521f171550169a9a3326b1521";
 export const TASK_B_NAVIGATION_CONTEXT_HASH =
   "sha256:1380c7fe3080ffd7557cd6747fc66952879a2622cb23fe7a892e6b370edc6bc2";
 export const TASK_B_NAVIGATION_SOURCE = "ea6bc88e947e78b7539b9614b4c637dd9b2805a9";

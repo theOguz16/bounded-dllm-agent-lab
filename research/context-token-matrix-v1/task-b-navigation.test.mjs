@@ -7,19 +7,20 @@ import path from 'node:path';
 import { coderPrompt } from '../../dist/apps/cli/src/providers/codex-bounded-provider.js';
 import { createProspectiveMatrixAuthority, readProspectiveMatrixPlan,
   validateProspectiveMatrixAuthority, validateTaskBNavigationPlan,
-  TASK_B_NAVIGATION_PLAN_HASH } from
+  validateTaskBNavigationPreparedPlan, TASK_B_NAVIGATION_PLAN_HASH,
+  TASK_B_NAVIGATION_PREPARED_PLAN_HASH } from
   '../../dist/packages/integrations/src/prospective-matrix-authority.js';
 import { deriveTaskBNavigationCue, TASK_B_NAVIGATION_BLOCK,
   TASK_B_NAVIGATION_HASH } from '../../dist/packages/integrations/src/task-b-navigation-cue.js';
 import { inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
-import { createSourceCheckout, expectedJournalPath, HARNESS_ROOT, outputParent } from './live-runtime.mjs';
+import { createSourceCheckout, prepareSourceCheckout, expectedJournalPath, HARNESS_ROOT, outputParent } from './live-runtime.mjs';
 import { capturePlannerRequest, loadTaskBPlan, persistTaskBCellArtifacts,
   selectTaskBContext } from './task-b-live.mjs';
 
 const sha = bytes => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const planPath = path.join(HARNESS_ROOT,
-  'research/context-token-matrix-v1/task-b-navigation-plan.json');
+  'research/context-token-matrix-v1/task-b-navigation-prepared-plan.json');
 const compositionPath = path.join(outputParent(), 'task-b-stage1-20260930-suffix-r1',
   'stage1-composition.json');
 const realJournal = expectedJournalPath();
@@ -27,11 +28,24 @@ const journalBefore = sha(fs.readFileSync(realJournal));
 const compositionBefore = sha(fs.readFileSync(compositionPath));
 const { plan, planHash, experimentKind, contextExpansion } = readProspectiveMatrixPlan(
   HARNESS_ROOT, planPath, compositionPath);
-assert.equal(planHash, TASK_B_NAVIGATION_PLAN_HASH);
+assert.equal(planHash, TASK_B_NAVIGATION_PREPARED_PLAN_HASH);
 assert.equal(planHash, sha(fs.readFileSync(planPath)));
 assert.equal(experimentKind, 'navigation-cue-validation');
 assert.equal(contextExpansion, 'none');
-assert.deepEqual(validateTaskBNavigationPlan(plan, HARNESS_ROOT), plan);
+assert.deepEqual(validateTaskBNavigationPreparedPlan(plan, HARNESS_ROOT), plan);
+// The failed plan remains an immutable, recognizable historical record.
+const oldPlanPath = path.join(HARNESS_ROOT,
+  'research/context-token-matrix-v1/task-b-navigation-plan.json');
+const oldPlan = readProspectiveMatrixPlan(HARNESS_ROOT, oldPlanPath, compositionPath);
+assert.equal(oldPlan.planHash, TASK_B_NAVIGATION_PLAN_HASH);
+assert.deepEqual(validateTaskBNavigationPlan(oldPlan.plan, HARNESS_ROOT), oldPlan.plan);
+for (const relative of [
+  'research/context-token-matrix-v1/task-b-stage2-plan.json',
+  'research/context-token-matrix-v1/fixtures/task-b-telemetry-v2-plan.json',
+  'research/context-token-matrix-v1/task-b-inspection-plan.json',
+  'research/context-token-matrix-v1/task-b-inspection-mirror-plan.json'
+]) assert.doesNotThrow(() => readProspectiveMatrixPlan(HARNESS_ROOT,
+  path.join(HARNESS_ROOT, relative), compositionPath));
 assert.deepEqual(plan.orderedSlots.map(s => [s.replicate, s.variant, s.condition]), [
   ['A', 'current', 'control'], ['B', 'current', 'navigation-cue'],
   ['B', 'current', 'navigation-cue'], ['A', 'current', 'control']]);
@@ -43,7 +57,7 @@ for (const changed of [
   { ...plan, limits: { ...plan.limits, maxProviderStages: 9 } },
   { ...plan, navigationCue: { ...plan.navigationCue, cueHash: 'sha256:' + 'f'.repeat(64) } },
   { ...plan, navigationCue: { ...plan.navigationCue, placement: 'elsewhere' } }
-]) assert.throws(() => validateTaskBNavigationPlan(changed, HARNESS_ROOT));
+]) assert.throws(() => validateTaskBNavigationPreparedPlan(changed, HARNESS_ROOT));
 assert.equal(Buffer.byteLength(TASK_B_NAVIGATION_BLOCK), 174);
 assert.equal(sha(TASK_B_NAVIGATION_BLOCK), TASK_B_NAVIGATION_HASH);
 assert.equal(plan.navigationCue.cueEstimatedTokens, 44);
@@ -53,6 +67,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'task-b-navigation-offline-')
 const sessionId = 'task-b-navigation-offline-fixture';
 try {
   const taskPlan = loadTaskBPlan();
+  const bareSource = createSourceCheckout(path.join(temp, 'bare-source'));
+  const bare = (await selectTaskBContext(taskPlan, 'current', bareSource)).selected;
+  assert.equal(bare.intelligenceHash,
+    'sha256:9f9dd6ac6b83045163508cf5c7ffe1959afee5ecc88fd1d337740f71adfe1670');
+  assert.notEqual(bare.intelligenceHash, plan.navigationCue.analyzerHash);
   const selections = [];
   const cues = [];
   const pairs = [];
@@ -61,8 +80,10 @@ try {
   fs.copyFileSync(realJournal, journalPath);
   for (const slot of plan.orderedSlots) {
     const sourceParent = path.join(temp, `source-${slot.position}`);
-    const source = createSourceCheckout(sourceParent);
-    const { selected } = await selectTaskBContext(taskPlan, 'current', source);
+    const source = await prepareSourceCheckout(sourceParent, taskPlan.proposal);
+    const { selected } = await selectTaskBContext(taskPlan, 'current', source.root);
+    assert.equal(selected.intelligenceHash,
+      'sha256:b229b293981755b0f79f5d11aa13e281168ed63521f171550169a9a3326b1521');
     const hashes = selected.initialEvidence.map(x =>
       ({ path: x.path, sha256: x.contentHash, bytes: x.byteLength }));
     selections.push({ files: selected.selectedFiles, bytes: selected.selectedBytes,
@@ -86,7 +107,8 @@ try {
     assert.throws(() => deriveTaskBNavigationCue({ ...intelligence,
       scannedFiles: altered }, hashes));
     // Authority uses a disposable pinned checkout; it does not invoke a provider.
-    const authoritySource = createSourceCheckout(path.join(temp, `authority-${slot.position}`));
+    const authoritySource = (await prepareSourceCheckout(
+      path.join(temp, `authority-${slot.position}`), taskPlan.proposal)).root;
     pairs.push({ source: authoritySource,
       planner: createProspectiveMatrixAuthority({ harnessRoot: HARNESS_ROOT,
         sourceRepositoryPath: authoritySource, planPath, priorCompositionPath: compositionPath,

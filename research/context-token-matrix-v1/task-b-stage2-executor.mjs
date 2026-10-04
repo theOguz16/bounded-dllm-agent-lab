@@ -12,7 +12,8 @@ import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { executeOrderedMatrix } from './matrix-executor.mjs';
 import { CodexAgentAdapter } from '../../dist/packages/integrations/src/codex-agent-adapter.js';
 import { createProspectiveMatrixAuthority, readProspectiveMatrixPlan,
-  TASK_B_INSPECTION_MIRROR_PLAN_HASH, TASK_B_NAVIGATION_PLAN_HASH } from
+  TASK_B_INSPECTION_MIRROR_PLAN_HASH, TASK_B_NAVIGATION_PLAN_HASH,
+  TASK_B_NAVIGATION_PREPARED_PLAN_HASH } from
   '../../dist/packages/integrations/src/prospective-matrix-authority.js';
 import { inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
@@ -69,7 +70,7 @@ export async function preflightTaskBStage2({ sessionId, home = os.homedir(),
             ['B:current', 'A:current', 'A:current', 'B:current'] :
             ['A:current', 'B:current', 'B:current', 'A:current'] :
         experimentKind === 'navigation-cue-validation' &&
-          planHash === TASK_B_NAVIGATION_PLAN_HASH ?
+          [TASK_B_NAVIGATION_PLAN_HASH, TASK_B_NAVIGATION_PREPARED_PLAN_HASH].includes(planHash) ?
             ['A:current', 'B:current', 'B:current', 'A:current'] : taskPlan.order),
   'Task B frozen definition drift');
   const continuationRoot = path.dirname(compositionPath);
