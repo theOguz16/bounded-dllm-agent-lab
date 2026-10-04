@@ -35,6 +35,8 @@ export type MatrixPlan = Readonly<{
   limits: Readonly<{ maxObservations: number; maxProviderStages: number; maxProviderStagesPerObservation: number }>;
   policy: Readonly<{ retry: number; repair: number; apply: number }>;
   stopPolicy: Readonly<{ candidateOrModelFailure: string; infrastructureOrAmbiguousFailure: string }>;
+  telemetryValidity?: Readonly<{ schemaVersion: string; minimumUsableIntervalFraction: number;
+    requiredFields: readonly string[] }>;
   priorStage: Readonly<{ compositionSessionId: string; compositionPath: string;
     compositionHash: string; retainedPrefixReviewHash: string }>;
 }>;
@@ -81,6 +83,19 @@ export function validateMatrixPlan(value: unknown): MatrixPlan {
     plan.policy.apply === 0 && plan.timeoutPolicy?.override === false &&
     typeof plan.contextDefinition?.selector === "string" &&
     typeof plan.priorStage?.compositionHash === "string", "policy or references");
+  if (plan.telemetryValidity !== undefined) {
+    const requirement = plan.telemetryValidity;
+    gate(typeof requirement.schemaVersion === "string" && requirement.schemaVersion.length > 0 &&
+      typeof requirement.minimumUsableIntervalFraction === "number" &&
+      Number.isFinite(requirement.minimumUsableIntervalFraction) &&
+      requirement.minimumUsableIntervalFraction >= 0 &&
+      requirement.minimumUsableIntervalFraction <= 1 &&
+      Array.isArray(requirement.requiredFields) &&
+      requirement.requiredFields.every(field => typeof field === "string" &&
+        /^[A-Za-z][A-Za-z0-9]*$/.test(field)) &&
+      new Set(requirement.requiredFields).size === requirement.requiredFields.length,
+    "telemetry validity requirement");
+  }
   return plan;
 }
 /** Frozen first consumer: generic shape plus exact Task B Stage 2 constants. */

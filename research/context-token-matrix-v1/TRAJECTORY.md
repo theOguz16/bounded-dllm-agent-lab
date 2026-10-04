@@ -24,3 +24,13 @@ The compact v2 table prints `tool seq | category | result bytes | input before |
 | 2 | command_execution | 130 | 180 | 330 | 150 |
 
 Only bounded category, counts, timings, normalized paths, and byte sizes are retained. Raw prompts, command text, command output, source content, and arbitrary provider text remain excluded.
+
+## Observed provider boundary and prospective controls
+
+The completed three-slot v2 validation observed 26 coder tool events and zero usable tool intervals. Each coder invocation supplied one `turn.completed` usage snapshot after its tools. The installed SDK event union carries exact input, cached input, cache-write input, output, and reasoning-output counts on `turn.completed` only; its type describes usage *during that turn*. `turn.started` and `item.started`/`item.updated`/`item.completed` carry no usage. The current integration uses a fresh SDK thread for each invocation and calls `runStreamed` once, so the finest exact coder boundary observed is the completed coder turn, effectively the coder-session aggregate for these runs. The collector did not miss an intermediate SDK usage event. A final snapshot cannot assign usage to individual preceding tools, and byte counts cannot supply that missing measurement. The v2 collector treats multiple completed-turn values as cumulative, but that multi-turn interpretation is unverified against this SDK contract and was not exercised by the one-turn live observations.
+
+A future separately authorized plan may declare `telemetryValidity` with a schema version, a minimum fraction of tool events with usable intervals, and required numeric fields. The matrix executor evaluates it after persisting each observation and stops before reserving the next slot with `telemetry_unusable` when unmet. Plans without this declaration retain their existing behavior. The frozen Stage 2 and completed v2 validation plan bytes are unchanged; neither retroactively gains this condition.
+
+Prospective matrix cells now retain the bounded normalized experiment result, trajectory, Candidate and oracle evidence, and summary without writing `raw-product-result.json` or `raw-bounded-result.json`. Those raw files are not needed by prospective journal admission or later cells. Historical Stage 1 files remain unchanged because their hashes and composition bindings require them.
+
+With only a final exact coder usage snapshot, a further per-tool interval run under the same provider surface is not informative. The smallest next measurement is a separately approved controlled tool-output-size perturbation with fixed task, model, and initial context, measured by end-to-end exact tokens and correctness. It would estimate a run-level association, not individual tool carry-forward or causal cost.

@@ -602,6 +602,35 @@ export function taskBMayContinue(classification) {
     .includes(classification);
 }
 
+/** Historical Stage 1 retains its frozen files; prospective matrix cells retain bounded evidence only. */
+export function persistTaskBCellArtifacts(cellRoot, slot, artifacts) {
+  save(path.join(cellRoot, 'source-status.json'), artifacts.sourceStatus);
+  save(path.join(cellRoot, 'adapter-calls.json'), artifacts.calls);
+  if (!slot.matrixAuthorities) {
+    save(path.join(cellRoot, 'raw-product-result.json'), artifacts.rawProduct);
+    save(path.join(cellRoot, 'raw-bounded-result.json'), artifacts.rawBounded);
+  }
+  save(path.join(cellRoot, 'selection.json'), artifacts.selection);
+  save(path.join(cellRoot, 'behavior-check.json'), artifacts.behavior);
+  save(path.join(cellRoot, 'context-expansion.json'), artifacts.contextExpansion);
+  save(path.join(cellRoot, 'experiment-result.json'), artifacts.normalized);
+  if (artifacts.trajectory) save(path.join(cellRoot, 'coder-trajectory.json'), artifacts.trajectory);
+  save(path.join(cellRoot, 'cell-summary.json'), artifacts.summary);
+}
+
+export function summarizeTelemetryValidity(trajectory, requirement) {
+  if (requirement === undefined) return undefined;
+  const tools = Array.isArray(trajectory?.tools) ? trajectory.tools : [];
+  return { schemaVersion: trajectory?.schemaVersion ?? null,
+    status: trajectory?.status ?? null, truncated: trajectory?.truncated ?? null,
+    toolEvents: tools.length,
+    usableIntervals: tools.filter(tool => Number.isSafeInteger(tool.inputDeltaAfterToolEvent) &&
+      tool.inputDeltaAfterToolEvent >= 0 && requirement.requiredFields.every(field =>
+        Number.isSafeInteger(tool[field]) && tool[field] >= 0)).length,
+    fieldCoverage: Object.fromEntries(requirement.requiredFields.map(field =>
+      [field, tools.filter(tool => Number.isSafeInteger(tool[field]) && tool[field] >= 0).length])) };
+}
+
 export async function executeTaskBObservation(plan, slot, sessionRoot, budget, adapterFactory) {
   const cellRoot = path.join(sessionRoot, `${String(slot.position).padStart(2, '0')}-${slot.replicate}-${slot.variant}`);
   fs.mkdirSync(cellRoot, { mode: 0o700 });
@@ -673,22 +702,20 @@ export async function executeTaskBObservation(plan, slot, sessionRoot, budget, a
     const classification = slot.matrixAuthorities ? classifyTaskBStage2Timeout(
       baseClassification, coderFailureCode, mutation(bounded) !== null, behavior.status) :
       baseClassification;
-    save(path.join(cellRoot, 'source-status.json'), { before, after });
-    save(path.join(cellRoot, 'adapter-calls.json'), calls);
-    save(path.join(cellRoot, 'raw-product-result.json'), commandResult.output);
-    save(path.join(cellRoot, 'raw-bounded-result.json'), bounded);
-    save(path.join(cellRoot, 'selection.json'), { files: selected.selectedFiles,
-      bytes: selected.selectedBytes, estimatedTokens: plan.calibration.variants[slot.variant].estimatedInitialTokens });
-    save(path.join(cellRoot, 'behavior-check.json'), behavior);
-    save(path.join(cellRoot, 'context-expansion.json'), { expansion, traces: traces ?? null });
-    save(path.join(cellRoot, 'experiment-result.json'), normalized);
-    if (annotated) save(path.join(cellRoot, 'coder-trajectory.json'), annotated);
-    save(path.join(cellRoot, 'cell-summary.json'), { ...slot, classification,
+    const telemetryValidity = summarizeTelemetryValidity(annotated, plan.telemetryValidity);
+    persistTaskBCellArtifacts(cellRoot, slot, { sourceStatus: { before, after }, calls,
+      rawProduct: commandResult.output, rawBounded: bounded,
+      selection: { files: selected.selectedFiles,
+        bytes: selected.selectedBytes, estimatedTokens: plan.calibration.variants[slot.variant].estimatedInitialTokens },
+      behavior, contextExpansion: { expansion, traces: traces ?? null },
+      normalized, trajectory: annotated, summary: { ...slot, classification,
       providerStageInvocations: calls.length, behavior: behavior.status,
       trajectorySummary, coderShareOfInput, sourceHead: SOURCE, taskHash: TASK_HASH,
+      ...(telemetryValidity === undefined ? {} : { telemetryValidity }),
       ...(slot.matrixAuthorities ? { replacementEligible: false,
-        stopClassification: classification, coderFailureCode } : {}) });
-    return { ...slot, classification, providerStageInvocations: calls.length };
+        stopClassification: classification, coderFailureCode } : {}) } });
+    return { ...slot, classification, providerStageInvocations: calls.length,
+      ...(telemetryValidity === undefined ? {} : { telemetryValidity }) };
   } finally { fs.rmSync(temporary, { recursive: true, force: true }); }
 }
 

@@ -4,11 +4,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { executeOrderedMatrix } from './matrix-executor.mjs';
+import { executeOrderedMatrix, meetsTelemetryValidity } from './matrix-executor.mjs';
 import { composeTaskBStage1 } from './task-b-suffix-executor.mjs';
 import { createSourceCheckout, expectedJournalPath, HARNESS_ROOT, outputParent } from './live-runtime.mjs';
 import { capturePlannerRequest, classifyTaskBStage2Timeout, loadTaskBPlan,
-  taskBMayContinue } from './task-b-live.mjs';
+  persistTaskBCellArtifacts, summarizeTelemetryValidity, taskBMayContinue } from './task-b-live.mjs';
 import { createDurableInvocationJournal, inspectProspectiveMatrixJournal } from
   '../../dist/packages/integrations/src/durable-invocation-journal.js';
 import { createProspectiveMatrixAuthority, hashMatrixPlanBytes,
@@ -151,6 +151,7 @@ try {
   try {
     assert.equal(realDb.prepare('SELECT count(*) AS n FROM provider_invocations WHERE run_id LIKE ?')
       .get('matrix.task-b-telemetry-offline-fixture.%').n, 0);
+    assert.equal(realDb.prepare("SELECT count(*) AS n FROM provider_invocations WHERE record_json LIKE '%raw-bounded-result.json%' OR record_json LIKE '%raw-product-result.json%'").get().n, 0);
   } finally { realDb.close(); }
   assert.equal(fs.existsSync(path.join(canonicalEvidenceRoot,
     'task-b-telemetry-offline-fixture')), false);
@@ -195,8 +196,6 @@ try {
       sessionId: 'task-b-telemetry-offline-fixture', slot,
       providerStage: 'planner' }));
   assert.equal(telemetryAuthorities.length, 3);
-  assert.deepEqual(inspectProspectiveMatrixJournal(isolatedJournal, source,
-    telemetryAuthorities).map(item => item.authorized), [true, true, true]);
   const journalPath = path.join(temp, 'journal.sqlite');
   fs.copyFileSync(expectedJournalPath(), journalPath);
   // Replay the state before prospective Stage 2. Prior Stage 1 evidence remains intact.
@@ -205,6 +204,8 @@ try {
     if (JSON.parse(row.record_json).plannedMatrix)
       fixtureDb.prepare('DELETE FROM provider_invocations WHERE run_id=?').run(row.run_id);
   fixtureDb.close();
+  assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source,
+    telemetryAuthorities).map(item => item.authorized), [true, true, true]);
   const journalBefore = fs.readFileSync(journalPath);
   assert.deepEqual(inspectProspectiveMatrixJournal(journalPath, source, [authority]),
     [{ observationId: authority.observationId, authorized: true }]);
@@ -314,6 +315,62 @@ try {
   assert.equal(timeoutResult.stop, 'ambiguous_failure');
   assert.equal(timeoutResult.observations[0].replacementEligible, false);
   assert.equal(timeoutResult.observations[0].failureCode, 'agent_timeout');
+  const requirement = { schemaVersion: 'codex-coder-trajectory/v2',
+    minimumUsableIntervalFraction: 0.5,
+    requiredFields: ['inputDeltaAfterToolEvent', 'cachedDeltaAfterToolEvent'] };
+  const measuredPlan = { ...telemetryPlan, telemetryValidity: requirement };
+  assert.deepEqual(validateMatrixPlan(measuredPlan), measuredPlan);
+  assert.throws(() => validateMatrixPlan({ ...measuredPlan,
+    telemetryValidity: { ...requirement, minimumUsableIntervalFraction: 2 } }));
+  const noIntervals = summarizeTelemetryValidity({ schemaVersion: requirement.schemaVersion,
+    status: 'observed', truncated: false,
+    tools: [{ inputDeltaAfterToolEvent: null, cachedDeltaAfterToolEvent: null },
+      { inputDeltaAfterToolEvent: null, cachedDeltaAfterToolEvent: null }] }, requirement);
+  assert.equal(noIntervals.usableIntervals, 0);
+  assert.equal(meetsTelemetryValidity(requirement, { telemetryValidity: noIntervals }), false);
+  const oneInterval = summarizeTelemetryValidity({ schemaVersion: requirement.schemaVersion,
+    status: 'observed', truncated: false,
+    tools: [{ inputDeltaAfterToolEvent: 8, cachedDeltaAfterToolEvent: 2 },
+      { inputDeltaAfterToolEvent: null, cachedDeltaAfterToolEvent: null }] }, requirement);
+  assert.equal(meetsTelemetryValidity(requirement, { telemetryValidity: oneInterval }), true);
+  assert.equal(meetsTelemetryValidity(requirement, { telemetryValidity:
+    { ...oneInterval, status: 'invalid' } }), false);
+  assert.equal(meetsTelemetryValidity(requirement, { telemetryValidity:
+    { ...oneInterval, schemaVersion: 'codex-coder-trajectory/v1' } }), false);
+  let executed = 0;
+  const measured = await executeOrderedMatrix({ plan: measuredPlan,
+    planHash: telemetryRead.planHash, sessionId: telemetrySessionId,
+    slots: telemetrySlots, sessionRoot: path.join(temp, 'measured-session'),
+    executeObservation: async slot => { executed++;
+      return { ...slot, classification: 'completed', telemetryValidity: noIntervals }; },
+    mayContinue: taskBMayContinue });
+  assert.equal(executed, 1);
+  assert.equal(measured.stop, 'telemetry_unusable');
+  assert.equal(measured.observations.length, 1);
+  assert.equal(measured.budget.observations, 1);
+  assert.equal(meetsTelemetryValidity(undefined, { telemetryValidity: noIntervals }), true);
+  const safeCell = path.join(temp, 'bounded-cell');
+  fs.mkdirSync(safeCell);
+  const secret = 'RAW_PROMPT_SOURCE_TOOL_RESULT_SENTINEL';
+  const safeTrajectory = { schemaVersion: 'codex-coder-trajectory/v2',
+    tools: [{ requestBytes: secret.length, responseBytes: secret.length,
+      inputDeltaAfterToolEvent: null }] };
+  persistTaskBCellArtifacts(safeCell, { matrixAuthorities: {} }, {
+    sourceStatus: { before: 'pinned', after: 'pinned' }, calls: [],
+    rawProduct: { providerText: secret }, rawBounded: { source: secret, toolResult: secret },
+    selection: { files: [], bytes: 0 }, behavior: { status: 'PASS', behaviorPass: true },
+    contextExpansion: { expansion: null, traces: null },
+    normalized: { outcome: { candidate: true }, usage: { aggregate: { input: 1 } } },
+    trajectory: safeTrajectory, summary: { classification: 'completed' } });
+  assert.equal(fs.existsSync(path.join(safeCell, 'raw-bounded-result.json')), false);
+  assert.equal(fs.existsSync(path.join(safeCell, 'raw-product-result.json')), false);
+  assert.equal(fs.readFileSync(path.join(safeCell, 'coder-trajectory.json'), 'utf8')
+    .includes(secret), false);
+  assert.equal(fs.readdirSync(safeCell).some(file =>
+    fs.readFileSync(path.join(safeCell, file), 'utf8').includes(secret)), false);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(safeCell, 'behavior-check.json'))).status, 'PASS');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(safeCell, 'experiment-result.json')))
+    .outcome.candidate, true);
   const frozen = JSON.parse(fs.readFileSync(path.join(HARNESS_ROOT,
     'research/context-token-matrix-v1/task-b-prospective-manifest.json')));
   for (const [file, expected] of [[frozen.taskBDefinition, frozen.taskBDefinitionSha256],

@@ -5,6 +5,23 @@ function gate(ok, reason) { if (!ok) throw Error(`matrix_executor_invalid: ${rea
 function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function save(file, value) { fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); }
 
+/** A plan may require actual interval coverage before another observation is reserved. */
+export function meetsTelemetryValidity(requirement, observation) {
+  if (requirement === undefined) return true;
+  const sample = observation?.telemetryValidity;
+  if (sample?.schemaVersion !== requirement.schemaVersion ||
+      !['observed', 'partial'].includes(sample.status) || sample.truncated === true ||
+      !Number.isSafeInteger(sample.toolEvents) || sample.toolEvents <= 0 ||
+      !Number.isSafeInteger(sample.usableIntervals) || sample.usableIntervals < 0 ||
+      sample.usableIntervals > sample.toolEvents) return false;
+  const requiredCount = Math.ceil(sample.toolEvents * requirement.minimumUsableIntervalFraction);
+  if (sample.usableIntervals < requiredCount) return false;
+  return requirement.requiredFields.every(field =>
+    Number.isSafeInteger(sample.fieldCoverage?.[field]) &&
+    sample.fieldCoverage[field] >= requiredCount &&
+    sample.fieldCoverage[field] <= sample.toolEvents);
+}
+
 /** Structural matrix loop. The callback owns context, provider execution, Candidate and oracle semantics. */
 export async function executeOrderedMatrix({ plan, planHash, sessionId, slots, sessionRoot,
   beforeSlot = async () => {}, executeObservation, mayContinue }) {
@@ -50,6 +67,9 @@ export async function executeOrderedMatrix({ plan, planHash, sessionId, slots, s
         result?.variant === slot.variant, 'observation result identity');
       observations.push(result);
       if (!mayContinue(result.classification)) { stop = result.classification; break; }
+      if (!meetsTelemetryValidity(plan.telemetryValidity, result)) {
+        stop = 'telemetry_unusable'; break;
+      }
     } catch (error) {
       stop = `infrastructure_or_ambiguous: ${error instanceof Error ? error.message : String(error)}`;
       break;
