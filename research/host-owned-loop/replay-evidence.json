@@ -1,0 +1,98 @@
+{
+  "apply": "NOT_RUN",
+  "candidateHash": "sha256:a3448f87c1f062d617aefdd120b6d01bcaf0bbd3d3231434e00c9802781237ca",
+  "classification": "CANDIDATE_VERIFIED_STRUCTURALLY",
+  "cumulativeApplicationRequestBytes": 9942,
+  "fakeModelResponseSteps": 3,
+  "policyDecision": "allow",
+  "providerModelCalls": 0,
+  "requests": [
+    {
+      "messageStateBytes": 1802,
+      "messageStateHash": "sha256:c28570d0c7b28cc05e42f37a7d3ae3407c1980db283e64b5ea77769313dbd106",
+      "model": "scripted-fake-v1",
+      "reasoning": "none",
+      "requestBytes": 2603,
+      "requestHash": "sha256:538f0f252bd95dfe67f493e02878e5cd07e180aac49a8502d43d92e25dd1e4f1",
+      "retainedStateBytes": 1482,
+      "retainedStateHash": "sha256:eb2a94354c9862ef7ce355ae77dc504dc37dcf5eee6d7e731de8369a83ca1ddb",
+      "sequence": 1,
+      "toolSchemaBytes": 587,
+      "toolSchemaHash": "sha256:deeb731fa15d52c5cec7aa3f96d1d467cce1c99df3854ea32d4f07e4b890a014"
+    },
+    {
+      "messageStateBytes": 2439,
+      "messageStateHash": "sha256:44dceea3cfc7789928df1177ca20697a818d59f9b0008a6fa9a6b692f7c1e62d",
+      "model": "scripted-fake-v1",
+      "reasoning": "none",
+      "requestBytes": 3240,
+      "requestHash": "sha256:9460fe527590a7432958967581d8eb658d18b84e6d8533a57b750ee3c832cc32",
+      "retainedStateBytes": 2216,
+      "retainedStateHash": "sha256:61fbd77d8526f17488022d17b06a8b4522de13fdd4d0a9b1940ae513b6ff2ea8",
+      "sequence": 2,
+      "toolSchemaBytes": 587,
+      "toolSchemaHash": "sha256:deeb731fa15d52c5cec7aa3f96d1d467cce1c99df3854ea32d4f07e4b890a014"
+    },
+    {
+      "messageStateBytes": 3298,
+      "messageStateHash": "sha256:228aaf2ccf15997b7819caff8d505863b86b3746be8a5f21f070027775e39666",
+      "model": "scripted-fake-v1",
+      "reasoning": "none",
+      "requestBytes": 4099,
+      "requestHash": "sha256:39e2c320ad199b696164205f1945e2df7a5b84f11ea8bf8a481306b187ff1281",
+      "retainedStateBytes": 3355,
+      "retainedStateHash": "sha256:157cf1c17a3c9584a3fa6e8e112007853491b5c2ddaef0d92192af2a5bc74e3d",
+      "sequence": 3,
+      "toolSchemaBytes": 587,
+      "toolSchemaHash": "sha256:deeb731fa15d52c5cec7aa3f96d1d467cce1c99df3854ea32d4f07e4b890a014"
+    }
+  ],
+  "states": [
+    {
+      "retainedStateBytes": 1482,
+      "retainedStateHash": "sha256:eb2a94354c9862ef7ce355ae77dc504dc37dcf5eee6d7e731de8369a83ca1ddb",
+      "step": 0
+    },
+    {
+      "retainedStateBytes": 2216,
+      "retainedStateHash": "sha256:61fbd77d8526f17488022d17b06a8b4522de13fdd4d0a9b1940ae513b6ff2ea8",
+      "step": 1
+    },
+    {
+      "retainedStateBytes": 3355,
+      "retainedStateHash": "sha256:157cf1c17a3c9584a3fa6e8e112007853491b5c2ddaef0d92192af2a5bc74e3d",
+      "step": 2
+    },
+    {
+      "retainedStateBytes": 3457,
+      "retainedStateHash": "sha256:ba2696704e4e5162182ceda414008ef597e3bcf69942803f46cc3ebb902c7664",
+      "step": 3
+    }
+  ],
+  "toolSteps": 2,
+  "tools": [
+    {
+      "argumentsBytes": 24,
+      "argumentsHash": "sha256:30922b67c5a236f7b8fadd20a16733278d33cf515c8376633518e46bd8dc2263",
+      "callIdHash": "sha256:4d28e3ae633000cd5c210e9d30ec6c9c6e5cf7714dfe4ffe5f9f6aa8e9fc0937",
+      "name": "read_file",
+      "resultBytes": 205,
+      "resultHash": "sha256:9f2033ee34283860300f01309aa9bfcabc262e88cc70e817e5ead2581a87b3f5",
+      "sequence": 1,
+      "stateHashAfter": "sha256:61fbd77d8526f17488022d17b06a8b4522de13fdd4d0a9b1940ae513b6ff2ea8"
+    },
+    {
+      "argumentsBytes": 205,
+      "argumentsHash": "sha256:c6a51591c1699961b852d94af51468f6434eb23579dec863421633ae3edb16b8",
+      "callIdHash": "sha256:fce757cf239a57ad7572735f3b36ebfb5885485e2c71a37701075b0b911a51c2",
+      "name": "update_file",
+      "resultBytes": 152,
+      "resultHash": "sha256:84527ee5bbd95e660aa51929f3357f922dec5482407921112b15a9652a4cb7cb",
+      "sequence": 2,
+      "stateHashAfter": "sha256:157cf1c17a3c9584a3fa6e8e112007853491b5c2ddaef0d92192af2a5bc74e3d"
+    }
+  ],
+  "usage": null,
+  "verifierDecision": "approve",
+  "version": "host-owned-loop/offline-v1"
+}
