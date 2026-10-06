@@ -24,7 +24,7 @@ Moving a read from native shell to MCP changes the coder's tool choice and resul
 
 ## Prospective response telemetry
 
-The research executor now derives research-mcp-response-trajectory/v1 from its
+The research executor now derives research-mcp-response-trajectory/v2 from its
 local Codex session rollout after a completed MCP observation. This is additive
 to the existing bounded SDK observation and trajectory v2 model. The collector
 keeps only ordered response usage, phase enums, ambient/system/developer block
@@ -54,6 +54,18 @@ as hashed runtime context instead. Different runtime paths are flagged as benign
 an ambient identity mismatch in a nominal pair is
 AMBIENT_INSTRUCTION_DRIFT, an experiment-confounding flag.
 
+V2 recognizes both direct tool-output text and the observed Codex wrapper:
+the custom_tool_call_output shares the custom_tool_call call_id, and one output
+input_text block holds a JSON string with a content array whose text field is
+the repository MCP result. The corresponding item_completed McpToolCall
+record provides server, tool, status, and item ID. The extractor verifies
+identity, call ID, byte count, and SHA-256 before recording delivery.
+Malformed or unrecognized tool-shaped output is marked
+unknown_tool_result_shape. Failure records retain bounded status/category only.
+V2 adds call/item identities, representation, and status to result metadata;
+therefore its canonical trajectory fingerprint has different semantics from V1.
+Historical V1 fingerprints and as-run observations are never rewritten.
+
 The SDK turn.completed stream itself exposes only final turn usage. Local
 rollout token_usage_record entries expose per-model-response usage, but
 provider HTTP request bodies, cache keys, segmentation, cached-prefix
@@ -63,3 +75,8 @@ authorize another live run. Run the focused test with
 node research/tool-control-prototype/rollout-telemetry.test.mjs and the
 historical, read-only replay with
 node research/tool-control-prototype/rollout-telemetry-preflight.mjs.
+The exact first live identity-smoke replay is
+node research/tool-control-prototype/rollout-telemetry-smoke-replay.mjs.
+Codex's own local rollout can retain raw prompt and tool-output content;
+the research telemetry logger does not control that storage and persists only
+the bounded allowlisted metadata described above.

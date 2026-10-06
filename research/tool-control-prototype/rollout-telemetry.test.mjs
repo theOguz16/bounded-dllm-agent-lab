@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { reconstructRolloutTelemetry, comparePairedTelemetry,
+import { reconstructRolloutTelemetry, extractMcpResult, comparePairedTelemetry,
   toolConfigIdentity, validateBoundedTelemetry, VERSION } from './rollout-telemetry.mjs';
 
 const sha = x => 'sha256:' + createHash('sha256').update(x).digest('hex');
@@ -20,7 +20,11 @@ const row = (type,payload) => JSON.stringify({type,payload});
 const used = (input,cached,output,reasoning) => row('token_usage_record',{
   usage:{input_tokens:input,cached_input_tokens:cached,cache_write_input_tokens:0,
     output_tokens:output,reasoning_output_tokens:reasoning} });
-function fixture(ambient = 'SECRET_AMBIENT',extraAssistant = false) {
+function fixture(ambient = 'SECRET_AMBIENT',extraAssistant = false,
+  representation = 'direct') {
+  const mcpOutput=representation==='direct' ? result :
+    representation==='wrapped' ? JSON.stringify({content:[{type:'text',text:result}]}) :
+    JSON.stringify({content:{text:result}});
   return [
     row('response_item',{type:'message',role:'developer',
       content:[{type:'input_text',text:ambient}]}),
@@ -28,16 +32,22 @@ function fixture(ambient = 'SECRET_AMBIENT',extraAssistant = false) {
       content:[{type:'input_text',text:prompt}]}),
     ...(extraAssistant ? [row('response_item',{type:'message',role:'assistant',
       content:[{type:'output_text',text:'hello'}]})] : []),
-    row('response_item',{type:'custom_tool_call',name:'exec',
+    row('response_item',{type:'custom_tool_call',name:'exec',status:'completed',
+      call_id:'discovery-call',
       input:'const hits = ALL_TOOLS.filter(x => x.name.includes("research_read_file"))'}),
     used(100,40,10,3),
-    row('response_item',{type:'custom_tool_call_output',output:[
-      {type:'input_text',text:'tool metadata'}]}),
-    row('response_item',{type:'custom_tool_call',name:'exec',
+    row('response_item',{type:'custom_tool_call_output',call_id:'discovery-call',
+      output:[{type:'input_text',text:'tool metadata'}]}),
+    row('response_item',{type:'custom_tool_call',name:'exec',status:'completed',
+      call_id:'mcp-call',
       input:'tools.mcp__research_read_file__read_file({path:"file.ts"})'}),
+    row('event_msg',{type:'item_completed',item:{type:'McpToolCall',
+      id:'mcp-item',server:'research_read_file',tool:'read_file',
+      status:'completed',result:{content:[{type:'text',text:result}]}}}),
     used(110,50,11,4),
-    row('response_item',{type:'custom_tool_call_output',output:[
-      {type:'input_text',text:'tool wrapper'},{type:'input_text',text:result}]}),
+    row('response_item',{type:'custom_tool_call_output',call_id:'mcp-call',
+      output:[{type:'input_text',text:'tool wrapper'},
+        {type:'input_text',text:mcpOutput}]}),
     row('response_item',{type:'reasoning'}),
     row('response_item',{type:'message',role:'assistant',
       content:[{type:'output_text',text:'answer'}]}),
@@ -59,6 +69,10 @@ assert.deepEqual(telemetry.modelResponses.map(x=>x.cumulativeToolCountBeforeResp
 assert.deepEqual(telemetry.modelResponses.map(x=>x.mcpResultsDeliveredBeforeResponse),
   [0,0,1]);
 assert.equal(telemetry.mcpResults[0].deliveredBeforeResponse,3);
+assert.equal(telemetry.mcpResults[0].status,'completed');
+assert.equal(telemetry.mcpResults[0].representation,'direct');
+assert.equal(telemetry.mcpResults[0].callId,'mcp-call');
+assert.equal(telemetry.mcpResults[0].itemId,'mcp-item');
 assert.equal(telemetry.mcpResults[0].coderFacingHash,sha(result));
 assert.equal(telemetry.mcpResults[0].coderFacingBytes,Buffer.byteLength(result));
 assert.equal(telemetry.ambientInstruction.blocks[0].hash,sha('SECRET_AMBIENT'));
@@ -67,6 +81,50 @@ assert.notEqual(telemetry.ambientInstruction.combinedCanonicalHash,
   telemetry.suppliedPromptIdentity.hash);
 assert.equal(telemetry.canonicalTrajectoryFingerprint,
   reconstructRolloutTelemetry(fixture(),options).canonicalTrajectoryFingerprint);
+const wrapped=validateBoundedTelemetry(reconstructRolloutTelemetry(
+  fixture('SECRET_AMBIENT',false,'wrapped'),options));
+assert.equal(wrapped.status,'observed');
+assert.equal(wrapped.mcpResults[0].representation,'wrapped_json_text');
+assert.equal(wrapped.mcpResults[0].coderFacingHash,sha(result));
+assert.equal(wrapped.mcpResults[0].coderFacingBytes,Buffer.byteLength(result));
+assert.equal(wrapped.modelResponses[2].phase,'post_tool_result');
+assert.equal(wrapped.modelResponses[2].mcpResultsDeliveredBeforeResponse,1);
+const malformedTrajectory=validateBoundedTelemetry(reconstructRolloutTelemetry(
+  fixture('SECRET_AMBIENT',false,'malformed'),options));
+assert.equal(malformedTrajectory.status,'partial');
+assert.equal(malformedTrajectory.mcpResults[0].status,'unknown_tool_result_shape');
+assert.equal(malformedTrajectory.modelResponses[2].phase,'unknown_pre_tool');
+const call={type:'custom_tool_call',name:'exec',status:'completed',
+  call_id:'bounded-call',input:'tools.mcp__research_read_file__read_file({path:"file.ts"})'};
+const item={type:'McpToolCall',id:'bounded-item',server:'research_read_file',
+  tool:'read_file',status:'completed',result:{content:[{type:'text',text:result}]}};
+const output=text=>({type:'custom_tool_call_output',call_id:'bounded-call',
+  output:[{type:'input_text',text}]});
+const extracted=extractMcpResult({call,item,output:output(JSON.stringify({
+  content:[{type:'text',text:result}]})),observation,sequence:1,deliveryOrder:9});
+assert.equal(extracted.status,'completed');
+assert.equal(extracted.representation,'wrapped_json_text');
+assert.equal(extracted.callId,'bounded-call');
+assert.equal(extracted.itemId,'bounded-item');
+assert.equal(extracted.coderFacingHash,sha(result));
+assert.equal(extracted.coderFacingBytes,Buffer.byteLength(result));
+const failed=extractMcpResult({call,item:{...item,status:'failed'},
+  output:output(JSON.stringify({content:[{type:'text',text:'SECRET_ERROR'}],
+    isError:true})),observation,sequence:1,deliveryOrder:9});
+assert.equal(failed.status,'failed');
+assert.equal(failed.failureCategory,'mcp_item_failed');
+const wrappedFailure=extractMcpResult({call,item,
+  output:output(JSON.stringify({content:[{type:'text',text:'SECRET_ERROR'}],
+    isError:true})),observation,sequence:1,deliveryOrder:9});
+assert.equal(wrappedFailure.status,'failed');
+assert.equal(wrappedFailure.failureCategory,'wrapped_is_error');
+const unknown=extractMcpResult({call,item,
+  output:output(JSON.stringify({content:{text:result}})),
+  observation,sequence:1,deliveryOrder:9});
+assert.equal(unknown.status,'unknown_tool_result_shape');
+assert.equal(unknown.failureCategory,'unknown_tool_result_shape');
+assert.equal(JSON.stringify([extracted,failed,wrappedFailure,unknown])
+  .includes('SECRET_'),false);
 const serialized=JSON.stringify(telemetry);
 for(const secret of [prompt,original,result,'SECRET_AMBIENT'])
   assert.equal(serialized.includes(secret),false);

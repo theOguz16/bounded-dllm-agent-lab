@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-export const VERSION = 'research-mcp-response-trajectory/v1';
+export const VERSION = 'research-mcp-response-trajectory/v2';
 const sha = x => 'sha256:' + createHash('sha256').update(x).digest('hex');
 const hash = x => sha(JSON.stringify(x));
 const bytes = x => Buffer.byteLength(x, 'utf8');
@@ -29,6 +29,74 @@ export function toolConfigIdentity(config, serverName, toolName) {
   return { hash: hash(identity), ...identity };
 }
 
+/**
+ * Canonical extraction from one identified MCP call and its returned tool output.
+ * Only validated hashes, sizes, identity, status, and order leave this function.
+ */
+export function extractMcpResult({ call, item = null, output, observation,
+  serverName = 'research_read_file', toolName = 'read_file',
+  sequence, deliveryOrder }) {
+  const base = { sequence, server: serverName, tool: toolName,
+    mode: observation?.mcpMode ?? null, callId: typeof call?.call_id === 'string' ? call.call_id : null,
+    itemId: typeof item?.id === 'string' ? item.id : null,
+    status: 'unknown_tool_result_shape', failureCategory: 'unknown_tool_result_shape',
+    representation: null, originalBytes: null, coderFacingBytes: null,
+    originalHash: null, coderFacingHash: null, deliveryOrder,
+    deliveredBeforeResponse: null };
+  const signature = 'tools.mcp__' + serverName + '__' + toolName + '(';
+  if (call?.type !== 'custom_tool_call' || call.name !== 'exec' ||
+      call.status !== 'completed' || !base.callId ||
+      typeof call.input !== 'string' || !call.input.includes(signature) ||
+      output?.type !== 'custom_tool_call_output' ||
+      output.call_id !== base.callId ||
+      item && (item.type !== 'McpToolCall' || item.server !== serverName ||
+        item.tool !== toolName)) return base;
+  if (item?.status === 'failed')
+    return { ...base, status: 'failed', failureCategory: 'mcp_item_failed' };
+  if (item && item.status !== 'completed') return base;
+  const outputBlocks = Array.isArray(output.output) ? output.output : [];
+  let resultText = null, representation = null, wrapperFailure = false;
+  for (const block of outputBlocks) {
+    if (block?.type !== 'input_text' || typeof block.text !== 'string') continue;
+    if (observation?.coderFacingResultHash &&
+        sha(block.text) === observation.coderFacingResultHash) {
+      if (resultText !== null) return base;
+      resultText = block.text;
+      representation = 'direct';
+      continue;
+    }
+    let parsed;
+    try { parsed = JSON.parse(block.text); } catch { continue; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+        !Object.hasOwn(parsed,'content')) continue;
+    if (parsed.isError === true) { wrapperFailure = true; continue; }
+    if (Object.keys(parsed).some(key => key !== 'content' && key !== 'isError') ||
+        !Array.isArray(parsed.content) || parsed.content.length !== 1 ||
+        parsed.content[0]?.type !== 'text' ||
+        typeof parsed.content[0].text !== 'string') return base;
+    if (resultText !== null) return base;
+    resultText = parsed.content[0].text;
+    representation = 'wrapped_json_text';
+  }
+  if (wrapperFailure) return { ...base, status:'failed',
+    failureCategory:'wrapped_is_error' };
+  if (resultText === null || !observation?.coderFacingResultHash ||
+      sha(resultText) !== observation.coderFacingResultHash ||
+      bytes(resultText) !== observation.coderFacingBytes) return base;
+  if (item) {
+    const content=item.result?.content;
+    if (!Array.isArray(content) || content.length !== 1 ||
+        content[0]?.type !== 'text' || typeof content[0].text !== 'string' ||
+        sha(content[0].text) !== observation.coderFacingResultHash ||
+        bytes(content[0].text) !== observation.coderFacingBytes) return base;
+  }
+  return { ...base, status:'completed', failureCategory:null, representation,
+    originalBytes:observation.originalBytes,
+    coderFacingBytes:bytes(resultText),
+    originalHash:observation.originalResultHash,
+    coderFacingHash:sha(resultText) };
+}
+
 /** A usage record belongs to the response that generated the preceding assistant items. */
 export function reconstructRolloutTelemetry(jsonl, { suppliedPrompt,
   mcpUseInstructionHash, toolConfigHash, expectedMode, mcpObservation,
@@ -38,6 +106,7 @@ export function reconstructRolloutTelemetry(jsonl, { suppliedPrompt,
   const ambient = [], runtime = [], responses = [], mcpResults = [];
   let promptObserved = false, delivered = 0, completedTools = 0;
   let responseStart = null, pendingCalls = [], preMcpAssistantActivity = false;
+  const openCalls = new Map();
   let mcpCallSeen = false, truncated = false;
   const callName = 'mcp__' + serverName + '__' + toolName;
   for (const [i, line] of jsonl.split(/\r?\n/).entries()) {
@@ -73,28 +142,31 @@ export function reconstructRolloutTelemetry(jsonl, { suppliedPrompt,
         p.role === 'assistant' && !mcpCallSeen) preMcpAssistantActivity = true;
     if (row.type === 'response_item' && p.type === 'custom_tool_call') {
       const input = typeof p.input === 'string' ? p.input : '';
-      pendingCalls.push({ mcp: input.includes(callName),
-        discovery: input.includes('ALL_TOOLS') });
-      if (input.includes(callName)) mcpCallSeen = true;
+      const call = { mcp: input.includes(callName),
+        discovery: input.includes('ALL_TOOLS'), payload: p, item: null };
+      pendingCalls.push(call);
+      if (typeof p.call_id === 'string') openCalls.set(p.call_id,call);
+      if (call.mcp) mcpCallSeen = true;
+      continue;
+    }
+    if (row.type === 'event_msg' && p.type === 'item_completed' &&
+        p.item?.type === 'McpToolCall') {
+      const candidates=[...openCalls.values()].filter(call=>call.mcp && call.item===null);
+      if (candidates.length===1) candidates[0].item=p.item;
       continue;
     }
     if (row.type === 'response_item' && p.type === 'custom_tool_call_output') {
       completedTools++;
-      const output = Array.isArray(p.output) ? p.output : [];
-      const result = output.find(b => typeof b?.text === 'string' &&
-        sha(b.text) === mcpObservation.coderFacingResultHash);
-      if (result) {
+      const call=openCalls.get(p.call_id);
+      if (call?.mcp) {
         if (mcpResults.length >= 16) { truncated = true; break; }
-        assert.equal(bytes(result.text), mcpObservation.coderFacingBytes);
-        delivered++;
-        mcpResults.push({ sequence: delivered, server: serverName, tool: toolName,
-          invocationSequence: mcpObservation.mcpInvocationCount,
-          mode: mcpObservation.mcpMode, originalBytes: mcpObservation.originalBytes,
-          coderFacingBytes: mcpObservation.coderFacingBytes,
-          originalHash: mcpObservation.originalResultHash,
-          coderFacingHash: mcpObservation.coderFacingResultHash,
-          deliveryOrder: i + 1, deliveredBeforeResponse: null });
+        const result=extractMcpResult({call:call.payload,item:call.item,output:p,
+          observation:mcpObservation,serverName,toolName,
+          sequence:mcpResults.length+1,deliveryOrder:i+1});
+        mcpResults.push(result);
+        if(result.status==='completed') delivered++;
       }
+      if (typeof p.call_id === 'string') openCalls.delete(p.call_id);
       continue;
     }
     if (row.type !== 'token_usage_record') continue;
@@ -131,8 +203,9 @@ export function reconstructRolloutTelemetry(jsonl, { suppliedPrompt,
     truncated=true;
   }
   for (const result of mcpResults)
-    result.deliveredBeforeResponse = responses.find(r =>
-      r.responseStartOrder !== null && r.responseStartOrder > result.deliveryOrder)?.sequence ?? null;
+    result.deliveredBeforeResponse = result.status==='completed' ?
+      responses.find(r => r.responseStartOrder !== null &&
+        r.responseStartOrder > result.deliveryOrder)?.sequence ?? null : null;
   const ambientInstruction = { blocks: ambient,
     totalBytes: ambient.reduce((sum,b) => sum + b.byteCount, 0),
     combinedCanonicalHash: hash(ambient) };
@@ -148,7 +221,8 @@ export function reconstructRolloutTelemetry(jsonl, { suppliedPrompt,
     mcpResults, modelResponses: responses, preMcpAssistantActivity };
   return { schemaVersion: VERSION,
     status: truncated || !promptObserved || !ambient.length ||
-      !responses.length || !mcpResults.length ||
+      !responses.length || !mcpResults.some(r=>r.status==='completed') ||
+      mcpResults.some(r=>r.status!=='completed') ||
       !responses.some(r=>r.mcpResultDeliveredBeforeResponse) ?
       'partial' : 'observed',
     ambientInstruction, runtimeContext, suppliedPromptIdentity, toolIdentity, mcpResults,
@@ -251,13 +325,35 @@ export function validateBoundedTelemetry(value) {
   assert.ok(['identity','bounded'].includes(value.toolIdentity.expectedMode));
   assert.ok(Array.isArray(value.mcpResults) && value.mcpResults.length <= 16);
   for(const result of value.mcpResults) {
-    keys(result,['sequence','server','tool','invocationSequence','mode',
-      'originalBytes','coderFacingBytes','originalHash','coderFacingHash',
-      'deliveryOrder','deliveredBeforeResponse']);
-    assert.equal(count(result.originalBytes),result.originalBytes);
-    assert.equal(count(result.coderFacingBytes),result.coderFacingBytes);
-    digest(result.originalHash);digest(result.coderFacingHash);
+    keys(result,['sequence','server','tool','mode','callId','itemId','status',
+      'failureCategory','representation','originalBytes','coderFacingBytes',
+      'originalHash','coderFacingHash','deliveryOrder','deliveredBeforeResponse']);
+    assert.equal(result.server,'research_read_file');
+    assert.equal(result.tool,'read_file');
+    assert.equal(count(result.sequence),result.sequence);
     assert.ok(['identity','bounded'].includes(result.mode));
+    assert.ok(result.callId === null ||
+      typeof result.callId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(result.callId));
+    assert.ok(result.itemId === null ||
+      typeof result.itemId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(result.itemId));
+    assert.ok(['completed','failed','unknown_tool_result_shape'].includes(result.status));
+    assert.ok(result.failureCategory === null ||
+      ['mcp_item_failed','wrapped_is_error','unknown_tool_result_shape'].includes(
+        result.failureCategory));
+    assert.ok(result.representation === null ||
+      ['direct','wrapped_json_text'].includes(result.representation));
+    assert.equal(count(result.deliveryOrder),result.deliveryOrder);
+    if(result.status==='completed') {
+      assert.equal(result.failureCategory,null);
+      assert.equal(count(result.originalBytes),result.originalBytes);
+      assert.equal(count(result.coderFacingBytes),result.coderFacingBytes);
+      digest(result.originalHash);digest(result.coderFacingHash);
+      assert.ok(result.deliveredBeforeResponse === null ||
+        count(result.deliveredBeforeResponse)===result.deliveredBeforeResponse);
+    } else {
+      for(const field of ['originalBytes','coderFacingBytes','originalHash',
+        'coderFacingHash','deliveredBeforeResponse']) assert.equal(result[field],null);
+    }
   }
   assert.ok(Array.isArray(value.modelResponses) && value.modelResponses.length <= 33);
   const phases=new Set(['pre_tool_discovery','tool_call_generation','post_tool_result',
