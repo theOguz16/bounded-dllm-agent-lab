@@ -1,4 +1,4 @@
-/** Offline-only application loop. No SDK, provider client, shell or network tool. */
+/** Host-owned application loop. Transport admission/accounting is separate; no shell/network tools. */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath, rm, writeFile } from 'node:fs/promises';
@@ -16,6 +16,8 @@ import { createDisposableAgentWorkspace } from '../../dist/packages/integrations
 import { captureAgentMutations } from '../../dist/packages/integrations/src/agent-mutation-capture.js';
 import { verifyPatchDraftMutationV2 } from '../../dist/packages/product-runtime/src/deterministic-verifier-v2.js';
 
+import { isChatTransport, validateObservedUsage, validateTransportReceipts } from './transport.mjs';
+
 export const VERSION = 'host-owned-loop/offline-v1';
 export const DEFAULT_LIMITS = Object.freeze({ maxModelResponses: 3, maxToolCalls: 2,
   maxCumulativeRequestBytes: 262144, maxRetainedStateBytes: 65536 });
@@ -25,7 +27,9 @@ const CODES = new Set(['AUTHORITY_INVALID', 'SOURCE_DRIFT', 'PATH_INVALID', 'REA
   'UPDATE_NOT_ALLOWED', 'TOOL_ARGUMENTS_INVALID', 'TOOL_NOT_ALLOWED', 'UPDATE_INVALID',
   'MODEL_RESPONSE_CEILING', 'TOOL_CALL_CEILING', 'REQUEST_BYTES_CEILING', 'STATE_BYTES_CEILING',
   'LIMITS_INVALID', 'FAKE_PROVIDER_REQUIRED', 'RESPONSE_INVALID', 'PROVIDER_SCRIPT_EXHAUSTED',
-  'NO_CANDIDATE', 'CANDIDATE_REJECTED', 'INFRASTRUCTURE_FAILED']);
+  'NO_CANDIDATE', 'CANDIDATE_REJECTED', 'INFRASTRUCTURE_FAILED', 'TRANSPORT_PROVIDER_REQUIRED',
+  'TRANSPORT_REQUEST_INVALID', 'TRANSPORT_RESPONSE_INVALID', 'TRANSPORT_INCOMPLETE', 'TRANSPORT_TIMEOUT',
+  'TRANSPORT_HTTP_FAILED', 'TRANSPORT_NETWORK_FAILED', 'invocation_replay_forbidden', 'invocation_journal_unavailable']);
 const fakeProviders = new WeakSet();
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const HASH = /^sha256:[0-9a-f]{64}$/;
@@ -98,11 +102,12 @@ export function buildRequest(state, { sequence, model, reasoning }) {
     retainedStateHash: stateId.hash, retainedStateBytes: stateId.bytes });
   return { request, metadata };
 }
-function responseFor(response) {
+function responseFor(response, live = false) {
   exact(response, ['assistant', 'usage', 'status', 'finishReason'], 'RESPONSE_INVALID');
   exact(response.assistant, ['text', 'toolCall'], 'RESPONSE_INVALID');
-  if (response.usage !== null || response.status !== 'completed' || typeof response.assistant.text !== 'string')
+  if ((!live && response.usage !== null) || response.status !== 'completed' || typeof response.assistant.text !== 'string')
     fail('RESPONSE_INVALID'); // Fake steps have no observed provider usage.
+  if (live) validateObservedUsage(response.usage);
   const call = response.assistant.toolCall;
   if (call !== null) {
     exact(call, ['id', 'name', 'arguments'], 'RESPONSE_INVALID');
@@ -121,15 +126,16 @@ const canonicalPath = (value) => {
 };
 
 /** Task/compiled policy/acceptance/source/specification supplied by trusted host, not provider. */
-export async function runOfflineLoop({ repositoryPath, task, policy, sourceSnapshot,
+async function runLoop({ repositoryPath, task, policy, sourceSnapshot,
   readableFiles, allowedFiles, forbiddenFiles = [], authority, validationSpecification,
-  model = 'scripted-fake-v1', reasoning = 'none', limits: override, provider, checkCandidate }) {
+  model = 'scripted-fake-v1', reasoning = 'none', limits: override, provider, checkCandidate }, live = false) {
   let workspace = null, state = null, candidate = null, verifier = null, validation = null;
   const requests = [], states = [], tools = [];
   const counts = { modelResponses: 0, toolCalls: 0, cumulativeRequestBytes: 0 };
   let classification = 'INFRASTRUCTURE_FAILED', candidatePolicy = null;
   try {
-    if (!fakeProviders.has(provider)) fail('FAKE_PROVIDER_REQUIRED');
+    if (live ? !isChatTransport(provider) : !fakeProviders.has(provider))
+      fail(live ? 'TRANSPORT_PROVIDER_REQUIRED' : 'FAKE_PROVIDER_REQUIRED');
     const limits = limitsFor(override);
     const root = await realpath(repositoryPath);
     const trusted = freeze(copy(task));
@@ -179,7 +185,7 @@ export async function runOfflineLoop({ repositoryPath, task, policy, sourceSnaps
       requests.push(built.metadata);
       counts.cumulativeRequestBytes += built.metadata.requestBytes;
       counts.modelResponses++;
-      const response = responseFor(await provider.complete(built.request));
+      const response = responseFor(await provider.complete(built.request), live);
       let next = copy(state);
       next.history.push({ kind: 'assistant_response', sequence: counts.modelResponses, assistant: response.assistant });
       const call = response.assistant.toolCall;
@@ -261,28 +267,42 @@ export async function runOfflineLoop({ repositoryPath, task, policy, sourceSnaps
     if (workspace) await rm(workspace.workspacePath, { recursive: true, force: true });
   }
   const candidateHash = candidate === null ? null : identity(candidate).hash;
-  const telemetry = freeze({ version: VERSION, classification, providerModelCalls: 0,
-    fakeModelResponseSteps: counts.modelResponses, toolSteps: counts.toolCalls,
+  const admittedTransport = live && isChatTransport(provider);
+  const telemetry = freeze({ version: VERSION, classification, providerModelCalls: admittedTransport ? provider.realProviderCalls : 0,
+    fakeModelResponseSteps: live ? 0 : counts.modelResponses, toolSteps: counts.toolCalls,
     cumulativeApplicationRequestBytes: counts.cumulativeRequestBytes, requests, states, tools,
     candidateHash, verifierDecision: verifier?.decision ?? null, policyDecision: candidatePolicy?.decision ?? null,
-    apply: 'NOT_RUN', usage: null });
+    apply: 'NOT_RUN', usage: null,
+    ...(live ? { transportKind: admittedTransport ? provider.kind : 'rejected',
+      transportResponses: validateTransportReceipts(admittedTransport ? provider.receipts : []) } : {}) });
   // Raw trusted artifacts are memory-only; persistence accepts telemetry alone.
   return { classification, candidate, verifier, validation, retainedState: state, telemetry };
 }
+
+// Separate admission seam; both paths share the unchanged request/state/tool/Candidate algorithm.
+export const runOfflineLoop = input => runLoop(input, false);
+export const runTransportLoop = input => runLoop(input, true);
 
 const identityBytes = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
 /** Reject extra keys recursively. No prompt/source/arguments/result/stdout field is persisted. */
 export function validateTelemetry(value) {
+  const live = Object.hasOwn(value, 'transportResponses');
   exact(value, ['version','classification','providerModelCalls','fakeModelResponseSteps','toolSteps',
     'cumulativeApplicationRequestBytes','requests','states','tools','candidateHash','verifierDecision',
-    'policyDecision','apply','usage'], 'RESPONSE_INVALID');
+    'policyDecision','apply','usage', ...(live ? ['transportKind','transportResponses'] : [])], 'RESPONSE_INVALID');
   if (value.version !== VERSION || (!CODES.has(value.classification) && value.classification !== 'CANDIDATE_VERIFIED_STRUCTURALLY') ||
-      value.providerModelCalls !== 0 || value.apply !== 'NOT_RUN' || value.usage !== null ||
+      (!live && value.providerModelCalls !== 0) || value.apply !== 'NOT_RUN' || value.usage !== null ||
       ![null,'approve','reject','needs_review'].includes(value.verifierDecision) ||
       ![null,'allow','deny','human_review'].includes(value.policyDecision)) fail('RESPONSE_INVALID');
   const numeric = (n) => { if (!Number.isSafeInteger(n) || n < 0) fail('RESPONSE_INVALID'); };
   const hash = (h) => { if (typeof h !== 'string' || !HASH.test(h)) fail('RESPONSE_INVALID'); };
+  if (live) {
+    if (!['openai-chat-transport','mock-chat-transport','rejected'].includes(value.transportKind)) fail('RESPONSE_INVALID');
+    validateTransportReceipts(value.transportResponses);
+    numeric(value.providerModelCalls);
+    if (value.providerModelCalls > 3 || value.fakeModelResponseSteps !== 0) fail('RESPONSE_INVALID');
+  }
   for (const k of ['fakeModelResponseSteps','toolSteps','cumulativeApplicationRequestBytes']) numeric(value[k]);
   if (value.candidateHash !== null) hash(value.candidateHash);
   for (const [key, fields] of [ ['requests', ['sequence','model','reasoning','requestHash','requestBytes',
