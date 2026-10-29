@@ -4,6 +4,15 @@ An open-source, provider-independent agentic-coding runtime prototype for execut
 
 The canonical runtime combines repository intelligence, bounded context, explicit mutation scope, deterministic verification, controlled apply, and tamper-evident evidence. Earlier dLLM, shared-workspace, remask, synthetic-context, and benchmark experiments remain in the repository as research history; they no longer define the product surface.
 
+## At a glance
+
+- **Problem:** Coding agents can suggest repository changes outside the requested task or authorized scope.
+- **Approach:** Give coders bounded context and mutation authority, then check candidate changes with deterministic policy verification before controlled apply.
+- **Engineering surface:** TypeScript runtime, repository intelligence, CLI/integrations, policy checks, evidence receipts and CI tooling.
+- **Evidence boundary:** This is a runtime prototype with separately tracked experiments; historical benchmarks and fixture-based checks are not interchangeable with live product validation.
+
+**Start here:** [Current product/runtime state](docs/CURRENT_STATE.md) · [V1 scope](docs/PRODUCT_SCOPE_V1.md) · [Evidence index](docs/EVIDENCE_INDEX.md) · [Canonical CLI](docs/CANONICAL_CLI.md)
+
 ## Canonical runtime
 
 ```text
